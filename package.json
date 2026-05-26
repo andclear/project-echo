@@ -1,0 +1,43 @@
+{
+  "name": "project-echo",
+  "version": "1.0.0",
+  "description": "回音 (Echo) - 多模态桌面级自主AI角色扮演平台",
+  "main": "./out/main/index.js",
+  "author": "Antigravity",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "postinstall": "electron-builder install-app-deps",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@electron-toolkit/utils": "^3.0.0",
+    "better-sqlite3": "^11.8.0",
+    "howler": "^2.2.4",
+    "js-tiktoken": "^1.0.16",
+    "lucide-vue-next": "^1.0.0",
+    "markdown-it": "^14.1.1",
+    "node-cron": "^3.0.3",
+    "pinyin": "^4.0.0-alpha.2",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^1.0.1",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/howler": "^2.2.12",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^22.10.2",
+    "@types/node-cron": "^3.0.11",
+    "@vitejs/plugin-vue": "^5.1.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.1",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^2.3.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.8"
+  }
+}

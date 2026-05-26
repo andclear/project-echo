@@ -1,0 +1,10459 @@
+<template>
+  <!-- 根容器，支持亮色/暗色模式 -->
+  <div
+    class="h-full w-full flex flex-col bg-background text-on-surface font-sans select-none overflow-hidden"
+    :class="{ 'dark': isDark }"
+    @dragenter.prevent="handleDragEnter"
+  >
+    <!-- macOS 拖拽条 -->
+    <div class="h-7 w-full flex-shrink-0 bg-transparent flex items-center justify-center pointer-events-none select-none" style="-webkit-app-region: drag;">
+      <span class="text-[11px] font-medium tracking-wide text-on-surface/40 font-sans">Echo-回音</span>
+    </div>
+
+    <!-- 三栏主体布局 -->
+    <div class="flex-1 flex min-h-0 overflow-hidden" style="-webkit-app-region: no-drag;">
+
+      <!-- ====== 左侧极窄导航栏 (72px) ====== -->
+      <nav class="w-[72px] h-full flex flex-col items-center bg-nav-bar py-3 flex-shrink-0 border-r border-nav-border">
+        <!-- 用户头像（点击进入个人设置） -->
+        <div
+          class="w-10 h-10 rounded overflow-hidden border-2 border-nav-avatar-border hover:opacity-90 transition-all mb-5 flex-shrink-0 shadow-md cursor-pointer"
+          @click="showUserProfileModal = true; userProfileActiveTab = 'profile'; userMdEditing = false"
+        >
+          <img
+            v-if="userProfile.avatarUrl"
+            :src="userProfile.avatarUrl"
+            class="w-full h-full object-cover"
+            @error="userProfile.avatarUrl = ''"
+          />
+          <img
+            v-else
+            :src="defaultAvatarSrc"
+            class="w-full h-full object-cover"
+          />
+        </div>
+
+        <!-- 导航功能图标组 -->
+        <div class="flex flex-col items-center space-y-2 flex-1">
+          <!-- 对话 -->
+          <button
+            @click="sideView = 'chat'"
+            class="nav-icon-btn"
+            :class="{ 'nav-icon-btn-active': sideView === 'chat' }"
+            title="对话"
+          >
+            <MessageSquareIcon class="w-5 h-5" />
+          </button>
+
+          <!-- 通讯录 -->
+          <button
+            @click="sideView = 'contacts'"
+            class="nav-icon-btn"
+            :class="{ 'nav-icon-btn-active': sideView === 'contacts' }"
+            title="通讯录"
+          >
+            <UsersIcon class="w-5 h-5" />
+          </button>
+
+          <!-- 朋友圈 -->
+          <button
+            @click="sideView = 'moments'; loadMomentsList();"
+            class="nav-icon-btn relative"
+            :class="{ 'nav-icon-btn-active': sideView === 'moments' }"
+            title="朋友圈"
+          >
+            <GlobeIcon class="w-5 h-5" />
+            <span v-if="unreadMomentsCount > 0" class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full shadow-sm scale-95 animate-pulse"></span>
+          </button>
+
+          <!-- 音乐 -->
+          <button
+            v-if="generalConfig.enable_music"
+            @click="sideView = 'music'"
+            class="nav-icon-btn"
+            :class="{ 'nav-icon-btn-active': sideView === 'music' }"
+            title="回音音乐"
+          >
+            <MusicIcon class="w-5 h-5" />
+          </button>
+
+          <!-- 论坛 -->
+          <button
+            @click="sideView = 'forum'; selectBoard('all');"
+            class="nav-icon-btn relative"
+            :class="{ 'nav-icon-btn-active': sideView === 'forum' }"
+            title="开发者论坛"
+          >
+            <ScrollIcon class="w-5 h-5" />
+            <span v-if="unreadForumCount > 0" class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full shadow-sm scale-95 animate-pulse"></span>
+          </button>
+
+          <!-- 收藏夹 -->
+          <button
+            @click="sideView = 'favorites'; loadFavoritesList();"
+            class="nav-icon-btn"
+            :class="{ 'nav-icon-btn-active': sideView === 'favorites' }"
+            title="收藏中心"
+          >
+            <BookmarkIcon class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- 底部：数据统计 + 亮暗切换 + 设置 -->
+        <div class="flex flex-col items-center space-y-2 flex-shrink-0">
+          <button
+            @click="openStatsPanel"
+            class="nav-icon-btn"
+            :class="{ 'nav-icon-btn-active': sideView === 'stats' }"
+            title="数据面板"
+          >
+            <BarChart3Icon class="w-5 h-5" />
+          </button>
+
+          <button
+            @click="toggleTheme()"
+            class="nav-icon-btn"
+            :title="isDark ? '切换为亮色' : '切换为暗色'"
+          >
+            <MoonIcon v-if="isDark" class="w-5 h-5" />
+            <SunIcon v-else class="w-5 h-5" />
+          </button>
+
+          <button
+            @click="openSettingsPage"
+            class="nav-icon-btn"
+            :class="{ 'nav-icon-btn-active': sideView === 'settings' }"
+            title="设置"
+          >
+            <SettingsIcon class="w-5 h-5" />
+          </button>
+        </div>
+      </nav>
+
+      <!-- ====== 中间会话/联系人列表 ====== -->
+      <aside v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites'" :style="{ width: sidebarWidth + 'px' }" class="h-full flex flex-col bg-sidebar backdrop-blur-md flex-shrink-0 overflow-hidden relative">
+
+        <!-- ── 对话列表视图 ── -->
+        <template v-if="sideView === 'chat'">
+          <!-- 顶部标题与搜索 -->
+          <div class="px-4 pt-4 pb-2 flex-shrink-0">
+            <!-- 搜索框与加号下拉按钮 -->
+            <div class="flex items-center space-x-2">
+              <div class="relative flex-1">
+                <SearchIcon class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/50" />
+                <input
+                  v-model="searchQuery"
+                  type="text"
+                  placeholder="搜索"
+                  class="w-full pl-8 pr-3 py-1.5 rounded-md text-xs bg-surface-high text-on-surface placeholder-on-surface-variant/40 focus:outline-none border border-transparent focus:border-outline-variant/40 transition-all"
+                />
+              </div>
+              
+              <!-- 精美加号按钮与级联菜单 -->
+              <div class="relative flex-shrink-0">
+                <button
+                  @click.stop="toggleAddMenu"
+                  class="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-high/75 active:scale-90 transition-all text-on-surface-variant hover:text-primary cursor-pointer"
+                  title="添加"
+                >
+                  <PlusCircleIcon class="w-4 h-4" stroke-width="1.5" />
+                </button>
+                
+                <!-- 下拉一级菜单：添加角色 / 发起群聊 -->
+                <div
+                  v-if="showAddMenu"
+                  class="absolute right-0 mt-1.5 w-32 bg-surface border border-outline-variant rounded-xl shadow-2xl py-1.5 z-50 overflow-hidden select-none"
+                >
+                  <button
+                    @click.stop="triggerAddCharacter"
+                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
+                  >
+                    <UserIcon class="w-4 h-4 text-primary" stroke-width="1.5" />
+                    <span>添加角色</span>
+                  </button>
+                  <button
+                    @click.stop="showComingSoon('发起群聊')"
+                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 opacity-60 cursor-pointer font-medium"
+                  >
+                    <UsersIcon class="w-4 h-4 text-secondary" stroke-width="1.5" />
+                    <span>发起群聊</span>
+                  </button>
+                </div>
+
+                <!-- 下拉二级子菜单：导入角色卡 / 创建角色 -->
+                <div
+                  v-if="showAddCharacterMenu"
+                  class="absolute right-0 mt-1.5 w-36 bg-surface border border-outline-variant rounded-xl shadow-2xl py-1.5 z-50 overflow-hidden select-none"
+                >
+                  <button
+                    @click.stop="triggerImportCharacterCard"
+                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
+                  >
+                    <UploadIcon class="w-4 h-4 text-primary" stroke-width="1.5" />
+                    <span>导入角色卡</span>
+                  </button>
+                  <button
+                    @click.stop="triggerCreateNewCharacter"
+                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
+                  >
+                    <PenLineIcon class="w-4 h-4 text-secondary" stroke-width="1.5" />
+                    <span>创建角色</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 角色对话列表 -->
+          <div class="flex-1 overflow-y-auto" ref="chatListRef">
+            <!-- 置顶的角色 -->
+            <div v-if="pinnedCharacters.length > 0">
+              <div class="px-4 py-1 text-[10px] text-on-surface-variant/40 font-bold uppercase tracking-wider">置顶</div>
+              <ConversationItem
+                v-for="char in pinnedCharacters"
+                :key="char.id"
+                :character="char"
+                :avatar="characterAvatars[char.id]"
+                :is-selected="selectedCharacterId === char.id"
+                :unread="conversationMeta[char.id]?.unread || 0"
+                :last-message="getLastMessage(char.id)"
+                :is-muted="conversationMeta[char.id]?.muted"
+                :is-hidden="conversationMeta[char.id]?.hidden"
+                @click="selectCharacter(char.id)"
+                @contextmenu.prevent="openContextMenu($event, char)"
+              />
+            </div>
+
+            <!-- 普通角色列表 -->
+            <div v-if="visibleCharacters.length > 0 || searchQuery">
+              <template v-if="!searchQuery">
+                <ConversationItem
+                  v-for="char in visibleCharacters"
+                  :key="char.id"
+                  :character="char"
+                  :avatar="characterAvatars[char.id]"
+                  :is-selected="selectedCharacterId === char.id"
+                  :unread="conversationMeta[char.id]?.unread || 0"
+                  :last-message="getLastMessage(char.id)"
+                  :is-muted="conversationMeta[char.id]?.muted"
+                  :is-hidden="conversationMeta[char.id]?.hidden"
+                  @click="selectCharacter(char.id)"
+                  @contextmenu.prevent="openContextMenu($event, char)"
+                />
+              </template>
+              <template v-else>
+                <!-- 搜索结果：联系人区块 -->
+                <div v-if="searchContactResults.length > 0">
+                  <div class="px-4 py-1 text-[10px] text-on-surface-variant/40 font-bold uppercase tracking-wider">联系人</div>
+                  <ConversationItem
+                    v-for="char in searchContactResults"
+                    :key="char.id"
+                    :character="char"
+                    :avatar="characterAvatars[char.id]"
+                    :is-selected="selectedCharacterId === char.id"
+                    :unread="0"
+                    :last-message="null"
+                    @click="selectCharacter(char.id)"
+                  />
+                </div>
+                <!-- 搜索结果：聊天记录区块 -->
+                <div v-if="searchMessageResults.length > 0">
+                  <div class="px-4 py-1 text-[10px] text-on-surface-variant/40 font-bold uppercase tracking-wider">聊天记录</div>
+                  <div
+                    v-for="result in searchMessageResults"
+                    :key="result.id"
+                    class="px-4 py-2.5 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-2.5"
+                    @click="selectCharacter(result.characterId)"
+                  >
+                    <div class="w-9 h-9 rounded-md overflow-hidden flex-shrink-0 bg-surface-high border border-outline-variant">
+                      <img v-if="characterAvatars[result.characterId]" :src="characterAvatars[result.characterId]" class="w-full h-full object-cover" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="text-xs font-bold text-on-surface">{{ result.charName }}</div>
+                      <div class="text-[10px] text-on-surface-variant truncate" v-html="highlightSearch(result.content)"></div>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="searchContactResults.length === 0 && searchMessageResults.length === 0" class="text-center text-xs text-on-surface-variant/50 py-8">无搜索结果</div>
+              </template>
+            </div>
+
+            <!-- 没有角色时的提示 -->
+            <div v-if="characterList.length === 0 && !searchQuery" class="flex flex-col items-center justify-center py-12 px-6 text-center">
+              <PlusCircleIcon class="w-7 h-7 text-on-surface-variant/20 mb-2.5" stroke-width="1.5" />
+              <p class="text-xs text-on-surface-variant/50">暂无角色，请选择</p>
+              <div class="flex items-center space-x-3 mt-2">
+                <button @click="triggerImportCharacterCard" class="text-xs text-primary font-bold hover:underline">
+                  导入角色卡
+                </button>
+                <span class="text-on-surface-variant/20 text-xs">|</span>
+                <button @click="triggerCreateNewCharacter" class="text-xs text-primary font-bold hover:underline">
+                  创建角色
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </template>
+
+        <!-- ── 通讯录视图 ── -->
+        <template v-else-if="sideView === 'contacts'">
+          <div class="px-4 pt-4 pb-2 flex-shrink-0">
+            <div class="text-sm font-bold text-on-surface">通讯录</div>
+          </div>
+          <div class="flex-1 overflow-y-auto">
+            <div v-if="characterList.length === 0" class="text-center text-xs text-on-surface-variant/50 py-12">暂无联系人</div>
+            <div
+              v-for="char in characterList"
+              :key="char.id"
+              class="px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
+              :class="{ 'bg-surface-high/80': selectedContactId === char.id }"
+              @click="selectCharacterForContactDetails(char.id)"
+              @dblclick="doubleClickStartChat(char.id)"
+              @contextmenu.prevent="openContactContextMenu($event, char)"
+            >
+              <div class="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-surface-high border border-outline-variant">
+                <img v-if="characterAvatars[char.id]" :src="characterAvatars[char.id]" class="w-full h-full object-cover" />
+                <UserIcon v-else class="w-5 h-5 text-on-surface-variant m-auto mt-2.5" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-on-surface truncate">{{ char.name }}</div>
+                <div class="text-[10px] text-on-surface-variant truncate opacity-70">角色</div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── 系统设置导航视图 ── -->
+        <template v-else-if="sideView === 'settings'">
+          <div class="px-4 pt-4 pb-2 flex-shrink-0">
+            <div class="text-sm font-bold text-on-surface">系统设置</div>
+          </div>
+          <div class="flex-1 overflow-y-auto py-2">
+            <div
+              v-for="menu in settingsMenus"
+              :key="menu.id"
+              class="px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
+              :class="{ 'bg-surface-high/80 text-primary font-bold': activeSettingsTab === menu.id }"
+              @click="activeSettingsTab = menu.id"
+            >
+              <component :is="menu.icon" class="w-4 h-4 text-on-surface-variant flex-shrink-0 transition-all group-hover:scale-110" :class="{ '!text-primary': activeSettingsTab === menu.id }" stroke-width="1.5" />
+              <div class="flex-1 min-w-0">
+                <div class="text-xs font-semibold text-on-surface truncate">{{ menu.label }}</div>
+              </div>
+            </div>
+          </div>
+          <!-- 底部版本与客户端名称 -->
+          <div class="px-4 py-3.5 border-t border-sidebar-border/30 text-[10px] text-on-surface-variant/40 font-mono flex-shrink-0 select-none">
+            <div>Echo Client v1.0.0</div>
+            <div class="mt-0.5 opacity-60">数字生命自省进化客户端</div>
+          </div>
+        </template>
+        
+        <!-- ── 音乐菜单列表视图 ── -->
+        <template v-else-if="sideView === 'music'">
+          <div class="px-4 pt-4 pb-2 flex-shrink-0 flex items-center justify-between select-none">
+            <div class="text-sm font-bold text-on-surface">回音音乐</div>
+            <button 
+              v-if="activeMusicTab === 'playlist'"
+              @click="showCreatePlaylistModal = true"
+              class="px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary cursor-pointer active:scale-95 transition-all text-[9.5px] font-bold"
+              title="新建列表"
+            >
+              新建列表
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto py-2 space-y-1 select-none">
+            <!-- 歌单推荐 -->
+            <button 
+              @click="activeMusicTab = 'recommend'; loadRecommendPlaylists(); currentDetailPlaylistSongs = [];"
+              class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
+              :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'recommend' || activeMusicTab === 'playlist_detail' }"
+            >
+              <GlobeIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'recommend' || activeMusicTab === 'playlist_detail' }" />
+              <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">歌单推荐</span>
+            </button>
+
+            <!-- 排行榜 -->
+            <button 
+              @click="activeMusicTab = 'leaderboard'; loadLeaderboardList(activeBangId);"
+              class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
+              :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'leaderboard' }"
+            >
+              <ActivityIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'leaderboard' }" />
+              <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">排行榜</span>
+            </button>
+
+            <!-- 播放列表 -->
+            <button 
+              @click="activeMusicTab = 'playlist'; musicStore.loadPlaylistSongs(musicStore.state.activePlaylistId); currentDetailPlaylistSongs = [];"
+              class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
+              :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'playlist' }"
+            >
+              <MusicIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'playlist' }" />
+              <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">自建播放列表</span>
+            </button>
+
+            <!-- 自建列表展开项 -->
+            <div v-if="activeMusicTab === 'playlist' && !currentDetailPlaylistSongs.length" class="pl-6 pr-2 space-y-1">
+              <!-- “我的收藏”列表 -->
+              <button 
+                @click="musicStore.loadPlaylistSongs('love')"
+                class="w-full px-3 py-2 rounded-xl hover:bg-surface-high text-[11px] flex items-center justify-between text-left"
+                :class="musicStore.state.activePlaylistId === 'love' ? 'text-primary font-bold bg-primary/5' : 'text-on-surface-variant'"
+              >
+                <span class="truncate">❤️ 我的收藏</span>
+                <span class="text-[9px] font-mono opacity-50">({{ musicStore.state.favoriteSongs.length }})</span>
+              </button>
+
+              <!-- 其他自建列表 -->
+              <div 
+                v-for="lst in musicStore.state.playlists" 
+                :key="lst.id"
+                class="w-full flex items-center justify-between group/lst px-3 py-1.5 rounded-xl hover:bg-surface-high text-[11px]"
+                :class="musicStore.state.activePlaylistId === lst.id ? 'text-primary font-bold bg-primary/5' : 'text-on-surface-variant'"
+              >
+                <button 
+                  @click="musicStore.loadPlaylistSongs(lst.id)"
+                  class="flex-1 text-left truncate cursor-pointer"
+                >
+                  📁 {{ lst.name }}
+                </button>
+                <button 
+                  @click="musicStore.deletePlaylist(lst.id)"
+                  class="opacity-0 group-hover/lst:opacity-100 p-0.5 text-on-surface-variant/40 hover:text-red-500 active:scale-90 transition-all cursor-pointer font-sans"
+                  title="删除列表"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <!-- 下载 -->
+            <button 
+              @click="activeMusicTab = 'download';"
+              class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
+              :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'download' }"
+            >
+              <DownloadIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'download' }" />
+              <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">下载中心</span>
+            </button>
+
+            <!-- 设置 -->
+            <button 
+              @click="activeMusicTab = 'settings';"
+              class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
+              :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'settings' }"
+            >
+              <SettingsIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'settings' }" />
+              <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">音乐设置</span>
+            </button>
+          </div>
+        </template>
+      </aside>
+
+      <!-- 会话列表与聊天视窗之间的可拖拽分割线 -->
+      <div 
+        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites'"
+        @mousedown="startResize" 
+        class="w-[1px] hover:w-[2px] bg-sidebar-border hover:bg-primary cursor-col-resize transition-all h-full z-20 flex-shrink-0"
+        title="拖动调整宽度"
+      ></div>
+
+      <!-- ====== 右侧主区域 ====== -->
+      <main class="flex-1 h-full flex flex-col min-w-0 bg-chat-bg overflow-hidden relative">
+        <!-- 唯美梦境睡眠进化动画遮罩 -->
+        <div v-if="isDreaming" class="absolute inset-0 z-40 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center text-white p-8 select-none">
+          <div class="relative w-20 h-20 mb-5 flex items-center justify-center">
+            <div class="absolute inset-0 rounded-full bg-indigo-500/20 animate-ping"></div>
+            <div class="absolute inset-2 rounded-full bg-indigo-500/40 animate-pulse"></div>
+            <MoonIcon class="w-8 h-8 text-indigo-200 relative z-10 animate-bounce" />
+          </div>
+          <h3 class="text-sm font-bold tracking-wider mb-1.5 text-indigo-200">正在进入梦境睡眠反思...</h3>
+          <p class="text-[10px] text-zinc-400 max-w-xs text-center leading-relaxed">
+            AI 角色正在深睡自省中，深度剖析最近对话历史以捕获您的挫败信号，并 Patch 避坑技能，请稍后...
+          </p>
+        </div>
+
+        <!-- ── 大模型数据统计详情页 ── -->
+        <template v-if="sideView === 'stats'">
+          <div class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <!-- 顶部 Header -->
+            <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0">
+              <div class="text-sm font-bold text-on-surface flex items-center space-x-2 select-none">
+                <BarChart3Icon class="w-4 h-4 text-primary animate-pulse" />
+                <span>数据面板</span>
+              </div>
+
+              <!-- 主/辅助大模型数据切换开关 (当且仅当启用辅助模型时智能展示) -->
+              <div v-if="statsData.hasSecondary" class="flex rounded-xl bg-surface-high border border-outline-variant/60 p-0.5 shadow-inner select-none">
+                <button
+                  @click="currentStatsModelRole = 'primary'"
+                  class="px-3.5 py-1 text-[11px] font-bold rounded-lg transition-all select-none cursor-pointer focus:outline-none flex items-center space-x-1.5 active:scale-95"
+                  :class="currentStatsModelRole === 'primary' ? 'bg-primary text-white shadow-sm font-black' : 'text-on-surface-variant hover:text-on-surface'"
+                >
+                  <CpuIcon class="w-3.5 h-3.5" />
+                  <span>主模型数据</span>
+                </button>
+                <button
+                  @click="currentStatsModelRole = 'secondary'"
+                  class="px-3.5 py-1 text-[11px] font-bold rounded-lg transition-all select-none cursor-pointer focus:outline-none flex items-center space-x-1.5 active:scale-95"
+                  :class="currentStatsModelRole === 'secondary' ? 'bg-secondary text-white shadow-sm font-black' : 'text-on-surface-variant hover:text-on-surface'"
+                >
+                  <SparklesIcon class="w-3.5 h-3.5 text-pink-300" />
+                  <span>辅助模型数据</span>
+                </button>
+              </div>
+            </header>
+
+            <!-- 主滚动页面 -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 select-text max-w-4xl w-full mx-auto flex flex-col">
+              
+              <!-- 第一部分：总览数据卡片 -->
+              <div class="grid grid-cols-2 gap-4 flex-shrink-0 select-none">
+                <!-- 1. AI累计调用次数卡片 -->
+                <div 
+                  class="p-6 rounded-3xl border border-outline-variant/30 bg-surface-lowest/70 backdrop-blur-md shadow-sm relative overflow-hidden group hover:-translate-y-1.5 hover:shadow-xl transition-all duration-300 flex flex-col justify-between min-h-[155px]"
+                  :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'hover:border-secondary/40 hover:shadow-secondary/5' : 'hover:border-primary/40 hover:shadow-primary/5'"
+                >
+                  <!-- 背景装饰超大 Icon (Hover 缩放) -->
+                  <div class="absolute -right-4 -bottom-4 opacity-[0.03] group-hover:scale-110 transition-all duration-300" :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'text-secondary' : 'text-primary'">
+                    <BarChart3Icon class="w-32 h-32" />
+                  </div>
+
+                  <!-- 1. 卡片首行：图标盒 + 角标徽章 -->
+                  <div class="flex items-center justify-between w-full select-none mb-3.5">
+                    <div class="p-2.5 rounded-2xl flex-shrink-0 shadow-sm" :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'bg-secondary/15 text-secondary' : 'bg-primary/15 text-primary'">
+                      <CpuIcon class="w-6 h-6 animate-pulse" />
+                    </div>
+                    <span 
+                      v-if="statsData.hasSecondary" 
+                      class="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-lg border shadow-sm backdrop-blur-sm"
+                      :class="currentStatsModelRole === 'secondary' ? 'text-secondary bg-secondary/10 border-secondary/20' : 'text-primary bg-primary/10 border-primary/20'"
+                    >
+                      {{ currentStatsModelRole === 'secondary' ? '辅助模型' : '主模型' }}
+                    </span>
+                    <span 
+                      v-else 
+                      class="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-lg border border-primary/20 text-primary bg-primary/10 shadow-sm"
+                    >
+                      主模型
+                    </span>
+                  </div>
+
+                  <!-- 2. 卡片二行：说明文本 -->
+                  <div class="text-[10px] font-bold text-on-surface-variant/80 font-sans tracking-widest uppercase mb-1 flex items-center space-x-1">
+                    <span class="w-1 h-1 rounded-full" :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'bg-secondary' : 'bg-primary'"></span>
+                    <span>AI累计调用次数 (Calls)</span>
+                  </div>
+
+                  <!-- 3. 卡片三行：超大数值 -->
+                  <div class="text-3xl font-black text-on-surface font-sans tracking-tight flex items-baseline mt-auto">
+                    <span :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'text-secondary' : 'text-primary'">
+                      {{ statsData.hasSecondary ? (currentStatsModelRole === 'secondary' ? statsData.secondaryCalls : statsData.primaryCalls) : statsData.totalCalls }}
+                    </span>
+                    <span class="text-xs font-normal text-on-surface-variant ml-1.5">次</span>
+                  </div>
+
+                  <!-- 底部发光彩虹渐变线 -->
+                  <div 
+                    class="absolute bottom-0 left-0 right-0 h-[3px] transition-all duration-300"
+                    :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500' : 'bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-600'"
+                  ></div>
+                </div>
+
+                <!-- 2. 算力消耗总计卡片 -->
+                <div 
+                  class="p-6 rounded-3xl border border-outline-variant/30 bg-surface-lowest/70 backdrop-blur-md shadow-sm relative overflow-hidden group hover:-translate-y-1.5 hover:shadow-xl transition-all duration-300 flex flex-col justify-between min-h-[155px]"
+                  :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'hover:border-pink-500/40 hover:shadow-pink-500/5' : 'hover:border-emerald-500/40 hover:shadow-emerald-500/5'"
+                >
+                  <!-- 背景装饰超大 Icon -->
+                  <div class="absolute -right-4 -bottom-4 opacity-[0.03] group-hover:scale-110 transition-all duration-300" :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'text-secondary' : 'text-primary'">
+                    <BrainIcon class="w-32 h-32" />
+                  </div>
+
+                  <!-- 1. 卡片首行：图标盒 + 角标徽章 -->
+                  <div class="flex items-center justify-between w-full select-none mb-3.5">
+                    <div class="p-2.5 rounded-2xl flex-shrink-0 shadow-sm" :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'bg-secondary/15 text-secondary' : 'bg-primary/15 text-primary'">
+                      <ActivityIcon class="w-6 h-6 animate-pulse" />
+                    </div>
+                    <span 
+                      v-if="statsData.hasSecondary" 
+                      class="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-lg border shadow-sm backdrop-blur-sm"
+                      :class="currentStatsModelRole === 'secondary' ? 'text-secondary bg-secondary/10 border-secondary/20' : 'text-primary bg-primary/10 border-primary/20'"
+                    >
+                      {{ currentStatsModelRole === 'secondary' ? '辅助模型' : '主模型' }}
+                    </span>
+                    <span 
+                      v-else 
+                      class="text-[9px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-lg border border-primary/20 text-primary bg-primary/10 shadow-sm"
+                    >
+                      主模型
+                    </span>
+                  </div>
+
+                  <!-- 2. 卡片二行：说明文本 -->
+                  <div class="text-[10px] font-bold text-on-surface-variant/80 font-sans tracking-widest uppercase mb-1 flex items-center space-x-1">
+                    <span class="w-1 h-1 rounded-full" :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'bg-secondary' : 'bg-primary'"></span>
+                    <span>算力消耗总计 (Tokens)</span>
+                  </div>
+
+                  <!-- 3. 卡片三行：超大数值 -->
+                  <div class="text-3xl font-black text-on-surface font-sans tracking-tight flex items-baseline mt-auto">
+                    <span :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'text-secondary' : 'text-primary'">
+                      {{ statsData.hasSecondary ? (currentStatsModelRole === 'secondary' ? statsData.secondaryTokens : statsData.primaryTokens).toLocaleString() : statsData.totalTokens.toLocaleString() }}
+                    </span>
+                    <span class="text-xs font-normal text-on-surface-variant ml-1.5">Tokens</span>
+                  </div>
+
+                  <!-- 底部发光彩虹渐变线 -->
+                  <div 
+                    class="absolute bottom-0 left-0 right-0 h-[3px] transition-all duration-300"
+                    :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'bg-gradient-to-r from-pink-500 via-rose-500 to-red-500' : 'bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-500'"
+                  ></div>
+                </div>
+              </div>
+
+              <!-- 第二部分：图表区（带天/周胶囊切换） -->
+              <div class="flex-1 min-h-[340px] flex flex-col p-5 rounded-2xl border border-outline-variant/60 bg-surface-lowest shadow-sm">
+                <!-- 胶囊页签切换 -->
+                <div class="flex items-center justify-between mb-6 flex-shrink-0 select-none">
+                  <span class="text-xs font-bold text-on-surface font-sans">大模型调用与消耗走势分析</span>
+                  <div class="flex rounded-xl bg-surface-high border border-outline-variant p-0.5">
+                    <button
+                      @click="statsViewMode = 'day'"
+                      class="px-3.5 py-1 text-[11px] font-bold rounded-lg transition-all select-none cursor-pointer focus:outline-none"
+                      :class="statsViewMode === 'day' ? 'bg-primary text-white shadow-sm font-black' : 'text-on-surface-variant hover:text-on-surface'"
+                    >
+                      按天统计 (7天)
+                    </button>
+                    <button
+                      @click="statsViewMode = 'week'"
+                      class="px-3.5 py-1 text-[11px] font-bold rounded-lg transition-all select-none cursor-pointer focus:outline-none"
+                      :class="statsViewMode === 'week' ? 'bg-primary text-white shadow-sm font-black' : 'text-on-surface-variant hover:text-on-surface'"
+                    >
+                      按周统计 (8周)
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 图表主要区域 -->
+                <div v-if="isStatsLoading" class="flex-1 flex flex-col items-center justify-center space-y-2 select-none">
+                  <Loader2Icon class="w-8 h-8 text-primary animate-spin" />
+                  <span class="text-xs text-on-surface-variant font-bold">算力统计提取中...</span>
+                </div>
+                <div v-else class="flex-1 grid grid-cols-2 gap-8 min-h-0">
+                  
+                  <!-- 1. 调用频次柱状图 -->
+                  <div class="flex flex-col h-full">
+                    <div class="text-[10px] font-bold text-primary mb-3 flex items-center space-x-1.5 flex-shrink-0 select-none">
+                      <span :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'text-secondary' : 'text-primary'">●</span> 
+                      <span>{{ statsData.hasSecondary ? (currentStatsModelRole === 'secondary' ? '辅助模型 AI调用次数' : '主模型 AI调用次数') : 'AI累计调用次数' }} (Calls)</span>
+                    </div>
+                    <!-- 天/周图表主体列组 -->
+                    <div class="flex-1 flex items-end space-x-3.5 px-3 min-h-0">
+                      <div 
+                        v-for="item in (statsViewMode === 'day' ? statsData.statsDays : statsData.statsWeeks)" 
+                        :key="item.label"
+                        class="flex-1 h-full flex flex-col justify-end items-center min-w-0 group relative"
+                      >
+                        <!-- 发光 Tooltip 数值提示 -->
+                        <div class="absolute bottom-full mb-1.5 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 bg-slate-900/90 dark:bg-white text-white dark:text-slate-900 text-[9px] font-bold font-mono px-2.5 py-1.5 rounded-xl shadow-lg border border-outline-variant/10 pointer-events-none transition-all duration-200 z-10 whitespace-nowrap flex flex-col space-y-0.5 leading-tight">
+                          <span class="text-on-surface-variant/70 border-b border-outline-variant/20 pb-1 mb-1 text-center font-sans">{{ item.fullLabel }}</span>
+                          
+                          <!-- 分模型展示 -->
+                          <template v-if="statsData.hasSecondary">
+                            <span v-if="currentStatsModelRole === 'secondary'" class="text-secondary font-black font-sans">辅助模型: {{ item.secondaryCalls }} 次</span>
+                            <span v-else class="text-primary font-black font-sans">主模型: {{ item.primaryCalls }} 次</span>
+                          </template>
+                          <template v-else>
+                            <span class="text-primary font-black font-sans">AI调用次数: {{ item.calls }} 次</span>
+                          </template>
+                        </div>
+
+                        <!-- 柱子展示容器 -->
+                        <div class="w-full flex-1 flex items-end justify-center pb-2 border-b border-outline-variant/40 min-h-0">
+                          <!-- 辅助模型柱子 (紫粉色) -->
+                          <div 
+                            v-if="statsData.hasSecondary && currentStatsModelRole === 'secondary'"
+                            class="w-7 rounded-t-md bg-gradient-to-t from-purple-500/80 to-pink-600/95 group-hover:from-purple-400 group-hover:to-pink-500 group-hover:shadow-[0_0_8px_rgba(236,72,153,0.5)] transition-all duration-300"
+                            :style="{ 
+                              height: getBarHeightPercent(item.secondaryCalls, statsViewMode === 'day' ? statsData.statsDays : statsData.statsWeeks, 'calls') 
+                            }"
+                            :title="'辅助模型: ' + item.secondaryCalls + '次'"
+                          ></div>
+                          <!-- 主模型柱子 (蓝靛色) -->
+                          <div 
+                            v-else
+                            class="w-7 rounded-t-md bg-gradient-to-t from-blue-500/80 to-indigo-600/95 group-hover:from-blue-400 group-hover:to-indigo-500 group-hover:shadow-[0_0_8px_rgba(59,130,246,0.5)] transition-all duration-300"
+                            :style="{ 
+                              height: getBarHeightPercent(statsData.hasSecondary ? item.primaryCalls : item.calls, statsViewMode === 'day' ? statsData.statsDays : statsData.statsWeeks, 'calls') 
+                            }"
+                            :title="(statsData.hasSecondary ? '主模型: ' : 'AI调用: ') + (statsData.hasSecondary ? item.primaryCalls : item.calls) + '次'"
+                          ></div>
+                        </div>
+
+                        <!-- 底部 Label 日期，直接绑定在同一列中，绝对完美中轴对齐，文字水平舒展 -->
+                        <div class="w-full text-center pt-2 pb-1.5 text-[9px] font-bold text-on-surface-variant/75 font-mono truncate select-none" :title="item.fullLabel">
+                          {{ item.label }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 2. Token 消耗柱状图 -->
+                  <div class="flex flex-col h-full">
+                    <div class="text-[10px] font-bold text-secondary mb-3 flex items-center space-x-1.5 flex-shrink-0 select-none">
+                      <span :class="statsData.hasSecondary && currentStatsModelRole === 'secondary' ? 'text-secondary' : 'text-secondary'">●</span> 
+                      <span>{{ statsData.hasSecondary ? (currentStatsModelRole === 'secondary' ? '辅助模型 算力消耗总计' : '主模型 算力消耗总计') : '算力消耗总计' }} (Tokens)</span>
+                    </div>
+                    <!-- 天/周图表主体列组 -->
+                    <div class="flex-1 flex items-end space-x-3.5 px-3 min-h-0">
+                      <div 
+                        v-for="item in (statsViewMode === 'day' ? statsData.statsDays : statsData.statsWeeks)" 
+                        :key="item.label"
+                        class="flex-1 h-full flex flex-col justify-end items-center min-w-0 group relative"
+                      >
+                        <!-- 发光 Tooltip 数值提示 -->
+                        <div class="absolute bottom-full mb-1.5 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 bg-slate-900/90 dark:bg-white text-white dark:text-slate-900 text-[9px] font-bold font-mono px-2.5 py-1.5 rounded-xl shadow-lg border border-outline-variant/10 pointer-events-none transition-all duration-200 z-10 whitespace-nowrap flex flex-col space-y-0.5 leading-tight">
+                          <span class="text-on-surface-variant/70 border-b border-outline-variant/20 pb-1 mb-1 text-center font-sans">{{ item.fullLabel }}</span>
+                          
+                          <!-- 分模型展示 -->
+                          <template v-if="statsData.hasSecondary">
+                            <span v-if="currentStatsModelRole === 'secondary'" class="text-secondary font-black font-sans">辅助模型: {{ item.secondaryTokens.toLocaleString() }} T</span>
+                            <span v-else class="text-primary font-black font-sans">主模型: {{ item.primaryTokens.toLocaleString() }} T</span>
+                          </template>
+                          <template v-else>
+                            <span class="text-secondary font-black font-sans">算力消耗: {{ item.tokens.toLocaleString() }} T</span>
+                          </template>
+                        </div>
+
+                        <!-- 柱子展示容器 -->
+                        <div class="w-full flex-1 flex items-end justify-center pb-2 border-b border-outline-variant/40 min-h-0">
+                          <!-- 辅助模型柱子 (琥珀橙) -->
+                          <div 
+                            class="w-7 rounded-t-md bg-gradient-to-t from-amber-500/80 to-orange-600/95 group-hover:from-amber-400 group-hover:to-orange-500 group-hover:shadow-[0_0_8px_rgba(245,158,11,0.5)] transition-all duration-300"
+                            v-if="statsData.hasSecondary && currentStatsModelRole === 'secondary'"
+                            :style="{ 
+                              height: getBarHeightPercent(item.secondaryTokens, statsViewMode === 'day' ? statsData.statsDays : statsData.statsWeeks, 'tokens') 
+                            }"
+                            :title="'辅助模型: ' + item.secondaryTokens + ' Tokens'"
+                          ></div>
+                          <!-- 主模型/单模型柱子 (青绿/翠绿) -->
+                          <div 
+                            v-else
+                            class="w-7 rounded-t-md bg-gradient-to-t from-cyan-500/80 to-emerald-600/95 group-hover:from-cyan-400 group-hover:to-emerald-500 group-hover:shadow-[0_0_8px_rgba(34,211,238,0.5)] transition-all duration-300"
+                            :style="{ 
+                              height: getBarHeightPercent(statsData.hasSecondary ? item.primaryTokens : item.tokens, statsViewMode === 'day' ? statsData.statsDays : statsData.statsWeeks, 'tokens') 
+                            }"
+                            :title="(statsData.hasSecondary ? '主模型: ' : '算力消耗: ') + (statsData.hasSecondary ? item.primaryTokens : item.tokens) + ' Tokens'"
+                          ></div>
+                        </div>
+
+                        <!-- 底部 Label 日期 -->
+                        <div class="w-full text-center pt-2 pb-1.5 text-[9px] font-bold text-on-surface-variant/75 font-mono truncate select-none" :title="item.fullLabel">
+                          {{ item.label }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              <!-- 第三部分：DeepSeek 专属余额卡片（按需展示） -->
+              <!-- 第三部分：DeepSeek 专属余额卡片（仅在主/辅助模型配置了 DeepSeek 时展现并获取） -->
+              <div v-if="hasDeepSeek" class="p-5 rounded-xl border border-[#d97706]/20 bg-gradient-to-r from-amber-500/5 to-orange-500/5 flex items-center justify-between flex-shrink-0 relative overflow-hidden shadow-sm">
+                <div class="flex items-start space-x-4">
+                  <div class="p-2.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-500 mt-0.5 flex-shrink-0">
+                    <BanknoteIcon class="w-5.5 h-5.5" />
+                  </div>
+                  <div class="flex flex-col">
+                    <span class="text-xs font-bold text-on-surface font-sans">DeepSeek 官方大模型可用余额</span>
+                    <span class="text-[10px] text-on-surface-variant font-bold mt-0.5">直连 DeepSeek 官方 API 资产账户 (CNY/USD)</span>
+                    
+                    <!-- 首次获取余额骨架占位屏（彻底消除卡片闪烁） -->
+                    <div v-if="!deepseekBalance" class="flex items-center space-x-2 mt-3 animate-pulse">
+                      <div class="h-5 w-20 bg-amber-500/20 rounded"></div>
+                      <span class="text-[10px] text-on-surface-variant/40 font-bold">算力额度查询中...</span>
+                    </div>
+
+                    <!-- 获取成功后展示 -->
+                    <div v-else class="flex items-baseline space-x-3 mt-2">
+                      <div v-for="info in deepseekBalance.balance.balance_infos" :key="info.currency" class="flex items-baseline space-x-1">
+                        <span class="text-lg font-black text-amber-600 dark:text-amber-500 font-mono">{{ Number(info.total_balance).toFixed(2) }}</span>
+                        <span class="text-[10px] font-bold text-on-surface-variant">{{ info.currency }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <button 
+                  @click="refreshDeepSeekBalance" 
+                  :disabled="isBalanceLoading"
+                  class="px-3.5 py-2 rounded-lg bg-surface hover:bg-surface-high border border-outline-variant text-[11px] font-bold text-on-surface hover:shadow-sm cursor-pointer select-none transition-all flex items-center space-x-1 disabled:opacity-40"
+                >
+                  <Loader2Icon v-if="isBalanceLoading" class="w-3 h-3 animate-spin text-on-surface-variant" />
+                  <SparklesIcon v-else class="w-3 h-3 text-amber-500" />
+                  <span>一键刷新</span>
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </template>
+
+        <!-- ── 朋友圈动态列表区 ── -->
+        <template v-else-if="sideView === 'moments'">
+          <div class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <!-- 顶部 Header -->
+            <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+              <div class="text-sm font-bold text-on-surface flex items-center space-x-2">
+                <GlobeIcon class="w-4 h-4 text-primary animate-pulse" />
+                <span>回音朋友圈 (Moments)</span>
+              </div>
+              
+              <button
+                @click="refreshMoments"
+                :disabled="isRefreshingMoments"
+                class="px-3.5 py-1.5 rounded-xl border border-outline-variant bg-surface hover:bg-surface-high hover:shadow-sm text-[11px] font-bold text-on-surface flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer transition-all active:scale-95"
+              >
+                <Loader2Icon v-if="isRefreshingMoments" class="w-3.5 h-3.5 animate-spin text-primary" />
+                <RefreshCwIcon v-else class="w-3.5 h-3.5 text-on-surface-variant" />
+                <span>{{ momentsCooldownText || '手动刷新' }}</span>
+              </button>
+            </header>
+            
+            <!-- 主滚动列表 -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-6 max-w-2xl w-full mx-auto min-h-0 select-text">
+              <!-- 有新动态提示状态文字条 -->
+              <div
+                v-if="hasNewMomentNotification"
+                @click="scrollToNewMoment"
+                class="mb-4 mx-auto max-w-sm p-2.5 rounded-xl bg-primary/10 border border-primary/20 hover:bg-primary/20 text-primary text-xs font-bold text-center transition-all cursor-pointer shadow-sm animate-bounce flex items-center justify-center space-x-2 select-none"
+              >
+                <MessageSquareIcon class="w-3.5 h-3.5 animate-pulse text-primary" />
+                <span>有新的动态，点击查看</span>
+                <SparklesIcon class="w-3.5 h-3.5 text-primary" />
+              </div>
+
+              <!-- 用户发表新鲜事面板 -->
+              <div class="p-5 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-3.5 flex-shrink-0 select-none">
+                <div class="text-xs font-black text-on-surface flex items-center space-x-1.5">
+                  <PenLineIcon class="w-3.5 h-3.5 text-primary" />
+                  <span>记录今日新鲜事</span>
+                </div>
+                <textarea
+                  v-model="newMomentContent"
+                  placeholder="今天有什么所思所想？发表在朋友圈，角色们会为你点赞与评论哦"
+                  class="w-full h-20 p-3 rounded-xl border border-outline-variant bg-surface-low text-xs text-on-surface placeholder-on-surface-variant/40 focus:outline-none focus:border-primary resize-none transition-all leading-relaxed"
+                ></textarea>
+                <div class="flex justify-between items-center">
+                  <button
+                    @click.stop="openStickersPanel($event, 'newMomentContent')"
+                    class="p-1.5 rounded-lg text-on-surface-variant/70 hover:text-primary hover:bg-surface-high transition-all cursor-pointer active:scale-95 flex-shrink-0"
+                    title="表情与表情包"
+                  >
+                    <SmileIcon class="w-4.5 h-4.5" />
+                  </button>
+                  <button
+                    @click="publishUserMoment"
+                    :disabled="!newMomentContent.trim()"
+                    class="px-4 py-1.5 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md transition-all cursor-pointer flex items-center space-x-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <span>发表动态</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 空状态 -->
+              <div v-if="momentsList.length === 0" class="flex flex-col items-center justify-center py-16 text-center select-none text-on-surface-variant/40">
+                <GlobeIcon class="w-16 h-16 opacity-25 mb-4 animate-pulse" />
+                <p class="text-xs font-bold">朋友圈空荡荡的...</p>
+                <p class="text-[10px] mt-1.5 opacity-80 max-w-xs leading-relaxed">
+                  数字生命目前还在酝酿新鲜事。与角色进行对话后，她们会在这里发表精彩的个人动态，你也可以发表你的首条动态！
+                </p>
+              </div>
+              
+              <!-- 朋友圈流 -->
+              <div
+                v-for="moment in momentsList"
+                :key="moment.id"
+                :id="'moment-item-' + moment.id"
+                class="p-5 rounded-2xl bg-surface border border-outline-variant/70 shadow-sm hover:shadow-md hover:border-primary/10 transition-all duration-500 space-y-4 relative overflow-hidden group"
+              >
+                <!-- 作者卡片 -->
+                <div class="flex items-center justify-between select-none flex-shrink-0">
+                  <div class="flex items-center space-x-3.5">
+                    <div class="w-10 h-10 rounded-xl overflow-hidden border border-outline-variant bg-surface-low flex-shrink-0 shadow-sm">
+                      <img v-if="moment.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                      <img v-else-if="characterAvatars[moment.character_id]" :src="characterAvatars[moment.character_id]" class="w-full h-full object-cover" />
+                      <UserIcon v-else class="w-5 h-5 text-on-surface-variant m-auto mt-2.5" />
+                    </div>
+                    <div>
+                      <h4 class="text-xs font-bold text-on-surface leading-tight">{{ moment.author_name }}</h4>
+                      <p class="text-[9px] text-on-surface-variant/60 mt-1 font-mono tracking-wider">{{ formatTime(moment.timestamp) }}</p>
+                    </div>
+                  </div>
+                  
+                  <!-- 手动删除该朋友圈动态 -->
+                  <button
+                    @click="deleteUserMomentItem(moment)"
+                    class="p-1 rounded-lg text-on-surface-variant/40 hover:text-red-500 hover:bg-red-50 transition-all cursor-pointer active:scale-95 flex-shrink-0"
+                    title="物理删除此动态"
+                  >
+                    <TrashIcon class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                
+                <!-- 朋友圈文案正文 -->
+                <p class="text-[11.5px] text-on-surface leading-relaxed whitespace-pre-wrap pl-1 pr-2 font-medium select-text" v-html="renderTextWithStickers(moment.content)"></p>
+                
+                <!-- 动作条：点赞、评论展开、收藏 -->
+                <div class="flex items-center justify-between border-t border-outline-variant/10 pt-2.5 select-none flex-shrink-0">
+                  <div class="flex items-center space-x-4 min-w-0">
+                    <!-- 点赞区域：头像堆叠 + 点赞按钮 -->
+                    <div class="flex items-center space-x-2 min-w-0">
+                      <!-- ❤️ 点赞/取消点赞按钮 -->
+                      <button
+                        @click="toggleLikeMoment(moment)"
+                        class="flex items-center space-x-1 text-[10px] font-bold transition-all active:scale-95 flex-shrink-0"
+                        :class="moment.liked === 1 ? 'text-red-500' : 'text-on-surface-variant hover:text-red-500'"
+                        :title="moment.liked === 1 ? '取消点赞' : '点赞'"
+                      >
+                        <HeartIcon class="w-3.5 h-3.5 transition-transform" :class="moment.liked === 1 ? 'fill-red-500 scale-110' : 'scale-100'" />
+                      </button>
+
+                      <!-- 点赞者头像堆叠（最多显示6个，之后显示+N） -->
+                      <div v-if="moment.likes_list && moment.likes_list.length > 0" class="flex items-center min-w-0">
+                        <!-- 头像组 -->
+                        <div class="flex -space-x-1.5">
+                          <template v-for="(liker, idx) in (moment.likes_list || []).slice(0, 6)" :key="liker.character_id">
+                            <div
+                              class="w-5 h-5 rounded-full border-2 border-surface overflow-hidden flex-shrink-0 shadow-sm transition-transform hover:scale-110 hover:z-10 relative"
+                              :title="liker.author_name"
+                            >
+                              <!-- 用户（我）头像 -->
+                              <img
+                                v-if="liker.character_id === 'user'"
+                                :src="userProfile.avatarUrl || defaultAvatarSrc"
+                                class="w-full h-full object-cover"
+                              />
+                              <!-- 角色头像 -->
+                              <img
+                                v-else-if="characterAvatars[liker.character_id]"
+                                :src="characterAvatars[liker.character_id]"
+                                class="w-full h-full object-cover"
+                              />
+                              <!-- 无头像时用名字首字 -->
+                              <div
+                                v-else
+                                class="w-full h-full bg-primary/20 flex items-center justify-center text-[7px] font-black text-primary"
+                              >{{ liker.author_name?.[0] || '?' }}</div>
+                            </div>
+                          </template>
+                        </div>
+                        <!-- 超出6个显示 +N -->
+                        <span
+                          v-if="(moment.likes_list || []).length > 6"
+                          class="ml-1 text-[9px] font-bold text-on-surface-variant/60"
+                        >+{{ moment.likes_list.length - 6 }}</span>
+                        <!-- 点赞者名字列表 tooltip hover区域 -->
+                        <span class="ml-1.5 text-[9px] text-on-surface-variant/50 truncate max-w-[90px]">
+                          {{ (moment.likes_list || []).map((l: any) => l.author_name).join('、') }}觉得很赞
+                        </span>
+                      </div>
+                      <!-- 无点赞时显示灰色空态 -->
+                      <span v-else class="text-[9px] text-on-surface-variant/30 font-mono">暂无点赞</span>
+                    </div>
+
+                    <!-- 收藏 -->
+                    <button
+                      @click="toggleFavoriteMoment(moment)"
+                      class="flex items-center space-x-1 text-[10px] font-bold transition-all active:scale-95 flex-shrink-0"
+                      :class="moment.isFavorited ? 'text-yellow-500' : 'text-on-surface-variant hover:text-yellow-500'"
+                    >
+                      <BookmarkIcon class="w-3.5 h-3.5" :class="{ 'fill-yellow-500': moment.isFavorited }" />
+                      <span>{{ moment.isFavorited ? '已收藏' : '收藏' }}</span>
+                    </button>
+                  </div>
+                  
+                  <span class="text-[8px] text-on-surface-variant/30 font-mono tracking-wider scale-90 flex-shrink-0">Moment ID: {{ moment.id.split('_').slice(-1)[0] }}</span>
+                </div>
+
+
+                <!-- 💬 朋友圈真实互动评论区 (多端楼中楼) -->
+                <div class="mt-3.5 pt-3 border-t border-outline-variant/10 space-y-3.5 select-text pl-1 pr-2">
+                  <!-- 评论列表 -->
+                  <div v-if="moment.comments && moment.comments.length > 0" class="space-y-2.5 text-xs bg-surface-low/55 p-3 rounded-xl border border-outline-variant/30">
+                    <div v-for="c in moment.comments" :key="c.id" class="leading-relaxed text-[11px] group/item text-on-surface">
+                      <span class="font-bold text-primary">{{ c.author_name }}</span>
+                      <span v-if="c.reply_to_name" class="text-on-surface-variant/70 font-normal"> 回复 <span class="font-bold text-primary">{{ c.reply_to_name }}</span></span>
+                      <span class="text-on-surface-variant">: </span>
+                      <span class="text-on-surface font-medium select-text" v-html="renderTextWithStickers(c.content)"></span>
+                      <!-- 回复小图标 -->
+                      <button @click="startMomentReply(moment, c)" class="ml-2 opacity-0 group-hover/item:opacity-100 text-[9px] text-primary hover:underline font-bold transition-all select-none cursor-pointer">回复</button>
+                      <!-- 删除小图标 -->
+                      <button @click="deleteMomentCommentItem(moment, c)" class="ml-2 opacity-0 group-hover/item:opacity-100 text-[9px] text-red-500 hover:underline font-bold transition-all select-none cursor-pointer">删除</button>
+                    </div>
+                  </div>
+                  
+                  <!-- 输入框 -->
+                  <div class="flex items-center space-x-1.5 select-none relative">
+                    <!-- 评论@联想角色浮窗 -->
+                    <div
+                      v-if="showMomentAtList && activeMomentForAt?.id === moment.id"
+                      class="absolute bottom-full left-0 right-0 mb-2 z-50 rounded-xl border border-outline-variant/60 shadow-lg max-h-[160px] overflow-y-auto animate-scale-in p-1 select-none flex flex-col min-w-[200px] bg-surface"
+                    >
+                      <div class="text-[9px] font-bold text-on-surface-variant/40 px-2.5 py-1.5 border-b border-outline-variant/10 uppercase tracking-wider font-mono">
+                        选择提及的角色 (@提及)
+                      </div>
+                      <div v-if="filteredMomentAtCharacters.length === 0" class="text-center py-4 text-[10px] text-on-surface-variant/40">
+                        未找到匹配的角色 🐾
+                      </div>
+                      <div
+                        v-else
+                        v-for="char in filteredMomentAtCharacters"
+                        :key="char.id"
+                        @click="selectMomentAtCharacter(char)"
+                        class="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg hover:bg-primary/5 active:bg-primary/10 transition-colors cursor-pointer select-none"
+                      >
+                        <div class="w-5 h-5 rounded-md overflow-hidden border border-outline-variant bg-surface-low flex-shrink-0 shadow-sm flex items-center justify-center">
+                          <img v-if="characterAvatars[char.id]" :src="characterAvatars[char.id]" class="w-full h-full object-cover" />
+                          <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant" />
+                        </div>
+                        <span class="text-xs font-bold text-on-surface truncate">{{ char.name }}</span>
+                      </div>
+                    </div>
+
+                    <button
+                      @click.stop="openStickersPanel($event, 'momentComment', moment)"
+                      class="p-1 rounded-lg text-on-surface-variant/60 hover:text-primary hover:bg-surface-high transition-all cursor-pointer active:scale-95 flex-shrink-0"
+                      title="表情与表情包"
+                    >
+                      <SmileIcon class="w-4 h-4" />
+                    </button>
+                    <input
+                      :id="'moment-comment-input-el-' + moment.id"
+                      v-model="moment.inputComment"
+                      :placeholder="moment.replyPlaceholder || '留下你的评论...'"
+                      @keyup.enter="submitMomentComment(moment)"
+                      @input="handleMomentCommentInput($event, moment)"
+                      class="flex-1 bg-surface-low border border-outline-variant/80 rounded-xl px-3 py-1.5 text-xs text-on-surface focus:outline-none focus:border-primary placeholder-on-surface-variant/40"
+                    />
+                    <button
+                      @click="submitMomentComment(moment)"
+                      :disabled="!moment.inputComment || !moment.inputComment.trim()"
+                      class="px-3.5 py-1.5 rounded-xl bg-primary text-white text-xs font-bold shadow hover:bg-primary-high disabled:opacity-40 transition-all select-none cursor-pointer"
+                    >
+                      发送
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── 开发者论坛发帖区 (极高品质三栏重构) ── -->
+        <template v-else-if="sideView === 'forum'">
+          <div class="flex-1 flex min-h-0 bg-surface divide-x divide-outline-variant/15 overflow-hidden">
+            
+            <!-- 【三栏论坛 - 中间板块/帖子列表栏】 w-[340px] -->
+            <div class="w-[340px] flex flex-col min-h-0 bg-surface flex-shrink-0 select-none">
+              <!-- 顶部 Header -->
+              <header class="h-14 px-4 border-b border-outline-variant/20 flex items-center justify-between flex-shrink-0">
+                <div class="text-xs font-black text-on-surface flex items-center space-x-1.5">
+                  <ScrollIcon class="w-4 h-4 text-primary animate-pulse" />
+                  <span>回音社区</span>
+                </div>
+                <button
+                  @click="openPublishForumModal"
+                  class="px-2.5 py-1 rounded-lg bg-primary hover:bg-primary-high text-[10px] font-bold text-white shadow transition-all cursor-pointer select-none active:scale-95"
+                >
+                  + 发帖
+                </button>
+              </header>
+
+              <!-- 中间板块标签筛选 (科技前沿、灌水日常、灵感脑洞、异世界探讨、情感树洞、暗夜私语) -->
+              <div class="p-3 bg-surface-low border-b border-outline-variant/10 grid grid-cols-2 gap-2 flex-shrink-0">
+                <button
+                  v-for="b in boards"
+                  :key="b.id"
+                  @click="selectBoard(b.id)"
+                  class="px-3 py-2 rounded-xl border text-[11px] font-black text-center transition-all cursor-pointer truncate shadow-sm hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center space-x-1.5"
+                  :class="[
+                    selectedBoardId === b.id
+                      ? (b.id === 'nsfw' ? 'bg-red-600 text-white border-red-600 shadow-sm font-black' : 'bg-primary text-white border-primary shadow-sm font-black')
+                      : (b.id === 'nsfw' ? 'bg-red-500/5 border-red-500/20 text-red-500 hover:bg-red-500/10' : 'bg-surface border-outline-variant/60 text-on-surface-variant hover:bg-surface-high')
+                  ]"
+                >
+                  <component :is="b.icon" class="w-3.5 h-3.5" :class="[selectedBoardId === b.id ? 'text-white' : (b.id === 'nsfw' ? 'text-red-500 animate-pulse' : 'text-on-surface-variant/70')]" />
+                  <span>{{ b.name }}</span>
+                </button>
+              </div>
+
+              <!-- 帖子列表滚动流 -->
+              <div class="flex-1 overflow-y-auto p-3.5 space-y-3 min-h-0">
+                <div v-if="forumPostsList.length === 0" class="text-center py-16 text-[10px] text-on-surface-variant/40">
+                  当前板块空无一帖
+                </div>
+                <div
+                  v-for="post in forumPostsList"
+                  :key="post.id"
+                  @click="selectForumPostDetail(post)"
+                  class="p-4 rounded-2xl border transition-all cursor-pointer space-y-2.5 select-none hover:shadow-md hover:scale-[1.01] active:scale-[0.99]"
+                  :class="selectedForumPost?.id === post.id ? 'bg-primary/5 border-primary shadow-sm' : 'bg-surface border-outline-variant/50 hover:bg-surface-low hover:border-outline-variant'"
+                >
+                  <div class="flex items-center justify-between text-[9px] text-on-surface-variant/60 font-mono">
+                    <span class="truncate max-w-[120px] font-bold">{{ post.author_name }}</span>
+                    <div class="flex items-center space-x-1.5">
+                      <span v-if="unreadForumPostIds.includes(post.id)" class="w-2 h-2 bg-red-500 rounded-full shadow-sm animate-pulse"></span>
+                      <span>{{ formatTime(post.timestamp) }}</span>
+                    </div>
+                  </div>
+                  <h3 class="text-xs font-black text-on-surface leading-tight line-clamp-1" :class="{ 'text-primary': selectedForumPost?.id === post.id }">
+                    {{ post.title }}
+                  </h3>
+                  <p class="text-[10px] text-on-surface-variant line-clamp-2 leading-relaxed">
+                    {{ post.content }}
+                  </p>
+                  <div class="flex items-center space-x-3 text-[9px] text-on-surface-variant/50 font-mono">
+                    <span class="flex items-center space-x-0.5">
+                      <EyeIcon class="w-3 h-3 text-on-surface-variant/40" />
+                      <span>{{ post.views || 0 }}</span>
+                    </span>
+                    <span class="flex items-center space-x-0.5">
+                      <MessageSquareIcon class="w-3 h-3 text-on-surface-variant/40" />
+                      <span>{{ post.replies_count || 0 }}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 【三栏论坛 - 右侧详情与互动回复区】 flex-1 -->
+            <div class="flex-1 flex flex-col min-h-0 bg-surface-low overflow-hidden">
+              <template v-if="selectedForumPost">
+                <!-- 详情 Header -->
+                <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+                  <div class="flex items-center space-x-2.5">
+                    <div class="w-7 h-7 rounded-lg overflow-hidden border border-outline-variant">
+                      <img v-if="selectedForumPost.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                      <img v-else-if="characterAvatars[selectedForumPost.character_id]" :src="characterAvatars[selectedForumPost.character_id]" class="w-full h-full object-cover" />
+                      <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto mt-1.5" />
+                    </div>
+                    <div>
+                      <h4 class="text-xs font-black text-on-surface leading-tight">{{ selectedForumPost.author_name }}</h4>
+                      <p class="text-[9px] text-on-surface-variant/50 font-mono mt-0.5">{{ formatTime(selectedForumPost.timestamp) }}</p>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center space-x-3">
+                    <!-- 收藏帖子 -->
+                    <button
+                      @click="toggleFavoriteForumPost(selectedForumPost)"
+                      class="px-3 py-1.5 rounded-lg border text-[10px] font-bold flex items-center space-x-1.5 transition-all active:scale-95 cursor-pointer"
+                      :class="selectedForumPost.isFavorited ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600' : 'bg-surface border-outline-variant text-on-surface-variant hover:text-yellow-500'"
+                    >
+                      <BookmarkIcon class="w-3.5 h-3.5" :class="{ 'fill-yellow-500': selectedForumPost.isFavorited }" />
+                      <span>{{ selectedForumPost.isFavorited ? '已收藏' : '收藏帖子' }}</span>
+                    </button>
+                    
+                    <!-- 删除帖子 -->
+                    <button
+                      @click="deleteForumPostItem(selectedForumPost)"
+                      class="px-3 py-1.5 rounded-lg border border-red-200 text-[10px] font-bold text-red-600 bg-red-50/50 hover:bg-red-50 transition-all cursor-pointer active:scale-95 flex items-center space-x-1.5"
+                      title="物理删除此帖子"
+                    >
+                      <TrashIcon class="w-3.5 h-3.5" />
+                      <span>删除帖子</span>
+                    </button>
+                    
+                    <span
+                      class="px-2 py-0.5 rounded text-[8px] font-mono tracking-wider uppercase font-bold scale-90 select-none flex items-center space-x-1 border"
+                      :class="[
+                        selectedForumPost.board_id === 'nsfw'
+                          ? 'bg-red-500/10 text-red-500 border-red-500/20'
+                          : 'bg-primary/5 text-primary border-transparent'
+                      ]"
+                    >
+                      <component :is="boards.find(b => b.id === selectedForumPost.board_id)?.icon || 'ScrollIcon'" class="w-2.5 h-2.5" />
+                      <span>{{ boards.find(b => b.id === selectedForumPost.board_id)?.name || '开发者论坛' }}</span>
+                    </span>
+                  </div>
+                </header>
+
+                <!-- 详情与评论流 -->
+                <div class="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 select-text">
+                  <!-- 帖子标题与内容 -->
+                  <div class="p-5 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-4">
+                    <h2 class="text-sm font-black text-on-surface leading-snug">{{ selectedForumPost.title }}</h2>
+                    <div class="text-[11.5px] leading-relaxed text-on-surface pl-0.5 font-medium select-text font-sans markdown-body" v-html="replaceStickersOnly(renderMarkdown(selectedForumPost.content))">
+                      </div>
+                  </div>
+
+                  <!-- 楼中楼互动回复列表 -->
+                  <div class="space-y-4">
+                    <div class="text-xs font-black text-on-surface select-none flex items-center space-x-1.5">
+                      <MessageSquareIcon class="w-3.5 h-3.5 text-primary" />
+                      <span>互动回复 ({{ forumCommentsList.length }})</span>
+                    </div>
+
+                    <div v-if="forumCommentsList.length === 0" class="text-center py-10 text-[10.5px] text-on-surface-variant/40 bg-surface/50 border border-outline-variant/20 rounded-xl">
+                      暂无评论，留下第一个回音印记吧
+                    </div>
+
+                    <div v-else class="space-y-3">
+                      <div
+                        v-for="c in forumCommentsList"
+                        :key="c.id"
+                        class="p-4 rounded-xl bg-surface border border-outline-variant/50 shadow-sm space-y-2 select-text group/forum-comment"
+                      >
+                        <div class="flex items-center justify-between select-none">
+                          <div class="flex items-center space-x-2">
+                            <div class="w-6 h-6 rounded-md overflow-hidden border border-outline-variant">
+                              <img v-if="c.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                              <img v-else-if="characterAvatars[c.character_id]" :src="characterAvatars[c.character_id]" class="w-full h-full object-cover" />
+                              <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant m-auto mt-1" />
+                            </div>
+                            <span class="text-xs font-bold text-on-surface">{{ c.author_name }}</span>
+                            <span v-if="c.reply_to_name" class="text-[10px] text-on-surface-variant/70 font-normal"> 回复 <span class="font-bold text-primary">{{ c.reply_to_name }}</span></span>
+                          </div>
+                          <div class="flex items-center space-x-2">
+                            <span class="text-[9px] text-on-surface-variant/40 font-mono">{{ formatTime(c.timestamp) }}</span>
+                            <button @click="startForumReply(c)" class="opacity-0 group-hover/forum-comment:opacity-100 text-[9px] text-primary hover:underline font-bold transition-all cursor-pointer">回复</button>
+                            <!-- 删除小图标 -->
+                            <button @click="deleteForumCommentItem(c)" class="ml-2 opacity-0 group-hover/forum-comment:opacity-100 text-[9px] text-red-500 hover:underline font-bold transition-all cursor-pointer">删除</button>
+                          </div>
+                        </div>
+                        <p class="text-xs text-on-surface font-medium pl-8 select-text" v-html="renderTextWithStickers(c.content)"></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 评论发表框 -->
+                <footer class="p-4 bg-surface border-t border-outline-variant/20 flex items-center space-x-1.5 flex-shrink-0 select-none relative">
+                  <!-- 评论@联想角色浮窗 -->
+                  <div
+                    v-if="showForumAtList"
+                    class="absolute bottom-full left-4 right-4 mb-2 z-50 rounded-xl border border-outline-variant/60 shadow-lg max-h-[160px] overflow-y-auto animate-scale-in p-1 select-none flex flex-col min-w-[200px] bg-surface"
+                  >
+                    <div class="text-[9px] font-bold text-on-surface-variant/40 px-2.5 py-1.5 border-b border-outline-variant/10 uppercase tracking-wider font-mono">
+                      选择提及的角色 (@提及)
+                    </div>
+                    <div v-if="filteredForumAtCharacters.length === 0" class="text-center py-4 text-[10px] text-on-surface-variant/40">
+                      未找到匹配的角色 🐾
+                    </div>
+                    <div
+                      v-else
+                      v-for="char in filteredForumAtCharacters"
+                      :key="char.id"
+                      @click="selectForumAtCharacter(char)"
+                      class="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg hover:bg-primary/5 active:bg-primary/10 transition-colors cursor-pointer select-none"
+                    >
+                      <div class="w-5 h-5 rounded-md overflow-hidden border border-outline-variant bg-surface-low flex-shrink-0 shadow-sm flex items-center justify-center">
+                        <img v-if="characterAvatars[char.id]" :src="characterAvatars[char.id]" class="w-full h-full object-cover" />
+                        <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant" />
+                      </div>
+                      <span class="text-xs font-bold text-on-surface truncate">{{ char.name }}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    @click.stop="openStickersPanel($event, 'forumCommentInput')"
+                    class="p-1.5 rounded-lg text-on-surface-variant/60 hover:text-primary hover:bg-surface-high transition-all cursor-pointer active:scale-95 flex-shrink-0"
+                    title="表情与表情包"
+                  >
+                    <SmileIcon class="w-4.5 h-4.5" />
+                  </button>
+                  <input
+                    id="forum-comment-input-el"
+                    v-model="forumCommentInput"
+                    :placeholder="forumReplyPlaceholder || '留下你的评论...'"
+                    @keyup.enter="submitForumComment"
+                    @input="handleForumCommentInput"
+                    class="flex-1 bg-surface-low border border-outline-variant/80 rounded-xl px-4 py-2 text-xs text-on-surface focus:outline-none focus:border-primary placeholder-on-surface-variant/40"
+                  />
+                  <button
+                    @click="submitForumComment"
+                    :disabled="!forumCommentInput.trim()"
+                    class="px-4 py-2 rounded-xl bg-primary text-white text-xs font-bold shadow hover:bg-primary-high disabled:opacity-40 transition-all select-none cursor-pointer"
+                  >
+                    发送
+                  </button>
+                </footer>
+              </template>
+              
+              <div v-else class="flex-1 flex flex-col items-center justify-center text-center p-12 text-on-surface-variant/40 select-none">
+                <ScrollIcon class="w-14 h-14 opacity-25 mb-3 animate-pulse" />
+                <p class="text-xs font-bold">请在左侧选择一篇帖子进行阅读</p>
+                <p class="text-[10px] opacity-75 mt-1">支持按板块分类快捷筛选，用户或角色的发帖都将在此集结</p>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── 统一收藏中心区 (极高品质三栏重构) ── -->
+        <template v-else-if="sideView === 'favorites'">
+          <div class="flex-1 flex min-h-0 bg-surface divide-x divide-outline-variant/15 overflow-hidden">
+            
+            <!-- 【三栏收藏 - 中间筛选栏】 w-[280px] -->
+            <div class="w-[280px] flex flex-col min-h-0 bg-surface flex-shrink-0 select-none">
+              <!-- 顶部 Header -->
+              <header class="h-14 px-4 border-b border-outline-variant/20 flex items-center justify-between flex-shrink-0">
+                <div class="text-xs font-black text-on-surface flex items-center space-x-1.5">
+                  <BookmarkIcon class="w-4 h-4 text-primary animate-pulse" />
+                  <span>我的微型书签</span>
+                </div>
+              </header>
+
+              <!-- 筛选过滤器：全部、对话、朋友圈、论坛、日记 -->
+              <div class="p-3 bg-surface-low border-b border-outline-variant/10 grid grid-cols-2 gap-1.5 flex-shrink-0">
+                <button
+                  v-for="filter in favFilters"
+                  :key="filter.type"
+                  @click="selectFavoriteType(filter.type)"
+                  class="px-2 py-1.5 rounded-lg border text-[10.5px] font-black text-center transition-all cursor-pointer truncate flex items-center justify-center space-x-1.5"
+                  :class="selectedFavType === filter.type ? 'bg-primary text-white border-primary shadow-sm' : 'bg-surface border-outline-variant/60 text-on-surface-variant hover:bg-surface-high'"
+                >
+                  <component :is="filter.icon" class="w-3.5 h-3.5" :class="[selectedFavType === filter.type ? 'text-white' : 'text-on-surface-variant/70']" />
+                  <span>{{ filter.name }}</span>
+                </button>
+              </div>
+
+              <!-- 收藏列表 -->
+              <div class="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+                <div v-if="favoritesList.length === 0" class="text-center py-16 text-[10px] text-on-surface-variant/40">
+                  当前无收藏内容
+                </div>
+                <div
+                  v-for="fav in favoritesList"
+                  :key="fav.id"
+                  @click="selectedFavorite = fav"
+                  class="p-3.5 rounded-xl border transition-all cursor-pointer space-y-2 select-none"
+                  :class="selectedFavorite?.id === fav.id ? 'bg-primary/5 border-primary shadow-sm' : 'bg-surface border-outline-variant/50 hover:bg-surface-low hover:border-outline-variant'"
+                >
+                  <!-- 精美微标：标注收藏自哪个角色 -->
+                  <div class="flex items-center space-x-1.5 text-[8.5px] font-bold text-primary font-mono bg-primary/5 px-2 py-0.5 rounded-md border border-primary/10 max-w-max">
+                    <span>【{{ fav.author_name }}】</span>
+                    <span class="opacity-70 font-sans font-normal">{{ favFilters.find(f => f.type === fav.type)?.name }}</span>
+                  </div>
+                  
+                  <h3 class="text-xs font-black text-on-surface leading-tight line-clamp-1">
+                    {{ fav.title || '无标题内容' }}
+                  </h3>
+                  <p class="text-[10px] text-on-surface-variant line-clamp-2 leading-relaxed">
+                    {{ fav.content }}
+                  </p>
+                  <span class="text-[8.5px] text-on-surface-variant/40 font-mono block text-right">{{ formatTime(fav.timestamp) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 【三栏收藏 - 右侧内容大卡片区】 flex-1 -->
+            <div class="flex-1 flex flex-col min-h-0 bg-surface-low overflow-hidden">
+              <template v-if="selectedFavorite">
+                <!-- Header -->
+                <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+                  <div class="flex items-center space-x-2.5">
+                    <div class="w-7 h-7 rounded-lg overflow-hidden border border-outline-variant">
+                      <img v-if="selectedFavorite.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                      <img v-else-if="characterAvatars[selectedFavorite.character_id]" :src="characterAvatars[selectedFavorite.character_id]" class="w-full h-full object-cover" />
+                      <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto mt-1.5" />
+                    </div>
+                    <div>
+                      <h4 class="text-xs font-black text-on-surface leading-tight">{{ selectedFavorite.author_name }}</h4>
+                      <p class="text-[9px] text-on-surface-variant/50 font-mono mt-0.5">收藏于：{{ formatTime(selectedFavorite.timestamp) }}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    @click="deleteFavoriteItem(selectedFavorite)"
+                    class="px-3 py-1.5 rounded-lg border border-red-200 text-[10px] font-bold text-red-600 bg-red-50/50 hover:bg-red-50 transition-all cursor-pointer active:scale-95 flex items-center space-x-1"
+                  >
+                    <span>🗑️ 取消收藏</span>
+                  </button>
+                </header>
+
+                <!-- 收藏项内容详情 -->
+                <div class="flex-1 overflow-y-auto p-6 space-y-5 min-h-0 select-text">
+                  <div class="p-6 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-4">
+                    <h2 class="text-sm font-black text-on-surface leading-snug border-b border-outline-variant/10 pb-3">
+                      {{ selectedFavorite.title || '收藏内容预览' }}
+                    </h2>
+                    
+                    <div class="text-[11.5px] leading-relaxed text-on-surface whitespace-pre-wrap pl-0.5 select-text font-sans">
+                      {{ selectedFavorite.content }}
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <div v-else class="flex-1 flex flex-col items-center justify-center text-center p-12 text-on-surface-variant/40 select-none">
+                <BookmarkIcon class="w-14 h-14 opacity-25 mb-3 animate-pulse" />
+                <p class="text-xs font-bold">请在左侧选择一篇收藏进行阅读 🐾</p>
+                <p class="text-[10px] opacity-75 mt-1">对话、朋友圈、论坛、日记等一切灵光，都可以被安全存放并支持筛选</p>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── 系统设置详情区 ── -->
+        <template v-else-if="sideView === 'settings'">
+          <div class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <!-- 顶部 Header -->
+            <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0">
+              <div class="text-sm font-bold text-on-surface flex items-center space-x-2 select-none">
+                <SettingsIcon class="w-4 h-4 text-primary animate-spin" style="animation-duration: 10s;" stroke-width="1.5" />
+                <span>{{ settingsMenus.find(m => m.id === activeSettingsTab)?.label }}</span>
+              </div>
+            </header>
+
+            <!-- 配置内容滚动区 -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 select-text max-w-3xl w-full mx-auto">
+              <!-- A. 常规设置 -->
+              <div v-if="activeSettingsTab === 'general'" class="space-y-7 animate-in fade-in duration-200">
+                
+                <!-- 1. 交互与视觉外观 -->
+                <div class="space-y-4 pb-6 border-b border-outline-variant/10">
+                  <div class="flex items-center space-x-2 text-primary font-bold text-xs select-none">
+                    <PenToolIcon class="w-4 h-4 text-primary" />
+                    <span>交互模式与系统外观</span>
+                  </div>
+
+                  <!-- 聊天模式 -->
+                  <div class="space-y-2">
+                    <div class="flex items-center space-x-1.5">
+                      <h4 class="text-[11px] font-bold text-on-surface">聊天交互模式</h4>
+                      <span class="text-[8px] px-1 py-0.5 rounded bg-primary/10 text-primary font-bold">影响回复细节</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                      <button
+                        @click="chatMode = 'descriptive'"
+                        class="text-left p-3 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
+                        :class="chatMode === 'descriptive' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
+                      >
+                        <div class="flex items-center space-x-2">
+                          <PenLineIcon class="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                          <span class="font-bold text-xs">动作描写</span>
+                        </div>
+                        <div class="text-[9px] opacity-75 mt-1 leading-relaxed">回复中融合心理、神态及动作描写，塑造极具沉浸交互的人物感。</div>
+                      </button>
+                      <button
+                        @click="chatMode = 'dialogue'"
+                        class="text-left p-3 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
+                        :class="chatMode === 'dialogue' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
+                      >
+                        <div class="flex items-center space-x-2">
+                          <MessageSquareIcon class="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                          <span class="font-bold text-xs">纯文字对话</span>
+                        </div>
+                        <div class="text-[9px] opacity-75 mt-1 leading-relaxed">输出最直接的纯文字对话，像日常聊天软件一样轻松自然、干净简洁。</div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- 系统外观 -->
+                  <div class="space-y-2 pt-2">
+                    <h4 class="text-[11px] font-bold text-on-surface">系统外观风格</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                      <button
+                        @click="toggleTheme(false)"
+                        class="flex items-center justify-center space-x-2 py-2.5 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
+                        :class="!isDark ? 'border-primary bg-primary/5 text-primary shadow-sm font-black' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
+                      >
+                        <SunIcon class="w-4 h-4 text-primary flex-shrink-0" />
+                        <span class="text-xs">极光亮色 (Aurora Light)</span>
+                      </button>
+                      <button
+                        @click="toggleTheme(true)"
+                        class="flex items-center justify-center space-x-2 py-2.5 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
+                        :class="isDark ? 'border-primary bg-primary/5 text-primary shadow-sm font-black' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
+                      >
+                        <MoonIcon class="w-4 h-4 text-primary flex-shrink-0" />
+                        <span class="text-xs">深邃暗色 (Deep Dark)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 2. 自主生命引擎与全局约束 -->
+                <div class="space-y-4 pb-6 border-b border-outline-variant/10">
+                  <div class="flex items-center space-x-2 text-primary font-bold text-xs select-none">
+                    <CpuIcon class="w-4 h-4 text-primary" />
+                    <span>自主引擎与全局约束</span>
+                  </div>
+
+                  <!-- 扫档频率 -->
+                  <div class="space-y-2">
+                    <h4 class="text-[11px] font-bold text-on-surface">后台自主扫档频率</h4>
+                    <div class="flex items-center space-x-2">
+                      <button
+                        v-for="opt in [{id:'active', name:'更活跃 (30m)'}, {id:'standard', name:'标准 (1h)'}, {id:'quiet', name:'更安静 (2h)'}]"
+                        :key="opt.id"
+                        @click="generalConfig.cron_frequency = opt.id; saveGeneralSettings();"
+                        class="flex-grow py-2 text-center rounded-xl border font-bold text-xs select-none transition-all cursor-pointer focus:outline-none"
+                        :class="generalConfig.cron_frequency === opt.id ? 'border-primary bg-primary/5 text-primary shadow-sm font-black' : 'border-outline-variant hover:bg-surface-high text-on-surface-variant'"
+                      >
+                        {{ opt.name }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- 全局系统提示词 -->
+                  <div class="space-y-2 pt-1">
+                    <h4 class="text-[11px] font-bold text-on-surface">全局系统约束指令 (Global Prompt)</h4>
+                    <div class="form-group relative">
+                      <textarea
+                        v-model="globalPrompt"
+                        placeholder="例如：请使用温柔体贴的语气进行交谈；或者：无论如何，都必须在回复最后面附带上当天的心情标签..."
+                        class="w-full h-56 min-h-[14rem] font-mono text-xs bg-surface border border-outline-variant rounded-2xl p-3 focus:outline-none focus:border-primary resize-y text-on-surface overflow-y-auto shadow-inner placeholder-on-surface-variant/30 leading-relaxed transition-colors duration-200"
+                      ></textarea>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 3. 拓展功能控制 -->
+                <div class="space-y-4">
+                  <div class="flex items-center space-x-2 text-primary font-bold text-xs select-none">
+                    <SparklesIcon class="w-4 h-4 text-primary animate-pulse" />
+                    <span>拓展功能控制</span>
+                  </div>
+
+                  <div class="divide-y divide-outline-variant/10">
+                    <!-- 显示角色日程 -->
+                    <div class="py-3 flex items-center justify-between first:pt-0 last:pb-0">
+                      <div class="flex items-center space-x-3.5">
+                        <div class="p-1.5 rounded-xl bg-surface border border-outline-variant/40 text-on-surface-variant">
+                          <CalendarIcon class="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <div>
+                          <h4 class="text-xs font-bold text-on-surface">显示角色日程栏 (Schedule)</h4>
+                          <p class="text-[9px] text-on-surface-variant mt-0.5">在联系人详情中展示AI角色未来的近7天日程排期。</p>
+                        </div>
+                      </div>
+                      <button @click="generalConfig.show_schedule = !generalConfig.show_schedule; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.show_schedule ? 'bg-primary' : 'bg-outline-variant'">
+                        <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.show_schedule ? 'left-5.5' : 'left-0.5'"></span>
+                      </button>
+                    </div>
+
+                    <!-- 显示成长目标 -->
+                    <div class="py-3 flex items-center justify-between last:pb-0">
+                      <div class="flex items-center space-x-3.5">
+                        <div class="p-1.5 rounded-xl bg-surface border border-outline-variant/40 text-on-surface-variant">
+                          <BarChart3Icon class="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <div>
+                          <h4 class="text-xs font-bold text-on-surface">显示角色成长目标 (Goals)</h4>
+                          <p class="text-[9px] text-on-surface-variant mt-0.5">在联系人详情中展示AI角色正在追求的长期成长进化目标。</p>
+                        </div>
+                      </div>
+                      <button @click="generalConfig.show_goals = !generalConfig.show_goals; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.show_goals ? 'bg-primary' : 'bg-outline-variant'">
+                        <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.show_goals ? 'left-5.5' : 'left-0.5'"></span>
+                      </button>
+                    </div>
+
+                    <!-- 启用音乐功能 -->
+                    <div class="py-3 flex items-center justify-between last:pb-0">
+                      <div class="flex items-start space-x-3.5">
+                        <div class="p-1.5 rounded-xl bg-surface border border-outline-variant/40 text-on-surface-variant">
+                          <MusicIcon class="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <div>
+                          <h4 class="text-xs font-bold text-on-surface">启用回音音乐功能 (Music)</h4>
+                          <p class="text-[9px] text-on-surface-variant mt-0.5">开启后可在系统左侧栏激活音乐，并展现全局底部音乐控制栏。</p>
+                        </div>
+                      </div>
+                      <button @click="generalConfig.enable_music = !generalConfig.enable_music; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.enable_music ? 'bg-primary' : 'bg-outline-variant'">
+                        <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.enable_music ? 'left-5.5' : 'left-0.5'"></span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- A.2 状态栏设置 (Tab: states) -->
+              <div v-else-if="activeSettingsTab === 'states'" class="space-y-6 animate-in fade-in duration-200">
+                <!-- 预设创建/编辑面板 -->
+                <div class="p-5 rounded-3xl border border-outline-variant bg-surface-high/60 flex flex-col space-y-4">
+                  <h3 class="text-xs font-bold text-on-surface-variant uppercase tracking-wider flex items-center space-x-1.5">
+                    <SparklesIcon class="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+                    <span>{{ editingPresetId ? '修改状态栏预设' : '添加全新状态栏预设' }}</span>
+                  </h3>
+                  
+                  <div class="grid grid-cols-2 gap-4">
+                    <!-- 字段名称 -->
+                    <div class="flex flex-col space-y-1.5">
+                      <label class="text-[11px] font-bold text-on-surface-variant">指标属性名称 (例如：欲望值、好感)</label>
+                      <input 
+                        type="text" 
+                        v-model="presetForm.label" 
+                        class="w-full px-3.5 py-2 rounded-2xl bg-surface border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface"
+                        placeholder="请输入状态名称"
+                      />
+                    </div>
+                    
+                    <!-- 字段类型 -->
+                    <div class="flex flex-col space-y-1.5">
+                      <label class="text-[11px] font-bold text-on-surface-variant">指标类型</label>
+                      <div class="flex p-1 rounded-2xl bg-surface border border-outline-variant">
+                        <button 
+                          @click="presetForm.type = 'number'"
+                          class="flex-grow py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                          :class="presetForm.type === 'number' ? 'bg-surface-high text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
+                        >
+                          数字型 (0-100)
+                        </button>
+                        <button 
+                          @click="presetForm.type = 'text'"
+                          class="flex-grow py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                          :class="presetForm.type === 'text' ? 'bg-surface-high text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
+                        >
+                          文本型 (自由字串)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 指标含义 -->
+                  <div class="flex flex-col space-y-1.5">
+                    <label class="text-[11px] font-bold text-on-surface-variant">指标含义 (作为提示词强约束注入 AI 脑区，例如：好感越高，说话越害羞)</label>
+                    <textarea 
+                      v-model="presetForm.meaning" 
+                      class="w-full h-16 px-3.5 py-2 rounded-2xl bg-surface border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface resize-none leading-relaxed"
+                      placeholder="例如：欲望值越高，说话越色情，0为正常；或者：黑化值越高，说话语气越病娇冷酷。"
+                    ></textarea>
+                  </div>
+
+                  <!-- 指标更新规则 -->
+                  <div class="flex flex-col space-y-1.5">
+                    <label class="text-[11px] font-bold text-on-surface-variant">指标更新规则 (AI 增减分值所要遵守的自省自然语言法则)</label>
+                    <textarea 
+                      v-model="presetForm.rule" 
+                      class="w-full h-20 px-3.5 py-2 rounded-2xl bg-surface border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface resize-none leading-relaxed"
+                      placeholder="例如：当{{user}}赞美、关心或提到暧昧话题时分值增加；当{{user}}冷淡、责怪时分值减少。"
+                    ></textarea>
+                  </div>
+
+                  <!-- 是否设为全局状态栏 -->
+                  <div class="py-3 flex items-center justify-between border-t border-b border-outline-variant/30">
+                    <div>
+                      <h4 class="text-xs font-bold text-on-surface">设为全局状态栏 (Global State)</h4>
+                      <p class="text-[10px] text-on-surface-variant mt-0.5">设为全局后，该指标将强制无感应用于**所有角色**，且各角色独立持久化各自的分值。</p>
+                    </div>
+                    <button 
+                      @click="presetForm.is_global = !presetForm.is_global" 
+                      class="relative w-11 h-6 rounded-full transition-all focus:outline-none" 
+                      :class="presetForm.is_global ? 'bg-primary' : 'bg-outline-variant'"
+                    >
+                      <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all shadow-md" :class="presetForm.is_global ? 'left-5.5' : 'left-0.5'"></span>
+                    </button>
+                  </div>
+
+                  <!-- 动作按钮 -->
+                  <div class="flex items-center space-x-2 pt-1">
+                    <button 
+                      v-if="editingPresetId"
+                      @click="cancelEditPreset"
+                      class="flex-1 py-2 text-xs font-bold rounded-2xl border border-outline-variant text-on-surface-variant hover:bg-surface-high transition-colors cursor-pointer"
+                    >
+                      取消修改
+                    </button>
+                    <button 
+                      @click="handleAddOrUpdatePreset"
+                      class="flex-1 py-2 text-xs font-bold rounded-2xl bg-primary text-white hover:bg-primary-hover shadow-md active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+                    >
+                      <CheckIcon class="w-3.5 h-3.5" />
+                      <span>{{ editingPresetId ? (presetForm.is_global ? '一键更新' : '保存') : (presetForm.is_global ? '添加指标预设并全局同步' : '添加指标预设') }}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 当前已注册预设列表 -->
+                <div class="space-y-3">
+                  <h3 class="text-xs font-bold text-on-surface-variant uppercase tracking-wider">当前已注册的预设指标 (Presets List)</h3>
+                  
+                  <!-- 预设卡片堆叠 -->
+                  <div v-if="statePresets.length > 0" class="grid grid-cols-2 gap-3">
+                    <div 
+                      v-for="item in statePresets" 
+                      :key="item.id"
+                      @click="editPresetItem(item)"
+                      class="p-4 rounded-3xl border bg-surface border-outline-variant/60 flex items-start justify-between hover:shadow-md transition-all relative group cursor-pointer"
+                    >
+                      <div class="flex items-start space-x-3 min-w-0">
+                        <div class="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center text-lg flex-shrink-0 select-none">
+                          {{ item.type === 'number' ? '📊' : '🏷️' }}
+                        </div>
+                        <div class="min-w-0">
+                          <div class="flex items-center space-x-1.5">
+                            <span class="text-xs font-extrabold text-on-surface truncate">{{ item.label }}</span>
+                            <span v-if="item.is_global" class="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-500 font-extrabold shrink-0 border border-rose-500/10">全局</span>
+                            <span v-else class="text-[9px] px-1.5 py-0.5 rounded-full bg-on-surface/5 text-on-surface-variant font-bold shrink-0 border">预设</span>
+                          </div>
+                          <p class="text-[10px] text-on-surface-variant truncate mt-1 leading-normal">含义：{{ item.meaning }}</p>
+                          <p class="text-[10px] text-on-surface-variant truncate mt-0.5 leading-normal">规则：{{ item.rule }}</p>
+                        </div>
+                      </div>
+
+                      <div class="flex items-center space-x-1 shrink-0 ml-1">
+                        <!-- 编辑 -->
+                        <button 
+                          @click.stop="editPresetItem(item)"
+                          class="p-1 rounded-md text-on-surface-variant/70 hover:bg-on-surface/5 hover:text-on-surface transition-all flex items-center justify-center cursor-pointer"
+                          title="编辑预设"
+                        >
+                          <EditIcon class="w-3.5 h-3.5" />
+                        </button>
+                        <!-- 删除 -->
+                        <button 
+                          @click.stop="deletePresetItem(item.id)"
+                          class="p-1 rounded-md text-red-500 hover:bg-red-500/10 transition-all flex items-center justify-center cursor-pointer"
+                          title="删除预设"
+                        >
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 空白状态 -->
+                  <div v-else class="flex flex-col items-center justify-center py-10 bg-on-surface/5 border border-dashed border-outline-variant/60 rounded-3xl text-center select-none">
+                    <HeartIcon class="w-8 h-8 text-on-surface-variant/30 animate-pulse mb-2" />
+                    <span class="text-xs font-bold text-on-surface-variant/60">暂无任何状态指标预设</span>
+                    <span class="text-[10px] text-on-surface-variant/40 mt-1 leading-normal">快在上方表单添加一个您独特的性格画像指标吧！</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- B. 主大模型 -->
+              <div v-else-if="activeSettingsTab === 'primary'" class="space-y-6">
+                <div class="space-y-4 pt-2">
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs">模型提供商</label>
+                    <div class="relative">
+                      <button 
+                        @click="showPrimaryProviderDropdown = !showPrimaryProviderDropdown"
+                        @blur="hideProviderDropdownDelayed('primary')"
+                        class="form-input text-xs text-left w-full flex items-center justify-between cursor-pointer select-none active:scale-[0.99] transition-all"
+                      >
+                        <span>{{ modelProviders.find(p => p.value === primary.provider)?.label || '请选择提供商' }}</span>
+                        <ChevronDownIcon class="w-3.5 h-3.5 text-on-surface-variant transition-transform duration-200" :class="{ 'rotate-180': showPrimaryProviderDropdown }" />
+                      </button>
+                      
+                      <!-- 自定义毛玻璃提供商选择气泡 -->
+                      <div 
+                        v-if="showPrimaryProviderDropdown"
+                        class="absolute left-0 right-0 top-full mt-1.5 rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 select-none animate-in fade-in slide-in-from-top-1.5 duration-150"
+                      >
+                        <div 
+                          v-for="p in modelProviders" 
+                          :key="p.value" 
+                          @mousedown="selectProvider('primary', p.value)"
+                          class="px-3.5 py-2 text-xs text-on-surface hover:bg-primary/10 hover:text-primary transition-all flex items-center justify-between cursor-pointer"
+                          :class="{ 'bg-primary/5 text-primary font-bold': primary.provider === p.value }"
+                        >
+                          <span>{{ p.label }}</span>
+                          <span v-if="primary.provider === p.value" class="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-md">当前</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs">Base URL</label>
+                    <input v-model="primary.baseUrl" type="text" class="form-input font-mono text-xs" placeholder="https://api.openai.com/v1" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs">API Key</label>
+                    <div class="relative">
+                      <input v-model="primary.apiKey" :type="showPrimaryApiKey ? 'text' : 'password'" class="form-input pr-9 font-mono text-xs" placeholder="sk-..." />
+                      <button @click="showPrimaryApiKey = !showPrimaryApiKey" class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant">
+                        <EyeIcon v-if="!showPrimaryApiKey" class="w-4 h-4" />
+                        <EyeOffIcon v-else class="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs flex justify-between items-center">
+                      <span>模型名称</span>
+                      <button @click="fetchModelList('primary')" :disabled="fetchingPrimaryModels" class="text-primary hover:opacity-80 flex items-center space-x-1 disabled:opacity-50 select-none active:scale-95 transition-all">
+                        <Loader2Icon v-if="fetchingPrimaryModels" class="w-3 h-3 animate-spin" />
+                        <RefreshCwIcon v-else class="w-3 h-3" />
+                        <span>{{ fetchingPrimaryModels ? '拉取中...' : '在线获取模型列表' }}</span>
+                      </button>
+                    </label>
+                    <div class="relative">
+                      <input 
+                        v-model="primary.model" 
+                        type="text" 
+                        @focus="showPrimaryDropdown = true"
+                        @blur="hideDropdownDelayed('primary')"
+                        class="form-input font-mono text-xs pr-6" 
+                        placeholder="gpt-4o / deepseek-chat" 
+                      />
+                      <!-- 自定义毛玻璃模糊过滤下拉卡片 -->
+                      <div 
+                        v-if="showPrimaryDropdown && primaryModelsList.length > 0" 
+                        class="absolute left-0 right-0 top-full mt-1.5 max-h-48 overflow-y-auto rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 cursor-default select-none animate-in fade-in slide-in-from-top-1.5 duration-150"
+                      >
+                        <div 
+                          v-for="m in filteredPrimaryModels" 
+                          :key="m" 
+                          @mousedown="selectModel('primary', m)"
+                          class="px-3.5 py-2 text-[11px] font-mono text-on-surface hover:bg-primary/10 hover:text-primary transition-all flex items-center justify-between cursor-pointer"
+                          :class="{ 'bg-primary/5 text-primary font-bold': primary.model === m }"
+                        >
+                          <span>{{ m }}</span>
+                          <span v-if="primary.model === m" class="text-[9px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-md">当前</span>
+                        </div>
+                        <div v-if="filteredPrimaryModels.length === 0" class="px-3.5 py-2 text-[10px] text-on-surface-variant/50 text-center italic">
+                          无匹配模型
+                        </div>
+                      </div>
+                    </div>
+                    <!-- 错误状态反馈 -->
+                    <div v-if="primaryModelsError" class="text-[10px] text-error mt-1 select-none font-mono opacity-90 leading-normal">{{ primaryModelsError }}</div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs flex justify-between"><span>温度 (Temperature)</span><span class="text-primary font-mono">{{ primary.temperature.toFixed(1) }}</span></label>
+                    <input v-model.number="primary.temperature" type="range" min="0" max="2" step="0.1" class="w-full accent-primary" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- C. 辅助大模型 -->
+              <div v-else-if="activeSettingsTab === 'secondary'" class="space-y-6">
+                <div class="flex items-center justify-between pb-6 border-b border-outline-variant/10 mb-4">
+                  <div>
+                    <h3 class="text-sm font-bold text-on-surface">启用辅助大模型</h3>
+                    <p class="text-[10px] text-on-surface-variant mt-1">开启后，后台梦境睡眠自省进化与人设提炼将优先跑在独立的辅助模型上，保障主聊天通道的算力带宽。</p>
+                  </div>
+                  <button @click="enableSecondary = !enableSecondary" class="relative w-11 h-6 rounded-full transition-all focus:outline-none" :class="enableSecondary ? 'bg-primary' : 'bg-outline-variant'">
+                    <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all shadow-md" :class="enableSecondary ? 'left-5.5' : 'left-0.5'"></span>
+                  </button>
+                </div>
+
+                <div v-if="enableSecondary" class="space-y-4 pt-2">
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs">模型提供商</label>
+                    <div class="relative">
+                      <button 
+                        @click="showSecondaryProviderDropdown = !showSecondaryProviderDropdown"
+                        @blur="hideProviderDropdownDelayed('secondary')"
+                        class="form-input text-xs text-left w-full flex items-center justify-between cursor-pointer select-none active:scale-[0.99] transition-all"
+                      >
+                        <span>{{ modelProviders.find(p => p.value === secondary.provider)?.label || '请选择提供商' }}</span>
+                        <ChevronDownIcon class="w-3.5 h-3.5 text-on-surface-variant transition-transform duration-200" :class="{ 'rotate-180': showSecondaryProviderDropdown }" />
+                      </button>
+                      
+                      <!-- 自定义毛玻璃提供商选择气泡 -->
+                      <div 
+                        v-if="showSecondaryProviderDropdown"
+                        class="absolute left-0 right-0 top-full mt-1.5 rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 select-none animate-in fade-in slide-in-from-top-1.5 duration-150"
+                      >
+                        <div 
+                          v-for="p in modelProviders" 
+                          :key="p.value" 
+                          @mousedown="selectProvider('secondary', p.value)"
+                          class="px-3.5 py-2 text-xs text-on-surface hover:bg-secondary/10 hover:text-secondary transition-all flex items-center justify-between cursor-pointer"
+                          :class="{ 'bg-secondary/5 text-secondary font-bold': secondary.provider === p.value }"
+                        >
+                          <span>{{ p.label }}</span>
+                          <span v-if="secondary.provider === p.value" class="text-[9px] font-bold text-secondary bg-secondary/10 px-1.5 py-0.5 rounded-md">当前</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs">Base URL</label>
+                    <input v-model="secondary.baseUrl" type="text" class="form-input font-mono text-xs" placeholder="https://api.openai.com/v1" />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs">API Key</label>
+                    <div class="relative">
+                      <input v-model="secondary.apiKey" :type="showSecondaryApiKey ? 'text' : 'password'" class="form-input pr-9 font-mono text-xs" placeholder="sk-..." />
+                      <button @click="showSecondaryApiKey = !showSecondaryApiKey" class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant">
+                        <EyeIcon v-if="!showSecondaryApiKey" class="w-4 h-4" />
+                        <EyeOffIcon v-else class="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs flex justify-between items-center">
+                      <span>模型名称</span>
+                      <button @click="fetchModelList('secondary')" :disabled="fetchingSecondaryModels" class="text-secondary hover:opacity-80 flex items-center space-x-1 disabled:opacity-50 select-none active:scale-95 transition-all">
+                        <Loader2Icon v-if="fetchingSecondaryModels" class="w-3 h-3 animate-spin" />
+                        <RefreshCwIcon v-else class="w-3 h-3" />
+                        <span>{{ fetchingSecondaryModels ? '拉取中...' : '在线获取模型列表' }}</span>
+                      </button>
+                    </label>
+                    <div class="relative">
+                      <input 
+                        v-model="secondary.model" 
+                        type="text" 
+                        @focus="showSecondaryDropdown = true"
+                        @blur="hideDropdownDelayed('secondary')"
+                        class="form-input font-mono text-xs pr-6" 
+                        placeholder="gpt-4o-mini" 
+                      />
+                      <!-- 自定义毛玻璃模糊过滤下拉卡片 -->
+                      <div 
+                        v-if="showSecondaryDropdown && secondaryModelsList.length > 0" 
+                        class="absolute left-0 right-0 top-full mt-1.5 max-h-48 overflow-y-auto rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 cursor-default select-none animate-in fade-in slide-in-from-top-1.5 duration-150"
+                      >
+                        <div 
+                          v-for="m in filteredSecondaryModels" 
+                          :key="m" 
+                          @mousedown="selectModel('secondary', m)"
+                          class="px-3.5 py-2 text-[11px] font-mono text-on-surface hover:bg-secondary/10 hover:text-secondary transition-all flex items-center justify-between cursor-pointer"
+                          :class="{ 'bg-secondary/5 text-secondary font-bold': secondary.model === m }"
+                        >
+                          <span>{{ m }}</span>
+                          <span v-if="secondary.model === m" class="text-[9px] font-bold text-secondary bg-secondary/10 px-1.5 py-0.5 rounded-md">当前</span>
+                        </div>
+                        <div v-if="filteredSecondaryModels.length === 0" class="px-3.5 py-2 text-[10px] text-on-surface-variant/50 text-center italic">
+                          无匹配模型
+                        </div>
+                      </div>
+                    </div>
+                    <!-- 错误状态反馈 -->
+                    <div v-if="secondaryModelsError" class="text-[10px] text-error mt-1 select-none font-mono opacity-90 leading-normal">{{ secondaryModelsError }}</div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label font-bold text-xs flex justify-between"><span>温度 (Temperature)</span><span class="text-secondary font-mono">{{ secondary.temperature.toFixed(1) }}</span></label>
+                    <input v-model.number="secondary.temperature" type="range" min="0" max="2" step="0.1" class="w-full accent-secondary" />
+                  </div>
+                </div>
+              </div>
+
+
+              <!-- D. 关于软件 -->
+              <div v-else-if="activeSettingsTab === 'about'" class="space-y-6 select-text">
+                <div class="bg-surface-low/20 p-6 rounded-xl text-center select-none">
+                  <div class="w-16 h-16 rounded-3xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center mx-auto mb-4 shadow-sm animate-pulse">
+                    <SettingsIcon class="w-8 h-8 text-primary" />
+                  </div>
+                  <h2 class="text-base font-bold text-on-surface">Echo Platform</h2>
+                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.0 (Desktop Edition)</p>
+                  <p class="text-[10px] text-on-surface-variant mt-1.5 opacity-60">由 Antigravity 强力驱动的数字生命客户端</p>
+                </div>
+
+                <div class="space-y-4">
+                  <div>
+                    <h3 class="text-xs font-bold text-on-surface uppercase tracking-wider font-mono">关于系统架构</h3>
+                    <p class="text-xs text-on-surface-variant mt-1.5 leading-relaxed">
+                      Echo 是一套创新的数字生命客户端。它支持 SillyTavern 角色卡的零摩擦物理导入，并内置了自适应“双轨记忆”机制（短期滚动记忆 STM 与长期兴趣偏好 LTM）以及千人千面专属侧写（USER.md）。
+                    </p>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-on-surface uppercase tracking-wider font-mono">AI 安全隔离沙箱</h3>
+                    <p class="text-xs text-on-surface-variant mt-1.5 leading-relaxed">
+                      客户端集成了高级安全沙箱隔离层，防止 AI 专属动作逃逸。无论数字生命执行何种专属技能或扩展动作，都将在极致安全的独立沙箱内平稳运行，绝对保障您的系统数据安全。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 固定底部操作粘滞栏 -->
+            <div v-if="activeSettingsTab !== 'about'" class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none">
+              <div class="flex items-center justify-between max-w-3xl w-full mx-auto">
+                <button @click="testModelConnection" :disabled="testing" class="btn-secondary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 rounded-xl active:scale-95 transition-all">
+                  <ActivityIcon v-if="!testing" class="w-3.5 h-3.5" />
+                  <Loader2Icon v-else class="w-3.5 h-3.5 animate-spin" />
+                  <span>{{ testing ? '测试中...' : '测试接口' }}</span>
+                </button>
+                <button @click="saveModelConfig" :disabled="saving" class="btn-primary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 font-bold rounded-xl active:scale-95 transition-all">
+                  <Loader2Icon v-if="saving" class="w-3.5 h-3.5 animate-spin" />
+                  <SaveIcon v-else class="w-3.5 h-3.5" />
+                  <span>{{ saving ? '保存中...' : '保存配置' }}</span>
+                </button>
+              </div>
+
+              <!-- 测试结果反馈 -->
+              <div v-if="testResult" class="max-w-3xl w-full mx-auto p-3 rounded-xl border text-xs" :class="testResult.success ? 'border-primary/20 bg-primary/5 text-primary' : 'border-error/20 bg-error/5 text-error'">
+                <div class="font-bold flex items-center justify-between mb-2 border-b border-current/10 pb-1.5 select-none">
+                  <div class="flex items-center space-x-1.5">
+                    <CheckCircleIcon v-if="testResult.success" class="w-4 h-4" />
+                    <XCircleIcon v-else class="w-4 h-4" />
+                    <span>{{ testResult.success ? '大模型通道连通正常' : '大模型通道存在连接失败' }}</span>
+                  </div>
+                  <button 
+                    @click="testResult = null" 
+                    class="p-0.5 rounded-lg hover:bg-current/10 transition-colors cursor-pointer text-current/60 hover:text-current active:scale-95 focus:outline-none flex items-center justify-center" 
+                    title="收起结果"
+                  >
+                    <XIcon class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div class="space-y-2">
+                  <!-- 主大模型通道结果 -->
+                  <div>
+                    <div class="flex items-center space-x-1.5 font-semibold mb-0.5">
+                      <span class="w-1.5 h-1.5 rounded-full" :class="testResult.primary?.success ? 'bg-primary' : 'bg-error'"></span>
+                      <span class="opacity-95">主大模型通道：</span>
+                      <span :class="testResult.primary?.success ? 'text-primary font-bold' : 'text-error font-bold'">
+                        {{ testResult.primary?.success ? '测试通过' : '连接失败' }}
+                      </span>
+                    </div>
+                    <div class="text-on-surface-variant text-[10px] font-mono whitespace-pre-wrap pl-3 max-h-[80px] overflow-y-auto opacity-80 leading-relaxed">{{ testResult.primary?.message }}</div>
+                  </div>
+
+                  <!-- 辅助大模型通道结果 -->
+                  <div v-if="testResult.secondary">
+                    <div class="flex items-center space-x-1.5 font-semibold mb-0.5 border-t border-current/5 pt-1.5 mt-1.5">
+                      <span class="w-1.5 h-1.5 rounded-full" :class="testResult.secondary?.success ? 'bg-primary' : 'bg-error'"></span>
+                      <span class="opacity-95">辅助大模型通道：</span>
+                      <span :class="testResult.secondary?.success ? 'text-primary font-bold' : 'text-error font-bold'">
+                        {{ testResult.secondary?.success ? '测试通过' : '连接失败' }}
+                      </span>
+                    </div>
+                    <div class="text-on-surface-variant text-[10px] font-mono whitespace-pre-wrap pl-3 max-h-[80px] overflow-y-auto opacity-80 leading-relaxed">{{ testResult.secondary?.message }}</div>
+                  </div>
+                  <div v-else class="text-[10px] text-on-surface-variant/40 pl-3 italic border-t border-current/5 pt-1.5 mt-1.5 select-none">
+                    辅助大模型通道：未启用或未配置
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── 通讯录详情区 ── -->
+        <template v-else-if="sideView === 'contacts'">
+          <div v-if="!selectedContactId" class="flex-1 flex flex-col items-center justify-center text-center p-8 bg-surface select-none">
+            <div class="w-16 h-16 rounded-full bg-surface-low border border-outline-variant flex items-center justify-center mb-5 shadow-sm">
+              <UsersIcon class="w-8 h-8 text-primary opacity-60" />
+            </div>
+            <h3 class="text-sm font-bold text-on-surface mb-1.5">回音通讯录</h3>
+            <p class="text-xs text-on-surface-variant max-w-xs leading-relaxed opacity-70">请选择角色查看详细人设与自适应记忆，双击联系人可直接启动实时聊天。</p>
+          </div>
+          <div v-else class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <!-- 顶部大卡片区 (DESIGN.md Level 1 diff shadow) -->
+            <div class="p-6 border-b border-outline-variant flex-shrink-0 flex items-center justify-between">
+              <div class="flex items-center space-x-5">
+                <!-- 角色头像：支持悬浮遮罩及一键点击上传替换头像 -->
+                <div 
+                  @click="triggerContactAvatarUpload"
+                  class="w-16 h-16 rounded overflow-hidden border border-outline-variant bg-surface-low flex-shrink-0 shadow-md cursor-pointer relative group transition-all hover:scale-102 active:scale-98"
+                  title="点击更换角色头像"
+                >
+                  <img v-if="characterAvatars[selectedContactId]" :src="characterAvatars[selectedContactId]" class="w-full h-full object-cover" />
+                  <UserIcon v-else class="w-8 h-8 text-on-surface-variant m-auto mt-4" />
+                  <!-- 悬浮微透明层 -->
+                  <div class="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <span class="text-[9px] text-white font-bold tracking-wider select-none">更换头像</span>
+                  </div>
+                </div>
+                
+                <!-- 隐藏的物理文件选取通道 -->
+                <input 
+                  type="file" 
+                  ref="contactAvatarInput" 
+                  accept="image/*" 
+                  class="hidden" 
+                  @change="handleContactAvatarChange" 
+                />
+                <div>
+                  <!-- 姓名在线修改与编辑组件 -->
+                  <div v-if="isEditingContactName" class="flex items-center space-x-2 select-none">
+                    <input
+                      v-model="editingContactName"
+                      @keyup.enter="saveContactName"
+                      @keyup.esc="isEditingContactName = false"
+                      ref="contactNameInput"
+                      class="px-2 py-0.5 text-xs font-bold bg-surface border border-primary rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/20 text-on-surface w-36 shadow-sm font-sans"
+                    />
+                    <button
+                      @click="saveContactName"
+                      class="px-2 py-1 rounded-md bg-primary text-white hover:bg-primary-hover active:scale-95 transition-all text-[10px] font-bold cursor-pointer shadow-sm select-none"
+                    >
+                      保存
+                    </button>
+                    <button
+                      @click="isEditingContactName = false"
+                      class="px-2 py-1 rounded-md border border-outline-variant text-on-surface-variant hover:bg-on-surface/5 active:scale-95 transition-all text-[10px] font-semibold cursor-pointer select-none"
+                    >
+                      取消
+                    </button>
+                  </div>
+                  <h2 v-else class="text-base font-bold text-on-surface leading-tight flex items-center group select-text">
+                    <span>{{ characterList.find(c => c.id === selectedContactId)?.name }}</span>
+                    <button
+                      v-if="selectedContactId !== 'character_creator_bot'"
+                      @click="startEditContactName"
+                      class="ml-1.5 p-1 rounded-md hover:bg-on-surface/5 text-on-surface-variant/40 hover:text-primary opacity-0 group-hover:opacity-100 transition-all focus:outline-none cursor-pointer flex items-center justify-center"
+                      title="重命名该角色"
+                    >
+                      <PenLineIcon class="w-3.5 h-3.5" />
+                    </button>
+                  </h2>
+                  <p class="text-[10px] text-on-surface-variant mt-1.5 flex items-center space-x-1.5 opacity-80">
+                    <GlobeIcon class="w-3 h-3 text-primary opacity-70" />
+                    <span>物理角色专属目录：<code>characters/{{ characterList.find(c => c.id === selectedContactId)?.folder_name }}</code></span>
+                  </p>
+                  <div class="flex items-center space-x-2 mt-2">
+                    <span class="text-[9px] tracking-wider uppercase bg-primary/5 text-primary border border-primary/10 px-1.5 py-0.5 rounded font-bold font-mono">Soul Card</span>
+                    <span class="text-[9px] tracking-wider uppercase bg-secondary/5 text-secondary border border-secondary/10 px-1.5 py-0.5 rounded font-bold font-mono">Agentic Life</span>
+                  </div>
+
+
+                </div>
+              </div>
+              <!-- 右侧查阅日记图标 -->
+              <div v-if="contactHasDiary" class="flex-shrink-0">
+                <button
+                  @click="openContactDiary"
+                  class="flex items-center space-x-2 px-3.5 py-2 rounded-xl border border-outline-variant hover:border-primary bg-surface hover:bg-primary/5 text-on-surface hover:text-primary transition-all font-bold text-xs shadow-sm hover:shadow active:scale-95 animate-pulse"
+                  title="查阅该角色的自省生活日记"
+                >
+                  <BookOpenIcon class="w-3.5 h-3.5" />
+                  <span>查阅日记</span>
+                </button>
+              </div>
+            </div>
+            <!-- 下方详情 Tab 切换区 -->
+            <div class="flex-1 flex flex-col min-h-0 bg-surface-low overflow-hidden">
+              <div class="px-6 bg-surface border-b border-outline-variant/60 flex space-x-6 flex-shrink-0">
+                <button
+                  v-for="tab in contactTabs"
+                  :key="tab.id"
+                  @click="contactActiveTab = tab.id"
+                  class="py-3 font-bold text-xs tracking-wider border-b-2 transition-all relative"
+                  :class="contactActiveTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
+                >
+                  {{ tab.name }}
+                </button>
+              </div>
+              <div class="flex-1 p-6 overflow-y-auto min-h-0 select-text flex flex-col">
+                <!-- A. 性格设定 Tab -->
+                <div v-if="contactActiveTab === 'soul'" class="h-full flex-1 flex flex-col min-h-0">
+                  <div class="flex items-center justify-between mb-2 flex-shrink-0 select-none">
+                    <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">性格核心设定 (SOUL.md)</div>
+                    <button @click="contactEditModes.soul = !contactEditModes.soul" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                      <component :is="contactEditModes.soul ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                      <span>{{ contactEditModes.soul ? '预览设定' : '修改设定' }}</span>
+                    </button>
+                  </div>
+                  <!-- 预览模式 -->
+                  <div v-if="!contactEditModes.soul" class="flex-1 p-4 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm" v-html="renderMarkdown(contactSoulContent || '*设定未装载*')"></div>
+                  <!-- 编辑模式 -->
+                  <textarea v-else v-model="contactSoulContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto min-h-[300px] shadow-inner"></textarea>
+                  
+                  <div v-if="contactEditModes.soul" class="flex justify-end space-x-2 mt-3 flex-shrink-0 select-none">
+                    <button @click="contactEditModes.soul = false; selectCharacterForContactDetails(selectedContactId)" class="btn-secondary text-xs py-1.5 px-4">取消</button>
+                    <button @click="saveContactDetails" class="btn-primary text-xs py-1.5 px-4 font-bold flex items-center space-x-1"><SaveIcon class="w-3 h-3" /><span>保存修改</span></button>
+                  </div>
+                </div>
+
+                <!-- B. 双轨记忆 Tab -->
+                <div v-else-if="contactActiveTab === 'memory'" class="h-full flex-1 flex flex-col min-h-0 space-y-4">
+                  <div class="flex items-center justify-between mb-0 flex-shrink-0 select-none">
+                    <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">双轨记忆设定 (MEMORY.md)</div>
+                    <button @click="contactEditModes.memory = !contactEditModes.memory" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                      <component :is="contactEditModes.memory ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                      <span>{{ contactEditModes.memory ? '预览记忆' : '修改源码' }}</span>
+                    </button>
+                  </div>
+                  
+                  <!-- 预览模式 -->
+                  <template v-if="!contactEditModes.memory">
+                    <div class="space-y-4 overflow-y-auto min-h-[300px]">
+                      <div>
+                        <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-2 font-mono flex items-center space-x-1.5 select-none">
+                          <ClockIcon class="w-3.5 h-3.5 text-primary" />
+                          <span>短期滚动记忆 (STM - 最多50条事实)</span>
+                        </div>
+                        <div class="p-4 rounded-xl border border-outline-variant bg-surface text-xs leading-relaxed font-mono whitespace-pre-wrap select-text overflow-y-auto max-h-[180px]">
+                          <div v-if="parsedContactMemory.stm.length === 0" class="text-on-surface-variant/40 italic">暂无短期会话事实记录</div>
+                          <ul v-else class="list-disc pl-4 space-y-1">
+                            <li v-for="(fact, i) in parsedContactMemory.stm" :key="i" class="text-on-surface select-text">{{ fact }}</li>
+                          </ul>
+                        </div>
+                      </div>
+                      <div>
+                        <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider mb-2 font-mono flex items-center space-x-1.5 select-none">
+                          <KeyIcon class="w-3.5 h-3.5 text-secondary" />
+                          <span>长期兴趣偏好积累 (LTM)</span>
+                        </div>
+                        <div class="p-4 rounded-xl border border-outline-variant bg-surface text-xs leading-relaxed font-mono select-text overflow-y-auto max-h-[180px]">
+                          <div v-if="Object.keys(parsedContactMemory.ltm).length === 0" class="text-on-surface-variant/40 italic">暂无长期事实沉淀</div>
+                          <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div v-for="(val, key) in parsedContactMemory.ltm" :key="key" class="p-3 rounded-lg bg-surface-low border border-outline-variant flex flex-col space-y-1">
+                              <span class="text-[9px] font-bold text-primary uppercase tracking-wide truncate">{{ key }}</span>
+                              <span class="text-xs text-on-surface leading-normal select-text">{{ val }}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                  
+                  <!-- 编辑模式 -->
+                  <template v-else>
+                    <textarea v-model="contactMemoryRawContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto min-h-[300px] shadow-inner"></textarea>
+                    
+                    <div class="flex justify-end space-x-2 mt-1 flex-shrink-0 select-none">
+                      <button @click="contactEditModes.memory = false; selectCharacterForContactDetails(selectedContactId)" class="btn-secondary text-xs py-1.5 px-4">取消</button>
+                      <button @click="saveContactDetails" class="btn-primary text-xs py-1.5 px-4 font-bold flex items-center space-x-1"><SaveIcon class="w-3 h-3" /><span>保存修改</span></button>
+                    </div>
+                  </template>
+                </div>
+
+                <!-- C. 专属画像 Tab -->
+                <div v-else-if="contactActiveTab === 'user'" class="h-full flex-1 flex flex-col min-h-0">
+                  <div class="flex items-center justify-between mb-2 flex-shrink-0 select-none">
+                    <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">联系人专属千人千面侧写 (USER.md)</div>
+                    <button @click="contactEditModes.user = !contactEditModes.user" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                      <component :is="contactEditModes.user ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                      <span>{{ contactEditModes.user ? '预览侧写' : '修改侧写' }}</span>
+                    </button>
+                  </div>
+                  <!-- 预览模式 -->
+                  <div v-if="!contactEditModes.user" class="flex-1 p-4 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm" v-html="renderMarkdown(contactUserContent || '暂无专属偏好侧写记录。')"></div>
+                  <!-- 编辑模式 -->
+                  <textarea v-else v-model="contactUserContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto min-h-[300px] shadow-inner"></textarea>
+                  
+                  <div v-if="contactEditModes.user" class="flex justify-end space-x-2 mt-3 flex-shrink-0 select-none">
+                    <button @click="contactEditModes.user = false; selectCharacterForContactDetails(selectedContactId)" class="btn-secondary text-xs py-1.5 px-4">取消</button>
+                    <button @click="saveContactDetails" class="btn-primary text-xs py-1.5 px-4 font-bold flex items-center space-x-1"><SaveIcon class="w-3 h-3" /><span>保存修改</span></button>
+                  </div>
+                </div>
+
+                <!-- D. 近7天日程 Tab -->
+                <div v-else-if="contactActiveTab === 'schedule'" class="h-full flex-1 flex flex-col min-h-0 space-y-4">
+                  <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">近7天拟真日程表 (SCHEDULE.MD)</div>
+                  <div class="flex-1 p-5 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm relative">
+                    <div class="absolute right-4 top-4 select-none pointer-events-none opacity-[0.03] dark:opacity-[0.05]">
+                      <CalendarIcon class="w-20 h-20 text-primary" />
+                    </div>
+                    <div v-html="renderMarkdown(contactScheduleContent || '*当前角色暂无近 7 天日程安排安排*')"></div>
+                  </div>
+                </div>
+
+                <!-- E. 长期成长目标 Tab -->
+                <div v-else-if="contactActiveTab === 'goals'" class="h-full flex-1 flex flex-col min-h-0 space-y-4">
+                  <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">长期成长目标进展 (GOALS.MD)</div>
+                  <div class="flex-1 p-5 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm relative">
+                    <div class="absolute right-4 top-4 select-none pointer-events-none opacity-[0.03] dark:opacity-[0.05] animate-pulse">
+                      <SparklesIcon class="w-20 h-20 text-secondary" />
+                    </div>
+                    <div v-html="renderMarkdown(contactGoalsContent || '*当前角色暂无长期目标设定*')"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── 音乐专属主视图 ── -->
+        <template v-else-if="sideView === 'music'">
+          <div class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <!-- 顶部 Header -->
+            <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+              <div class="text-sm font-bold text-on-surface flex items-center space-x-2">
+                <!-- 如果处于搜索结果视图，显示返回按钮 -->
+                <button 
+                  v-if="showMusicSearchResultsView"
+                  @click="exitMusicSearch"
+                  class="mr-2 p-1 rounded-lg hover:bg-surface-high text-xs font-bold text-on-surface flex items-center space-x-1 cursor-pointer transition-colors focus:outline-none"
+                >
+                  <span>◀</span> <span>返回</span>
+                </button>
+                <MusicIcon class="w-4 h-4 text-primary animate-pulse" />
+                <span v-if="showMusicSearchResultsView">搜索结果</span>
+                <span v-else-if="activeMusicTab === 'recommend'">歌单推荐</span>
+                <span v-else-if="activeMusicTab === 'leaderboard'">排行榜</span>
+                <span v-else-if="activeMusicTab === 'playlist'">
+                  {{ currentDetailPlaylistSongs.length ? `歌单详情：${currentDetailPlaylistName}` : (musicStore.state.activePlaylistId === 'love' ? '我的收藏' : '播放列表') }}
+                </span>
+                <span v-else-if="activeMusicTab === 'download'">下载中心</span>
+                <span v-else-if="activeMusicTab === 'settings'">音乐设置</span>
+              </div>
+              
+              <div class="flex items-center space-x-4">
+                <!-- 全局实时联想搜索框 -->
+                <div class="relative w-64 z-40 select-none">
+                  <div class="relative flex items-center">
+                    <span class="absolute left-3 text-[10px] opacity-40">🔍</span>
+                    <input 
+                      v-model="musicSearchKeyword"
+                      type="text" 
+                      placeholder="全网搜索歌曲、歌手..."
+                      class="w-full pl-8 pr-7 py-1 bg-surface-low border border-outline-variant/60 rounded-xl text-xs focus:outline-none transition-all duration-300"
+                      :class="isDark 
+                        ? 'focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/20 text-zinc-200 placeholder-zinc-600' 
+                        : 'focus:border-primary focus:ring-1 focus:ring-primary/20 text-on-surface placeholder-on-surface-variant/40'"
+                      @keyup.enter="triggerMusicSearch"
+                      @focus="musicSearchKeyword.trim() && (showMusicSearchSuggestions = true)"
+                      @blur="handleSearchBlur"
+                    />
+                    <!-- 一键清空 -->
+                    <button 
+                      v-if="musicSearchKeyword" 
+                      @click="exitMusicSearch"
+                      class="absolute right-2.5 text-[9px] font-black text-on-surface-variant/50 hover:text-on-surface transition-colors cursor-pointer focus:outline-none"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <!-- 实时建议联想面板 -->
+                  <transition
+                    enter-active-class="transition duration-200 ease-out"
+                    enter-from-class="opacity-0 translate-y-1"
+                    enter-to-class="opacity-100 translate-y-0"
+                    leave-active-class="transition duration-150 ease-in"
+                    leave-from-class="opacity-100 translate-y-0"
+                    leave-to-class="opacity-0 translate-y-1"
+                  >
+                    <div 
+                      v-if="showMusicSearchSuggestions && musicSearchSuggestions.length"
+                      class="absolute top-9 right-0 w-80 rounded-2xl border shadow-2xl p-2 transition-colors duration-500 backdrop-blur-md z-50"
+                      :class="isDark 
+                        ? 'bg-zinc-950/95 border-zinc-800 text-zinc-300' 
+                        : 'bg-white/95 border-primary/5 text-on-surface'"
+                    >
+                      <div class="text-[9px] font-black text-on-surface-variant/50 uppercase tracking-widest px-2 py-1 select-none border-b border-outline-variant/20 dark:border-white/5 pb-1 flex items-center justify-between">
+                        <span>实时联想建议</span>
+                        <span>💡</span>
+                      </div>
+                      <div class="max-h-60 overflow-y-auto space-y-0.5 scrollbar-thin select-none">
+                        <div 
+                          v-for="s in musicSearchSuggestions"
+                          :key="s.id"
+                          @click="handleSuggestClick(s)"
+                          class="px-2.5 py-1.5 rounded-xl text-xs transition-all duration-200 cursor-pointer flex items-center justify-between group"
+                          :class="isDark ? 'hover:bg-white/5' : 'hover:bg-primary/5'"
+                        >
+                          <span class="font-extrabold truncate max-w-[160px]" :class="isDark ? 'group-hover:text-emerald-400' : 'group-hover:text-primary'">{{ s.name }}</span>
+                          <span class="text-[9px] text-on-surface-variant/50 dark:text-zinc-500 truncate max-w-[100px]">{{ s.singer }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </transition>
+                </div>
+
+                <!-- 快捷导入按钮 -->
+                <div v-if="activeMusicTab === 'playlist' && !currentDetailPlaylistSongs.length" class="flex items-center space-x-2">
+                  <button 
+                    @click="showImportPlaylistModal = true"
+                    class="px-4 py-1.5 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md transition-all active:scale-95 cursor-pointer flex items-center space-x-1 select-none focus:outline-none"
+                  >
+                    <span>⇲ 导入歌单</span>
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            <!-- 0. 搜索结果专属主视图 (优先级最高) -->
+            <div v-if="showMusicSearchResultsView" class="flex-1 overflow-y-auto p-6 min-h-0 space-y-6 animate-fade-in select-text">
+              <!-- 返回/退出搜索按钮 -->
+              <button 
+                @click="exitMusicSearch"
+                class="px-3.5 py-1.5 rounded-xl border border-outline-variant/60 hover:bg-surface-high text-xs font-bold text-on-surface select-none cursor-pointer flex items-center space-x-1.5 transition-colors focus:outline-none"
+              >
+                <span>◀</span> <span>返回 / 退出搜索</span>
+              </button>
+
+              <!-- 搜索 Tab 栏 (单曲 / 歌单) -->
+              <div class="flex items-center space-x-1.5 border-b border-outline-variant/30 pb-2 select-none">
+                <button 
+                  @click="changeSearchTab('song')"
+                  class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer focus:outline-none"
+                  :class="musicSearchType === 'song' 
+                    ? (isDark ? 'bg-emerald-400 text-zinc-950 shadow-sm font-black' : 'bg-primary text-white shadow-sm font-black') 
+                    : (isDark ? 'text-zinc-400 hover:text-white hover:bg-white/5' : 'text-on-surface-variant hover:bg-primary/5')"
+                >
+                  单曲
+                </button>
+                <button 
+                  @click="changeSearchTab('playlist')"
+                  class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer focus:outline-none"
+                  :class="musicSearchType === 'playlist' 
+                    ? (isDark ? 'bg-emerald-400 text-zinc-950 shadow-sm font-black' : 'bg-primary text-white shadow-sm font-black') 
+                    : (isDark ? 'text-zinc-400 hover:text-white hover:bg-white/5' : 'text-on-surface-variant hover:bg-primary/5')"
+                >
+                  歌单
+                </button>
+              </div>
+
+              <div class="flex items-center justify-between select-none">
+                <h3 class="text-sm font-extrabold text-on-surface flex items-center space-x-2">
+                  <span>🔍</span> <span>“{{ musicSearchKeyword }}” 的搜索结果 ({{ musicSearchType === 'song' ? musicSearchResults.length : musicSearchPlaylistsResults.length }})</span>
+                </h3>
+              </div>
+
+              <!-- 加载中 -->
+              <div v-if="isLoadingMusicSearchResults" class="py-24 flex flex-col items-center justify-center space-y-2 select-none">
+                <Loader2Icon class="w-8 h-8 text-primary animate-spin" />
+                <span class="text-xs text-on-surface-variant font-bold animate-pulse">全网检索中...</span>
+              </div>
+
+              <!-- 空数据 -->
+              <div v-else-if="musicSearchType === 'song' ? !musicSearchResults.length : !musicSearchPlaylistsResults.length" class="py-24 text-center text-on-surface-variant/60 dark:text-zinc-400 text-xs select-none">
+                没有找到相关的结果，换个词试试吧 🐾
+              </div>
+
+              <!-- 搜索结果歌曲表格 (当选单曲 Tab 时) -->
+              <div v-else-if="musicSearchType === 'song'" class="bg-surface-low border border-outline-variant/60 rounded-2xl overflow-hidden shadow-inner">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse select-text">
+                    <thead>
+                      <tr class="border-b border-outline-variant/40 text-[10px] text-on-surface-variant uppercase tracking-wider font-extrabold bg-surface/35 select-none">
+                        <th class="py-3 px-4 w-12 text-center">#</th>
+                        <th class="py-3 px-4">歌名</th>
+                        <th class="py-3 px-4">歌手</th>
+                        <th class="py-3 px-4">专辑</th>
+                        <th class="py-3 px-4 w-20 text-center">品质</th>
+                        <th class="py-3 px-4 w-16 text-center">时长</th>
+                        <th class="py-3 px-4 w-24 text-center">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr 
+                        v-for="(song, idx) in musicSearchResults" 
+                        :key="song.songmid"
+                        @dblclick="musicStore.playSong(song, musicSearchResults)"
+                        class="border-b border-outline-variant/20 hover:bg-surface-high/50 text-xs transition-colors group/tr"
+                      >
+                        <td class="py-2.5 px-4 text-center font-bold font-mono text-on-surface-variant/40 group-hover/tr:text-primary select-none">{{ idx + 1 }}</td>
+                        <td class="py-2.5 px-4 font-bold text-on-surface truncate max-w-[220px] flex items-center space-x-1.5">
+                          <span class="truncate">{{ song.name }}</span>
+                          <span 
+                            v-if="song.source === 'kw'"
+                            class="px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-wider scale-90 select-none bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-400"
+                          >
+                            酷我
+                          </span>
+                          <span 
+                            v-else
+                            class="px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-wider scale-90 select-none bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-light"
+                          >
+                            网易
+                          </span>
+                        </td>
+                        <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">{{ song.singer }}</td>
+                        <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">{{ song.albumName || '-' }}</td>
+                        <td class="py-2.5 px-4 text-center select-none">
+                          <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[8.5px] font-black uppercase font-mono">320K</span>
+                        </td>
+                        <td class="py-2.5 px-4 text-center font-mono text-on-surface-variant/60 select-none">{{ song.interval }}</td>
+                        <td class="py-2.5 px-4 text-center select-none flex items-center justify-center space-x-1.5">
+                          <button 
+                            @click="musicStore.playSong(song, musicSearchResults)"
+                            class="w-6 h-6 rounded-full bg-primary/10 hover:bg-primary text-primary hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                          >
+                            <PlayIcon class="w-3 h-3 fill-current ml-0.5" />
+                          </button>
+                          <button 
+                            @click="musicStore.toggleFavorite(song)"
+                            class="w-6 h-6 rounded-full bg-surface hover:bg-red-50 hover:text-red-500 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                          >
+                            <HeartIcon class="w-3.5 h-3.5" :class="{ 'fill-red-500 text-red-500': musicStore.isFavorited(song.songmid) }" />
+                          </button>
+                          <button 
+                            @click="openAddToPlaylist(song)"
+                            class="w-6 h-6 rounded-full bg-surface hover:bg-emerald-50 hover:text-emerald-600 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                            title="添加到播放列表"
+                          >
+                            <FolderPlusIcon class="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            @click="musicStore.downloadSong(song)"
+                            class="w-6 h-6 rounded-full bg-surface hover:bg-indigo-50 hover:text-indigo-500 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                          >
+                            <DownloadIcon class="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- 搜索结果歌单网格 (当选歌单 Tab 时) -->
+              <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 select-none">
+                <div 
+                  v-for="p in musicSearchPlaylistsResults" 
+                  :key="p.id"
+                  @click="loadPlaylistDetails(p.id, p.name)"
+                  class="bg-surface-low border border-outline-variant/60 hover:border-primary/25 rounded-2xl p-3 cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/20 group relative overflow-hidden flex flex-col justify-between"
+                >
+                  <!-- 歌单封面，右上角显示播放量 -->
+                  <div class="aspect-square w-full rounded-xl overflow-hidden bg-surface relative shadow-inner flex-shrink-0 mb-3">
+                    <img 
+                      :src="p.img" 
+                      class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                      loading="lazy"
+                    />
+                    <div class="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-black/60 backdrop-blur-sm text-[8.5px] font-black text-white select-none">
+                      ▷ {{ p.playCount }}
+                    </div>
+                  </div>
+                  <!-- 歌单标题和描述 -->
+                  <div class="flex-1 flex flex-col justify-between">
+                    <div class="space-y-1">
+                      <h4 class="text-xs font-black text-on-surface truncate group-hover:text-primary transition-colors font-sans">{{ p.name }}</h4>
+                      <p class="text-[9.5px] text-on-surface-variant/80 line-clamp-2 leading-relaxed" v-html="p.desc || '暂无介绍'"></p>
+                    </div>
+                    <div class="text-[8.5px] text-on-surface-variant/50 font-black mt-2.5">
+                      共 {{ p.trackCount || 0 }} 首歌曲
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 1. 推荐歌单视图 -->
+            <div v-else-if="activeMusicTab === 'recommend'" class="flex-1 overflow-y-auto p-6 min-h-0">
+              <div v-if="isLoadingPlaylists" class="py-32 flex flex-col items-center justify-center space-y-3 select-none">
+                <Loader2Icon class="w-8 h-8 text-primary animate-spin" />
+                <span class="text-xs text-on-surface-variant font-bold">获取推荐精品歌单中...</span>
+              </div>
+              <div v-else class="space-y-6">
+                <!-- 高阶渐变横幅 Banner -->
+                <div class="p-6 rounded-2xl bg-gradient-to-r from-indigo-500/20 to-pink-500/20 border border-indigo-500/10 flex items-center justify-between select-none">
+                  <div class="space-y-1">
+                    <h3 class="text-sm font-extrabold text-on-surface">回音精选推荐</h3>
+                    <p class="text-[10px] text-on-surface-variant leading-relaxed pr-6 max-w-lg">
+                      汇集网易云热门精品歌单。双击卡片畅享！
+                    </p>
+                  </div>
+                  <span class="text-3xl filter drop-shadow">🎵</span>
+                </div>
+
+                <!-- 头部控制栏：换一批 -->
+                <div class="flex items-center justify-between select-none">
+                  <div class="flex items-center space-x-2">
+                    <span class="text-xs font-black text-on-surface">精品推荐歌单</span>
+                    <span 
+                      v-if="currentRecommendCat !== '全部'"
+                      class="px-2 py-0.5 rounded-full text-[8.5px] bg-primary/10 text-primary font-black uppercase font-mono"
+                    >
+                      {{ currentRecommendCat }}
+                    </span>
+                  </div>
+                  <button 
+                    @click="loadRecommendPlaylists(true)"
+                    class="px-3.5 py-1.5 rounded-xl border border-outline-variant/60 hover:bg-surface-high text-xs font-bold text-on-surface flex items-center space-x-1.5 transition-all active:scale-95 focus:outline-none cursor-pointer"
+                    title="换一批精选歌单"
+                  >
+                    <RefreshCwIcon class="w-3.5 h-3.5 text-primary" :class="{ 'animate-spin': isLoadingPlaylists }" />
+                    <span>换一批</span>
+                  </button>
+                </div>
+
+                <!-- 5列网格精品卡片 -->
+                <div class="grid grid-cols-5 gap-5">
+                  <div 
+                    v-for="p in recommendPlaylists" 
+                    :key="p.id"
+                    @click="loadPlaylistDetails(p.id, p.name)"
+                    class="bg-surface-low border border-outline-variant/60 rounded-2xl p-3 shadow-sm hover:shadow-md hover:border-primary/20 transition-all duration-300 cursor-pointer group flex flex-col justify-between"
+                  >
+                    <!-- 封面 -->
+                    <div class="w-full aspect-square rounded-xl overflow-hidden relative shadow-sm transition-transform duration-300 group-hover:scale-[1.02]">
+                      <img :src="p.img" class="w-full h-full object-cover" />
+                      <!-- 右上角播放数胶囊 -->
+                      <div class="absolute top-1.5 right-1.5 bg-black/45 backdrop-blur px-2 py-0.5 rounded-full text-[8.5px] font-bold text-white font-mono flex items-center space-x-0.5 select-none">
+                        <span>▶</span> <span>{{ p.playCount }}</span>
+                      </div>
+                      <!-- Hover Play 遮罩 -->
+                      <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <div class="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center shadow-lg transform translate-y-3 group-hover:translate-y-0 transition-transform duration-300">
+                          <PlayIcon class="w-4 h-4 fill-white ml-0.5" />
+                        </div>
+                      </div>
+                    </div>
+                    <div class="mt-2.5">
+                      <h4 class="text-xs font-bold text-on-surface line-clamp-2 leading-relaxed min-h-[32px] group-hover:text-primary transition-colors pr-1">{{ p.name }}</h4>
+                      <p class="text-[9px] text-on-surface-variant/50 font-bold mt-1.5 font-sans select-none">{{ p.trackCount }} 首单曲</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. 排行榜视图 -->
+            <div v-else-if="activeMusicTab === 'leaderboard'" class="flex-1 overflow-y-auto p-6 min-h-0">
+              <div class="space-y-6">
+                <!-- 页签切换 -->
+                <div class="flex rounded-xl bg-surface-low border border-outline-variant/60 p-0.75 w-fit select-none">
+                  <button 
+                    @click="loadLeaderboardList('19723756')"
+                    class="px-5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                    :class="activeBangId === '19723756' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:text-on-surface'"
+                  >
+                    飙升榜 📈
+                  </button>
+                  <button 
+                    @click="loadLeaderboardList('3779629')"
+                    class="px-5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                    :class="activeBangId === '3779629' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:text-on-surface'"
+                  >
+                    新歌榜 🌟
+                  </button>
+                  <button 
+                    @click="loadLeaderboardList('3778678')"
+                    class="px-5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer"
+                    :class="activeBangId === '3778678' ? 'bg-primary text-white shadow-md' : 'text-on-surface-variant hover:text-on-surface'"
+                  >
+                    热歌榜 🔥
+                  </button>
+                </div>
+
+                <!-- 排行榜歌曲列表 -->
+                <div v-if="isLoadingLeaderboard" class="py-24 flex flex-col items-center justify-center space-y-2 select-none">
+                  <Loader2Icon class="w-8 h-8 text-primary animate-spin" />
+                  <span class="text-xs text-on-surface-variant font-bold">获取榜单歌曲列表中...</span>
+                </div>
+                <div v-else class="bg-surface-low border border-outline-variant/60 rounded-2xl overflow-hidden shadow-inner">
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse select-text">
+                      <thead>
+                        <tr class="border-b border-outline-variant/40 text-[10px] text-on-surface-variant uppercase tracking-wider font-extrabold bg-surface/35 select-none">
+                          <th class="py-3 px-4 w-12 text-center">#</th>
+                          <th class="py-3 px-4">歌名</th>
+                          <th class="py-3 px-4">歌手</th>
+                          <th class="py-3 px-4">专辑</th>
+                          <th class="py-3 px-4 w-20 text-center">品质</th>
+                          <th class="py-3 px-4 w-16 text-center">时长</th>
+                          <th class="py-3 px-4 w-24 text-center">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr 
+                          v-for="(song, idx) in leaderboardSongs" 
+                          :key="song.songmid"
+                          @dblclick="musicStore.playSong(song, leaderboardSongs)"
+                          class="border-b border-outline-variant/20 hover:bg-surface-high/50 text-xs transition-colors group/tr"
+                        >
+                          <td class="py-2.5 px-4 text-center font-bold font-mono text-on-surface-variant/40 group-hover/tr:text-primary select-none">{{ idx + 1 }}</td>
+                          <td class="py-2.5 px-4 font-bold text-on-surface truncate max-w-[180px]">{{ song.name }}</td>
+                          <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">{{ song.singer }}</td>
+                          <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">{{ song.albumName || '-' }}</td>
+                          <td class="py-2.5 px-4 text-center select-none">
+                            <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[8.5px] font-black uppercase font-mono">{{ song.qualitys.includes('flac') ? 'FLAC' : '320K' }}</span>
+                          </td>
+                          <td class="py-2.5 px-4 text-center font-mono text-on-surface-variant/60 select-none">{{ song.interval }}</td>
+                          <td class="py-2.5 px-4 text-center select-none flex items-center justify-center space-x-1.5">
+                            <button 
+                              @click="musicStore.playSong(song, leaderboardSongs)"
+                              class="w-6 h-6 rounded-full bg-primary/10 hover:bg-primary text-primary hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                              title="播放"
+                            >
+                              <PlayIcon class="w-3 h-3 fill-current ml-0.5" />
+                            </button>
+                            <button 
+                              @click="musicStore.toggleFavorite(song)"
+                              class="w-6 h-6 rounded-full bg-surface hover:bg-red-50 hover:text-red-500 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                              :title="musicStore.isFavorited(song.songmid) ? '取消收藏' : '收藏'"
+                            >
+                              <HeartIcon class="w-3.5 h-3.5" :class="{ 'fill-red-500 text-red-500': musicStore.isFavorited(song.songmid) }" />
+                            </button>
+                            <button 
+                              @click="openAddToPlaylist(song)"
+                              class="w-6 h-6 rounded-full bg-surface hover:bg-emerald-50 hover:text-emerald-600 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                              title="添加到播放列表"
+                            >
+                              <FolderPlusIcon class="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              @click="musicStore.downloadSong(song)"
+                              class="w-6 h-6 rounded-full bg-surface hover:bg-indigo-50 hover:text-indigo-500 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                              title="下载无损"
+                            >
+                              <DownloadIcon class="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. 推荐歌单详情页面 -->
+            <div v-else-if="activeMusicTab === 'playlist_detail'" class="flex-1 overflow-y-auto p-6 min-h-0">
+              <div class="space-y-6">
+                <!-- 返回按钮 -->
+                <button 
+                  @click="exitPlaylistDetails"
+                  class="px-3.5 py-1.5 rounded-xl border border-outline-variant/60 hover:bg-surface-high text-xs font-bold text-on-surface select-none cursor-pointer flex items-center space-x-1.5 transition-colors"
+                >
+                  <span>◀</span> <span>{{ playlistDetailsBackTab === 'search' ? '返回搜索结果列表' : '返回推荐歌单列表' }}</span>
+                </button>
+
+                <div v-if="isLoadingPlaylistDetails" class="py-24 flex flex-col items-center justify-center space-y-2 select-none">
+                  <Loader2Icon class="w-8 h-8 text-primary animate-spin" />
+                  <span class="text-xs text-on-surface-variant font-bold">解析歌单中...</span>
+                </div>
+                
+                <div v-else class="space-y-6">
+                  <div class="flex items-center justify-between select-none">
+                    <h3 class="text-sm font-extrabold text-on-surface flex items-center space-x-2">
+                      <span>📂</span> <span>歌单单曲列表 ({{ currentDetailPlaylistSongs.length }})</span>
+                    </h3>
+                    
+                    <div class="flex items-center space-x-2" v-if="currentDetailPlaylistSongs.length">
+                      <button 
+                        @click="musicStore.playSong(currentDetailPlaylistSongs[0], currentDetailPlaylistSongs)"
+                        class="px-4 py-1.5 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md flex items-center space-x-1 cursor-pointer transition-transform active:scale-95"
+                      >
+                        <PlayIcon class="w-3.5 h-3.5 fill-white" /> <span>播放全部</span>
+                      </button>
+                      
+                      <button 
+                        @click="
+                          async () => {
+                            const playlistId = musicStore.state.activePlaylistId
+                            if (playlistId === 'love') {
+                              triggerAlert('请先在左侧选择或创建一个您的自建列表，不能直接导入到收藏夹中哦 🐾')
+                              return
+                            }
+                            let importedCount = 0
+                            for (const song of currentDetailPlaylistSongs) {
+                              await musicStore.addSongToCustomPlaylist(playlistId, song)
+                              importedCount++
+                            }
+                            await musicStore.loadPlaylistSongs(playlistId)
+                            triggerAlert(`已成功将 ${importedCount} 首歌曲一键导入当前本地自建播放列表！🎉`)
+                          }
+                        "
+                        class="px-4 py-1.5 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-bold text-on-surface flex items-center space-x-1 cursor-pointer transition-colors"
+                      >
+                        <span>⇲</span> <span>一键全部导入</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- 歌曲表格 -->
+                  <div class="bg-surface-low border border-outline-variant/60 rounded-2xl overflow-hidden shadow-inner" v-if="currentDetailPlaylistSongs.length">
+                    <div class="overflow-x-auto">
+                      <table class="w-full text-left border-collapse select-text">
+                        <thead>
+                          <tr class="border-b border-outline-variant/40 text-[10px] text-on-surface-variant uppercase tracking-wider font-extrabold bg-surface/35 select-none">
+                            <th class="py-3 px-4 w-12 text-center">#</th>
+                            <th class="py-3 px-4">歌名</th>
+                            <th class="py-3 px-4">歌手</th>
+                            <th class="py-3 px-4">时长</th>
+                            <th class="py-3 px-4 w-28 text-center select-none">操作</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr 
+                            v-for="(song, idx) in currentDetailPlaylistSongs.slice((playlistCurrentPage - 1) * 20, playlistCurrentPage * 20)" 
+                            :key="song.songmid"
+                            @dblclick="musicStore.playSong(song, currentDetailPlaylistSongs)"
+                            class="border-b border-outline-variant/30 hover:bg-surface-high/50 transition-colors group/tr cursor-pointer"
+                          >
+                            <td class="py-2.5 px-4 text-center font-bold font-mono text-on-surface-variant/40 group-hover/tr:text-primary select-none">{{ ((playlistCurrentPage - 1) * 20) + idx + 1 }}</td>
+                            <td class="py-2.5 px-4 font-black text-xs text-on-surface truncate max-w-[200px]" :class="{ 'text-primary': musicStore.state.currentSong?.songmid === song.songmid }">{{ song.name }}</td>
+                            <td class="py-2.5 px-4 text-xs text-on-surface-variant/80 truncate max-w-[150px]">{{ song.singer }}</td>
+                            <td class="py-2.5 px-4 text-xs font-mono text-on-surface-variant/50 select-none">{{ formatDuration(song.durationSec) }}</td>
+                            <td class="py-2.5 px-4 flex items-center justify-center space-x-1.5 select-none">
+                              <button 
+                                @click="musicStore.playSong(song, currentDetailPlaylistSongs)"
+                                class="w-6 h-6 rounded-full bg-surface hover:bg-primary hover:text-white flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                              >
+                                <PlayIcon class="w-3 h-3 fill-current ml-0.5" />
+                              </button>
+                              <button 
+                                @click="musicStore.downloadSong(song)"
+                                class="w-6 h-6 rounded-full bg-surface hover:bg-indigo-50 hover:text-indigo-500 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                              >
+                                <DownloadIcon class="w-3.5 h-3.5" />
+                              </button>
+                              <button 
+                                @click="openAddToPlaylist(song)"
+                                class="w-6 h-6 rounded-full bg-surface hover:bg-emerald-50 hover:text-emerald-600 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                                title="添加到播放列表"
+                              >
+                                <FolderPlusIcon class="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <!-- 精致的分页控制栏 -->
+                  <div 
+                    v-if="currentDetailPlaylistSongs.length > 20" 
+                    class="mt-5 flex items-center justify-center space-x-3 select-none"
+                  >
+                    <!-- 上一页 -->
+                    <button 
+                      @click="prevPlaylistPage"
+                      :disabled="playlistCurrentPage === 1"
+                      class="px-3.5 py-1.5 rounded-xl border text-[11px] font-black transition-all cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none"
+                      :class="isDark 
+                        ? 'bg-white/5 border-white/10 hover:bg-white/10 text-zinc-300' 
+                        : 'bg-primary/5 border-primary/10 hover:bg-primary/10 text-primary'"
+                    >
+                      ◀ 上一页
+                    </button>
+
+                    <!-- 页码指示器 -->
+                    <span 
+                      class="text-xs font-black font-mono tracking-wide px-3 py-1 rounded-lg border transition-colors duration-500"
+                      :class="isDark 
+                        ? 'bg-zinc-900 border-zinc-800 text-zinc-400' 
+                        : 'bg-surface border-outline-variant/60 text-on-surface-variant'"
+                    >
+                      第 {{ playlistCurrentPage }} / {{ Math.ceil(currentDetailPlaylistSongs.length / 20) }} 页
+                    </span>
+
+                    <!-- 下一页 -->
+                    <button 
+                      @click="nextPlaylistPage"
+                      :disabled="playlistCurrentPage === Math.ceil(currentDetailPlaylistSongs.length / 20)"
+                      class="px-3.5 py-1.5 rounded-xl border text-[11px] font-black transition-all cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none"
+                      :class="isDark 
+                        ? 'bg-white/5 border-white/10 hover:bg-white/10 text-zinc-300' 
+                        : 'bg-primary/5 border-primary/10 hover:bg-primary/10 text-primary'"
+                    >
+                      下一页 ▶
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. 自建播放列表页面 -->
+            <div v-else-if="activeMusicTab === 'playlist'" class="flex-1 overflow-y-auto p-6 min-h-0">
+              <div class="space-y-4">
+                <div class="flex items-center justify-between select-none">
+                  <h3 class="text-sm font-extrabold text-on-surface flex items-center space-x-2">
+                    <span>📂</span> 
+                    <span>
+                      {{ musicStore.state.activePlaylistId === 'love' ? '我的收藏 ❤️' : '自建播放列表 📁' }}
+                      ({{ musicStore.state.currentSelectedPlaylistSongs.length }})
+                    </span>
+                  </h3>
+                  <div class="flex items-center space-x-2">
+                    <button 
+                      @click="showCreatePlaylistModal = true"
+                      class="px-4 py-1.5 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-bold text-on-surface flex items-center space-x-1 cursor-pointer transition-colors"
+                    >
+                      <span>+</span> <span>新建列表</span>
+                    </button>
+                    <button 
+                      v-if="musicStore.state.currentSelectedPlaylistSongs.length"
+                      @click="musicStore.playSong(musicStore.state.currentSelectedPlaylistSongs[0], musicStore.state.currentSelectedPlaylistSongs)"
+                      class="px-4 py-1.5 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md flex items-center space-x-1 cursor-pointer transition-transform active:scale-95"
+                    >
+                      <PlayIcon class="w-3.5 h-3.5 fill-white" /> <span>播放列表全部</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div v-if="musicStore.state.currentSelectedPlaylistSongs.length === 0" class="py-32 flex flex-col items-center justify-center text-center select-none text-on-surface-variant/40">
+                  <span class="text-4xl mb-4">🐾</span>
+                  <p class="text-xs font-bold">该列表中目前空空如也...</p>
+                  <p class="text-[10px] mt-1.5 max-w-xs leading-relaxed opacity-75">
+                    你可以去“歌单推荐”里点击心仪歌单并在右上角点击一键导入，或者把红心收藏的歌曲在这里点亮并同步到当前列表中！
+                  </p>
+                  <button 
+                    @click="showCreatePlaylistModal = true"
+                    class="mt-5 px-5 py-2 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md transition-all active:scale-95 cursor-pointer flex items-center space-x-1"
+                  >
+                    <span>+</span> <span>创建新播放列表</span>
+                  </button>
+                </div>
+
+                <div v-else class="bg-surface-low border border-outline-variant/60 rounded-2xl overflow-hidden shadow-inner">
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse select-text">
+                      <thead>
+                        <tr class="border-b border-outline-variant/40 text-[10px] text-on-surface-variant uppercase tracking-wider font-extrabold bg-surface/35 select-none">
+                          <th class="py-3 px-4 w-12 text-center">#</th>
+                          <th class="py-3 px-4">歌名</th>
+                          <th class="py-3 px-4">歌手</th>
+                          <th class="py-3 px-4">专辑</th>
+                          <th class="py-3 px-4 w-20 text-center">品质</th>
+                          <th class="py-3 px-4 w-16 text-center">时长</th>
+                          <th class="py-3 px-4 w-24 text-center">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr 
+                          v-for="(song, idx) in musicStore.state.currentSelectedPlaylistSongs" 
+                          :key="song.songmid"
+                          @dblclick="musicStore.playSong(song, musicStore.state.currentSelectedPlaylistSongs)"
+                          class="border-b border-outline-variant/20 hover:bg-surface-high/50 text-xs transition-colors group/tr"
+                        >
+                          <td class="py-2.5 px-4 text-center font-bold font-mono text-on-surface-variant/40 group-hover/tr:text-primary select-none">{{ idx + 1 }}</td>
+                          <td class="py-2.5 px-4 font-bold text-on-surface truncate max-w-[180px]">{{ song.name }}</td>
+                          <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">{{ song.singer }}</td>
+                          <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">{{ song.albumName || '-' }}</td>
+                          <td class="py-2.5 px-4 text-center select-none">
+                            <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[8.5px] font-black uppercase font-mono">{{ song.qualitys.includes('flac') ? 'FLAC' : '320K' }}</span>
+                          </td>
+                          <td class="py-2.5 px-4 text-center font-mono text-on-surface-variant/60 select-none">{{ song.interval }}</td>
+                          <td class="py-2.5 px-4 text-center select-none flex items-center justify-center space-x-1.5">
+                            <button 
+                              @click="musicStore.playSong(song, musicStore.state.currentSelectedPlaylistSongs)"
+                              class="w-6 h-6 rounded-full bg-primary/10 hover:bg-primary text-primary hover:text-white flex items-center justify-center transition-all cursor-pointer"
+                            >
+                              <PlayIcon class="w-3 h-3 fill-current ml-0.5" />
+                            </button>
+                            <button 
+                              @click="musicStore.downloadSong(song)"
+                              class="w-6 h-6 rounded-full bg-surface hover:bg-indigo-50 hover:text-indigo-500 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                            >
+                              <DownloadIcon class="w-3.5 h-3.5" />
+                            </button>
+                            <button 
+                              @click="musicStore.removeSongFromPlaylist(musicStore.state.activePlaylistId, song.songmid, song.source).then(() => { musicStore.loadPlaylistSongs(musicStore.state.activePlaylistId); triggerAlert('成功从当前列表中移除 🐾'); })"
+                              class="w-6 h-6 rounded-full bg-surface hover:bg-red-50 hover:text-red-500 flex items-center justify-center transition-all cursor-pointer text-on-surface-variant border border-outline-variant/60"
+                              title="从本列表中移除"
+                            >
+                              <span class="text-[10px] font-bold font-sans">✕</span>
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. 下载中心视图 -->
+            <div v-else-if="activeMusicTab === 'download'" class="flex-1 overflow-y-auto p-6 min-h-0 select-none">
+              <div class="space-y-6">
+                <!-- 快捷按钮 -->
+                <div class="flex items-center justify-between border-b border-outline-variant/30 pb-3">
+                  <div class="text-xs font-bold text-on-surface">本地下载记录 ({{ musicStore.state.downloadTasks.length }})</div>
+                  <button 
+                    @click="musicStore.openDownloadFolder(musicStore.state.downloadTasks[0]?.filePath || '')"
+                    class="px-4 py-1.5 rounded-xl border border-outline-variant/60 hover:bg-surface-high text-xs font-bold text-on-surface flex items-center space-x-1 cursor-pointer transition-colors"
+                  >
+                    <FolderOpenIcon class="w-3.5 h-3.5 text-primary" /> <span>物理打开下载目录</span>
+                  </button>
+                </div>
+
+                <div v-if="musicStore.state.downloadTasks.length === 0" class="py-32 text-center text-on-surface-variant/40 text-xs font-bold select-none leading-relaxed">
+                  🐾 暂无任何下载任务或本地歌曲文件记录。<br>
+                  <span class="text-[10px] opacity-75 font-normal">你可以去歌曲表格的右端点击“下载”图标进行多渠道无损物理下载。</span>
+                </div>
+                <div v-else class="space-y-3.5">
+                  <div 
+                    v-for="task in musicStore.state.downloadTasks" 
+                    :key="task.id"
+                    class="p-4 rounded-2xl bg-surface-low border border-outline-variant/60 hover:border-primary/20 shadow-sm flex items-center justify-between transition-all"
+                  >
+                    <div class="flex items-center space-x-4 flex-1 min-w-0">
+                      <!-- 音乐小盘子 -->
+                      <div class="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0 font-bold text-sm">
+                        💽
+                      </div>
+                      <div class="min-w-0 flex-1 space-y-1">
+                        <div class="flex items-center space-x-2.5">
+                          <span class="text-xs font-bold text-on-surface truncate">{{ task.name }}</span>
+                          <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[8px] font-black uppercase font-mono">{{ task.quality }}</span>
+                        </div>
+                        <div class="text-[10px] text-on-surface-variant truncate">{{ task.singer }} — 《{{ task.albumName || '未知专辑' }}》</div>
+                        
+                        <!-- 下载进度条 -->
+                        <div v-if="task.status === 0" class="w-full max-w-sm flex items-center space-x-2.5 mt-1.5">
+                          <div class="flex-1 h-1.5 bg-surface-high rounded-full overflow-hidden">
+                            <div class="bg-primary h-full transition-all duration-300" :style="{ width: (task.progress * 100) + '%' }"></div>
+                          </div>
+                          <span class="text-[9px] font-mono font-bold text-primary">{{ Math.floor(task.progress * 100) }}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 状态操作 -->
+                    <div class="flex items-center space-x-2 pl-4 flex-shrink-0">
+                      <span v-if="task.status === 0" class="text-[10px] font-bold text-primary animate-pulse">正在下载...</span>
+                      <span v-else-if="task.status === 2" class="text-[10px] font-bold text-red-500">下载失败</span>
+                      
+                      <button 
+                        v-if="task.status === 1"
+                        @click="musicStore.openDownloadFolder(task.filePath)"
+                        class="px-3 py-1.5 rounded-xl border border-outline-variant hover:bg-surface-high text-[10.5px] font-bold text-on-surface transition-colors cursor-pointer"
+                        title="打开目录"
+                      >
+                        📂 打开目录
+                      </button>
+                      <button 
+                        @click="musicStore.deleteDownloadTask(task.id)"
+                        class="p-1.5 rounded-xl hover:bg-red-50 hover:text-red-500 border border-transparent transition-all cursor-pointer text-on-surface-variant/40"
+                        title="删除记录"
+                      >
+                        <TrashIcon class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 5. 音乐设置视图 -->
+            <div v-else-if="activeMusicTab === 'settings'" class="flex-1 overflow-y-auto p-6 min-h-0 select-none">
+              <div class="max-w-xl space-y-6">
+                <!-- 第一部分：歌曲播放品质 -->
+                <div class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-3.5">
+                  <h4 class="text-xs font-black text-on-surface flex items-center space-x-1.5">
+                    <span>🎚️</span> <span>默认解析歌曲品质</span>
+                  </h4>
+                  <p class="text-[10px] text-on-surface-variant/60 leading-relaxed pr-2">
+                    选择默认音乐播放和无损物理下载的音频品质（对于 VIP 灰色限制或已下架歌曲，系统会自动静默联合酷我检索，备用源通常为 128k 标准音质）。
+                  </p>
+                  <div class="grid grid-cols-3 gap-3">
+                    <button 
+                      @click="musicStore.setQuality('128k')"
+                      class="p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col items-center justify-center text-center space-y-1"
+                      :class="musicStore.state.quality === '128k' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant hover:bg-surface-high text-on-surface-variant'"
+                    >
+                      <span class="text-xs font-black">128k (标准品质)</span>
+                      <span class="text-[8px] opacity-60 font-mono">普通 MP3 格式</span>
+                    </button>
+                    <button 
+                      @click="musicStore.setQuality('320k')"
+                      class="p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col items-center justify-center text-center space-y-1"
+                      :class="musicStore.state.quality === '320k' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant hover:bg-surface-high text-on-surface-variant'"
+                    >
+                      <span class="text-xs font-black">320k (极高品质)</span>
+                      <span class="text-[8px] opacity-60 font-mono">高码率 MP3 格式</span>
+                    </button>
+                    <button 
+                      @click="musicStore.setQuality('flac')"
+                      class="p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col items-center justify-center text-center space-y-1"
+                      :class="musicStore.state.quality === 'flac' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant hover:bg-surface-high text-on-surface-variant'"
+                    >
+                      <span class="text-xs font-black">flac (无损品质)</span>
+                      <span class="text-[8px] opacity-60 font-mono">无损高保真 FLAC 格式</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 第二部分：播放逻辑设置 -->
+                <div class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-4">
+                  <h4 class="text-xs font-black text-on-surface flex items-center space-x-1.5">
+                    <span>📡</span> <span>自动联合换源与跳歌</span>
+                  </h4>
+                  <div class="flex items-center justify-between">
+                    <div class="space-y-0.5 flex-1 pr-6">
+                      <div class="text-xs font-bold text-on-surface">播放错误时自动跳歌</div>
+                      <div class="text-[10px] text-on-surface-variant/60 leading-relaxed mt-1">
+                        当音频流解析失效、触发 403 封禁或链接过时异常时，将在 2 秒内后台启动换源重试，若仍然失败则平滑自动切换到播放队列中的下一首，保障聆听不断联。
+                      </div>
+                    </div>
+                    <!-- 简易 Switch 开关 -->
+                    <button 
+                      @click="
+                        () => {
+                          musicStore.state.autoSkipOnError = !musicStore.state.autoSkipOnError
+                          setAutoSkipLocalStorage(musicStore.state.autoSkipOnError)
+                        }
+                      "
+                      class="w-12 h-6.5 rounded-full p-1 cursor-pointer transition-all duration-300 relative bg-outline-variant"
+                      :class="musicStore.state.autoSkipOnError ? 'bg-primary' : 'bg-outline-variant'"
+                    >
+                      <span 
+                        class="w-4.5 h-4.5 bg-white rounded-full absolute top-1 shadow transition-all duration-300"
+                        :class="musicStore.state.autoSkipOnError ? 'right-1' : 'left-1'"
+                      ></span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 第三部分：下载存放目录 -->
+                <div class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-3.5">
+                  <h4 class="text-xs font-black text-on-surface flex items-center space-x-1.5">
+                    <span>📂</span> <span>默认下载存储路径</span>
+                  </h4>
+                  <p class="text-[10.5px] text-on-surface-variant/70 leading-relaxed pr-2 font-mono bg-surface p-3 rounded-xl border border-outline-variant/40">
+                    /Users/lillian/Downloads/EchoMusic
+                  </p>
+                  <p class="text-[9.5px] text-on-surface-variant/50 leading-relaxed font-bold">
+                    🐾 系统在下载音乐时，会自动在此目录下生成独立的同名外挂 <code>.lrc</code> 歌词文件以最大化设备兼容性，同时会使用纯 Buffer ID3 物理无损向音频文件前缀注入包含高清封面、专辑名称、歌手、歌词标签的全部元数据。
+                  </p>
+                </div>
+
+                <!-- 第四部分：自定义音源导入 -->
+                <div class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-3.5 select-none">
+                  <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-black text-on-surface flex items-center space-x-1.5">
+                      <span>🔌</span> <span>自定义第三方音源装载</span>
+                    </h4>
+                    <button 
+                      @click="importCustomMusicSource"
+                      class="px-3 py-1 rounded-xl bg-primary hover:bg-primary-high text-[10.5px] font-black text-white shadow-sm transition-all active:scale-95 cursor-pointer"
+                    >
+                      ➕ 导入新音源脚本
+                    </button>
+                  </div>
+                  <p class="text-[10px] text-on-surface-variant/60 leading-relaxed pr-2">
+                    允许您从本地导入或通过在线 URL 导入专属的外部音源解析脚本（支持落雪无双 <code>.js</code> 格式），系统将优先尝试使用自定义音源进行高保真无损品质的直链解析。
+                  </p>
+
+                  <!-- 在线 URL 导入输入工具栏 -->
+                  <div class="flex items-center space-x-2 bg-surface p-2.5 rounded-xl border border-outline-variant/40">
+                    <input 
+                      v-model="onlineSourceUrl"
+                      type="text"
+                      placeholder="输入音源在线 JS 链接 (如 https://ghproxy.net/https://...latest.js)"
+                      class="flex-1 min-w-0 bg-transparent text-[10px] font-medium text-on-surface placeholder-on-surface-variant/40 focus:outline-none"
+                    />
+                    <button 
+                      @click="importCustomMusicSourceFromUrl"
+                      :disabled="isDownloadingSource"
+                      class="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-high disabled:bg-primary/50 text-[9.5px] font-black text-white transition-all active:scale-95 cursor-pointer flex items-center space-x-1"
+                    >
+                      <span v-if="isDownloadingSource">⚡ 导入中...</span>
+                      <span v-else>🔗 在线导入</span>
+                    </button>
+                  </div>
+                  
+                  <!-- 音源列表区 -->
+                  <div class="space-y-2">
+                    <div class="text-[9.5px] font-bold text-on-surface-variant uppercase tracking-wider">已装载音源列表</div>
+                    
+                    <div v-if="customSources.length === 0" class="flex items-center justify-center bg-surface p-4 rounded-xl border border-outline-variant/40 text-on-surface-variant/40 text-xs font-bold">
+                      ❌ 暂无已加载音源（内置全网联合源解析中）
+                    </div>
+                    
+                    <div 
+                      v-else
+                      v-for="(src, idx) in customSources"
+                      :key="src.id"
+                      class="flex items-center justify-between bg-surface p-3 rounded-xl border border-outline-variant/40 hover:border-primary/30 transition-all shadow-sm"
+                    >
+                      <div class="min-w-0 flex-1 pr-3">
+                        <div class="flex items-center space-x-1.5">
+                          <span class="text-xs">🔌</span>
+                          <span class="text-xs font-black text-on-surface truncate">[{{ idx + 1 }}] {{ src.name }}</span>
+                        </div>
+                        <div class="text-[9.5px] text-on-surface-variant/50 truncate font-mono mt-0.5">
+                          路径: {{ src.path }}
+                        </div>
+                      </div>
+                      
+                      <button 
+                        @click="removeCustomMusicSource(src.id)"
+                        class="px-2.5 py-1 rounded-lg border border-red-500/10 hover:border-red-500 hover:bg-red-500/5 text-red-500 text-[10px] font-black transition-all active:scale-95 cursor-pointer"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+
+                  <p class="text-[9.5px] text-on-surface-variant/50 leading-relaxed font-bold">
+                    💡 智能级联查询：当播放或下载一首歌曲时，系统将按照以上列表顺序**从上至下依次查询**。如果前面的音源未检索到歌曲或查询失败，系统将自动穿透去请求**下一个音源**，实现无缝链式容灾；只有全部自定义音源不可用时，才会自动降级至内置全网联合源。
+                  </p>
+                </div>
+
+                <!-- 第五部分：桌面歌词自定义背景与文字颜色设置 -->
+                <div class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-4 select-none">
+                  <h4 class="text-xs font-black text-on-surface flex items-center space-x-1.5">
+                    <span>🎨</span> <span>桌面歌词个性化主题</span>
+                  </h4>
+                  <p class="text-[10px] text-on-surface-variant/60 leading-relaxed pr-2">
+                    自由定制您的悬浮桌面歌词！系统支持配置高保真毛玻璃底色与炫彩文字渐变，所有修改将实时同步并渲染至悬浮歌词窗口。
+                  </p>
+
+                  <!-- 实时效果预览区 -->
+                  <div class="space-y-1.5">
+                    <div class="text-[9.5px] font-bold text-on-surface-variant uppercase tracking-wider">实时效果预览</div>
+                    <div 
+                      class="h-14 rounded-xl border border-outline-variant/40 flex items-center justify-center text-center relative select-none overflow-hidden shadow-sm transition-all duration-300" 
+                      :style="{ background: lyricBgColor, backdropFilter: 'blur(8px)' }"
+                    >
+                      <span 
+                        class="text-xs font-black italic tracking-wide transition-all duration-300" 
+                        :style="lyricTextColor.includes('gradient') 
+                          ? `background: ${lyricTextColor}; -webkit-background-clip: text; -webkit-text-fill-color: transparent;`
+                          : `color: ${lyricTextColor}`"
+                      >
+                        双击此处拖拽移动桌面歌词悬浮框
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- 颜色设定区 -->
+                  <div class="grid grid-cols-2 gap-4">
+                    <!-- 背景底色 -->
+                    <div class="space-y-2">
+                      <label class="text-[10px] font-bold text-on-surface-variant">歌词容器底色 (CSS Color / RGBA)</label>
+                      <input 
+                        v-model="lyricBgColor" 
+                        type="text" 
+                        placeholder="例如 rgba(15, 23, 42, 0.45)"
+                        class="w-full px-3 py-1.5 bg-surface border border-outline-variant/50 rounded-xl text-xs focus:outline-none focus:border-primary transition-all font-mono"
+                      />
+                      
+                      <!-- 预设底色快速选择 -->
+                      <div class="flex flex-wrap gap-1.5 pt-1">
+                        <button 
+                          @click="lyricBgColor = 'rgba(15, 23, 42, 0.45)'" 
+                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
+                        >经典暗紫</button>
+                        <button 
+                          @click="lyricBgColor = 'rgba(0, 0, 0, 0.75)'" 
+                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
+                        >深邃纯黑</button>
+                        <button 
+                          @click="lyricBgColor = 'rgba(255, 255, 255, 0.15)'" 
+                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
+                        >磨砂雾白</button>
+                        <button 
+                          @click="lyricBgColor = 'rgba(30, 41, 59, 0.5)'" 
+                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
+                        >极光深蓝</button>
+                      </div>
+                    </div>
+
+                    <!-- 文字颜色 -->
+                    <div class="space-y-2">
+                      <label class="text-[10px] font-bold text-on-surface-variant">歌词文字颜色 / 渐变色 (CSS / Gradient)</label>
+                      <input 
+                        v-model="lyricTextColor" 
+                        type="text" 
+                        placeholder="例如 #ffffff 或 linear-gradient(...)"
+                        class="w-full px-3 py-1.5 bg-surface border border-outline-variant/50 rounded-xl text-xs focus:outline-none focus:border-primary transition-all font-mono"
+                      />
+
+                      <!-- 预设文字颜色快速选择 -->
+                      <div class="flex flex-wrap gap-1.5 pt-1">
+                        <button 
+                          @click="lyricTextColor = 'linear-gradient(135deg, #a5b4fc, #818cf8, #6366f1)'" 
+                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
+                        >靛蓝渐变</button>
+                        <button 
+                          @click="lyricTextColor = 'linear-gradient(135deg, #34d399, #10b981, #059669)'" 
+                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
+                        >翡翠渐变</button>
+                        <button 
+                          @click="lyricTextColor = 'linear-gradient(135deg, #fda4af, #f43f5e, #be123c)'" 
+                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
+                        >珊瑚粉渐</button>
+                        <button 
+                          @click="lyricTextColor = '#ffffff'" 
+                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
+                        >经典纯白</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 动作应用区 -->
+                  <div class="flex items-center justify-between pt-1">
+                    <div class="text-[9.5px] text-on-surface-variant/50 leading-relaxed font-bold">
+                      💡 支持渐变色！如果输入渐变，如 <code>linear-gradient(135deg, #ff9a9e, #fecfef)</code>，文字将自动实现眩目渐变。
+                    </div>
+                    <button 
+                      @click="applyDesktopLyricTheme"
+                      class="px-5 py-2 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-sm transition-all active:scale-95 cursor-pointer flex-shrink-0"
+                    >
+                      保存并应用当前主题
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </template>
+
+        <!-- ── 聊天与导入视图分流 ── -->
+        <template v-else>
+          <!-- 没有选中角色 / 导入视图 -->
+          <template v-if="activeView === 'import'">
+          <div class="flex-1 flex flex-col items-center justify-center p-8">
+            <div class="max-w-md w-full">
+              <div class="text-lg font-bold text-on-surface mb-1">导入 AI 角色</div>
+              <p class="text-xs text-on-surface-variant mb-6">导入 SillyTavern 格式的 PNG 角色卡，开始与数字生命对话。</p>
+
+              <div
+                @dragover.prevent="dragOver = true"
+                @dragleave.prevent="dragOver = false"
+                @drop.prevent="handleCardDrop"
+                class="border-2 border-dashed rounded-xl p-12 flex flex-col items-center justify-center transition-all cursor-pointer min-h-[280px]"
+                :class="dragOver ? 'border-primary bg-primary/5 scale-[0.99]' : 'border-outline-variant hover:border-primary/50'"
+                @click="triggerFileInput"
+              >
+                <input ref="fileInput" type="file" accept="image/png" class="hidden" @change="handleFileSelect" />
+                <UploadIcon class="w-12 h-12 mb-4 text-primary/60" />
+                <p class="text-sm font-bold text-on-surface mb-1">拖拽 PNG 角色卡到这里</p>
+                <p class="text-xs text-on-surface-variant opacity-60">支持 SillyTavern V2 / V3 格式</p>
+                <p class="text-[10px] text-primary mt-4 font-mono font-bold">CLICK OR DRAG FILE HERE</p>
+              </div>
+
+              <div v-if="uploading" class="mt-4 p-4 rounded-xl border border-outline-variant bg-surface flex items-center space-x-3">
+                <Loader2Icon class="animate-spin w-6 h-6 text-primary flex-shrink-0" />
+                <div>
+                  <div class="text-xs font-bold text-on-surface">{{ uploadStep === 'parsing' ? '正在解析角色卡...' : '正在 AI 提炼性格世界设定...' }}</div>
+                  <div class="text-[10px] text-on-surface-variant mt-0.5">{{ uploadStep === 'parsing' ? 'STEP 1/2' : 'STEP 2/2' }}</div>
+                </div>
+              </div>
+
+              <div v-if="parseError" class="mt-4 p-3 rounded-xl border border-error/20 bg-error/5 text-error text-xs flex items-center space-x-2">
+                <XCircleIcon class="w-4 h-4 flex-shrink-0" />
+                <span>{{ parseError }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 未选择角色的占位 -->
+        <template v-else-if="!activeCharacter">
+          <div class="flex-1 flex flex-col items-center justify-center text-center px-8">
+            <div class="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center mb-4">
+              <MessageSquareIcon class="w-8 h-8 text-on-surface-variant/30" />
+            </div>
+            <p class="text-sm text-on-surface-variant/50">选择一个角色开始对话</p>
+          </div>
+        </template>
+
+        <!-- ── 主聊天窗口 ── -->
+        <template v-else>
+          <!-- 顶部 Header -->
+          <header class="h-14 px-5 border-b border-chat-border bg-chat-header flex items-center justify-between flex-shrink-0">
+            <div class="flex items-center space-x-3">
+              <div 
+                class="w-8 h-8 rounded overflow-hidden border border-outline-variant bg-surface flex-shrink-0 flex items-center justify-center"
+                :class="{ 'cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 shadow-sm': activeCharacter.id !== 'character_creator_bot' }"
+                :title="activeCharacter.id !== 'character_creator_bot' ? '点击查看角色详细资料' : ''"
+                @click="activeCharacter.id !== 'character_creator_bot' && viewCharacterDetails()"
+              >
+                <template v-if="activeCharacter.id === 'character_creator_bot'">
+                  <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
+                    <BrainIcon class="w-4 h-4 animate-pulse" stroke-width="1.5" />
+                  </div>
+                </template>
+                <template v-else>
+                  <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                  <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto mt-2" />
+                </template>
+              </div>
+              <div class="relative">
+                <div class="text-sm font-bold text-on-surface flex items-center space-x-1.5">
+                  <span>{{ activeCharacter.name }}</span>
+                  <span v-if="isStreaming" class="text-xs font-normal text-primary/80 animate-pulse">（对方正在输入...）</span>
+                  
+                  <!-- 爱心图标挂件 (入口按钮) -->
+                  <button
+                    v-if="activeCharacter.id !== 'character_creator_bot'"
+                    @click.stop="showStatesDropdown = !showStatesDropdown"
+                    class="ml-1 flex items-center justify-center p-1 rounded-full text-rose-500 hover:bg-rose-500/10 active:scale-95 transition-all select-none focus:outline-none"
+                    :class="{ 'bg-rose-500/10 shadow-sm scale-110': showStatesDropdown }"
+                    title="查看角色状态"
+                  >
+                    <HeartIcon class="w-4 h-4 fill-current animate-pulse" />
+                  </button>
+                </div>
+                <div class="text-[10px] text-on-surface-variant/60 flex items-center space-x-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-green-400 inline-block"></span>
+                  <span>在线</span>
+                </div>
+
+                <!-- 下拉展开的内心状态悬浮卡片 -->
+                <div
+                  v-if="showStatesDropdown && activeCharacter.id !== 'character_creator_bot'"
+                  class="absolute top-full mt-2 left-0 w-80 rounded-2xl border border-outline-variant bg-surface-high/95 backdrop-blur-xl shadow-2xl p-4 flex flex-col space-y-3.5 z-30 cursor-default select-none animate-in fade-in slide-in-from-top-2 duration-200"
+                  @click.stop
+                >
+                  <!-- 头部标题 -->
+                  <div class="flex items-center justify-between border-b border-outline-variant pb-2">
+                    <span class="text-xs font-bold text-on-surface flex items-center space-x-1">
+                      <HeartIcon class="w-3.5 h-3.5 fill-current text-rose-500" />
+                      <span>内心状态系统</span>
+                    </span>
+                    <span class="text-[10px] text-on-surface-variant/60">点击指标可微调数值</span>
+                  </div>
+
+                  <!-- 状态列表 -->
+                  <div class="flex flex-col space-y-2">
+                    <div 
+                      v-for="item in activeCharacterStates" 
+                      :key="item.key" 
+                      class="relative w-full"
+                    >
+                      <!-- 编辑状态中的 Inline 输入行 -->
+                      <div 
+                        v-if="activePopoverKey === item.key"
+                        class="flex items-center justify-between px-3 py-1.5 rounded-xl border border-primary bg-primary/5 text-xs font-semibold w-full cursor-default select-none animate-in fade-in duration-150"
+                        @click.stop
+                      >
+                        <div class="flex items-center space-x-1.5 min-w-0 flex-1 mr-2">
+                          <span class="text-sm shrink-0">{{ item.emoji }}</span>
+                          <span class="opacity-90 font-bold text-[11px] text-primary truncate shrink-0">{{ item.label }}</span>
+                          
+                          <!-- 数字型输入框 (只允许输入数字，并设限制) -->
+                          <input 
+                            v-if="item.type !== 'text'"
+                            type="number" 
+                            :min="item.min ?? 0"
+                            :max="item.max ?? 100"
+                            v-model.number="popoverValue" 
+                            class="w-full px-2 py-1 text-[11px] rounded-lg bg-surface border border-outline-variant focus:outline-none focus:border-primary text-on-surface font-extrabold focus:ring-1 focus:ring-primary/20"
+                            @keyup.enter="saveStateValue(item.key, popoverValue)"
+                            @keyup.esc="activePopoverKey = null"
+                            @keypress="event => { if (!/[0-9]/.test(event.key)) event.preventDefault(); }"
+                            placeholder="值"
+                          />
+                          
+                          <!-- 文本型输入框 (自由输入) -->
+                          <input 
+                            v-else
+                            type="text" 
+                            v-model="popoverValue" 
+                            class="w-full px-2 py-1 text-[11px] rounded-lg bg-surface border border-outline-variant focus:outline-none focus:border-primary text-on-surface font-semibold focus:ring-1 focus:ring-primary/20"
+                            @keyup.enter="saveStateValue(item.key, popoverValue)"
+                            @keyup.esc="activePopoverKey = null"
+                            placeholder="输入值"
+                          />
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="flex items-center space-x-1 shrink-0">
+                          <!-- 物理删除该自定义指标 (基础预置指标绝对不可删除) -->
+                          <button 
+                            v-if="!['intimacy', 'mood', 'energy'].includes(item.key)"
+                            @click.stop="deleteCustomState(item.key)"
+                            class="p-1 rounded-md text-red-500 hover:bg-red-500/10 hover:text-red-600 transition-all flex items-center justify-center cursor-pointer"
+                            title="彻底删除该状态指标"
+                          >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                          </button>
+
+                          <!-- 放弃/取消编辑 -->
+                          <button 
+                            @click.stop="activePopoverKey = null"
+                            class="p-1 rounded-md text-on-surface-variant hover:bg-on-surface/5 hover:text-on-surface transition-all flex items-center justify-center cursor-pointer"
+                            title="取消"
+                          >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                          </button>
+                          
+                          <!-- 保存编辑 -->
+                          <button 
+                            @click.stop="saveStateValue(item.key, popoverValue)"
+                            class="p-1 rounded-md bg-primary text-white hover:bg-primary-hover shadow-sm transition-all flex items-center justify-center cursor-pointer"
+                            title="保存"
+                          >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      <!-- 指标项本体 (非编辑状态，点击进入 Inline 编辑) -->
+                      <div 
+                        v-else
+                        @click.stop="openStatePopover(item)"
+                        class="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all active:scale-98 border hover:shadow-sm"
+                        :class="[
+                          item.key === 'intimacy' ? 'bg-rose-500/5 border-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/12' :
+                          item.key === 'mood' ? 'bg-amber-500/5 border-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/12' :
+                          item.key === 'energy' ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/12' :
+                          'bg-indigo-500/5 border-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/12'
+                        ]"
+                      >
+                        <div class="flex items-center space-x-2">
+                          <span>{{ item.emoji }}</span>
+                          <span class="opacity-90 font-medium">{{ item.label }}</span>
+                        </div>
+                        <div class="flex items-center space-x-1.5 min-w-0 ml-3" :class="{ 'flex-shrink-0': item.type !== 'text', 'flex-1 justify-end': item.type === 'text' }">
+                          <span class="font-extrabold break-all whitespace-normal text-right">{{ item.value }}</span>
+                          <span v-if="item.key === 'intimacy'" class="text-[10px] opacity-75 font-normal flex-shrink-0">({{ getIntimacyPhaseText(item.value) }})</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 底部操作区域 -->
+                  <div class="flex items-center justify-between border-t border-outline-variant pt-2.5">
+                    <button 
+                      @click="showAddStateModal = true"
+                      class="flex-1 flex items-center justify-center space-x-1 py-2 px-3 rounded-xl text-xs font-semibold bg-on-surface/5 border border-on-surface/10 hover:bg-on-surface/10 text-on-surface-variant transition-all cursor-pointer select-none active:scale-95"
+                    >
+                      <PlusIcon class="w-3.5 h-3.5" />
+                      <span>添加拓展属性</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右侧工具按钮 -->
+            <div class="flex items-center space-x-1">
+              <!-- 梦境图标：手动触发角色睡眠反思进化 -->
+              <button
+                v-if="activeCharacter.id !== 'character_creator_bot'"
+                @click="triggerDreamReflection"
+                class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-indigo-500 transition-all"
+                :class="{ 'animate-pulse text-indigo-500 bg-indigo-500/10': isDreaming }"
+                title="手动唤醒做梦进化（睡眠自省）"
+              >
+                <MoonIcon class="w-4 h-4" stroke-width="1.5" />
+              </button>
+
+              <!-- 大脑图标：查看/编辑角色记忆文件 -->
+              <button
+                v-if="activeCharacter.id !== 'character_creator_bot'"
+                @click="openBrainPanel"
+                class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
+                title="查看并编辑角色记忆"
+              >
+                <BrainIcon class="w-4 h-4" stroke-width="1.5" />
+              </button>
+
+              <!-- 日记图标：查看角色日记 -->
+              <button
+                v-if="activeCharacter.id !== 'character_creator_bot'"
+                @click="openDiaryPanel"
+                class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
+                title="查看角色日记"
+              >
+                <BookOpenIcon class="w-4 h-4" stroke-width="1.5" />
+              </button>
+
+              <!-- 扫帚图标：清除会话与记忆 / 创角Bot重置 -->
+              <button
+                id="brush-cleaning"
+                @click="triggerCleanChoice"
+                class="brush-cleaning p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-red-500 transition-all active:scale-95 flex items-center justify-center"
+                :title="activeCharacter.id === 'character_creator_bot' ? '重置并重新创角' : '清除会话与记忆'"
+              >
+                <svg
+                  class="brush-cleaning w-4 h-4"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="m16 22-1-4" />
+                  <path d="M19 14a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2h-3a1 1 0 0 1-1-1V4a2 2 0 0 0-4 0v5a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2v1a1 1 0 0 0 1 1" />
+                  <path d="M19 14H5l-1.973 6.767A1 1 0 0 0 4 22h16a1 1 0 0 0 .973-1.233z" />
+                  <path d="m8 22 1-4" />
+                </svg>
+              </button>
+            </div>
+          </header>
+
+
+          <!-- 性格成长演化横幅 -->
+          <div v-if="activeEvolutionDraft && activeEvolutionCharId === activeCharacter?.id" class="mx-5 mt-4 p-4 rounded-2xl bg-primary/10 backdrop-blur border border-primary/20 flex items-center justify-between shadow-sm animate-pulse select-none flex-shrink-0">
+            <div class="flex items-center space-x-3.5">
+              <div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary flex-shrink-0">
+                <SparklesIcon class="w-4 h-4" />
+              </div>
+              <div>
+                <h4 class="text-xs font-bold text-on-surface">🌱 {{ activeCharacter.name }} 似乎在悄悄成长...</h4>
+                <p class="text-[10px] text-on-surface-variant/80 mt-0.5">检测到核心性格人设发生了自然演化，需要您的确认批准。</p>
+              </div>
+            </div>
+            <button @click="showEvolutionModal = true" class="px-3.5 py-1.5 rounded-xl bg-primary hover:bg-primary-high text-[10px] font-bold text-white shadow transition-all cursor-pointer select-none">
+              查看详情
+            </button>
+          </div>
+
+          <!-- 聊天气泡区 -->
+          <div ref="chatContainer" class="flex-1 overflow-y-auto px-5 py-4 space-y-3 select-text">
+            <!-- 初始空白（不显示开场白） -->
+            <div v-if="chatMessages.length === 0" class="flex flex-col items-center justify-center h-full text-center">
+              <div class="w-14 h-14 rounded overflow-hidden border border-on-surface/5 bg-surface mb-3 shadow-md flex items-center justify-center">
+                <template v-if="activeCharacter.id === 'character_creator_bot'">
+                  <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
+                    <BrainIcon class="w-7 h-7 animate-pulse" stroke-width="1.5" />
+                  </div>
+                </template>
+                <template v-else>
+                  <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                </template>
+              </div>
+              <p class="text-sm font-semibold text-on-surface">{{ activeCharacter.name }}</p>
+              <p class="text-xs text-on-surface-variant/50 mt-1">发送消息开始对话</p>
+            </div>
+
+            <!-- 消息列表 -->
+            <template v-for="(msg, idx) in chatMessages" :key="idx">
+              <!-- 自适应微信时间戳 -->
+              <div v-if="shouldShowTime(msg, chatMessages[idx - 1])" class="flex justify-center my-3 select-none flex-shrink-0">
+                <span class="text-[10px] bg-on-surface-variant/5 text-on-surface-variant/40 px-2.5 py-0.5 rounded-full tracking-wide font-medium">
+                  {{ formatMessageTime(msg.created_at) }}
+                </span>
+              </div>
+              <!-- 系统气泡 -->
+              <div v-if="msg.isSystem" class="flex justify-center py-1">
+                <div class="px-3 py-1.5 rounded-full border border-outline-variant/30 bg-surface-low text-[10px] text-on-surface-variant flex items-center space-x-1.5 max-w-[85%]">
+                  <CpuIcon class="w-3 h-3 flex-shrink-0 text-secondary" />
+                  <span class="font-mono leading-relaxed">{{ msg.content }}</span>
+                </div>
+              </div>
+
+              <!-- 用户消息（右侧） -->
+              <div v-else-if="msg.role === 'user'" class="flex justify-end items-start space-x-2">
+                <div class="max-w-[68%] flex flex-col items-end">
+                  <!-- 图片气泡 -->
+                  <div v-if="msg.imageBase64" class="mb-1 rounded-xl overflow-hidden border border-primary/20 shadow-sm">
+                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" />
+                  </div>
+                  
+                  <!-- 自定义表情包大图气泡 -->
+                  <div v-if="msg.customEmojiUrl" class="mb-1 max-w-[88px] max-h-[88px] rounded-xl overflow-hidden p-1 flex items-center justify-center select-none bg-transparent hover:scale-105 active:scale-95 transition-all">
+                    <img :src="msg.customEmojiUrl" class="w-full h-full object-contain select-none pointer-events-none" />
+                  </div>
+
+                  <!-- 高颜值微信红包封面卡片 -->
+                  <div v-if="msg.redPacket" class="wechat-red-packet-card mb-1 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none">
+                    <!-- A. 等待领取状态 (waiting) -->
+                    <template v-if="!msg.redPacket.status || msg.redPacket.status === 'waiting'">
+                      <!-- 上半部分：红橙渐变 -->
+                      <div class="p-3.5 bg-gradient-to-br from-[#f25542] to-[#da3f2d] text-white flex items-center space-x-3.5 min-w-[210px] border-b border-white/5">
+                        <!-- 金色圆形容器包🧧 -->
+                        <div class="w-10 h-10 rounded-full bg-[#fcedc4]/15 flex items-center justify-center flex-shrink-0 border border-[#fcedc4]/20 shadow-sm">
+                          <span class="text-xl">🧧</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-xs font-bold truncate text-[#fcedc4] leading-normal">{{ msg.redPacket.title || '恭喜发财，大吉大利' }}</div>
+                          <div class="text-[10px] opacity-90 mt-0.5 text-white/90">金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元</div>
+                        </div>
+                      </div>
+                      <!-- 下半部分：深红细底条 -->
+                      <div class="px-3.5 py-1.5 bg-[#cf3c2a] text-[#fcedc4]/70 text-[9px] flex items-center justify-between border-t border-white/5 font-medium">
+                        <span>回音红包</span>
+                        <span class="opacity-80 flex items-center space-x-1">
+                          <span class="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span>
+                          <span>等待对方领取...</span>
+                        </span>
+                      </div>
+                    </template>
+
+                    <!-- B. 已拆开 / 已领取状态 (received) -->
+                    <template v-else-if="msg.redPacket.status === 'received'">
+                      <!-- 上半部分：淡红橙半透明 -->
+                      <div class="p-3.5 bg-gradient-to-br from-[#f25542]/55 to-[#da3f2d]/55 text-white/60 flex items-center space-x-3.5 min-w-[210px] border-b border-white/5">
+                        <!-- 已拆开红包的信封微标 -->
+                        <div class="w-10 h-10 rounded-full bg-[#fcedc4]/10 flex items-center justify-center flex-shrink-0 border border-[#fcedc4]/10">
+                          <span class="text-lg opacity-60">✉️</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-xs font-bold truncate text-[#fcedc4]/70 leading-normal">{{ msg.redPacket.title || '恭喜发财，大吉大利' }}</div>
+                          <div class="text-[10px] opacity-75 mt-0.5">金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元 (已拆开)</div>
+                        </div>
+                      </div>
+                      <!-- 下半部分：淡红细底条 -->
+                      <div class="px-3.5 py-1.5 bg-[#cf3c2a]/60 text-[#fcedc4]/50 text-[9px] flex items-center justify-between border-t border-white/5 font-medium">
+                        <span>回音红包</span>
+                        <span>已被拆开领用</span>
+                      </div>
+                    </template>
+
+                    <!-- C. 已退回状态 (returned) -->
+                    <template v-else-if="msg.redPacket.status === 'returned'">
+                      <!-- 上半部分：深灰色半透明 -->
+                      <div class="p-3.5 bg-gradient-to-br from-gray-500/65 to-gray-600/65 text-white/60 flex items-center space-x-3.5 min-w-[210px] border-b border-white/5">
+                        <!-- 已退回红包的微标 -->
+                        <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 border border-white/15">
+                          <span class="text-lg opacity-60">↩️</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-xs font-bold truncate text-white/50 leading-normal line-through">{{ msg.redPacket.title || '恭喜发财，大吉大利' }}</div>
+                          <div class="text-[10px] opacity-75 mt-0.5">金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元 (已退回)</div>
+                        </div>
+                      </div>
+                      <!-- 下半部分：深灰细底条 -->
+                      <div class="px-3.5 py-1.5 bg-gray-700/80 text-white/50 text-[9px] flex items-center justify-between border-t border-white/5 font-medium">
+                        <span>回音红包</span>
+                        <span>已被拒收并退款</span>
+                      </div>
+                    </template>
+                  </div>
+
+                  <!-- 转账气泡 (向后兼容) -->
+                  <div v-if="msg.transfer" class="wechat-transfer-bubble user-bubble mb-1">
+                    <BanknoteIcon class="w-5 h-5 text-green-300 flex-shrink-0" />
+                    <div>
+                      <div class="text-xs font-bold">转账</div>
+                      <div class="text-[10px] opacity-80">金额：{{ msg.transfer.amount }} 元</div>
+                    </div>
+                  </div>
+
+                  <!-- 文字气泡 (有图片、自定义表情或红包时不在下方重复渲染绿色气泡) -->
+                  <div v-if="msg.content && !msg.redPacket && !msg.transfer && !msg.customEmojiUrl" class="user-chat-bubble markdown-body" v-html="renderMarkdown(msg.content)" @contextmenu.prevent="openMessageContextMenu($event, msg)">
+                  </div>
+                </div>
+                <!-- 用户头像方形圆角化 -->
+                <div class="w-8 h-8 rounded overflow-hidden border border-on-surface/5 bg-surface-low flex-shrink-0 flex items-center justify-center shadow-sm">
+                  <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover" @error="userProfile.avatarUrl = ''" />
+                  <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover" />
+                </div>
+              </div>
+
+              <!-- AI 消息（左侧） -->
+              <div v-else-if="msg.role === 'assistant'" class="flex items-start space-x-2">
+                <!-- AI角色头像方形圆角化 -->
+                <div class="w-8 h-8 rounded overflow-hidden border border-on-surface/5 bg-surface flex-shrink-0 flex items-center justify-center shadow-sm">
+                  <template v-if="activeCharacter.id === 'character_creator_bot'">
+                    <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
+                      <BrainIcon class="w-4 h-4 animate-pulse" stroke-width="1.5" />
+                    </div>
+                  </template>
+                  <template v-else>
+                    <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                  </template>
+                </div>
+                <div class="max-w-[68%]">
+                  <!-- 典雅日记手账本消息卡片 -->
+                  <div v-if="msg.diary" class="diary-card-bubble p-4 rounded-2xl bg-gradient-to-br from-[#f8f5eb] to-[#f0ebde] border border-[#d6cdb4] shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[240px] text-stone-800" @click="openDiaryForCharacter(msg.character_id || activeCharacter.id)">
+                    <div class="flex items-center space-x-2.5 mb-2.5 pb-2 border-b border-[#e6deca]/60">
+                      <div class="w-8 h-8 rounded-full bg-[#8c7e63]/10 flex items-center justify-center flex-shrink-0 text-stone-700 shadow-inner">
+                        <span>📓</span>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="text-xs font-bold text-stone-800 truncate">{{ msg.diary.characterName || activeCharacter.name }} 的手账日记</div>
+                        <div class="text-[10px] text-stone-500/80 mt-0.5">{{ msg.diary.date }}</div>
+                      </div>
+                    </div>
+                    <!-- 日记摘要 -->
+                    <div class="text-xs text-stone-600 leading-relaxed italic mb-3 select-text line-clamp-3">
+                      “ {{ msg.diary.excerpt }} ”
+                    </div>
+                    <!-- 引导点击查看按钮 -->
+                    <div class="flex items-center justify-between text-[10px] text-stone-500 font-bold bg-[#faf9f6]/80 px-2.5 py-1.5 rounded-lg border border-[#e6deca]/30">
+                      <span>🔒 仅我可见的真实自省</span>
+                      <span class="text-primary hover:underline flex items-center space-x-0.5">
+                        <span>翻开看看</span>
+                        <span>→</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- 常规文字气泡 -->
+                  <div v-else class="ai-chat-bubble relative" @contextmenu.prevent="openMessageContextMenu($event, msg)">
+                    <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- 底部输入区 -->
+          <div :style="{ height: inputHeight + 'px' }" class="border-t border-chat-border bg-chat-input-bg flex-shrink-0 flex flex-col relative select-none">
+            <!-- 拖拽高度 handle -->
+            <div
+              @mousedown="startInputResize"
+              class="absolute top-0 left-0 right-0 h-[4px] hover:bg-primary cursor-row-resize transition-all z-30"
+              title="拖动更改区域大小"
+            ></div>
+
+            <!-- 工具栏 (flex-shrink-0) -->
+            <div class="px-4 pt-2.5 pb-1 flex items-center space-x-1 flex-shrink-0">
+              <!-- 表情 -->
+              <button
+                @click.stop="toggleEmojiPanel"
+                class="input-tool-btn"
+                :class="{ 'text-primary bg-surface-high': showEmojiPanel }"
+                title="表情"
+              >
+                <SmileIcon class="w-5 h-5" />
+              </button>
+
+              <!-- 加号/更多功能 -->
+              <button
+                @click.stop="togglePlusMenu"
+                class="input-tool-btn"
+                :class="{ 'text-primary bg-surface-high': showPlusMenu }"
+                title="更多功能"
+              >
+                <PlusCircleIcon class="w-5 h-5" />
+              </button>
+            </div>
+
+            <!-- Emoji 面板 (绝对定位浮窗) -->
+            <div v-if="showEmojiPanel" @click.stop class="absolute bottom-full left-4 right-4 mb-2.5 z-40 p-4 flex flex-col h-[280px] justify-between animate-fade-in select-none glass-panel shadow-2xl rounded-2xl">
+              <input ref="emojiFileInput" type="file" accept="image/*" class="hidden" @change="handleEmojiFileSelect" />
+              
+              <!-- A. 默认表情 -->
+              <div v-if="emojiActiveTab === 'default'" class="flex flex-wrap gap-2 overflow-y-auto flex-1 select-none pr-1 py-1">
+                <button
+                  v-for="emoji in emojiList"
+                  :key="emoji"
+                  class="w-7 h-7 flex items-center justify-center text-xl hover:scale-125 hover:bg-surface-high/60 rounded transition-all cursor-pointer"
+                  @click="insertEmoji(emoji)"
+                >{{ emoji }}</button>
+              </div>
+              
+              <!-- B. 自定义表情 -->
+              <div v-else class="grid grid-cols-8 gap-2 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
+                <!-- + 添加表情大卡片 -->
+                <button
+                  @click="triggerEmojiUpload"
+                  class="aspect-square rounded-lg border border-dashed border-outline-variant/60 hover:border-primary/50 flex items-center justify-center bg-surface hover:bg-primary/5 cursor-pointer active:scale-95 transition-all shadow-sm group"
+                  title="添加自定义表情"
+                >
+                  <PlusIcon class="w-5 h-5 text-on-surface-variant/50 group-hover:text-primary transition-colors" />
+                </button>
+                
+                <!-- 已有表情列表 -->
+                <div
+                  v-for="emoji in customEmojiList"
+                  :key="emoji.id"
+                  @click="sendCustomEmoji(emoji)"
+                  class="aspect-square rounded-lg overflow-hidden border border-outline-variant/60 hover:border-primary bg-surface flex items-center justify-center p-1 cursor-pointer hover:scale-105 active:scale-95 transition-all group relative shadow-sm"
+                  :title="emoji.meaning"
+                >
+                  <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
+                  <!-- 悬浮删除小按钮 -->
+                  <button
+                    @click.stop="deleteCustomEmoji(emoji.id)"
+                    class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 hover:bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow active:scale-90"
+                    title="删除表情"
+                  >×</button>
+                </div>
+              </div>
+              
+              <!-- 底部切换 Tab 页签 -->
+              <div class="flex items-center space-x-3.5 pt-2.5 pb-1 border-t border-outline-variant/20 mt-2 flex-shrink-0 select-none">
+                <button
+                  @click="emojiActiveTab = 'default'"
+                  class="w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer border shadow-sm"
+                  :class="emojiActiveTab === 'default' ? 'bg-surface text-primary border-primary/20 scale-105 font-bold shadow' : 'bg-surface-high/40 text-on-surface-variant hover:text-on-surface hover:bg-surface-high border-outline-variant/30'"
+                  title="默认表情"
+                >
+                  <SmileIcon class="w-4 h-4" />
+                </button>
+                
+                <button
+                  @click="emojiActiveTab = 'favorites'"
+                  class="w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer border shadow-sm"
+                  :class="emojiActiveTab === 'favorites' ? 'bg-surface text-[#ff4b72] border-[#ff4b72]/20 scale-105 font-bold shadow' : 'bg-surface-high/40 text-on-surface-variant hover:text-on-surface hover:bg-surface-high border-outline-variant/30'"
+                  title="自定义表情"
+                >
+                  <HeartIcon class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <!-- 加号菜单 (绝对定位浮窗) -->
+            <div v-if="showPlusMenu" @click.stop class="absolute bottom-full left-4 mb-2.5 z-40 p-4 flex items-center space-x-4 animate-fade-in select-none glass-panel shadow-2xl rounded-2xl">
+              <button
+                @click="openRedPacket"
+                class="flex flex-col items-center space-y-1 p-1 rounded-xl hover:bg-surface-high/60 transition-all animate-pulse"
+              >
+                <div class="w-9 h-9 rounded-xl bg-red-500 flex items-center justify-center shadow-sm">
+                  <GiftIcon class="w-4 h-4 text-white" />
+                </div>
+                <span class="text-[9px] font-bold text-on-surface-variant">红包</span>
+              </button>
+            </div>
+
+            <!-- 文本输入框 (flex-grow) -->
+            <div class="px-4 pt-1.5 pb-2.5 flex-1 flex flex-col min-h-0">
+              <div class="relative flex-1 flex flex-col min-h-0">
+                <textarea
+                  ref="chatTextarea"
+                  v-model="chatInputText"
+                  @keydown="handleKeyDown"
+                  @paste="handlePaste"
+                  :disabled="isStreaming"
+                  placeholder="发送消息... (Enter 发送，Shift+Enter 换行)"
+                  class="w-full flex-1 py-2 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text"
+                  :class="pastedImageBase64 ? 'pl-20 pr-3' : 'px-3'"
+                ></textarea>
+                <!-- 粘贴图片预览 (居左) -->
+                <div v-if="pastedImageBase64" class="absolute top-2 left-2 w-16 h-16 rounded-lg overflow-hidden border border-primary/30 shadow-sm bg-surface z-10">
+                  <img :src="pastedImageBase64" class="w-full h-full object-cover" />
+                  <button @click="pastedImageBase64 = ''" class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-error text-white text-[10px] flex items-center justify-center hover:scale-110 transition-all">×</button>
+                </div>
+              </div>
+              <div class="flex justify-between items-center mt-1.5 flex-shrink-0">
+                <span class="text-[9px] text-on-surface-variant/35 font-medium tracking-wide">Enter 发送，Shift+Enter 换行</span>
+                <button
+                  @click="sendChatMessage"
+                  :disabled="isStreaming || (!chatInputText.trim() && !pastedImageBase64)"
+                  class="px-3.5 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-bold disabled:opacity-40 hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-sm active:scale-95"
+                >
+                  <Loader2Icon v-if="isStreaming" class="w-3.5 h-3.5 animate-spin" />
+                  <SendIcon v-else class="w-3.5 h-3.5" />
+                  <span>{{ isStreaming ? '接收中...' : '发送' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </template>
+      </main>
+    </div>
+
+    <!-- ========================= 右键菜单 ========================= -->
+    <div
+      v-if="contextMenu.visible"
+      class="fixed z-50 bg-surface border border-outline-variant rounded-xl shadow-2xl py-1.5 min-w-[140px] overflow-hidden"
+      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      @click.stop
+    >
+      <!-- A. 会话列表右键 -->
+      <template v-if="contextMenu.type === 'chat'">
+        <button class="ctx-menu-item" @click="ctxPin">
+          <PinIcon class="w-3.5 h-3.5 mr-2" />
+          {{ contextMenu.char && conversationMeta[contextMenu.char.id]?.pinned ? '取消置顶' : '置顶' }}
+        </button>
+        <button class="ctx-menu-item" @click="ctxMarkUnread">
+          <BellDotIcon class="w-3.5 h-3.5 mr-2" />
+          {{ contextMenu.char && conversationMeta[contextMenu.char.id]?.unread ? '标为已读' : '标为未读' }}
+        </button>
+        <button class="ctx-menu-item" @click="ctxToggleMute">
+          <BellOffIcon class="w-3.5 h-3.5 mr-2" />
+          {{ contextMenu.char && conversationMeta[contextMenu.char.id]?.muted ? '取消免打扰' : '消息免打扰' }}
+        </button>
+        <div class="my-1 border-t border-outline-variant/30"></div>
+        <button class="ctx-menu-item text-error" @click="ctxHideConversation">
+          <EyeOffIcon class="w-3.5 h-3.5 mr-2" />
+          删除会话
+        </button>
+      </template>
+
+      <!-- B. 通讯录角色右键 -->
+      <template v-else-if="contextMenu.type === 'contact'">
+        <button class="ctx-menu-item" @click="ctxStartChat">
+          <MessageCircleIcon class="w-3.5 h-3.5 mr-2 text-primary" />
+          发起对话
+        </button>
+        <div class="my-1 border-t border-outline-variant/30"></div>
+        <button class="ctx-menu-item text-error" @click="ctxDeleteCharacter">
+          <XIcon class="w-3.5 h-3.5 mr-2 text-error" />
+          删除角色
+        </button>
+      </template>
+
+      <!-- C. 聊天气泡右键 -->
+      <template v-else-if="contextMenu.type === 'message'">
+        <button class="ctx-menu-item" @click="ctxCopyMessage">
+          <CopyIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
+          <span>复制</span>
+        </button>
+        <button v-if="contextMenu.message && contextMenu.message.role === 'assistant'" class="ctx-menu-item" @click="ctxRegenerateMessage">
+          <RefreshCwIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
+          <span>重新回复</span>
+        </button>
+        <button class="ctx-menu-item" @click="ctxForwardMessage">
+          <Share2Icon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
+          <span>转发</span>
+        </button>
+        <button class="ctx-menu-item" @click="ctxFavoriteMessage">
+          <BookmarkIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
+          <span>收藏</span>
+        </button>
+      </template>
+    </div>
+
+    <!-- ========================= 弹窗：用户个人设置 ========================= -->
+    <div v-if="showUserProfileModal" class="modal-overlay" @click.self="closeUserProfileModal">
+      <div class="modal-panel flex flex-col overflow-hidden transition-all duration-300 shadow-2xl" :class="userProfileActiveTab === 'userMd' ? 'w-[640px] h-[580px]' : 'w-[380px] h-[480px]'">
+        <div class="modal-header flex-shrink-0">
+          <span>个人中心</span>
+          <button @click="closeUserProfileModal" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
+        </div>
+
+        <!-- 选项卡切换页签 -->
+        <div class="flex border-b border-outline-variant/30 flex-shrink-0 bg-surface">
+          <button
+            @click="userProfileActiveTab = 'profile'"
+            class="flex-1 py-2.5 text-xs font-bold border-b-2 transition-all text-center"
+            :class="userProfileActiveTab === 'profile' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
+          >
+            基础资料
+          </button>
+          <button
+            @click="userProfileActiveTab = 'userMd'"
+            class="flex-1 py-2.5 text-xs font-bold border-b-2 transition-all text-center"
+            :class="userProfileActiveTab === 'userMd' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
+          >
+            全局画像 (USER.md)
+          </button>
+        </div>
+
+        <div class="p-5 overflow-y-auto flex-1 flex flex-col min-h-0 space-y-4">
+          <!-- A. 基础资料页签 -->
+          <template v-if="userProfileActiveTab === 'profile'">
+            <!-- 个人名片卡片 -->
+            <div class="p-4 rounded-xl bg-surface-low border border-outline-variant/60 shadow-sm flex items-center space-x-4">
+              <div class="w-14 h-14 rounded overflow-hidden border-2 border-on-surface/5 cursor-pointer relative group flex-shrink-0" @click="triggerAvatarInput">
+                <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover" />
+                <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover" />
+                <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <CameraIcon class="w-4 h-4 text-white" />
+                </div>
+              </div>
+              <input ref="avatarFileInput" type="file" accept="image/*" class="hidden" @change="handleAvatarChange" />
+              <div class="flex-1 min-w-0">
+                <div class="text-xs font-bold text-on-surface truncate">{{ userProfile.nickname || '未设置姓名' }}</div>
+                <div class="text-[10px] text-on-surface-variant truncate mt-0.5 opacity-80">{{ userProfile.signature || '这个人很懒，什么都没留下' }}</div>
+                <div class="text-[9px] text-on-surface-variant mt-1.5 flex items-center space-x-1 opacity-70">
+                  <GlobeIcon class="w-3 h-3 text-primary" />
+                  <span>{{ userProfile.location || '未知所在地' }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 网格编辑表单 -->
+            <div class="grid grid-cols-2 gap-3.5 pt-1">
+              <div class="form-group col-span-1">
+                <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">姓名</label>
+                <input v-model="userProfile.nickname" type="text" placeholder="设置姓名" class="form-input text-xs" />
+              </div>
+              <div class="form-group col-span-1">
+                <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">所在地</label>
+                <input v-model="userProfile.location" type="text" placeholder="设置所在地" class="form-input text-xs" />
+              </div>
+              <div class="form-group col-span-2">
+                <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">个性签名</label>
+                <input v-model="userProfile.signature" type="text" placeholder="设置个性签名" class="form-input text-xs" />
+              </div>
+            </div>
+
+            <!-- 数字钱包卡片 -->
+            <div class="p-3.5 rounded-xl bg-gradient-to-r from-primary/10 to-secondary/10 border border-outline-variant/40 flex items-center justify-between shadow-inner mt-1 flex-shrink-0">
+              <div class="flex flex-col space-y-0.5">
+                <span class="text-[9px] font-bold text-on-surface-variant/80 uppercase font-mono tracking-wider">我的钱包 (回音虚拟币)</span>
+                <span class="text-base font-black text-primary font-mono">{{ userProfile.walletBalance }} <span class="text-[10px] font-normal text-on-surface-variant">元</span></span>
+              </div>
+              <div class="form-group w-5/12">
+                <label class="text-[9px] text-on-surface-variant font-bold text-right pr-1">充值额度</label>
+                <input v-model.number="userProfile.walletBalance" type="number" min="0" placeholder="0" class="form-input text-xs py-1 px-2 text-center bg-surface border border-outline-variant" />
+              </div>
+            </div>
+          </template>
+
+          <!-- B. 全局画像页签 -->
+          <template v-else>
+            <div class="flex-1 flex flex-col min-h-0 space-y-2">
+              <div class="text-[10px] text-red-500 font-bold leading-normal">
+                ⚠️ 用户设定的名称请与基础资料中的姓名保持一致
+              </div>
+              <div class="flex items-center justify-between flex-shrink-0">
+                <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">全局用户画像 (USER.md)</span>
+                <button
+                  @click="userMdEditing = !userMdEditing"
+                  class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0"
+                >
+                  <component :is="userMdEditing ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                  <span>{{ userMdEditing ? '预览文档' : '编辑源码' }}</span>
+                </button>
+              </div>
+              
+              <!-- 预览模式 -->
+              <div v-if="!userMdEditing" class="flex-1 p-4 rounded-xl border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm min-h-0 h-full" v-html="renderMarkdown(globalUserMdContent || '*暂无全局用户设定*')">
+              </div>
+              <!-- 编辑模式 -->
+              <textarea v-else v-model="globalUserMdContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner min-h-0 h-full"></textarea>
+            </div>
+          </template>
+
+          <!-- 底部操作按钮 -->
+          <div class="flex justify-end space-x-2 pt-3 border-t border-outline-variant/30 mt-4 flex-shrink-0">
+            <button @click="closeUserProfileModal" class="btn-secondary">取消</button>
+            <button @click="saveUserProfile" class="btn-primary">保存并生效</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- ========================= 弹窗：拓展属性 (数字生命的内心指标拓展) ========================= -->
+    <div v-if="showAddStateModal" class="modal-overlay" @click.self="showAddStateModal = false">
+      <div class="modal-panel w-[400px] flex flex-col p-5 bg-surface-high/85 backdrop-blur-xl border border-outline-variant/60 rounded-3xl shadow-2xl relative">
+        <div class="flex items-center justify-between pb-3.5 border-b border-outline-variant/40 mb-4 flex-shrink-0">
+          <h3 class="text-sm font-extrabold text-on-surface flex items-center space-x-2">
+            <SparklesIcon class="w-4 h-4 text-indigo-500 animate-pulse" />
+            <span>拓展开天属性</span>
+          </h3>
+          <button @click="showAddStateModal = false" class="modal-close-btn p-1 rounded-lg hover:bg-on-surface/5 text-on-surface-variant transition-colors">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </div>
+        
+        <div class="space-y-4 flex-1">
+          <!-- 快捷应用预置指标模板 -->
+          <div v-if="statePresets.length > 0" class="flex flex-col space-y-1.5 pb-3 border-b border-outline-variant/30 mb-3 flex-shrink-0">
+            <label class="text-[11px] font-extrabold text-primary flex items-center space-x-1">
+              <SparklesIcon class="w-3 h-3 text-primary animate-pulse" />
+              <span>极速应用预置指标模板</span>
+            </label>
+            <select 
+              @change="event => {
+                const target = event.target as HTMLSelectElement;
+                const preset = statePresets.find(p => p.id === target.value);
+                if (preset) {
+                  newStateLabel = preset.label;
+                  newStateType = preset.type;
+                  newStateMeaning = preset.meaning;
+                  newStateRule = preset.rule;
+                }
+                target.value = ''; // 选完复位，方便下次选择
+              }"
+              class="w-full px-3.5 py-2 rounded-2xl bg-on-surface/5 border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface font-semibold"
+            >
+              <option value="">-- 请选择一个预置指标模板 --</option>
+              <option 
+                v-for="p in statePresets.filter(preset => !preset.is_global)" 
+                :key="p.id" 
+                :value="p.id"
+              >
+                {{ p.label }} ({{ p.type === 'number' ? '数字型' : '文本型' }})
+              </option>
+            </select>
+          </div>
+
+          <!-- 字段名称 -->
+          <div class="flex flex-col space-y-1.5">
+            <label class="text-xs font-bold text-on-surface-variant">字段属性名称 (例如：欲望值、衣着、位置)</label>
+            <input 
+              type="text" 
+              v-model="newStateLabel" 
+              class="w-full px-4 py-2.5 rounded-2xl bg-on-surface/5 border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface"
+              placeholder="请输入新属性字段名称"
+            />
+          </div>
+
+          <!-- 指标含义 (注入AI提示词) -->
+          <div class="flex flex-col space-y-1.5">
+            <label class="text-xs font-bold text-on-surface-variant">指标含义 (注入AI提示词，例如：欲望值越高，说话越色情，0为正常)</label>
+            <textarea 
+              v-model="newStateMeaning" 
+              class="w-full h-16 px-4 py-2 rounded-2xl bg-on-surface/5 border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface resize-none"
+              placeholder="请输入该指标对角色性格与说话风格的具体含义影响"
+            ></textarea>
+          </div>
+          
+          <!-- 字段类型 -->
+          <div class="flex flex-col space-y-2">
+            <label class="text-xs font-bold text-on-surface-variant">字段类型</label>
+            <div class="flex p-1 rounded-2xl bg-on-surface/5 border border-outline-variant">
+              <button 
+                @click="newStateType = 'number'"
+                class="flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                :class="newStateType === 'number' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
+              >
+                数字型 (0-100)
+              </button>
+              <button 
+                @click="newStateType = 'text'"
+                class="flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                :class="newStateType === 'text' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
+              >
+                文本型 (自由字串)
+              </button>
+            </div>
+          </div>
+
+          <!-- 指标更新规则 (强制文字型与数字型均展示并必填) -->
+          <div class="flex flex-col space-y-1.5 animate-in slide-in-from-top-1 duration-200">
+            <label class="text-xs font-bold text-on-surface-variant">指标更新规则</label>
+            <textarea 
+              v-model="newStateRule" 
+              class="w-full h-20 px-4 py-2.5 rounded-2xl bg-on-surface/5 border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface resize-none"
+              placeholder="例如：当{{user}}赞美、关心或提到暧昧话题时分值增加/变更；当{{user}}冷淡、指责时分值减少/变更。"
+            ></textarea>
+          </div>
+        </div>
+        
+        <div class="flex items-center space-x-3 pt-4 border-t border-outline-variant/40 mt-4 flex-shrink-0">
+          <button 
+            @click="showAddStateModal = false"
+            class="flex-1 py-2.5 text-xs font-bold rounded-2xl border border-outline-variant text-on-surface hover:bg-on-surface/5 transition-colors"
+          >
+            取消
+          </button>
+          <button 
+            @click="handleAddCustomState"
+            class="flex-1 py-2.5 text-xs font-bold rounded-2xl bg-primary text-white hover:bg-primary-hover transition-colors shadow-md active:scale-95"
+            :disabled="!newStateLabel.trim() || !newStateRule.trim() || !newStateMeaning.trim()"
+          >
+            确认添加指标
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：物理删除指标确认警告 ========================= -->
+    <div v-if="showDeleteConfirmModal" class="modal-overlay" @click.self="showDeleteConfirmModal = false">
+      <div class="modal-panel w-[380px] p-6 bg-surface-high/90 backdrop-blur-2xl border border-red-500/20 rounded-3xl shadow-2xl relative select-none animate-in fade-in zoom-in-95 duration-150 flex flex-col space-y-4">
+        <!-- 头部警示标 -->
+        <div class="flex items-center space-x-3.5">
+          <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 flex-shrink-0 animate-pulse">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-extrabold text-on-surface">确定要彻底删除该状态指标吗？</h3>
+            <p class="text-[11px] text-on-surface-variant/70 mt-1 leading-normal">此操作将物理擦除该角色 State.md 中的该项指标且不可撤销。</p>
+          </div>
+        </div>
+
+        <!-- 底部操作按钮 -->
+        <div class="flex items-center space-x-3 pt-2">
+          <button 
+            @click="showDeleteConfirmModal = false"
+            class="flex-1 py-2.5 text-xs font-bold rounded-2xl border border-outline-variant text-on-surface hover:bg-on-surface/5 transition-all cursor-pointer"
+          >
+            取消
+          </button>
+          <button 
+            @click="confirmDeleteCustomState"
+            class="flex-1 py-2.5 text-xs font-bold rounded-2xl bg-red-500 text-white hover:bg-red-600 shadow-md active:scale-95 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+            </svg>
+            <span>确认彻底删除</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：大脑（角色记忆编辑） ========================= -->
+    <div v-if="showBrainPanel && activeCharacter" class="modal-overlay" @click.self="showBrainPanel = false">
+      <div class="modal-panel w-[640px] h-[580px] flex flex-col">
+        <div class="modal-header">
+          <div class="flex items-center space-x-2">
+            <BrainIcon class="w-4 h-4 text-primary" />
+            <span>{{ activeCharacter.name }} · 记忆与画像</span>
+          </div>
+          <button @click="showBrainPanel = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
+        </div>
+
+        <div class="flex border-b border-outline-variant/30">
+          <button v-for="tab in brainTabs" :key="tab.key"
+            @click="brainActiveTab = tab.key"
+            class="px-4 py-2.5 text-xs font-bold border-b-2 transition-all"
+            :class="brainActiveTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
+          >{{ tab.label }}</button>
+        </div>
+
+        <div class="p-5 flex-1 overflow-y-auto min-h-0 flex flex-col">
+          <div v-if="brainActiveTab === 'soul'" class="flex-1 flex flex-col min-h-0">
+            <div class="flex items-center justify-between mb-2 flex-shrink-0">
+              <div class="text-[10px] text-on-surface-variant font-mono">Soul.md · 角色性格核心设定</div>
+              <button @click="brainEditModes.soul = !brainEditModes.soul" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                <component :is="brainEditModes.soul ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                <span>{{ brainEditModes.soul ? '预览设定' : '修改设定' }}</span>
+              </button>
+            </div>
+            <!-- 预览 -->
+            <div v-if="!brainEditModes.soul" class="flex-1 p-4 rounded-lg border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm" v-html="renderMarkdown(brainSoulContent || '*性格设定为空*')"></div>
+            <!-- 编辑 -->
+            <textarea v-else v-model="brainSoulContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-lg p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner"></textarea>
+          </div>
+
+          <div v-else-if="brainActiveTab === 'world'" class="flex-1 flex flex-col min-h-0">
+            <div class="flex items-center justify-between mb-2 flex-shrink-0">
+              <div class="text-[10px] text-on-surface-variant font-mono">World.md · 世界观与背景设定</div>
+              <button @click="brainEditModes.world = !brainEditModes.world" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                <component :is="brainEditModes.world ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                <span>{{ brainEditModes.world ? '预览设定' : '修改设定' }}</span>
+              </button>
+            </div>
+            <!-- 预览 -->
+            <div v-if="!brainEditModes.world" class="flex-1 p-4 rounded-lg border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm" v-html="renderMarkdown(brainWorldContent || '*世界设定为空*')"></div>
+            <!-- 编辑 -->
+            <textarea v-else v-model="brainWorldContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-lg p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner"></textarea>
+          </div>
+
+          <div v-else-if="brainActiveTab === 'memory'" class="flex-1 flex flex-col min-h-0">
+            <div class="flex items-center justify-between mb-2 flex-shrink-0">
+              <div class="text-[10px] text-on-surface-variant font-mono">Memory.md · 双轨记忆（STM + LTM）</div>
+              <button @click="brainEditModes.memory = !brainEditModes.memory" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                <component :is="brainEditModes.memory ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                <span>{{ brainEditModes.memory ? '预览记忆' : '修改记忆' }}</span>
+              </button>
+            </div>
+            <!-- 预览 -->
+            <div v-if="!brainEditModes.memory" class="flex-1 p-4 rounded-lg border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm" v-html="renderMarkdown(brainMemoryContent || '*记忆为空*')"></div>
+            <!-- 编辑 -->
+            <textarea v-else v-model="brainMemoryContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-lg p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner"></textarea>
+          </div>
+
+          <div v-else-if="brainActiveTab === 'charUser'" class="flex-1 flex flex-col min-h-0">
+            <div class="flex items-center justify-between mb-2 flex-shrink-0">
+              <div class="text-[10px] text-on-surface-variant font-mono">USER.md · 角色专属用户画像</div>
+              <button @click="brainEditModes.charUser = !brainEditModes.charUser" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                <component :is="brainEditModes.charUser ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                <span>{{ brainEditModes.charUser ? '预览侧写' : '修改侧写' }}</span>
+              </button>
+            </div>
+            <!-- 预览 -->
+            <div v-if="!brainEditModes.charUser" class="flex-1 p-4 rounded-lg border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm" v-html="renderMarkdown(brainCharUserContent || '*暂无专属画像侧写事实*')"></div>
+            <!-- 编辑 -->
+            <textarea v-else v-model="brainCharUserContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-lg p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner"></textarea>
+          </div>
+
+          <div class="flex justify-end space-x-2 mt-4 flex-shrink-0">
+            <button @click="showBrainPanel = false" class="btn-secondary">关闭</button>
+            <button @click="saveBrainFiles" class="btn-primary flex items-center space-x-1.5">
+              <SaveIcon class="w-3.5 h-3.5" />
+              <span>保存并生效</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：日记 ========================= -->
+    <div v-if="showDiaryPanel && (activeCharacter || selectedContactId)" class="modal-overlay" @click.self="showDiaryPanel = false">
+      <div class="modal-panel w-[660px] h-[480px] flex flex-col">
+        <div class="modal-header flex-shrink-0">
+          <div class="flex items-center space-x-2">
+            <BookOpenIcon class="w-4 h-4 text-secondary" />
+            <span>{{ activeCharacter?.name || (characterList.find(c => c.id === selectedContactId)?.name) }} · 生命日记</span>
+          </div>
+          <button @click="showDiaryPanel = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
+        </div>
+        <div class="flex-1 flex min-h-0 bg-surface">
+          <!-- 左侧日记列表 -->
+          <div class="w-1/3 border-r border-outline-variant bg-surface-low overflow-y-auto flex flex-col p-2 space-y-1">
+            <!-- 手动触发写日记魔法按钮 -->
+            <button
+              @click="triggerManualDiary"
+              :disabled="isWritingDiary"
+              class="w-full text-center px-3 py-2 rounded-lg border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 text-primary text-xs font-bold transition-all flex items-center justify-center space-x-1.5 mb-2 cursor-pointer disabled:opacity-40 select-none flex-shrink-0"
+            >
+              <SparklesIcon class="w-3.5 h-3.5 flex-shrink-0 animate-pulse text-primary" />
+              <span>{{ isWritingDiary ? '自省落笔中...' : '让 TA 写一篇' }}</span>
+            </button>
+
+            <div v-if="parsedDiariesList.length === 0" class="text-center py-12 text-xs text-on-surface-variant/40">暂无日记</div>
+            <button
+              v-for="(diary, idx) in parsedDiariesList"
+              :key="idx"
+              @click="selectedDiaryIdx = idx"
+              class="w-full text-left px-3 py-2.5 rounded-lg transition-all flex items-center space-x-2"
+              :class="selectedDiaryIdx === idx ? 'bg-primary text-on-primary font-bold shadow-md' : 'text-on-surface-variant hover:bg-surface-high/60'"
+            >
+              <PenToolIcon class="w-3.5 h-3.5 flex-shrink-0 opacity-70" />
+              <span class="truncate text-xs tracking-wide">{{ diary.date }}</span>
+            </button>
+          </div>
+          <!-- 右侧日记正文 -->
+          <div class="flex-1 p-5 overflow-y-auto flex flex-col bg-surface-lowest">
+            <div v-if="parsedDiariesList.length === 0" class="flex-1 flex flex-col items-center justify-center text-center text-on-surface-variant/40">
+              <BookOpenIcon class="w-12 h-12 mb-3 opacity-25" />
+              <p class="text-sm font-semibold">寂静如水</p>
+              <p class="text-xs mt-1">角色在午夜之后才会自省写下心路历程</p>
+            </div>
+            <div v-else-if="parsedDiariesList[selectedDiaryIdx]" class="flex-1 flex flex-col">
+              <div class="pb-2 border-b border-outline-variant/60 flex items-center justify-between flex-shrink-0">
+                <div class="text-sm font-bold text-on-surface flex items-center space-x-2">
+                  <CalendarIcon class="w-3.5 h-3.5 text-primary" />
+                  <span>{{ parsedDiariesList[selectedDiaryIdx].date }}</span>
+                </div>
+                <!-- 收藏日记按钮 -->
+                <button
+                  @click="toggleFavoriteDiary(parsedDiariesList[selectedDiaryIdx])"
+                  class="px-2.5 py-1 rounded-lg border text-[10px] font-bold flex items-center space-x-1 transition-all active:scale-95 cursor-pointer"
+                  :class="parsedDiariesList[selectedDiaryIdx].isFavorited ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600' : 'bg-surface border-outline-variant text-on-surface-variant hover:text-yellow-500'"
+                >
+                  <BookmarkIcon class="w-3 h-3" :class="{ 'fill-yellow-500': parsedDiariesList[selectedDiaryIdx].isFavorited }" />
+                  <span>{{ parsedDiariesList[selectedDiaryIdx].isFavorited ? '已收藏' : '收藏日记' }}</span>
+                </button>
+              </div>
+              <!-- 亮色纸张书卷风 / 暗色 Tech-Noir 风格 -->
+              <div class="mt-4 flex-1 p-4 rounded-xl leading-relaxed text-sm shadow-inner overflow-y-auto border border-outline-variant transition-all font-serif whitespace-pre-wrap"
+                   :class="isDark ? 'bg-surface-low text-on-surface font-mono' : 'bg-[#faf6ee] text-[#433527] border-[#e8dfd5]'"
+              >
+{{ parsedDiariesList[selectedDiaryIdx].content }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：红包 ========================= -->
+    <div v-if="showRedPacketModal" class="modal-overlay" @click.self="showRedPacketModal = false">
+      <div class="modal-panel w-[320px] rounded-2xl overflow-hidden shadow-2xl border bg-surface animate-fade-in select-none">
+        <div class="modal-header bg-gradient-to-r from-[#f25542] to-[#da3f2d] text-white">
+          <div class="flex items-center space-x-2"><span class="text-lg">🧧</span><span class="font-bold text-sm text-[#fcedc4]">发红包</span></div>
+          <button @click="showRedPacketModal = false" class="text-[#fcedc4] hover:text-white hover:scale-115 transition-all"><XIcon class="w-4 h-4" /></button>
+        </div>
+        <div class="p-5 space-y-4">
+          <div class="form-group">
+            <label class="form-label text-[10px] uppercase font-bold text-on-surface-variant font-mono">红包金额（元）</label>
+            <input v-model.number="redPacketAmount" type="number" min="0.01" step="0.01" max="999999" class="form-input text-xs" placeholder="请输入金额" />
+          </div>
+          <div class="form-group">
+            <label class="form-label text-[10px] uppercase font-bold text-on-surface-variant font-mono">附言/祝福语</label>
+            <input v-model="redPacketTitle" type="text" max="30" class="form-input text-xs" placeholder="恭喜发财，大吉大利" />
+          </div>
+          <div class="text-[10px] text-on-surface-variant/80 leading-normal bg-surface-low p-2.5 rounded-lg border border-outline-variant/30">
+            扣减您的虚拟回音币，当前钱包余额：<span class="text-primary font-bold">{{ userProfile.walletBalance.toFixed(2) }} 元</span>
+          </div>
+          <div class="flex justify-end space-x-2 pt-1">
+            <button @click="showRedPacketModal = false" class="btn-secondary text-xs py-1.5 px-4 rounded-lg">取消</button>
+            <button @click="sendRedPacket" class="btn-primary bg-gradient-to-r from-[#f25542] to-[#da3f2d] hover:opacity-90 text-[#fcedc4] font-bold border-none text-xs py-1.5 px-4 rounded-lg shadow-md active:scale-95 transition-all">塞红包</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：添加自定义表情 ========================= -->
+    <div v-if="showAddEmojiModal" class="modal-overlay" @click.self="showAddEmojiModal = false">
+      <div class="modal-panel w-[280px] p-5 space-y-4 animate-fade-in shadow-2xl rounded-2xl border bg-surface select-none">
+        <div class="text-center font-bold text-xs text-on-surface">添加自定义表情</div>
+        
+        <!-- 图片预览 -->
+        <div class="w-24 h-24 mx-auto rounded-xl border border-outline-variant bg-surface-low p-2 flex items-center justify-center shadow-inner overflow-hidden">
+          <img :src="tempEmojiBase64" class="max-w-full max-h-full object-contain" />
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">表情文字含义/描述</label>
+          <input
+            v-model="tempEmojiMeaning"
+            type="text"
+            placeholder="如：哭哭、得意 (回车确认)"
+            class="form-input text-xs"
+            @keyup.enter="confirmAddEmoji"
+          />
+        </div>
+        
+        <div class="flex justify-end space-x-2 pt-1 select-none">
+          <button @click="showAddEmojiModal = false" class="btn-secondary text-xs py-1.5 px-4 rounded-lg">取消</button>
+          <button
+            @click="confirmAddEmoji"
+            :disabled="!tempEmojiMeaning.trim()"
+            class="btn-primary text-xs py-1.5 px-4 font-bold rounded-lg disabled:opacity-40"
+          >确认添加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI 角色导入确认弹窗 -->
+    <CharacterPreviewModal
+      :is-open="isPreviewOpen"
+      :card-data="uploadedRawData"
+      :pinyin-name="previewPinyinName"
+      :soul-content="previewSoul"
+      :world-content="previewWorld"
+      :avatar-url="uploadedAvatarUrl"
+      @confirm="onImportConfirm"
+      @cancel="onImportCancel"
+      @show-alert="showCustomAlert"
+    />
+
+    <!-- ========================= 全局自定义高保真 Dialog 对话框 ========================= -->
+    <div v-if="customDialog.visible" class="modal-overlay" @click.self="customDialog.visible = false">
+      <!-- 1. 普通模式：确认/警告/提示弹窗 -->
+      <div v-if="customDialog.type !== 'clean-choice'" class="modal-panel max-w-sm w-full p-6 space-y-4 animate-fade-in shadow-2xl rounded-2xl border bg-surface select-none">
+        <div class="flex items-start space-x-3.5">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+               :class="{
+                 'bg-primary/10 text-primary': customDialog.type === 'info',
+                 'bg-green-500/10 text-green-500': customDialog.type === 'success',
+                 'bg-red-500/10 text-red-500': customDialog.type === 'error',
+                 'bg-yellow-500/10 text-yellow-500': customDialog.type === 'confirm'
+               }">
+            <CheckCircleIcon v-if="customDialog.type === 'success'" class="w-5 h-5 animate-pulse" />
+            <BrainIcon v-else-if="customDialog.type === 'info'" class="w-5 h-5" />
+            <XCircleIcon v-else-if="customDialog.type === 'error'" class="w-5 h-5" />
+            <AlertTriangleIcon v-else class="w-5 h-5" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h4 class="text-sm font-bold text-on-surface leading-tight">{{ customDialog.title }}</h4>
+            <p class="text-xs text-on-surface-variant mt-2 leading-relaxed whitespace-pre-wrap select-text">{{ customDialog.message }}</p>
+          </div>
+        </div>
+        
+        <div class="flex justify-end space-x-2 pt-1 select-none">
+          <button v-if="customDialog.type === 'confirm'" @click="customDialog.onCancel && customDialog.onCancel()" class="btn-secondary text-xs py-1.5 px-4 rounded-lg">取消</button>
+          <button @click="customDialog.onConfirm && customDialog.onConfirm()" class="btn-primary text-xs py-1.5 px-4 font-bold rounded-lg">确定</button>
+        </div>
+      </div>
+
+      <!-- 2. 特殊清除选项模式：高保真双卡片分流选择 -->
+      <div v-else class="modal-panel max-w-md w-full p-6 space-y-5 animate-fade-in shadow-2xl rounded-2xl border bg-surface select-none">
+        <div class="flex items-center space-x-3 border-b border-chat-border pb-3">
+          <div class="w-9 h-9 rounded-xl flex items-center justify-center bg-red-500/10 text-red-500 flex-shrink-0">
+            <svg
+              class="w-5 h-5 animate-pulse"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="m16 22-1-4" />
+              <path d="M19 14a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2h-3a1 1 0 0 1-1-1V4a2 2 0 0 0-4 0v5a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2v1a1 1 0 0 0 1 1" />
+              <path d="M19 14H5l-1.973 6.767A1 1 0 0 0 4 22h16a1 1 0 0 0 .973-1.233z" />
+              <path d="m8 22 1-4" />
+            </svg>
+          </div>
+          <h4 class="text-sm font-bold text-on-surface leading-tight">{{ customDialog.title }}</h4>
+        </div>
+
+        <p class="text-xs text-on-surface-variant leading-relaxed">
+          请选择要对角色 <strong class="text-on-surface font-semibold">[{{ activeCharacter?.name }}]</strong> 执行的清除操作：
+        </p>
+
+        <div class="space-y-3">
+          <!-- 选项 1 大卡片 -->
+          <button @click="handleCleanOption(1)" class="w-full text-left p-3.5 rounded-xl border border-chat-border hover:border-primary/40 bg-surface-low/50 hover:bg-primary/5 active:scale-[0.98] transition-all flex items-start space-x-3 group">
+            <span class="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 group-hover:bg-primary/20">1</span>
+            <div class="flex-1">
+              <div class="text-xs font-bold text-on-surface group-hover:text-primary transition-colors">清除窗口会话 (逻辑清除)</div>
+              <div class="text-[10px] text-on-surface-variant/70 mt-1 leading-relaxed">
+                清除当前窗口会话。记忆和聊天历史数据**不丢失**，但将从界面上隐藏（无法搜索到），再次打开是空白会话，角色仍保留记忆。
+              </div>
+            </div>
+          </button>
+
+          <!-- 选项 2 大卡片 -->
+          <button @click="handleCleanOption(2)" class="w-full text-left p-3.5 rounded-xl border border-red-500/20 hover:border-red-500/50 bg-red-500/5 hover:bg-red-500/10 active:scale-[0.98] transition-all flex items-start space-x-3 group">
+            <span class="w-5 h-5 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 group-hover:bg-red-500/20">2</span>
+            <div class="flex-1">
+              <div class="text-xs font-bold text-red-500 group-hover:text-red-600 transition-colors">清除历史和记忆 (物理彻底清空)</div>
+              <div class="text-[10px] text-red-500/70 mt-1 leading-relaxed">
+                ⚠️ **高危操作**：物理清除所有聊天历史。清空专属 `MEMORY.md` 里的长短期记忆，清空该角色专属的 `USER.md` 画像事实，仅保留性格设定 (`SOUL.md`) 与世界设定 (`WORLD.md`)。
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <div class="flex justify-end pt-1">
+          <button @click="customDialog.visible = false" class="btn-secondary text-xs py-1.5 px-5 rounded-lg active:scale-95">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 全局拖拽图片遮罩提示层 (毛玻璃高档动效) -->
+    <div
+      v-if="isDraggingFile"
+      @dragover.prevent
+      @dragleave.prevent="handleDragLeave"
+      @drop.prevent="handleDrop"
+      class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/60 backdrop-blur-md transition-all select-none animate-fade-in"
+    >
+      <div class="border border-outline-variant/60 bg-surface-high/80 p-10 rounded-2xl flex flex-col items-center space-y-4 shadow-2xl animate-scale-in max-w-sm text-center">
+        <div class="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center text-primary shadow-sm">
+          <ImageIcon class="w-7 h-7" />
+        </div>
+        <div class="space-y-1">
+          <h3 class="text-sm font-bold text-on-surface">拖拽图片发送</h3>
+          <p class="text-[11px] text-on-surface-variant/80">松开鼠标，直接将图片置入输入框中</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 性格演化 Diff 对比模态框 -->
+    <div v-if="showEvolutionModal && activeEvolutionDraft" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in select-text">
+      <div class="w-full max-w-xl bg-surface rounded-2xl border border-outline-variant shadow-2xl flex flex-col max-h-[85vh] overflow-hidden select-text animate-scale-in">
+        <!-- 头部 -->
+        <header class="p-5 border-b border-outline-variant/60 bg-surface flex items-center justify-between flex-shrink-0">
+          <div class="flex items-center space-x-2.5">
+            <SparklesIcon class="w-5 h-5 text-primary animate-pulse" />
+            <span class="text-sm font-bold text-on-surface">🌱 性格设定自然演化 Diff 对比</span>
+          </div>
+          <button @click="showEvolutionModal = false" class="p-1 rounded hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer select-none">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+        
+        <!-- 主滚动内容 -->
+        <div class="flex-1 overflow-y-auto p-6 space-y-5 min-h-0 text-xs leading-relaxed">
+          <div class="p-4 rounded-xl bg-surface-low border border-outline-variant/50 text-[11px] text-on-surface-variant flex-shrink-0 leading-relaxed select-none">
+            <strong>💡 性格自然演化说明：</strong>
+            Echo 系统根据角色在 DREAM.md 中积累的行为避坑指南及与您的长周期深度磨合对话，生成了局部核心设定修改提案。这象征着该数字生命在与您的相处中完成了独一无二的性格温化。
+          </div>
+          
+          <!-- 变化项列表 -->
+          <div class="space-y-5">
+            <div
+              v-for="(change, idx) in activeEvolutionDraft.soul_changes"
+              :key="idx"
+              class="border border-outline-variant rounded-xl overflow-hidden shadow-sm bg-surface-lowest"
+            >
+              <div class="px-4 py-2 border-b border-outline-variant bg-surface text-[10px] font-bold text-on-surface-variant/80 tracking-wide font-mono flex items-center justify-between select-none">
+                <span>位置：{{ change.section }}</span>
+                <span class="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[8px] font-mono font-bold scale-90">Evolution Proposal</span>
+              </div>
+              
+              <div class="p-4 space-y-3">
+                <!-- Before (Red) -->
+                <div class="p-3 rounded-lg bg-red-500/5 border border-red-500/10 text-red-700 dark:text-red-400">
+                  <div class="text-[9px] uppercase font-bold text-red-500/70 tracking-wider mb-1 font-mono select-none">修改前 (Before)</div>
+                  <div class="font-medium">- {{ change.before }}</div>
+                </div>
+                
+                <!-- After (Green) -->
+                <div class="p-3 rounded-lg bg-green-500/5 border border-green-500/10 text-green-700 dark:text-green-400">
+                  <div class="text-[9px] uppercase font-bold text-green-500/70 tracking-wider mb-1 font-mono select-none">修改后 (After)</div>
+                  <div class="font-medium">+ {{ change.after }}</div>
+                </div>
+                
+                <!-- Reason (Blue) -->
+                <div class="p-3 rounded-lg bg-primary/5 border border-primary/15 text-on-surface-variant leading-relaxed">
+                  <div class="text-[9px] uppercase font-bold text-primary tracking-wider mb-1 font-mono select-none">自然上演逻辑 (Reason)</div>
+                  <div class="italic text-[11px] font-medium leading-relaxed">{{ change.reason }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 底部动作条 -->
+        <footer class="p-4 bg-surface border-t border-outline-variant/60 flex justify-end space-x-3 select-none flex-shrink-0">
+          <button @click="rejectSoulEvolution" class="px-4 py-2 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-bold text-on-surface transition-all cursor-pointer">
+            ✗ 丢弃/拒绝演化
+          </button>
+          <button @click="approveSoulEvolution" class="px-5 py-2 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md transition-all cursor-pointer flex items-center space-x-1.5">
+            <SparklesIcon class="w-3.5 h-3.5 animate-pulse" />
+            <span>✓ 批准更新 Soul.md</span>
+          </button>
+        </footer>
+      </div>
+    </div>
+
+
+
+    <!-- 自定义角色状态指标配置弹窗 -->
+    <div v-if="showCustomizeStatesModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in select-text">
+      <div class="w-full max-w-lg bg-surface rounded-2xl border border-outline-variant shadow-2xl flex flex-col max-h-[80vh] overflow-hidden select-text animate-scale-in">
+        <header class="p-5 border-b border-outline-variant/60 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+          <div class="flex items-center space-x-2.5">
+            <SlidersHorizontalIcon class="w-4.5 h-4.5 text-primary animate-pulse" />
+            <span class="text-sm font-bold text-on-surface">🛠️ 自定义状态指标配置 (State.md)</span>
+          </div>
+          <button @click="showCustomizeStatesModal = false" class="p-1 rounded hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer select-none">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-4 min-h-0 text-xs leading-relaxed">
+          <div class="p-3 rounded-lg bg-surface-low border border-outline-variant text-[11px] text-on-surface-variant leading-relaxed select-none">
+            <strong>💡 自定义状态指南：</strong>
+            请在下方直接修改该角色的专属 `State.md` JSON 参数。您可以自由增加、删除状态项，或修改其 Label、Emoji、初始值与量程。AI 自省评估时将自动读取并进行 Delta 更新。
+          </div>
+          
+          <textarea
+            v-model="editingStatesString"
+            class="w-full h-64 font-mono text-[11px] bg-surface-low border border-outline-variant rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner leading-normal"
+          ></textarea>
+        </div>
+
+        <footer class="p-4 bg-surface border-t border-outline-variant/60 flex justify-end space-x-2.5 select-none flex-shrink-0">
+          <button @click="showCustomizeStatesModal = false" class="px-4 py-2 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-bold text-on-surface transition-all cursor-pointer">
+            取消
+          </button>
+          <button @click="saveCustomizedStates" class="px-5 py-2 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md transition-all cursor-pointer">
+            ✓ 保存配置并刷新
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- 发表论坛帖子弹窗 -->
+    <div v-if="showPublishForumModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in select-text">
+      <div class="w-full max-w-lg bg-surface rounded-2xl border border-outline-variant shadow-2xl flex flex-col max-h-[80vh] overflow-hidden select-text animate-scale-in">
+        <header class="p-5 border-b border-outline-variant/60 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+          <div class="flex items-center space-x-2.5">
+            <ScrollIcon class="w-5 h-5 text-primary animate-pulse" />
+            <span class="text-sm font-bold text-on-surface flex items-center space-x-1.5">
+              <PenLineIcon class="w-4 h-4 text-primary" />
+              <span>发表新帖到回音社区</span>
+            </span>
+          </div>
+          <button @click="showPublishForumModal = false" class="p-1 rounded hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer select-none">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-6 space-y-5 min-h-0 text-xs leading-relaxed">
+          <!-- 选择板块 -->
+          <div class="space-y-2">
+            <label class="text-[11px] font-bold text-on-surface-variant">选择目标社区板块</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                v-for="b in boards.filter(item => item.id !== 'all')"
+                :key="b.id"
+                @click="newForumBoardId = b.id"
+                type="button"
+                class="py-2 px-3 rounded-xl border text-center font-bold transition-all cursor-pointer truncate flex items-center justify-center space-x-1.5"
+                :class="[
+                  newForumBoardId === b.id
+                    ? (b.id === 'nsfw' ? 'bg-red-600 text-white border-red-600 shadow-sm font-bold' : 'bg-primary text-white border-primary shadow-sm font-bold')
+                    : (b.id === 'nsfw' ? 'bg-red-500/5 border-red-500/20 text-red-500 hover:bg-red-500/10' : 'bg-surface-low border-outline-variant/50 text-on-surface-variant hover:bg-surface-high')
+                ]"
+              >
+                <component :is="b.icon" class="w-3.5 h-3.5" :class="[newForumBoardId === b.id ? 'text-white' : (b.id === 'nsfw' ? 'text-red-500' : 'text-on-surface-variant/70')]" />
+                <span>{{ b.name }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 帖子标题 -->
+          <div class="space-y-2">
+            <label class="text-[11px] font-bold text-on-surface-variant">帖子标题</label>
+            <input
+              v-model="newForumTitle"
+              type="text"
+              placeholder="请输入一个富于技术感或趣味性的标题..."
+              class="w-full px-4 py-2.5 rounded-xl bg-surface-low border border-outline-variant text-on-surface placeholder-on-surface-variant/30 focus:outline-none focus:border-primary text-xs transition-all shadow-inner"
+            />
+          </div>
+
+          <!-- 帖子正文 -->
+          <div class="space-y-2">
+            <label class="text-[11px] font-bold text-on-surface-variant">帖子内容正文</label>
+            <textarea
+              v-model="newForumContent"
+              placeholder="请在此畅所欲言，支持 Markdown 排版风格，角色们会根据你的发帖在下方参与深度互动哦 💬"
+              class="w-full h-44 p-4 text-xs bg-surface-low border border-outline-variant rounded-2xl focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner leading-relaxed"
+            ></textarea>
+          </div>
+        </div>
+
+        <footer class="p-4 bg-surface border-t border-outline-variant/60 flex justify-between items-center select-none flex-shrink-0">
+          <button
+            @click.stop="openStickersPanel($event, 'newForumContent')"
+            class="p-1.5 rounded-lg text-on-surface-variant/70 hover:text-primary hover:bg-surface-high transition-all cursor-pointer active:scale-95 flex-shrink-0"
+            title="表情与表情包"
+          >
+            <SmileIcon class="w-4.5 h-4.5" />
+          </button>
+          <div class="flex space-x-2.5">
+            <button @click="showPublishForumModal = false" class="px-4 py-2 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-bold text-on-surface transition-all cursor-pointer">
+              取消
+            </button>
+            <button
+              @click="publishUserForumPost"
+              :disabled="!newForumTitle.trim() || !newForumContent.trim()"
+              class="px-5 py-2 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ✓ 发帖发布
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <!-- ====== 音乐底栏播放控制栏 ====== -->
+    <div 
+      v-if="generalConfig.enable_music"
+      class="h-20 bg-surface-low border-t border-outline-variant/60 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] px-6 flex items-center justify-between z-40 select-none flex-shrink-0"
+    >
+      <!-- 左侧：封面、歌名、歌手 -->
+      <div class="flex items-center space-x-3.5 w-1/4 min-w-0">
+        <div 
+          @click="musicStore.state.currentSong && (showPlayExpanded = true)"
+          class="w-12 h-12 rounded-xl overflow-hidden bg-surface border border-outline-variant shadow-sm relative group cursor-pointer"
+        >
+          <img 
+            :src="musicStore.state.currentSong?.img || DEFAULT_COVER" 
+            @error="handleCoverError"
+            class="w-full h-full object-cover" 
+          />
+          <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <span class="text-white text-base">⛶</span>
+          </div>
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="text-xs font-bold text-on-surface truncate cursor-pointer hover:text-primary animate-fade-in flex items-center space-x-1" @click="musicStore.state.currentSong && (showPlayExpanded = true)">
+            <span :class="{ 'text-red-500/90 dark:text-red-400': musicStore.state.statusText }">
+              {{ musicStore.state.currentSong?.name || '回音音乐 - 听你想听 🐾' }}
+            </span>
+          </div>
+          <div v-if="musicStore.state.statusText" class="text-[9.5px] font-bold truncate mt-0.5 flex items-center space-x-1"
+            :class="musicStore.state.statusText.startsWith('✅') ? 'text-emerald-500 dark:text-emerald-400' : 'text-orange-500 dark:text-red-400 animate-pulse'"
+          >
+            <span>{{ musicStore.state.statusText }}</span>
+          </div>
+          <div v-else class="text-[10px] text-on-surface-variant truncate mt-0.5">{{ musicStore.state.currentSong?.singer || 'Echo Player' }}</div>
+        </div>
+      </div>
+
+      <!-- 中间：核心控制与进度条 -->
+      <div class="flex-1 max-w-xl flex flex-col items-center px-4">
+        <!-- 控制按钮组 -->
+        <div class="flex items-center space-x-6">
+          <!-- 循环模式 -->
+          <button 
+            @click="
+              musicStore.state.loopMode = 
+                musicStore.state.loopMode === 'listLoop' 
+                  ? 'random' 
+                  : musicStore.state.loopMode === 'random' 
+                    ? 'singleLoop' 
+                    : 'listLoop'
+            "
+            class="p-1 rounded text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+            :title="
+              musicStore.state.loopMode === 'listLoop' 
+                ? '列表循环' 
+                : musicStore.state.loopMode === 'random' 
+                  ? '随机播放' 
+                  : '单曲循环'
+            "
+          >
+            <RepeatIcon v-if="musicStore.state.loopMode === 'listLoop'" class="w-4 h-4 text-primary" />
+            <ShuffleIcon v-else-if="musicStore.state.loopMode === 'random'" class="w-4 h-4 text-primary" />
+            <Repeat1Icon v-else class="w-4 h-4 text-primary" />
+          </button>
+
+          <!-- 上一首 -->
+          <button @click="musicStore.playPrev()" class="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-high/50 active:scale-95 transition-all cursor-pointer">
+            <SkipBackIcon class="w-4 h-4" />
+          </button>
+
+          <!-- 播放/暂停 -->
+          <button 
+            @click="musicStore.togglePlay()" 
+            class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center hover:scale-105 active:scale-95 shadow-md transition-all cursor-pointer"
+          >
+            <PauseIcon v-if="musicStore.state.isPlaying" class="w-4 h-4" />
+            <PlayIcon v-else class="w-4 h-4 fill-white ml-0.5" />
+          </button>
+
+          <!-- 下一首 -->
+          <button @click="musicStore.playNext()" class="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-high/50 active:scale-95 transition-all cursor-pointer">
+            <SkipForwardIcon class="w-4 h-4" />
+          </button>
+
+          <!-- 桌面歌词 -->
+          <button 
+            @click="musicStore.toggleDesktopLyric()" 
+            class="p-1 rounded text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+            :class="{ 'text-primary font-bold': musicStore.state.enableDesktopLyric }"
+            title="词 (桌面歌词)"
+          >
+            <span class="text-[11px] font-black font-sans">词</span>
+          </button>
+        </div>
+
+        <!-- 进度条 -->
+        <div class="w-full flex items-center space-x-2.5 mt-2">
+          <span class="text-[9px] font-mono text-on-surface-variant/70">{{ formatDuration(musicStore.state.currentTime) }}</span>
+          <div 
+            class="flex-1 h-1 bg-surface-low hover:h-1.5 rounded-full relative group cursor-pointer"
+            @click="
+              (e) => {
+                if (musicStore.audio) {
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                  const percent = (e.clientX - rect.left) / rect.width
+                  musicStore.audio.currentTime = percent * musicStore.state.duration
+                }
+              }
+            "
+          >
+            <div 
+              class="bg-primary h-full rounded-full transition-all duration-75 relative" 
+              :style="{ width: ((musicStore.state.currentTime / (musicStore.state.duration || 1)) * 100) + '%' }"
+            >
+              <span class="w-2.5 h-2.5 bg-primary border-2 border-white dark:border-zinc-950 rounded-full absolute -right-1.25 -top-0.75 shadow opacity-0 group-hover:opacity-100 transition-opacity"></span>
+            </div>
+          </div>
+          <span class="text-[9px] font-mono text-on-surface-variant/70">{{ formatDuration(musicStore.state.duration) }}</span>
+        </div>
+      </div>
+
+      <!-- 右侧：音量与增删 -->
+      <div class="w-1/4 flex items-center justify-end space-x-4 flex-shrink-0 select-none">
+        <!-- 音质标识 -->
+        <span class="px-2 py-0.5 rounded-full text-[9px] font-black bg-primary/10 text-primary uppercase select-none font-mono">{{ musicStore.state.quality }}</span>
+
+        <!-- 红心收藏 -->
+        <button 
+          @click="musicStore.state.currentSong && musicStore.toggleFavorite(musicStore.state.currentSong)"
+          class="p-1 text-on-surface-variant hover:text-red-500 transition-all active:scale-90 cursor-pointer"
+          :title="musicStore.state.currentSong && musicStore.isFavorited(musicStore.state.currentSong.songmid) ? '取消收藏' : '收藏'"
+          :disabled="!musicStore.state.currentSong"
+          :class="{ 'opacity-30 cursor-not-allowed': !musicStore.state.currentSong }"
+        >
+          <HeartIcon 
+            class="w-4.5 h-4.5" 
+            :class="musicStore.state.currentSong && musicStore.isFavorited(musicStore.state.currentSong.songmid) ? 'fill-red-500 text-red-500 scale-110' : 'scale-100'" 
+          />
+        </button>
+
+        <!-- 音量 -->
+        <div class="flex items-center space-x-2 group/vol">
+          <button @click="musicStore.toggleMute()" class="p-1 text-on-surface-variant hover:text-on-surface cursor-pointer">
+            <VolumeXIcon v-if="musicStore.state.isMuted" class="w-4.5 h-4.5" />
+            <Volume2Icon v-else class="w-4.5 h-4.5" />
+          </button>
+          <input 
+            type="range" 
+            min="0" 
+            max="100" 
+            :value="musicStore.state.isMuted ? 0 : musicStore.state.volume"
+            @input="(e) => musicStore.setVolume(Number((e.target as HTMLInputElement).value))"
+            class="w-16 accent-primary h-1 rounded-full cursor-pointer opacity-40 group-hover/vol:opacity-100 transition-opacity"
+          />
+        </div>
+
+        <!-- 当前播放队列按钮 -->
+        <button 
+          @click="showQueueDrawer = !showQueueDrawer"
+          class="play-queue-trigger-button p-1 rounded text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer focus:outline-none flex items-center justify-center relative"
+          :class="{ 'text-primary': showQueueDrawer }"
+          title="播放队列"
+        >
+          <ListMusicIcon class="w-4.5 h-4.5" />
+          <!-- 队列曲目数小微标 -->
+          <span 
+            v-if="musicStore.state.playQueue.length"
+            class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full text-[7.5px] text-white flex items-center justify-center select-none font-bold font-mono"
+            :class="isDark ? 'bg-emerald-400 text-zinc-950 font-black' : 'bg-primary'"
+          >
+            {{ musicStore.state.playQueue.length }}
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ====== 当前播放队列侧边抽屉 (Play Queue Drawer) ====== -->
+    <transition
+      enter-active-class="transition duration-300 ease-out transform"
+      enter-from-class="translate-x-full opacity-0"
+      enter-to-class="translate-x-0 opacity-100"
+      leave-active-class="transition duration-200 ease-in transform"
+      leave-from-class="translate-x-0 opacity-100"
+      leave-to-class="translate-x-full opacity-0"
+    >
+      <div 
+        v-if="showQueueDrawer"
+        class="play-queue-drawer-container fixed top-0 right-0 w-80 bottom-20 z-40 border-l p-4 flex flex-col transition-all duration-500 backdrop-blur-lg shadow-2xl select-none"
+        :class="isDark 
+          ? 'bg-zinc-950/70 border-white/[0.04] text-zinc-200 shadow-[0_0_50px_rgba(0,0,0,0.8)]' 
+          : 'bg-white/70 border-primary/5 text-on-surface shadow-[0_0_40px_rgba(70,72,212,0.08)]'"
+      >
+        <!-- 抽屉头部 -->
+        <header class="pb-3 border-b flex items-center justify-between select-none flex-shrink-0"
+          :class="isDark ? 'border-zinc-800/80' : 'border-primary/10'"
+        >
+          <div class="flex items-center space-x-1.5">
+            <ListMusicIcon class="w-4.5 h-4.5 text-primary" />
+            <span class="text-xs font-black tracking-wide">当前播放队列 ({{ musicStore.state.playQueue.length }})</span>
+          </div>
+          
+          <div class="flex items-center space-x-2.5">
+            <!-- 一键清空 -->
+            <button 
+              v-if="musicStore.state.playQueue.length"
+              @click="musicStore.state.playQueue = []; musicStore.state.currentQueueIndex = -1; showQueueDrawer = false;"
+              class="text-[9px] font-black hover:text-red-500 transition-colors focus:outline-none cursor-pointer"
+              :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/60'"
+            >
+              清空队列
+            </button>
+            <button 
+              @click="showQueueDrawer = false"
+              class="text-[10px] font-black hover:text-on-surface transition-colors cursor-pointer focus:outline-none"
+              :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/60'"
+            >
+              ✕
+            </button>
+          </div>
+        </header>
+
+        <!-- 列表内容区 -->
+        <div class="flex-1 overflow-y-auto space-y-1 mt-4 scrollbar-thin">
+          <div v-if="!musicStore.state.playQueue.length" class="py-32 text-center text-[10px] text-on-surface-variant/50 dark:text-zinc-500">
+            队列为空，双击歌曲加入吧 🐾
+          </div>
+          
+          <div 
+            v-else
+            v-for="(song, idx) in musicStore.state.playQueue"
+            :key="song.songmid + '-' + idx"
+            class="px-3 py-2 rounded-xl text-xs flex items-center justify-between cursor-pointer group transition-all duration-200"
+            :class="[
+              musicStore.state.currentSong?.songmid === song.songmid 
+                ? (isDark ? 'bg-emerald-400/5 text-emerald-400 font-extrabold shadow-sm' : 'bg-primary/5 text-primary font-extrabold shadow-sm')
+                : (isDark ? 'hover:bg-white/[0.03] text-zinc-300' : 'hover:bg-primary/5 text-on-surface'),
+            ]"
+            @dblclick="musicStore.playSong(song, musicStore.state.playQueue)"
+          >
+            <!-- 左侧：歌曲信息和播放状态小声波 -->
+            <div class="flex items-center space-x-2 min-w-0 flex-1">
+              <!-- 声波柱形动画 -->
+              <div 
+                v-if="musicStore.state.currentSong?.songmid === song.songmid && musicStore.state.isPlaying"
+                class="flex items-end space-x-0.5 h-2.5 w-3 flex-shrink-0 mb-0.5"
+              >
+                <span class="w-0.5 bg-current rounded-full animate-pulse" style="height: 100%;"></span>
+                <span class="w-0.5 bg-current rounded-full animate-pulse" style="height: 60%; animation-delay: 0.2s;"></span>
+                <span class="w-0.5 bg-current rounded-full animate-pulse" style="height: 80%; animation-delay: 0.4s;"></span>
+              </div>
+              <span class="truncate pr-1.5">{{ song.name }}</span>
+            </div>
+            
+            <!-- 右侧：歌手与移除按钮 -->
+            <div class="flex items-center space-x-2 flex-shrink-0 select-none">
+              <span 
+                class="text-[9px] max-w-[80px] truncate"
+                :class="musicStore.state.currentSong?.songmid === song.songmid ? 'opacity-80' : 'opacity-40'"
+              >
+                {{ song.singer }}
+              </span>
+              <!-- 移出队列按钮 -->
+              <button 
+                @click.stop="
+                  () => {
+                    musicStore.state.playQueue.splice(idx, 1)
+                    if (musicStore.state.currentQueueIndex === idx) {
+                      if (musicStore.state.playQueue.length) {
+                        musicStore.playSong(musicStore.state.playQueue[Math.min(idx, musicStore.state.playQueue.length - 1)], musicStore.state.playQueue)
+                      } else {
+                        musicStore.state.currentSong = null
+                        musicStore.state.isPlaying = false
+                      }
+                    } else if (musicStore.state.currentQueueIndex > idx) {
+                      musicStore.state.currentQueueIndex--
+                    }
+                  }
+                "
+                class="w-4 h-4 rounded-full hover:bg-red-500 hover:text-white flex items-center justify-center transition-all cursor-pointer opacity-0 group-hover:opacity-100 text-on-surface-variant/40"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- ====== 全屏歌词大唱片展开详情播放页 ====== -->
+    <transition
+      enter-active-class="transition duration-500 cubic-bezier(0.16, 1, 0.3, 1)"
+      enter-from-class="translate-y-full"
+      enter-to-class="translate-y-0"
+      leave-active-class="transition duration-400 cubic-bezier(0.7, 0, 0.84, 0)"
+      leave-from-class="translate-y-0"
+      leave-to-class="translate-y-full"
+    >
+      <div 
+        v-if="showPlayExpanded && musicStore.state.currentSong" 
+        class="fixed inset-0 z-50 flex flex-col overflow-hidden select-text transition-colors duration-500"
+        :class="isDark ? 'bg-[#0a0a0a] text-zinc-100' : 'bg-[#f4f5fc] text-on-surface'"
+      >
+        <!-- 梦幻磨砂背景氛层 -->
+        <div 
+          class="absolute inset-0 bg-cover bg-center filter blur-[100px] transition-all duration-1000 pointer-events-none z-0"
+          :class="isDark ? 'opacity-[0.12] scale-110' : 'opacity-[0.25] scale-105'"
+          :style="{ backgroundImage: `url(${musicStore.state.currentSong.img || DEFAULT_COVER})` }"
+        ></div>
+
+        <!-- 顶部控制头 (pt-20 精致下压，符合全面屏刘海与 Mac 红绿灯避让规范) -->
+        <header class="pt-20 pb-4 px-10 flex items-center justify-between z-10 select-none flex-shrink-0">
+          <button 
+            @click="showPlayExpanded = false" 
+            class="px-4 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer active:scale-95 flex items-center space-x-1.5 z-20"
+            :class="isDark 
+              ? 'bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-100' 
+              : 'bg-primary/5 hover:bg-primary/10 border border-primary/15 text-primary'"
+          >
+            <span>▼</span> <span>收起播放页</span>
+          </button>
+          <div class="text-center z-10 flex flex-col items-center">
+            <h3 
+              class="text-sm font-black truncate max-w-sm tracking-wide transition-colors duration-500"
+              :class="isDark ? 'text-zinc-100' : 'text-on-surface'"
+            >
+              {{ musicStore.state.currentSong.name }}
+            </h3>
+            <p 
+              class="text-[10.5px] mt-1.5 truncate max-w-sm font-medium transition-colors duration-500"
+              :class="isDark ? 'text-zinc-400' : 'text-on-surface-variant/80'"
+            >
+              {{ musicStore.state.currentSong.singer }}
+            </p>
+          </div>
+          <span 
+            class="px-2.5 py-0.5 rounded-full text-[9px] font-extrabold font-mono select-none uppercase tracking-wider transition-colors duration-500 z-10"
+            :class="isDark 
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+              : 'bg-primary/5 text-primary border border-primary/20'"
+          >
+            {{ musicStore.state.quality || '320K' }}
+          </span>
+        </header>
+
+        <!-- 主内容区域 (左侧封面缩窄，右侧歌词/评论双栏加宽) -->
+        <div class="flex-1 flex min-h-0 z-10 px-12 py-6 items-center">
+          
+          <!-- 左侧：正圆形缓缓旋转封面 (宽度完美收窄至 38%) -->
+          <div class="w-[38%] h-full flex flex-col items-center justify-center relative select-none z-10">
+            <!-- 极致轻奢的双层渐变星轨环 -->
+            <div class="relative w-64 h-64 flex items-center justify-center">
+              
+              <!-- 逆向和正向的虚线运行圆环轨道 -->
+              <div 
+                class="absolute inset-0 rounded-full border border-dashed transition-all duration-700 animate-spin-slow opacity-30 dark:opacity-20"
+                :class="isDark ? 'border-emerald-400' : 'border-primary'"
+              ></div>
+              <div 
+                class="absolute inset-4 rounded-full border border-dotted transition-all duration-700 animate-spin-slow opacity-25 dark:opacity-15"
+                :class="isDark ? 'border-emerald-400' : 'border-primary'"
+                style="animation-direction: reverse; animation-duration: 40s;"
+              ></div>
+
+              <!-- 核心正圆形流光封面 -->
+              <div 
+                class="w-56 h-56 rounded-full overflow-hidden border-2 transition-all duration-700 z-10 shadow-2xl relative"
+                :class="[
+                  isDark 
+                    ? 'border-zinc-700/80 shadow-[0_20px_60px_rgba(78,222,163,0.18)]' 
+                    : 'border-white shadow-[0_20px_50px_rgba(70,72,212,0.18)]',
+                  musicStore.state.isPlaying ? 'animate-spin-slow' : 'animate-spin-slow animate-spin-paused'
+                ]"
+              >
+                <!-- 播放封面图片 -->
+                <img 
+                  :src="musicStore.state.currentSong.img || DEFAULT_COVER" 
+                  @error="handleCoverError"
+                  class="w-full h-full object-cover select-none pointer-events-none" 
+                />
+              </div>
+
+            </div>
+
+            <!-- 歌曲播放状态微标 -->
+            <div class="flex items-center space-x-2 mt-8 z-10">
+              <span 
+                class="w-1.5 h-1.5 rounded-full" 
+                :class="[
+                  musicStore.state.isPlaying ? 'animate-pulse' : '',
+                  isDark ? 'bg-emerald-400' : 'bg-primary'
+                ]"
+              ></span>
+              <p 
+                class="text-[9px] font-bold font-mono tracking-widest uppercase select-none transition-colors duration-500"
+                :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/50'"
+              >
+                {{ musicStore.state.isPlaying ? 'Now Playing' : 'Playback Paused' }}
+              </p>
+            </div>
+          </div>
+
+          <!-- 右侧：歌词 / 评论双栏切换区 (加宽至 62%) -->
+          <div 
+            class="w-[62%] h-full flex flex-col min-h-0 pl-10 border-l transition-colors duration-500"
+            :class="isDark ? 'border-zinc-800/60' : 'border-primary/10'"
+          >
+            <!-- Tab 页签 -->
+            <div 
+              class="flex space-x-6 border-b pb-3 flex-shrink-0 select-none transition-colors duration-500"
+              :class="isDark ? 'border-zinc-800/60' : 'border-primary/10'"
+            >
+              <button 
+                @click="showCommentsTab = false" 
+                class="text-xs font-black transition-all cursor-pointer pb-1.5 focus:outline-none"
+                :class="!showCommentsTab 
+                  ? (isDark ? 'text-emerald-400 border-b-2 border-emerald-400 scale-105' : 'text-primary border-b-2 border-primary scale-105') 
+                  : (isDark ? 'text-zinc-500 hover:text-zinc-300' : 'text-on-surface-variant/60 hover:text-on-surface')"
+              >
+                歌词展示
+              </button>
+              <button 
+                @click="showCommentsTab = true" 
+                class="text-xs font-black transition-all cursor-pointer pb-1.5 focus:outline-none"
+                :class="showCommentsTab 
+                  ? (isDark ? 'text-emerald-400 border-b-2 border-emerald-400 scale-105' : 'text-primary border-b-2 border-primary scale-105') 
+                  : (isDark ? 'text-zinc-500 hover:text-zinc-300' : 'text-on-surface-variant/60 hover:text-on-surface')"
+              >
+                精选评论 ({{ musicStore.state.commentsTotal }})
+              </button>
+            </div>
+
+            <!-- 页签内容区 -->
+            <div class="flex-1 overflow-hidden min-h-0 mt-6">
+              <!-- 1. 歌词滚动页 -->
+              <div 
+                v-if="!showCommentsTab"
+                ref="lyricContainerRef"
+                class="h-full overflow-y-auto pr-6 space-y-4 text-center scroll-smooth scrollbar-thin"
+              >
+                <div 
+                  v-if="musicStore.state.lyricLines.length === 0" 
+                  class="py-24 text-sm select-none transition-colors duration-500"
+                  :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/50'"
+                >
+                  歌词加载中...
+                </div>
+                <div 
+                  v-else
+                  v-for="(line, idx) in musicStore.state.lyricLines" 
+                  :key="idx"
+                  class="transition-all duration-300 py-1"
+                  :class="
+                    musicStore.state.currentLyricIndex === idx 
+                      ? (isDark 
+                          ? 'lyric-line-active text-emerald-400 text-base font-black scale-105 drop-shadow-[0_0_10px_rgba(78,222,163,0.4)]' 
+                          : 'lyric-line-active text-primary text-base font-black scale-105 drop-shadow-[0_0_10px_rgba(70,72,212,0.35)]')
+                      : (isDark ? 'text-zinc-500 text-xs font-medium' : 'text-on-surface-variant/40 text-xs font-medium')
+                  "
+                >
+                  {{ line.text }}
+                  <!-- 对应的翻译歌词 -->
+                  <div 
+                    v-if="musicStore.state.tlyricLines.length > 0"
+                    class="text-[10px] mt-1 font-normal opacity-60"
+                  >
+                    {{ musicStore.state.tlyricLines.find(tl => Math.abs(tl.time - line.time) < 0.5)?.text }}
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2. 精选评论滚动页 -->
+              <div 
+                v-else
+                class="h-full overflow-y-auto pr-4 space-y-4"
+                @scroll="
+                  (e) => {
+                    const el = e.currentTarget as HTMLElement
+                    if (el.scrollHeight - el.scrollTop - el.clientHeight < 20) {
+                      musicStore.loadMoreComments()
+                    }
+                  }
+                "
+              >
+                <div 
+                  v-if="musicStore.state.commentsLoading && musicStore.state.comments.length === 0" 
+                  class="py-24 text-center text-xs select-none transition-colors duration-500"
+                  :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/50'"
+                >
+                  评论加载中...
+                </div>
+                <div 
+                  v-else-if="musicStore.state.comments.length === 0" 
+                  class="py-24 text-center text-xs select-none transition-colors duration-500"
+                  :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/50'"
+                >
+                  本歌曲暂无热门评论 🐾
+                </div>
+                <div v-else class="space-y-4 pb-12">
+                  <div 
+                    v-for="c in musicStore.state.comments" 
+                    :key="c.id"
+                    class="flex items-start space-x-3.5 p-4 rounded-2xl border transition-all duration-300 shadow-sm"
+                    :class="isDark 
+                      ? 'bg-white/[0.02] border-white/[0.03] hover:bg-white/[0.05] hover:border-white/[0.06]' 
+                      : 'bg-white/30 border-primary/5 hover:bg-white/60 hover:border-primary/10'"
+                  >
+                    <div 
+                      class="w-8 h-8 rounded-xl overflow-hidden flex-shrink-0 border transition-colors duration-500"
+                      :class="isDark ? 'bg-zinc-800 border-zinc-700/60' : 'bg-white border-primary/10'"
+                    >
+                      <img :src="c.avatar" class="w-full h-full object-cover" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center justify-between select-none">
+                        <span 
+                          class="text-xs font-bold truncate transition-colors duration-500"
+                          :class="isDark ? 'text-zinc-200' : 'text-on-surface'"
+                        >
+                          {{ c.userName }}
+                        </span>
+                        <span 
+                          class="text-[9px] font-mono transition-colors duration-500"
+                          :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/50'"
+                        >
+                          {{ c.timeStr }}
+                        </span>
+                      </div>
+                      <p 
+                        class="text-[11px] mt-1.5 leading-relaxed pr-2 font-medium transition-colors duration-500"
+                        :class="isDark ? 'text-zinc-300' : 'text-on-surface/85'"
+                      >
+                        {{ c.content }}
+                      </p>
+                      <div 
+                        class="flex items-center justify-end text-[9px] select-none mt-2 font-bold font-mono transition-colors duration-500"
+                        :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/60'"
+                      >
+                        <span>👍</span> <span class="ml-1">{{ c.likedCount }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div 
+                    v-if="musicStore.state.commentsLoading" 
+                    class="py-3 text-center text-[10px] animate-pulse transition-colors duration-500"
+                    :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/50'"
+                  >
+                    正在拼命拉取更多评论...
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 底部控制栏 -->
+        <footer 
+          class="h-24 border-t z-10 px-8 flex items-center justify-between select-none flex-shrink-0 backdrop-blur-md transition-all duration-500"
+          :class="isDark 
+            ? 'bg-[#0a0a0a]/60 border-white/[0.04]' 
+            : 'bg-white/40 border-primary/5'"
+        >
+          <div class="w-1/4"></div>
+          
+          <!-- 大控制播放器 -->
+          <div class="flex-1 flex flex-col items-center max-w-xl">
+            <!-- 播放进度 -->
+            <div class="w-full flex items-center space-x-3 select-none">
+              <span 
+                class="text-[10px] font-mono transition-colors duration-500"
+                :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/60'"
+              >
+                {{ formatDuration(musicStore.state.currentTime) }}
+              </span>
+              <div 
+                class="flex-1 h-1 rounded-full relative group cursor-pointer transition-colors duration-500"
+                :class="isDark ? 'bg-white/10 hover:h-1.5' : 'bg-primary/10 hover:h-1.5'"
+                @click="
+                  (e) => {
+                    if (musicStore.audio) {
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                      const percent = (e.clientX - rect.left) / rect.width
+                      musicStore.audio.currentTime = percent * musicStore.state.duration
+                    }
+                  }
+                "
+              >
+                <div 
+                  class="h-full rounded-full transition-all duration-75 relative" 
+                  :class="isDark ? 'bg-emerald-400' : 'bg-primary'"
+                  :style="{ width: ((musicStore.state.currentTime / (musicStore.state.duration || 1)) * 100) + '%' }"
+                >
+                  <span 
+                    class="w-2.5 h-2.5 border-2 rounded-full absolute -right-1.25 -top-0.75 shadow opacity-0 group-hover:opacity-100 transition-opacity"
+                    :class="isDark ? 'bg-emerald-400 border-zinc-900' : 'bg-primary border-white'"
+                  ></span>
+                </div>
+              </div>
+              <span 
+                class="text-[10px] font-mono transition-colors duration-500"
+                :class="isDark ? 'text-zinc-500' : 'text-on-surface-variant/60'"
+              >
+                {{ formatDuration(musicStore.state.duration) }}
+              </span>
+            </div>
+
+            <!-- 控制按钮 -->
+            <div class="flex items-center space-x-8 mt-3">
+              <!-- 循环模式 -->
+              <button 
+                @click="
+                  musicStore.state.loopMode = 
+                    musicStore.state.loopMode === 'listLoop' 
+                      ? 'random' 
+                      : musicStore.state.loopMode === 'random' 
+                        ? 'singleLoop' 
+                        : 'listLoop'
+                "
+                class="p-1 transition-all duration-300 cursor-pointer focus:outline-none"
+                :class="isDark ? 'text-zinc-400 hover:text-white' : 'text-on-surface-variant/70 hover:text-primary'"
+                :title="
+                  musicStore.state.loopMode === 'listLoop' 
+                    ? '列表循环' 
+                    : musicStore.state.loopMode === 'random' 
+                      ? '随机播放' 
+                      : '单曲循环'
+                "
+              >
+                <RepeatIcon 
+                  v-if="musicStore.state.loopMode === 'listLoop'" 
+                  class="w-4 h-4" 
+                  :class="isDark ? 'text-emerald-400' : 'text-primary'" 
+                />
+                <ShuffleIcon 
+                  v-else-if="musicStore.state.loopMode === 'random'" 
+                  class="w-4 h-4" 
+                  :class="isDark ? 'text-emerald-400' : 'text-primary'" 
+                />
+                <Repeat1Icon 
+                  v-else 
+                  class="w-4 h-4" 
+                  :class="isDark ? 'text-emerald-400' : 'text-primary'" 
+                />
+              </button>
+
+              <!-- 上一首 -->
+              <button 
+                @click="musicStore.playPrev()" 
+                class="p-1.5 rounded-lg transition-all active:scale-95 cursor-pointer focus:outline-none"
+                :class="isDark ? 'text-zinc-400 hover:text-white hover:bg-white/5' : 'text-on-surface-variant/70 hover:text-primary hover:bg-primary/5'"
+              >
+                <SkipBackIcon class="w-4.5 h-4.5" />
+              </button>
+
+              <!-- 播放/暂停 -->
+              <button 
+                @click="musicStore.togglePlay()" 
+                class="w-12 h-12 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 shadow-lg transition-all cursor-pointer focus:outline-none"
+                :class="isDark 
+                  ? 'bg-emerald-400 text-zinc-950 hover:bg-emerald-300 shadow-[0_4px_20px_rgba(78,222,163,0.3)]' 
+                  : 'bg-primary text-white hover:bg-primary-container shadow-[0_4px_20px_rgba(70,72,212,0.3)]'"
+              >
+                <PauseIcon v-if="musicStore.state.isPlaying" class="w-5 h-5" />
+                <PlayIcon v-else class="w-5 h-5 ml-0.5" :class="isDark ? 'fill-zinc-950 text-zinc-950' : 'fill-white text-white'" />
+              </button>
+
+              <!-- 下一首 -->
+              <button 
+                @click="musicStore.playNext()" 
+                class="p-1.5 rounded-lg transition-all active:scale-95 cursor-pointer focus:outline-none"
+                :class="isDark ? 'text-zinc-400 hover:text-white hover:bg-white/5' : 'text-on-surface-variant/70 hover:text-primary hover:bg-primary/5'"
+              >
+                <SkipForwardIcon class="w-4.5 h-4.5" />
+              </button>
+
+              <!-- 红心收藏 -->
+              <button 
+                @click="musicStore.toggleFavorite(musicStore.state.currentSong)"
+                class="p-1 transition-all active:scale-90 cursor-pointer focus:outline-none"
+                :class="isDark ? 'text-zinc-400 hover:text-red-500' : 'text-on-surface-variant/70 hover:text-red-500'"
+              >
+                <HeartIcon 
+                  class="w-4.5 h-4.5" 
+                  :class="musicStore.isFavorited(musicStore.state.currentSong.songmid) ? 'fill-red-500 text-red-500 scale-110' : 'scale-100'" 
+                />
+              </button>
+            </div>
+          </div>
+
+          <div class="w-1/4"></div>
+        </footer>
+      </div>
+    </transition>
+
+    <!-- ====== 模态框 Modals ====== -->
+    <!-- 1. 新建播放列表弹窗 -->
+    <div v-if="showCreatePlaylistModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in select-text">
+      <div class="w-[340px] bg-surface rounded-3xl border border-outline-variant/70 shadow-2xl flex flex-col overflow-hidden animate-scale-in">
+        <header class="p-5 border-b border-outline-variant/40 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+          <span class="text-xs font-extrabold text-on-surface tracking-wide">新建播放列表</span>
+          <button @click="showCreatePlaylistModal = false" class="p-1.5 rounded-full hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer select-none">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+        <div class="p-5 space-y-4 select-none">
+          <div class="space-y-1.5">
+            <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">列表名称</label>
+            <input 
+              v-model="newPlaylistName"
+              type="text" 
+              placeholder="请输入新列表的精美名字..."
+              class="w-full px-3 py-2 bg-surface-low border border-outline-variant rounded-xl text-xs focus:outline-none focus:border-primary text-on-surface"
+              @keyup.enter="triggerCreatePlaylist"
+            />
+          </div>
+        </div>
+        <footer class="p-4 bg-surface border-t border-outline-variant/60 flex justify-end space-x-2 cursor-pointer select-none">
+          <button @click="showCreatePlaylistModal = false" class="px-3.5 py-1.5 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-bold text-on-surface transition-colors">取消</button>
+          <button @click="triggerCreatePlaylist" :disabled="!newPlaylistName.trim()" class="px-4 py-1.5 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md disabled:opacity-40">确认创建</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- 2. 歌单导入弹窗 -->
+    <div v-if="showImportPlaylistModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in select-text">
+      <div class="w-[420px] bg-surface rounded-3xl border border-outline-variant/70 shadow-2xl flex flex-col overflow-hidden animate-scale-in">
+        <header class="p-5 border-b border-outline-variant/40 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+          <span class="text-xs font-extrabold text-on-surface tracking-wide">一键导入网易云歌单</span>
+          <button @click="showImportPlaylistModal = false" class="p-1.5 rounded-full hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer select-none">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+        <div class="p-5 space-y-4">
+          <div class="space-y-1.5 select-none">
+            <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">歌单网页链接或分享短链</label>
+            <textarea 
+              v-model="importPlaylistLink"
+              placeholder="请粘贴网易云官方歌单链接，如：https://music.163.com/playlist?id=123456...  或者移动端的分享短链"
+              class="w-full h-24 p-3 bg-surface-low border border-outline-variant rounded-xl text-xs focus:outline-none focus:border-primary text-on-surface resize-none leading-relaxed"
+            ></textarea>
+          </div>
+          <div class="text-[9px] text-on-surface-variant/50 font-bold select-none leading-relaxed">
+            🐾 导入说明：系统会自动分析并跟随重定向解析出真正的网易云歌单 ID，拉取其下多达 300 首单曲，并一键导入落库到当前选中的本地自建列表中。
+          </div>
+        </div>
+        <footer class="p-4 bg-surface border-t border-outline-variant/60 flex justify-end space-x-2 cursor-pointer select-none">
+          <button @click="showImportPlaylistModal = false" class="px-3.5 py-1.5 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-bold text-on-surface transition-colors">取消</button>
+          <button @click="triggerImportPlaylist" :disabled="!importPlaylistLink.trim() || isImportingPlaylist" class="px-4 py-1.5 rounded-xl bg-primary hover:bg-primary-high text-xs font-bold text-white shadow-md disabled:opacity-40 flex items-center space-x-1">
+            <Loader2Icon v-if="isImportingPlaylist" class="w-3 h-3 animate-spin text-white" />
+            <span>✓ 开始导入</span>
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- 3. 添加到播放列表弹窗 (高颜值磨砂高透玻璃升级版) -->
+    <div v-if="showAddToPlaylistModal && songToAddToPlaylist" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in select-text">
+      <div 
+        class="w-[360px] rounded-3xl border shadow-2xl flex flex-col overflow-hidden animate-scale-in backdrop-blur-md transition-all duration-300"
+        :class="isDark ? 'bg-zinc-900/95 border-zinc-800 text-zinc-100 shadow-[0_20px_50px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-zinc-200/80 text-zinc-800 shadow-[0_20px_40px_rgba(0,0,0,0.08)]'"
+      >
+        <header class="p-5 border-b flex items-center justify-between flex-shrink-0 select-none"
+          :class="isDark ? 'border-zinc-800/60' : 'border-zinc-200/50'"
+        >
+          <div class="flex flex-col">
+            <span class="text-xs font-extrabold tracking-wide" :class="isDark ? 'text-zinc-100' : 'text-zinc-800'">添加到播放列表</span>
+            <span class="text-[9px] mt-0.5 truncate max-w-[260px] font-medium" :class="isDark ? 'text-zinc-400' : 'text-zinc-500'">歌曲：{{ songToAddToPlaylist.name }}</span>
+          </div>
+          <button @click="showAddToPlaylistModal = false" class="p-1.5 rounded-full hover:bg-surface-high transition-colors cursor-pointer select-none"
+            :class="isDark ? 'hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200' : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-800'"
+          >
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+        
+        <!-- 播放列表供选区 -->
+        <div class="p-4 max-h-[220px] overflow-y-auto space-y-1.5 select-none scrollbar-thin">
+          <!-- A. 我的收藏项 -->
+          <div 
+            @click="addSongToPlaylist('love')"
+            class="flex items-center px-4 py-2.5 rounded-2xl border transition-all cursor-pointer group"
+            :class="isDark 
+              ? 'bg-zinc-800/30 border-zinc-800/80 hover:border-emerald-400/40 hover:bg-emerald-400/5' 
+              : 'bg-zinc-50 border-zinc-200/60 hover:border-primary/30 hover:bg-primary/5'"
+          >
+            <div class="w-8 h-8 rounded-xl bg-red-500/10 text-red-500 flex items-center justify-center mr-3 group-hover:scale-105 transition-transform">
+              <HeartIcon class="w-4 h-4 fill-red-500 text-red-500" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-bold">我的收藏</div>
+              <div class="text-[9px] mt-0.5" :class="isDark ? 'text-zinc-500' : 'text-zinc-400'">系统默认收藏夹</div>
+            </div>
+          </div>
+
+          <!-- B. 用户自定义列表 -->
+          <div 
+            v-for="p in musicStore.state.playlists" 
+            :key="p.id"
+            @click="addSongToPlaylist(p.id)"
+            class="flex items-center px-4 py-2.5 rounded-2xl border transition-all cursor-pointer group"
+            :class="isDark 
+              ? 'bg-zinc-800/30 border-zinc-800/80 hover:border-emerald-400/40 hover:bg-emerald-400/5' 
+              : 'bg-zinc-50 border-zinc-200/60 hover:border-primary/30 hover:bg-primary/5'"
+          >
+            <div class="w-8 h-8 rounded-xl flex items-center justify-center mr-3 group-hover:scale-105 transition-transform"
+              :class="isDark ? 'bg-emerald-400/10 text-emerald-400' : 'bg-primary/10 text-primary'"
+            >
+              <ListMusicIcon class="w-4 h-4" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-bold truncate">{{ p.name }}</div>
+              <div class="text-[9px] mt-0.5" :class="isDark ? 'text-zinc-500' : 'text-zinc-400'">用户创建列表</div>
+            </div>
+          </div>
+
+          <!-- 空白占位 -->
+          <div v-if="!musicStore.state.playlists.length" class="text-center py-4 text-[10px]" :class="isDark ? 'text-zinc-600' : 'text-zinc-400'">
+            暂无自定义播放列表，可在下方快速创建
+          </div>
+        </div>
+
+        <!-- 底部：快捷新建歌单并添加 -->
+        <div class="p-4 border-t flex flex-col space-y-2 select-none"
+          :class="isDark ? 'bg-zinc-950/20 border-zinc-800/80' : 'bg-zinc-50/60 border-zinc-200/50'"
+        >
+          <div class="text-[9px] font-bold uppercase tracking-wider pl-1" :class="isDark ? 'text-zinc-500' : 'text-zinc-400'">快速创建新列表并加入</div>
+          <div class="flex items-center space-x-2">
+            <input 
+              v-model="quickNewPlaylistName"
+              type="text" 
+              placeholder="新歌单名称..."
+              class="flex-1 px-3 py-2 border rounded-xl text-xs focus:outline-none transition-all font-sans select-text"
+              :class="isDark 
+                ? 'bg-zinc-800/80 border-zinc-700 text-zinc-100 focus:border-emerald-400 focus:bg-zinc-800/50 placeholder-zinc-600' 
+                : 'bg-white border-zinc-200 text-zinc-800 focus:border-primary placeholder-zinc-400'"
+              @keyup.enter="triggerQuickCreatePlaylistAndAdd"
+            />
+            <button 
+              @click="triggerQuickCreatePlaylistAndAdd" 
+              :disabled="!quickNewPlaylistName.trim()"
+              class="px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-all whitespace-nowrap"
+              :class="isDark
+                ? 'bg-emerald-400 hover:bg-emerald-300 text-zinc-950 disabled:opacity-40 disabled:scale-100 active:scale-95 shadow-[0_0_12px_rgba(52,211,153,0.15)] cursor-pointer'
+                : 'bg-primary hover:bg-primary-high text-white disabled:opacity-40 disabled:scale-100 active:scale-95 cursor-pointer'"
+            >
+              创建并添加
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 转发消息好友选择弹窗 (iOS/WeChat 同款高颜值磨砂升级版) -->
+    <div v-if="showForwardModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in select-text">
+      <div class="w-[360px] bg-surface rounded-3xl border border-outline-variant/70 shadow-2xl flex flex-col max-h-[75vh] overflow-hidden select-text animate-scale-in">
+        <header class="p-5 border-b border-outline-variant/40 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+          <div class="flex items-center space-x-2.5">
+            <Share2Icon class="w-4.5 h-4.5 text-primary animate-pulse" />
+            <span class="text-xs font-extrabold text-on-surface tracking-wide">转发消息至...</span>
+          </div>
+          <button @click="showForwardModal = false" class="p-1.5 rounded-full hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer select-none">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+
+        <!-- 搜索输入框 -->
+        <div class="p-3 bg-surface-low border-b border-outline-variant/10 flex-shrink-0 select-none">
+          <div class="relative">
+            <SearchIcon class="absolute left-3 top-3 w-3.5 h-3.5 text-on-surface-variant/40" />
+            <input
+              v-model="forwardQuery"
+              type="text"
+              placeholder="搜索联系人名字..."
+              class="w-full pl-9 pr-4 py-2 rounded-xl bg-surface border border-outline-variant/50 text-[11px] text-on-surface placeholder-on-surface-variant/30 focus:outline-none focus:border-primary transition-all shadow-inner"
+            />
+          </div>
+        </div>
+
+        <!-- 好友列表 -->
+        <div class="flex-1 overflow-y-auto p-3.5 space-y-2 min-h-0 select-none max-h-[380px]">
+          <div v-if="filteredCharacters.length === 0" class="text-center py-12 text-[10.5px] text-on-surface-variant/40">
+            没有匹配社区角色 🐾
+          </div>
+          <button
+            v-for="char in filteredCharacters"
+            :key="char.id"
+            @click="forwardMessageToCharacter(char)"
+            class="w-full flex items-center space-x-3 p-3 rounded-2xl bg-surface-low/50 hover:bg-primary/5 active:bg-primary/10 transition-all text-left cursor-pointer border border-outline-variant/30 hover:border-primary/20 shadow-sm"
+          >
+            <div class="w-8 h-8 rounded-xl overflow-hidden border border-outline-variant shadow-sm flex-shrink-0 bg-surface-low flex items-center justify-center">
+              <img v-if="characterAvatars[char.id]" :src="characterAvatars[char.id]" class="w-full h-full object-cover" />
+              <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h5 class="text-xs font-black text-on-surface truncate">{{ char.name }}</h5>
+              <p class="text-[9px] text-on-surface-variant/60 truncate mt-0.5">{{ char.folder_name }}</p>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= 多端复用单例全局表情包/Emoji面板 ========================= -->
+  <div
+    v-if="showGlobalEmojiPanel"
+    @click.stop
+    :style="globalEmojiPanelStyle"
+    class="fixed z-[999] p-3 flex flex-col w-[260px] h-[220px] justify-between animate-scale-in select-none glass-panel shadow-[0_12px_40px_-6px_rgba(0,0,0,0.3)] rounded-2xl border border-outline-variant/30 backdrop-blur-2xl bg-surface/85"
+  >
+    <!-- A. 默认表情 -->
+    <div v-if="emojiActiveTab === 'default'" class="flex flex-wrap gap-1.5 overflow-y-auto flex-1 select-none pr-1 py-1">
+      <button
+        v-for="emoji in emojiList"
+        :key="emoji"
+        class="w-6 h-6 flex items-center justify-center text-lg hover:scale-125 hover:bg-surface-high/60 rounded transition-all cursor-pointer"
+        @click="handleGlobalEmojiSelect(emoji)"
+      >{{ emoji }}</button>
+    </div>
+    
+    <!-- B. 自定义表情 (Stickers) -->
+    <div v-else class="grid grid-cols-5 gap-1.5 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
+      <div v-if="customEmojiList.length === 0" class="col-span-5 flex flex-col items-center justify-center text-[10px] text-on-surface-variant/40 py-8">
+        <HeartIcon class="w-8 h-8 opacity-25 mb-1.5" />
+        <span>暂无收藏表情包</span>
+      </div>
+      <div
+        v-for="emoji in customEmojiList"
+        :key="emoji.id"
+        @click="handleGlobalStickerSelect(emoji)"
+        class="aspect-square rounded-lg overflow-hidden border border-outline-variant/60 hover:border-primary bg-surface flex items-center justify-center p-0.5 cursor-pointer hover:scale-105 active:scale-95 transition-all relative shadow-sm"
+        :title="emoji.meaning"
+      >
+        <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
+      </div>
+    </div>
+    
+    <!-- 页签切换 -->
+    <div class="flex items-center space-x-2 pt-2 border-t border-outline-variant/20 mt-1.5 flex-shrink-0 select-none">
+      <button
+        @click="emojiActiveTab = 'default'"
+        class="w-6 h-6 rounded flex items-center justify-center transition-all cursor-pointer border"
+        :class="emojiActiveTab === 'default' ? 'bg-surface text-primary border-primary/20 shadow-sm' : 'bg-surface-high/40 text-on-surface-variant border-transparent'"
+        title="默认表情"
+      >
+        <SmileIcon class="w-3.5 h-3.5" />
+      </button>
+      <button
+        @click="emojiActiveTab = 'favorites'"
+        class="w-6 h-6 rounded flex items-center justify-center transition-all cursor-pointer border"
+        :class="emojiActiveTab === 'favorites' ? 'bg-surface text-[#ff4b72] border-[#ff4b72]/20 shadow-sm' : 'bg-surface-high/40 text-on-surface-variant border-transparent'"
+        title="自定义表情"
+      >
+        <HeartIcon class="w-3.5 h-3.5" />
+      </button>
+    </div>
+  </div>
+
+  <!-- 精美全局 Toast 通知的浮动 UI 气泡 (苹果极简毛玻璃药丸微图标升级版) -->
+  <div
+    v-if="toastVisible"
+    class="fixed top-8 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 bg-slate-900/90 dark:bg-slate-950/95 text-white text-[12px] font-semibold rounded-full shadow-[0_12px_40px_-6px_rgba(0,0,0,0.6)] backdrop-blur-xl flex items-center space-x-3 border border-white/10 animate-fade-in select-none tracking-wide"
+  >
+    <SparklesIcon class="w-3.5 h-3.5 text-amber-400 animate-spin" style="animation-duration: 4s;" />
+    <span>{{ toastMessage }}</span>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
+import {
+  MessageSquare as MessageSquareIcon,
+  Users as UsersIcon,
+  Globe as GlobeIcon,
+  Music as MusicIcon,
+  MessageCircle as MessageCircleIcon,
+  Settings as SettingsIcon,
+  Moon as MoonIcon,
+  Sun as SunIcon,
+  Search as SearchIcon,
+  Plus as PlusIcon,
+  PlusCircle as PlusCircleIcon,
+  Image as ImageIcon,
+  User as UserIcon,
+  Brain as BrainIcon,
+  BookOpen as BookOpenIcon,
+  Smile as SmileIcon,
+  Gift as GiftIcon,
+  Coffee as CoffeeIcon,
+  Lightbulb as LightbulbIcon,
+  Compass as CompassIcon,
+  HeartHandshake as HeartHandshakeIcon,
+  ShieldAlert as ShieldAlertIcon,
+  Banknote as BanknoteIcon,
+  Send as SendIcon,
+  Heart as HeartIcon,
+  Loader2 as Loader2Icon,
+  Upload as UploadIcon,
+  X as XIcon,
+  Save as SaveIcon,
+  Cpu as CpuIcon,
+  Eye as EyeIcon,
+  EyeOff as EyeOffIcon,
+  Activity as ActivityIcon,
+  CheckCircle as CheckCircleIcon,
+  XCircle as XCircleIcon,
+  Pin as PinIcon,
+  BellDot as BellDotIcon,
+  BellOff as BellOffIcon,
+  Camera as CameraIcon,
+  PenLine as PenLineIcon,
+  HelpCircle as HelpCircleIcon,
+  AlertTriangle as AlertTriangleIcon,
+  Sparkles as SparklesIcon,
+  PenTool as PenToolIcon,
+  Calendar as CalendarIcon,
+  BarChart3 as BarChart3Icon,
+  SlidersHorizontal as SlidersHorizontalIcon,
+  Terminal as TerminalIcon,
+  Scroll as ScrollIcon,
+  Bookmark as BookmarkIcon,
+  Copy as CopyIcon,
+  Share2 as Share2Icon,
+  RefreshCw as RefreshCwIcon,
+  Trash2 as TrashIcon,
+  Repeat as RepeatIcon,
+  Pause as PauseIcon,
+  Play as PlayIcon,
+  SkipBack as SkipBackIcon,
+  SkipForward as SkipForwardIcon,
+  Volume2 as Volume2Icon,
+  VolumeX as VolumeXIcon,
+  Download as DownloadIcon,
+  FolderOpen as FolderOpenIcon,
+  Shuffle as ShuffleIcon,
+  Repeat1 as Repeat1Icon,
+  ListMusic as ListMusicIcon,
+  FolderPlus as FolderPlusIcon,
+  Edit as EditIcon,
+  Check as CheckIcon,
+  ChevronDown as ChevronDownIcon
+} from 'lucide-vue-next'
+
+import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
+// 内联子组件：会话列表条目
+import ConversationItem from './components/ConversationItem.vue'
+import { StreamingContextScrubber } from './utils/StreamingContextScrubber'
+import MarkdownIt from 'markdown-it'
+
+// 优雅的 window.api Polyfill 局域网桥接垫片
+if (typeof window !== 'undefined' && !(window as any).api) {
+  (window as any).api = {
+    invoke: async (channel: string, payload?: any) => {
+      try {
+        const hostname = window.location.hostname || 'localhost';
+        // 动态根据访问域名/IP拼接 3000 端口网关服务进行 HTTP IPC 穿透
+        const response = await fetch(`http://${hostname}:3000/api/ipc`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ channel, payload })
+        });
+        return await response.json();
+      } catch (e: any) {
+        console.error(`[Polyfill IPC Network Error]`, e);
+        return { success: false, error: e.message || String(e) };
+      }
+    }
+  };
+}
+
+const md = new MarkdownIt({
+  html: true,
+  linkify: true,
+  typographer: true
+})
+
+function renderMarkdown(content: string) {
+  if (!content) return ''
+  return md.render(content)
+}
+
+function renderTextWithStickers(text: string) {
+  if (!text) return ''
+  let escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+  const regex = /\[表情:\s*(.*?)\]/g
+  return escaped.replace(regex, (match, meaning) => {
+    const matchedEmoji = customEmojiList.value.find(e => e.meaning === meaning)
+    if (matchedEmoji) {
+      return `<img src="${matchedEmoji.base64}" class="w-12 h-12 inline-block object-contain my-1 select-none animate-scale-in align-bottom" title="${meaning}" />`
+    }
+    return match
+  })
+}
+
+function replaceStickersOnly(html: string) {
+  if (!html) return ''
+  const regex = /\[表情:\s*(.*?)\]/g
+  return html.replace(regex, (match, meaning) => {
+    const matchedEmoji = customEmojiList.value.find(e => e.meaning === meaning)
+    if (matchedEmoji) {
+      return `<img src="${matchedEmoji.base64}" class="w-12 h-12 inline-block object-contain my-1 select-none animate-scale-in align-bottom" title="${meaning}" />`
+    }
+    return match
+  })
+}
+
+// 默认用户头像（从 assets 引入）
+// @ts-ignore
+import defaultAvatarUrl from './assets/default-avatar.png'
+const defaultAvatarSrc = defaultAvatarUrl
+const DEFAULT_COVER = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><defs><radialGradient id="g" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="%236366f1" stop-opacity="0.3"/><stop offset="60%" stop-color="%234f46e5" stop-opacity="0.1"/><stop offset="100%" stop-color="%230f172a" stop-opacity="0.85"/></radialGradient></defs><rect width="300" height="300" fill="url(%23g)"/><circle cx="150" cy="150" r="110" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="6"/><circle cx="150" cy="150" r="80" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4"/><circle cx="150" cy="150" r="50" fill="rgba(255,255,255,0.02)"/><path d="M150 110v50c-3.5-2.2-8.5-3-13-1.5-6.5 2.2-10.5 8.5-8.8 14 1.7 5.5 8.3 8.3 14.8 6 5.5-2 9-7.2 9-12.5v-36h22v-20h-24z" fill="rgba(255,255,255,0.4)"/></svg>'
+
+import { musicPlayerStore } from './utils/MusicPlayerStore'
+const musicStore = musicPlayerStore
+
+// ===================== 全局状态 =====================
+const isDark = ref(false)
+const sideView = ref<'chat' | 'contacts' | 'settings' | 'stats' | 'moments' | 'forum' | 'favorites' | 'music'>('chat')
+const activeView = ref<'chat' | 'import'>('chat')
+
+// ===================== 音乐专属响应式状态 =====================
+const customSources = ref<Array<{ id: string; name: string; path: string }>>(
+  JSON.parse(localStorage.getItem('music_custom_sources') || '[]')
+)
+const onlineSourceUrl = ref('')
+const isDownloadingSource = ref(false)
+const lyricBgColor = ref(localStorage.getItem('music_lyric_bg_color') || 'rgba(15, 23, 42, 0.45)')
+const lyricTextColor = ref(localStorage.getItem('music_lyric_text_color') || 'linear-gradient(135deg, #a5b4fc, #818cf8, #6366f1)')
+const activeMusicTab = ref('recommend') // 'recommend' | 'leaderboard' | 'playlist' | 'download' | 'settings'
+const isLoadingPlaylists = ref(false)
+const recommendPlaylists = ref<any[]>([])
+const isLoadingLeaderboard = ref(false)
+const leaderboardSongs = ref<any[]>([])
+const activeBangId = ref('19723756') // 默认网易云飙升榜
+const currentDetailPlaylistSongs = ref<any[]>([])
+const currentDetailPlaylistName = ref('')
+const isLoadingPlaylistDetails = ref(false)
+
+// 1. 歌单分页状态
+const playlistCurrentPage = ref(1)
+
+// 2. 播放队列抽屉显示状态
+const showQueueDrawer = ref(false)
+
+// 3. 全局搜索与实时联想状态
+const musicSearchKeyword = ref('')
+const musicSearchSuggestions = ref<any[]>([])
+const musicSearchResults = ref<any[]>([])
+const musicSearchPlaylistsResults = ref<any[]>([])
+const musicSearchType = ref('song') // 'song' | 'playlist'
+const showMusicSearchSuggestions = ref(false)
+const showMusicSearchResultsView = ref(false)
+const isLoadingMusicSearchResults = ref(false)
+const playlistDetailsBackTab = ref<'recommend' | 'search'>('recommend')
+
+const showAddToPlaylistModal = ref(false)
+const songToAddToPlaylist = ref<any>(null)
+const quickNewPlaylistName = ref('')
+
+function openAddToPlaylist(song: any) {
+  songToAddToPlaylist.value = song
+  quickNewPlaylistName.value = ''
+  showAddToPlaylistModal.value = true
+}
+
+async function addSongToPlaylist(playlistId: string) {
+  if (!songToAddToPlaylist.value) return
+  try {
+    await musicStore.addSongToCustomPlaylist(playlistId, songToAddToPlaylist.value)
+    if (musicStore.state.activePlaylistId === playlistId) {
+      await musicStore.loadPlaylistSongs(playlistId)
+    }
+    // 使用底栏状态文字代替弹窗，3 秒后自动消除
+    musicStore.state.statusText = '✅ 已成功添加到播放列表'
+    setTimeout(() => { if (musicStore.state.statusText === '✅ 已成功添加到播放列表') musicStore.state.statusText = '' }, 3000)
+  } catch (err: any) {
+    console.error('[App.vue] 添加到播放列表异常:', err)
+    musicStore.state.statusText = `⚠️ 添加失败: ${err.message || '请重试'}`
+    setTimeout(() => { musicStore.state.statusText = '' }, 4000)
+  } finally {
+    showAddToPlaylistModal.value = false
+  }
+}
+
+async function triggerQuickCreatePlaylistAndAdd() {
+  if (!quickNewPlaylistName.value.trim() || !songToAddToPlaylist.value) return
+  const playlistName = quickNewPlaylistName.value.trim()
+  await musicStore.createPlaylist(playlistName)
+  const latestPlaylist = musicStore.state.playlists.find(p => p.name === playlistName)
+  if (latestPlaylist) {
+    await addSongToPlaylist(latestPlaylist.id)
+  } else {
+    if (musicStore.state.playlists.length > 0) {
+      const last = musicStore.state.playlists[musicStore.state.playlists.length - 1]
+      await addSongToPlaylist(last.id)
+    } else {
+      musicStore.state.statusText = '⚠️ 创建播放列表失败，请重试'
+      setTimeout(() => { musicStore.state.statusText = '' }, 3000)
+      showAddToPlaylistModal.value = false
+    }
+  }
+}
+
+const showCreatePlaylistModal = ref(false)
+const newPlaylistName = ref('')
+const showImportPlaylistModal = ref(false)
+const importPlaylistLink = ref('')
+const isImportingPlaylist = ref(false)
+const showPlayExpanded = ref(false)
+const showCommentsTab = ref(false)
+const lyricContainerRef = ref<HTMLElement | null>(null)
+const searchQuery = ref('')
+const showAddMenu = ref(false)
+const showAddCharacterMenu = ref(false)
+
+// ===================== 朋友圈 & 论坛 & 状态 & 成长线相关响应式数据 =====================
+const unreadMomentsCount = ref(0)
+const unreadForumCount = ref(0)
+const hasNewMomentNotification = ref(false)
+const newMomentTargetId = ref<string | null>(null)
+const unreadForumPostIds = ref<string[]>([])
+const momentsList = ref<any[]>([])
+const isRefreshingMoments = ref(false)
+const momentsCooldownText = ref('')
+const forumPostsList = ref<any[]>([])
+const isRefreshingForum = ref(false)
+const forumCooldownText = ref('')
+const selectedForumPost = ref<any>(null)
+
+// ── 朋友圈与论坛补充响应式 ──
+const newMomentContent = ref('')
+const boards = ref([
+  { id: 'all', name: '全部动态', icon: 'GlobeIcon' },
+  { id: 'tech', name: '科技前沿', icon: 'CpuIcon' },
+  { id: 'chat', name: '人间烟火', icon: 'CoffeeIcon' },
+  { id: 'ideas', name: '灵感工坊', icon: 'LightbulbIcon' },
+  { id: 'world', name: '异度空间', icon: 'CompassIcon' },
+  { id: 'emotion', name: '情感树洞', icon: 'HeartHandshakeIcon' },
+  { id: 'nsfw', name: '暗夜私语', icon: 'ShieldAlertIcon' }
+])
+const selectedBoardId = ref('all')
+const forumCommentInput = ref('')
+const forumReplyPlaceholder = ref('')
+const selectedCommentToReply = ref<any>(null)
+const showPublishForumModal = ref(false)
+const newForumTitle = ref('')
+const newForumContent = ref('')
+const newForumBoardId = ref('tech')
+const forumCommentsList = ref<any[]>([])
+
+// ── 统一收藏中心响应式数据 ──
+const favFilters = ref([
+  { type: 'all', name: '全部收藏', icon: 'BookmarkIcon' },
+  { type: 'chat', name: '精选对话', icon: 'MessageSquareIcon' },
+  { type: 'moment', name: '回音动态', icon: 'GlobeIcon' },
+  { type: 'forum', name: '论坛发帖', icon: 'ScrollIcon' },
+  { type: 'diary', name: '绝密日记', icon: 'PenToolIcon' }
+])
+const selectedFavType = ref('all')
+const favoritesList = ref<any[]>([])
+const selectedFavorite = ref<any>(null)
+
+// ── 转发功能响应式 ──
+const showForwardModal = ref(false)
+const forwardQuery = ref('')
+const messageToForward = ref<any>(null)
+const filteredCharacters = computed(() => {
+  const q = forwardQuery.value.trim().toLowerCase()
+  if (!q) return characterList.value
+  return characterList.value.filter(c => c.name.toLowerCase().includes(q))
+})
+
+// 系统常规配置项
+const generalConfig = ref({
+  show_schedule: true,
+  show_goals: true,
+  cron_frequency: 'active', // active, standard, quiet
+  enable_music: false
+})
+
+// 监听音乐功能的开启/关闭联动
+watch(() => generalConfig.value.enable_music, (newVal) => {
+  if (!newVal) {
+    if (sideView.value === 'music') {
+      sideView.value = 'chat'
+    }
+    musicStore.stop()
+  }
+})
+
+// 角色状态、日程与目标
+const characterStates = ref<Record<string, any>>({})
+const contactScheduleContent = ref('')
+const contactGoalsContent = ref('')
+const stateDeltas = ref<Record<string, Record<string, string | number>>>({})
+
+// 自定义状态指标弹窗
+const showCustomizeStatesModal = ref(false)
+const editingStatesString = ref('')
+
+// 性格人设演化
+const activeEvolutionDraft = ref<any>(null)
+const activeEvolutionCharId = ref('')
+const showEvolutionModal = ref(false)
+
+// 计算属性：动态控制通讯录详情 Tab 的展示
+const contactTabs = computed(() => {
+  const base = [
+    { id: 'soul', name: '性格设定 (SOUL)' },
+    { id: 'memory', name: '双轨记忆 (MEMORY)' },
+    { id: 'user', name: '专属画像 (USER)' }
+  ]
+  if (generalConfig.value.show_schedule) {
+    base.push({ id: 'schedule', name: '近7天日程 (SCHEDULE)' })
+  }
+  if (generalConfig.value.show_goals) {
+    base.push({ id: 'goals', name: '长期目标 (GOALS)' })
+  }
+  return base
+})
+
+// ===================== 用户个人信息 =====================
+const userProfile = reactive({
+  avatarUrl: '',
+  nickname: '用户',
+  signature: '',
+  location: '',
+  walletBalance: 1000
+})
+const globalUserMdContent = ref('')
+const showUserProfileModal = ref(false)
+const avatarFileInput = ref<HTMLInputElement | null>(null)
+const userProfileActiveTab = ref<'profile' | 'userMd'>('profile')
+const userMdEditing = ref(false)
+
+// ===================== 设置 =====================
+const showSettingsModal = ref(false)
+const chatMode = ref<'descriptive' | 'dialogue'>('descriptive')
+const activeSettingsTab = ref<'general' | 'states' | 'primary' | 'secondary' | 'about'>('general')
+const globalPrompt = ref('')
+const settingsMenus: { id: 'general' | 'states' | 'primary' | 'secondary' | 'about'; label: string; icon: any }[] = [
+  { id: 'general', label: '常规设置', icon: SettingsIcon },
+  { id: 'states', label: '状态栏设置', icon: HeartIcon },
+  { id: 'primary', label: '主大模型 (Primary)', icon: CpuIcon },
+  { id: 'secondary', label: '辅助大模型 (Secondary)', icon: CpuIcon },
+  { id: 'about', label: '关于软件', icon: HelpCircleIcon }
+]
+
+function openSettingsPage() {
+  sideView.value = 'settings'
+  activeSettingsTab.value = 'general'
+}
+
+
+
+// ===================== 角色与对话 =====================
+const selectedCharacterId = ref<string | null>(null)
+const characterList = ref<any[]>([])
+const characterAvatars = ref<Record<string, string>>({})
+const activeCharacter = computed(() => characterList.value.find(c => c.id === selectedCharacterId.value) || null)
+
+// 会话元数据（置顶/未读/免打扰/隐藏）
+const conversationMeta = reactive<Record<string, { pinned?: boolean; unread?: number; muted?: boolean; hidden?: boolean }>>({})
+
+// 所有消息缓存（按角色 id 存储）
+const allMessages = reactive<Record<string, any[]>>({})
+const chatMessages = computed(() => allMessages[selectedCharacterId.value || ''] || [])
+
+// ===================== 角色内心状态系统 (已移至声明下方，安全规避TDZ编译报错) =====================
+const activeCharacterStates = computed(() => {
+  if (!activeCharacter.value) return []
+  return characterStates.value[activeCharacter.value.id]?.items || []
+})
+const activePopoverKey = ref<string | null>(null) // 当前被点击激活 Popover 的状态 Key
+const popoverValue = ref<number | string>('') // Popover 气泡中的临时编辑数值
+const showAddStateModal = ref(false) // 是否显示新增属性图形化弹窗
+const showDeleteConfirmModal = ref(false) // 是否显示删除确认自定义弹窗
+const pendingDeleteKey = ref<string | null>(null) // 待删除的自定义状态 Key
+const showStatesDropdown = ref(false) // 是否在 Header 姓名旁下拉显示内心状态面板
+const newStateLabel = ref('') // 新增属性名称
+const newStateRule = ref('') // 新增属性 AI 更新规则
+const newStateMeaning = ref('') // 新增属性含义阐释 (作为提示词注入Prompt)
+const newStateType = ref<'number' | 'text'>('number') // 新增属性类型
+
+// 读取当前角色的状态
+async function fetchActiveCharacterStates() {
+  if (!activeCharacter.value) return
+  try {
+    const res = await window.api.invoke('get-character-states', {
+      folderName: activeCharacter.value.folder_name
+    })
+    if (res.success && res.states) {
+      characterStates.value[activeCharacter.value.id] = {
+        items: res.states,
+        last_updated: new Date().toISOString().split('T')[0]
+      }
+    }
+  } catch (err) {
+    console.error('获取角色状态失败:', err)
+  }
+}
+
+// 态度映射文本
+function getIntimacyPhaseText(val: number | string): string {
+  const v = Number(val)
+  if (v >= 0 && v < 20) return '陌生'
+  if (v >= 20 && v < 40) return '客套'
+  if (v >= 40 && v < 60) return '好友'
+  if (v >= 60 && v < 80) return '亲密'
+  return '羁绊'
+}
+
+// 监听当前激活角色的切换，实时拉取其内心状态 (配置为 immediate 触发)
+watch(selectedCharacterId, () => {
+  activePopoverKey.value = null
+  showStatesDropdown.value = false // 切换角色时关闭内心下拉框
+  fetchActiveCharacterStates()
+}, { immediate: true })
+
+// 定时微调数值或编辑文本并向物理落盘
+async function saveStateValue(key: string, value: number | string) {
+  if (!activeCharacter.value) return
+  try {
+    const res = await window.api.invoke('update-character-state-value', {
+      folderName: activeCharacter.value.folder_name,
+      key,
+      value
+    })
+    if (res.success && res.states) {
+      characterStates.value[activeCharacter.value.id] = {
+        items: res.states,
+        last_updated: new Date().toISOString().split('T')[0]
+      }
+      // 编辑成功后关闭 Popover 弹窗
+      activePopoverKey.value = null
+    }
+  } catch (err) {
+    console.error('更新状态值失败:', err)
+  }
+}
+
+// 图形化创建新自定义属性，全局同步并热加载刷新 (融入自然语言 AI 更新规则 rule 与含义描述 meaning 传参)
+async function handleAddCustomState() {
+  if (!activeCharacter.value || !newStateLabel.value.trim() || !newStateRule.value.trim() || !newStateMeaning.value.trim()) return
+  try {
+    const res = await window.api.invoke('add-custom-state', {
+      folderName: activeCharacter.value.folder_name,
+      label: newStateLabel.value.trim(),
+      type: newStateType.value,
+      rule: newStateRule.value.trim(),
+      meaning: newStateMeaning.value.trim()
+    })
+    if (res.success && res.states) {
+      characterStates.value[activeCharacter.value.id] = {
+        items: res.states,
+        last_updated: new Date().toISOString().split('T')[0]
+      }
+      showAddStateModal.value = false
+      newStateLabel.value = ''
+      newStateRule.value = ''
+      newStateMeaning.value = ''
+      newStateType.value = 'number'
+    }
+  } catch (err) {
+    console.error('新增自定义属性失败:', err)
+  }
+}
+
+// 物理删除特定自定义属性：拉起自定义警告 Modal 弹窗
+function deleteCustomState(key: string) {
+  if (!activeCharacter.value) return
+  if (['intimacy', 'mood', 'energy'].includes(key)) return // 安全防御
+  pendingDeleteKey.value = key
+  showDeleteConfirmModal.value = true
+}
+
+// 在自定义 Modal 确认后，真正触发物理删除与重构落盘
+async function confirmDeleteCustomState() {
+  if (!pendingDeleteKey.value || !activeCharacter.value) return
+  try {
+    const res = await window.api.invoke('delete-custom-state', {
+      folderName: activeCharacter.value.folder_name,
+      key: pendingDeleteKey.value
+    })
+    if (res.success && res.states) {
+      characterStates.value[activeCharacter.value.id] = {
+        items: res.states,
+        last_updated: new Date().toISOString().split('T')[0]
+      }
+      activePopoverKey.value = null // 成功后退出编辑模式
+    }
+  } catch (err) {
+    console.error('物理删除自定义状态失败:', err)
+  } finally {
+    showDeleteConfirmModal.value = false
+    pendingDeleteKey.value = null
+  }
+}
+
+// ===================== 状态栏设置全局预置管理逻辑 =====================
+const statePresets = ref<any[]>([]) // 全局状态栏预置项列表
+const editingPresetId = ref<string | null>(null) // 正在编辑中的预设ID
+const presetForm = reactive({
+  label: '',
+  type: 'number' as 'number' | 'text',
+  rule: '',
+  meaning: '',
+  is_global: false
+})
+
+// 从数据库加载所有预置项
+async function fetchStatePresets() {
+  try {
+    const res = await window.api.invoke('get-state-presets')
+    if (res.success && res.presets) {
+      statePresets.value = res.presets
+    }
+  } catch (err) {
+    console.error('加载状态预设失败:', err)
+  }
+}
+
+// 物理保存并持久化预置项列表
+async function saveAllStatePresets() {
+  try {
+    const res = await window.api.invoke('save-state-presets', {
+      presets: JSON.parse(JSON.stringify(statePresets.value))
+    })
+    if (res.success) {
+      showToast('状态栏预设保存并同步成功！')
+      fetchActiveCharacterStates() // 刷新当前角色面板
+    }
+  } catch (err) {
+    console.error('保存状态预设失败:', err)
+  }
+}
+
+// 添加或更新单条状态预置
+function handleAddOrUpdatePreset() {
+  if (!presetForm.label.trim() || !presetForm.rule.trim() || !presetForm.meaning.trim()) {
+    showToast('指标属性名称、指标更新规则和指标含义描述均不能为空！')
+    return
+  }
+  
+  if (editingPresetId.value) {
+    // 处于编辑模式，执行修改
+    const idx = statePresets.value.findIndex(p => p.id === editingPresetId.value)
+    if (idx !== -1) {
+      statePresets.value[idx] = {
+        id: editingPresetId.value,
+        label: presetForm.label.trim(),
+        type: presetForm.type,
+        rule: presetForm.rule.trim(),
+        meaning: presetForm.meaning.trim(),
+        is_global: presetForm.is_global
+      }
+    }
+    editingPresetId.value = null
+  } else {
+    // 处于新增模式，动态生成唯一 preset ID
+    const randomId = Math.random().toString(36).substring(2, 8)
+    statePresets.value.push({
+      id: `preset_${randomId}`,
+      label: presetForm.label.trim(),
+      type: presetForm.type,
+      rule: presetForm.rule.trim(),
+      meaning: presetForm.meaning.trim(),
+      is_global: presetForm.is_global
+    })
+  }
+  
+  // 重设表单状态
+  presetForm.label = ''
+  presetForm.type = 'number'
+  presetForm.rule = ''
+  presetForm.meaning = ''
+  presetForm.is_global = false
+  
+  saveAllStatePresets()
+}
+
+// 装载某条预设开始编辑
+function editPresetItem(item: any) {
+  editingPresetId.value = item.id
+  presetForm.label = item.label
+  presetForm.type = item.type
+  presetForm.rule = item.rule
+  presetForm.meaning = item.meaning
+  presetForm.is_global = item.is_global
+}
+
+// 彻底删除某条状态预置项
+function deletePresetItem(id: string) {
+  if (!confirm('确定要删除该状态栏预设吗？如果它已被设为全局状态栏，删除后在角色对话中将不再作为全局渲染。')) return
+  statePresets.value = statePresets.value.filter(p => p.id !== id)
+  if (editingPresetId.value === id) {
+    cancelEditPreset()
+  }
+  saveAllStatePresets()
+}
+
+// 放弃编辑重设表单
+function cancelEditPreset() {
+  editingPresetId.value = null
+  presetForm.label = ''
+  presetForm.type = 'number'
+  presetForm.rule = ''
+  presetForm.meaning = ''
+  presetForm.is_global = false
+}
+
+// 打开特定状态的微型 Popover 气泡
+function openStatePopover(item: any) {
+  if (activePopoverKey.value === item.key) {
+    activePopoverKey.value = null
+  } else {
+    activePopoverKey.value = item.key
+    popoverValue.value = item.value
+  }
+}
+
+// 获取角色的最后活跃时间戳，实现以活跃消息流顺序全自动动态置顶排布
+function getCharacterActiveTime(charId: string): number {
+  const msgs = allMessages[charId]
+  if (msgs && msgs.length > 0) {
+    const lastMsg = msgs[msgs.length - 1]
+    if (lastMsg && lastMsg.timestamp) {
+      return lastMsg.timestamp
+    }
+  }
+  return 0
+}
+
+// 计算置顶角色（过滤隐藏的），按活跃时间倒序
+const pinnedCharacters = computed(() => {
+  return characterList.value
+    .filter(c => conversationMeta[c.id]?.pinned && !conversationMeta[c.id]?.hidden)
+    .sort((a, b) => getCharacterActiveTime(b.id) - getCharacterActiveTime(a.id))
+})
+// 普通角色（不置顶、不隐藏），按活跃时间倒序
+const visibleCharacters = computed(() => {
+  return characterList.value
+    .filter(c => !conversationMeta[c.id]?.pinned && !conversationMeta[c.id]?.hidden)
+    .sort((a, b) => getCharacterActiveTime(b.id) - getCharacterActiveTime(a.id))
+})
+
+// ===================== 聊天输入 =====================
+const chatInputText = ref('')
+const chatTextarea = ref<HTMLTextAreaElement | null>(null)
+const chatContainer = ref<HTMLElement | null>(null)
+const isStreaming = ref(false)
+const pastedImageBase64 = ref('')
+const lastUserMsgId = ref('')
+const isDraggingFile = ref(false)
+const inputHeight = ref(Number(localStorage.getItem('echo_input_height') || '160'))
+
+// 多消息延时聚合防抖状态
+const pendingUserMessages = ref<Array<{ content: string; imageBase64?: string }>>([])
+let messageMergeTimer: any = null
+
+// 监听用户输入框内容改变，实现极其智能的“打字感知防抖”：
+// 只要用户在输入框内打字（输入了有效非空字符），立刻清除之前的聚合定时器，防范 AI 在用户打字思索中途抢话！
+watch(chatInputText, (newVal) => {
+  const trimmed = newVal.trim()
+  if (trimmed.length > 0) {
+    if (messageMergeTimer) {
+      clearTimeout(messageMergeTimer)
+      messageMergeTimer = null
+    }
+  }
+})
+
+// ===================== 打字机效果 =====================
+const scrubber = new StreamingContextScrubber()
+const typingQueue = ref<string[]>([])
+let typingTimer: any = null
+
+// ===================== 角色文件内容 =====================
+const activeDiary = ref('')
+const activeMemory = ref('')
+
+// ===================== 大脑面板 =====================
+const showBrainPanel = ref(false)
+const brainActiveTab = ref<'soul' | 'world' | 'memory' | 'charUser'>('soul')
+const brainEditModes = reactive({ soul: false, world: false, memory: false, charUser: false })
+const brainTabs: { key: 'soul' | 'world' | 'memory' | 'charUser'; label: string }[] = [
+  { key: 'soul', label: 'Soul.md · 性格人设' },
+  { key: 'world', label: 'World.md · 世界设定' },
+  { key: 'memory', label: 'Memory.md · 双轨记忆' },
+  { key: 'charUser', label: 'USER.md · 专属画像' }
+]
+const brainSoulContent = ref('')
+const brainWorldContent = ref('')
+const brainMemoryContent = ref('')
+const brainCharUserContent = ref('')
+
+// ===================== 侧边栏宽度拖拽 =====================
+const sidebarWidth = ref(Number(localStorage.getItem('echo_sidebar_width') || '280'))
+
+function startResize(e: MouseEvent) {
+  e.preventDefault()
+  const startX = e.clientX
+  const startWidth = sidebarWidth.value
+
+  function doDrag(ev: MouseEvent) {
+    const newWidth = startWidth + (ev.clientX - startX)
+    if (newWidth >= 200 && newWidth <= 450) {
+      sidebarWidth.value = newWidth
+    }
+  }
+
+  function stopDrag() {
+    localStorage.setItem('echo_sidebar_width', sidebarWidth.value.toString())
+    window.removeEventListener('mousemove', doDrag)
+    window.removeEventListener('mouseup', stopDrag)
+  }
+
+  window.addEventListener('mousemove', doDrag)
+  window.addEventListener('mouseup', stopDrag)
+}
+
+// ===================== 梦境睡眠进化自省 =====================
+const isDreaming = ref(false)
+
+async function triggerDreamReflection() {
+  const char = activeCharacter.value
+  if (!char || isDreaming.value) return
+  
+  showCustomConfirm(
+    '唤醒梦境自省',
+    `确定要让角色 [${char.name}] 进入梦境睡眠进行反思进化吗？\n\n自省过程大约需要 5-10 秒。期间角色将自动复盘您最近的回合，并将专属避坑指南物理 Patch 进其技能中以实现智能修正。`,
+    async () => {
+      isDreaming.value = true
+      try {
+        const res = await window.api.invoke('trigger-review-test', {
+          characterId: char.id,
+          folderName: char.folder_name
+        })
+        if (res.success) {
+          showCustomAlert('梦境反射成功', `✨ ${char.name} 已完成梦境反思进化！专属避坑补丁已 Patch 到物理技能中。`, 'success')
+        } else {
+          showCustomAlert('睡眠被打断', `${res.error || '大模型未吐出有效的避坑反思'}`, 'error')
+        }
+      } catch (err: any) {
+        showCustomAlert('梦境遭遇阻碍', `${err.message}`, 'error')
+      } finally {
+        isDreaming.value = false
+      }
+    }
+  )
+}
+
+function triggerCleanChoice() {
+  const char = activeCharacter.value
+  if (!char) return
+  
+  if (char.id === 'character_creator_bot') {
+    showCustomConfirm(
+      '重置创角会话',
+      '确定要重置当前的角色创建会话吗？这将清空与创角Bot的所有对话记录，重新回到第一步开始创建。',
+      async () => {
+        try {
+          await window.api.invoke('reset-creator-bot')
+          allMessages[creatorBotId] = [
+            {
+              role: 'assistant',
+              content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。',
+              created_at: Date.now()
+            }
+          ]
+          showCustomAlert('重置成功', '✨ 创角会话已成功重置，让我们重新开始吧！', 'success')
+        } catch (err: any) {
+          showCustomAlert('重置失败', `${err.message}`, 'error')
+        }
+      }
+    )
+    return
+  }
+  
+  customDialog.title = '会话与记忆清扫'
+  customDialog.message = ''
+  customDialog.type = 'clean-choice'
+  customDialog.visible = true
+}
+
+async function handleCleanOption(option: number) {
+  const char = activeCharacter.value
+  if (!char) return
+  
+  customDialog.visible = false
+  
+  if (option === 1) {
+    // 选项 1：逻辑清除窗口会话
+    try {
+      const res = await window.api.invoke('clear-chat-window', { characterId: char.id })
+      if (res.success) {
+        // 响应式置空，Vue 3 computed 会立即渲染为空白，侧边栏也联动隐藏最近消息
+        allMessages[char.id] = []
+        showCustomAlert('清除成功', '✨ 当前窗口会话已成功逻辑清除！', 'success')
+      } else {
+        showCustomAlert('清除失败', `${res.error || '未知错误'}`, 'error')
+      }
+    } catch (err: any) {
+      showCustomAlert('清除失败', `${err.message}`, 'error')
+    }
+  } else if (option === 2) {
+    // 选项 2：物理彻底清空
+    showCustomConfirm(
+      '彻底清除数据警告',
+      `您确定要彻底清空角色 [${char.name}] 的所有聊天记录、长短期记忆和专属用户画像吗？\n\n此操作为高危操作，清空后数据将彻底消失且无法找回！角色仅会保留其核心性格与世界设定。`,
+      async () => {
+        try {
+          const res = await window.api.invoke('clear-history-and-memory', {
+            characterId: char.id,
+            folderName: char.folder_name
+          })
+          if (res.success) {
+            // 前端响应式置空
+            allMessages[char.id] = []
+            
+            // 如果大脑面板是开启的，重新获取以刷新展现的内容
+            if (showBrainPanel.value) {
+              openBrainPanel()
+            }
+            
+            showCustomAlert('彻底清除成功', '✨ 历史聊天记录、Memory.md 记忆与专属 USER.md 画像均已彻底清除，角色已重置回初始状态！', 'success')
+          } else {
+            showCustomAlert('清空失败', `${res.error || '未知保存错误'}`, 'error')
+          }
+        } catch (err: any) {
+          showCustomAlert('清空失败', `${err.message}`, 'error')
+        }
+      }
+    )
+  }
+}
+
+// ===================== 日记面板与分栏拆分 =====================
+const showDiaryPanel = ref(false)
+const selectedDiaryIdx = ref(0)
+
+const parsedDiaries = computed(() => {
+  if (!activeDiary.value) return []
+  const raw = activeDiary.value.trim()
+  const sections = raw.split(/(?=^##+\s+)/m)
+  
+  const diaries: { date: string; content: string }[] = []
+  
+  sections.forEach(sec => {
+    const lines = sec.split('\n')
+    const titleLine = lines[0] || ''
+    // 仅匹配以 ##+ 级别的标题作为正规自省日记的日期时间戳标记
+    const dateMatch = titleLine.match(/^##+\s+(.+)$/)
+    if (dateMatch) {
+      const date = dateMatch[1].trim()
+      const content = lines.slice(1).join('\n').trim()
+      if (content) {
+        diaries.push({ date, content })
+      }
+    }
+  })
+  
+  // 完美反转：将最新的日记排在最上方
+  return diaries.reverse()
+})
+
+// === 日记收藏状态检测与操作逻辑 ===
+const parsedDiariesList = ref<any[]>([])
+
+const currentDiaryChar = computed(() => {
+  if (activeCharacter.value) return activeCharacter.value
+  return characterList.value.find(c => c.id === selectedContactId.value) || null
+})
+
+watch(
+  [parsedDiaries, currentDiaryChar],
+  async ([diaries, char]) => {
+    if (!diaries || diaries.length === 0) {
+      parsedDiariesList.value = []
+      return
+    }
+    if (!char) {
+      parsedDiariesList.value = diaries.map(d => ({ ...d, isFavorited: false }))
+      return
+    }
+    
+    // 异步拉取每一篇日记的收藏状态
+    const list = []
+    for (const d of diaries) {
+      const targetId = `diary_${char.id}_${d.date}`
+      const checkRes = await window.api.invoke('check-favorite-status', { type: 'diary', targetId })
+      list.push({
+        ...d,
+        isFavorited: checkRes?.success ? checkRes.exist : false
+      })
+    }
+    parsedDiariesList.value = list
+  },
+  { immediate: true, deep: true }
+)
+
+async function toggleFavoriteDiary(diary: any) {
+  const char = currentDiaryChar.value
+  if (!char) return
+  
+  const targetId = `diary_${char.id}_${diary.date}`
+  const newFav = !diary.isFavorited
+  
+  if (newFav) {
+    const res = await window.api.invoke('add-favorite', {
+      type: 'diary',
+      targetId: targetId,
+      characterId: char.id,
+      authorName: char.name,
+      authorAvatar: char.avatar || '',
+      title: `${char.name} 的日记 · ${diary.date}`,
+      content: diary.content
+    })
+    if (res.success) {
+      diary.isFavorited = true
+      showToast('日记已成功加入微型书签！🔖')
+    }
+  } else {
+    const res = await window.api.invoke('remove-favorite', {
+      type: 'diary',
+      targetId: targetId
+    })
+    if (res.success) {
+      diary.isFavorited = false
+      showToast('已取消日记收藏 🐾')
+    }
+  }
+}
+
+// ===================== 通讯录大详情状态 =====================
+const selectedContactId = ref<string | null>(null)
+const contactActiveTab = ref('soul')
+const contactSoulContent = ref('')
+const contactMemoryContent = ref('')
+const contactUserContent = ref('')
+const contactHasDiary = ref(false)
+const contactMemoryRawContent = ref('')
+const contactEditModes = reactive({ soul: false, memory: false, user: false })
+
+const isEditingContactName = ref(false)
+const editingContactName = ref('')
+const contactNameInput = ref<HTMLInputElement | null>(null)
+
+function startEditContactName() {
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (char) {
+    editingContactName.value = char.name
+    isEditingContactName.value = true
+    nextTick(() => {
+      contactNameInput.value?.focus()
+    })
+  }
+}
+
+async function saveContactName() {
+  const newName = editingContactName.value.trim()
+  if (!newName) {
+    showToast('姓名不能为空哦 🐾')
+    return
+  }
+  if (!selectedContactId.value) return
+
+  const res = await window.api.invoke('rename-character', {
+    characterId: selectedContactId.value,
+    name: newName
+  })
+
+  if (res.success) {
+    const char = characterList.value.find(c => c.id === selectedContactId.value)
+    if (char) {
+      char.name = newName
+    }
+    isEditingContactName.value = false
+    showToast('角色姓名修改成功 🎉')
+  } else {
+    showToast(`修改失败: ${res.error || '未知错误'}`)
+  }
+}
+
+watch(selectedContactId, () => {
+  isEditingContactName.value = false
+})
+
+const contactAvatarInput = ref<HTMLInputElement | null>(null)
+
+function triggerContactAvatarUpload() {
+  if (selectedContactId.value === 'character_creator_bot') {
+    showToast('虚拟角色无需更换头像 🐾')
+    return
+  }
+  contactAvatarInput.value?.click()
+}
+
+async function handleContactAvatarChange(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files || !files[0]) return
+  if (!selectedContactId.value) return
+
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+
+  const file = files[0]
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('头像图片不能超过 5MB 🐾')
+    return
+  }
+
+  const reader = new FileReader()
+  reader.onload = async () => {
+    const base64Data = reader.result as string
+    const res = await window.api.invoke('update-character-avatar', {
+      folderName: char.folder_name,
+      base64Data
+    })
+    if (res.success) {
+      // 实时热重载更新前台头像响应式缓存，瞬间响应用户视觉
+      characterAvatars.value[char.id] = base64Data
+      showToast('头像更新成功 🎉')
+    } else {
+      showToast(`头像更新失败: ${res.error || '未知错误'}`)
+    }
+  }
+  reader.readAsDataURL(file)
+  
+  // 清空 input 的 value 使得同一张图可以被连续触发
+  if (e.target) {
+    (e.target as HTMLInputElement).value = ''
+  }
+}
+
+// ===================== 全局自定义高保真 Dialog 对话框 =====================
+const customDialog = reactive({
+  visible: false,
+  title: '提示',
+  message: '',
+  type: 'info' as 'info' | 'confirm' | 'success' | 'error' | 'clean-choice',
+  onConfirm: null as (() => void) | null,
+  onCancel: null as (() => void) | null
+})
+
+function showCustomAlert(title: string, message: string, type: 'info' | 'success' | 'error' = 'info', onConfirm?: () => void) {
+  customDialog.title = title
+  customDialog.message = message
+  customDialog.type = type
+  customDialog.onConfirm = () => {
+    customDialog.visible = false
+    if (onConfirm) onConfirm()
+  }
+  customDialog.onCancel = null
+  customDialog.visible = true
+}
+
+function showCustomConfirm(title: string, message: string, onConfirm: () => void, onCancel?: () => void) {
+  customDialog.title = title
+  customDialog.message = message
+  customDialog.type = 'confirm'
+  customDialog.onConfirm = () => {
+    customDialog.visible = false
+    onConfirm()
+  }
+  customDialog.onCancel = () => {
+    customDialog.visible = false
+    if (onCancel) onCancel()
+  }
+  customDialog.visible = true
+}
+
+const parsedContactMemory = computed(() => {
+  const defaultVal = { stm: [] as string[], ltm: {} as Record<string, string> }
+  if (!contactMemoryContent.value) return defaultVal
+  
+  try {
+    const raw = contactMemoryContent.value.trim()
+    const jsonMatch = raw.match(/<!--\s*(\{[\s\S]*?\})\s*-->/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[1]) as { stm: string[]; ltm: Record<string, string> }
+      return {
+        stm: Array.isArray(parsed.stm) ? parsed.stm : [],
+        ltm: parsed.ltm && typeof parsed.ltm === 'object' ? parsed.ltm : {}
+      }
+    }
+  } catch (e) {
+    console.error('解析 Memory Markdown JSON 注释异常:', e)
+  }
+  return defaultVal
+})
+
+async function selectCharacterForContactDetails(charId: string) {
+  selectedContactId.value = charId
+  const char = characterList.value.find(c => c.id === charId)
+  if (!char) return
+  
+  // 重置编辑状态
+  contactEditModes.soul = false
+  contactEditModes.memory = false
+  contactEditModes.user = false
+  
+  // A. 读取 Soul.md
+  const soulRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Soul.md' })
+  contactSoulContent.value = soulRes.success ? soulRes.content : ''
+  
+  // B. 读取 Memory.md
+  const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
+  contactMemoryContent.value = memRes.success ? memRes.content : ''
+  contactMemoryRawContent.value = memRes.success ? memRes.content : ''
+  
+  // C. 读取 USER.md
+  const userRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'USER.md' })
+  contactUserContent.value = userRes.success ? userRes.content : ''
+  
+  // D. 预检日记
+  const diaryRes = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
+  if (diaryRes.success && diaryRes.content && diaryRes.content.trim() !== '') {
+    contactHasDiary.value = true
+  } else {
+    contactHasDiary.value = false
+  }
+
+  // E. 读取 State.md
+  const stateRes = await window.api.invoke('read-character-state', { folderName: char.folder_name })
+  if (stateRes.success) {
+    characterStates.value[charId] = stateRes.state
+  }
+
+  // F. 读取 Schedule.md
+  const schedRes = await window.api.invoke('read-schedule-file', { folderName: char.folder_name })
+  contactScheduleContent.value = schedRes.success ? schedRes.content : ''
+
+  // G. 读取 Goals.md
+  const goalsRes = await window.api.invoke('read-goals-file', { folderName: char.folder_name })
+  contactGoalsContent.value = goalsRes.success ? goalsRes.content : ''
+}
+
+async function saveContactDetails() {
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+  
+  // 保存 Soul.md
+  const soulRes = await window.api.invoke('save-character-files', { folderName: char.folder_name, soul: contactSoulContent.value })
+  // 保存 Memory.md
+  const memRes = await window.api.invoke('save-memory-file', { folderName: char.folder_name, content: contactMemoryRawContent.value })
+  // 保存 USER.md
+  const userRes = await window.api.invoke('save-char-user-md', { folderName: char.folder_name, content: contactUserContent.value })
+
+  if (soulRes.success && memRes.success && userRes.success) {
+    contactEditModes.soul = false
+    contactEditModes.memory = false
+    contactEditModes.user = false
+    
+    await selectCharacterForContactDetails(char.id)
+    showCustomAlert('保存成功', '联系人性格核心与记忆设定已成功保存并实时生效！', 'success')
+  } else {
+    showCustomAlert('保存失败', '部分或全部配置文件保存失败，请确保应用具有写入文件的权限。', 'error')
+  }
+}
+
+async function openContactDiary() {
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+  const res = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
+  activeDiary.value = res.success ? res.content : ''
+  selectedDiaryIdx.value = 0
+  showDiaryPanel.value = true
+}
+
+async function doubleClickStartChat(charId: string) {
+  await selectCharacter(charId)
+  sideView.value = 'chat'
+}
+
+// ===================== 微信高精自适应时间戳 =====================
+function formatMessageTime(timeStr: any): string {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  if (isNaN(date.getTime())) return ''
+  
+  const now = new Date()
+  const isToday = date.getFullYear() === now.getFullYear() &&
+                  date.getMonth() === now.getMonth() &&
+                  date.getDate() === now.getDate()
+                  
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  
+  if (isToday) return `${hours}:${minutes}`
+  
+  const isThisYear = date.getFullYear() === now.getFullYear()
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  
+  if (isThisYear) {
+    return `${month}月${day}日 ${hours}:${minutes}`
+  }
+  return `${date.getFullYear()}年${month}月${day}日 ${hours}:${minutes}`
+}
+
+function shouldShowTime(msg: any, prevMsg: any): boolean {
+  if (!prevMsg) return true
+  if (!msg.created_at || !prevMsg.created_at) return false
+  
+  const t1 = new Date(msg.created_at).getTime()
+  const t2 = new Date(prevMsg.created_at).getTime()
+  
+  if (isNaN(t1) || isNaN(t2)) return false
+  return (t1 - t2) > (5 * 60 * 1000)
+}
+
+// ===================== Emoji & 自定义表情 =====================
+const showEmojiPanel = ref(false)
+const showPlusMenu = ref(false)
+const emojiActiveTab = ref<'default' | 'favorites'>('default')
+const showAddEmojiModal = ref(false)
+const emojiFileInput = ref<HTMLInputElement | null>(null)
+const tempEmojiBase64 = ref('')
+const tempEmojiMeaning = ref('')
+const customEmojiList = ref<{ id: string; base64: string; meaning: string }[]>([])
+
+// ── 多端复用单例表情包选择面板 ──
+const activeEmojiTarget = ref<'newMomentContent' | 'forumCommentInput' | 'newForumContent' | 'momentComment' | null>(null)
+const activeEmojiTargetMoment = ref<any>(null)
+const showGlobalEmojiPanel = ref(false)
+const globalEmojiPanelStyle = reactive({ top: '0px', left: '0px' })
+
+function openStickersPanel(e: MouseEvent, target: 'newMomentContent' | 'forumCommentInput' | 'newForumContent' | 'momentComment', momentObj: any = null) {
+  if (showGlobalEmojiPanel.value && activeEmojiTarget.value === target && activeEmojiTargetMoment.value === momentObj) {
+    showGlobalEmojiPanel.value = false
+    return
+  }
+  activeEmojiTarget.value = target
+  activeEmojiTargetMoment.value = momentObj
+
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  
+  // 采用 fixed 定位展示，自动适配右边界
+  globalEmojiPanelStyle.top = `${rect.top - 240}px`
+  globalEmojiPanelStyle.left = `${Math.min(window.innerWidth - 280, Math.max(10, rect.left - 240))}px`
+  showGlobalEmojiPanel.value = true
+}
+
+function handleGlobalEmojiSelect(emoji: string) {
+  if (activeEmojiTarget.value === 'newMomentContent') {
+    newMomentContent.value += emoji
+  } else if (activeEmojiTarget.value === 'forumCommentInput') {
+    forumCommentInput.value += emoji
+  } else if (activeEmojiTarget.value === 'newForumContent') {
+    newForumContent.value += emoji
+  } else if (activeEmojiTarget.value === 'momentComment' && activeEmojiTargetMoment.value) {
+    activeEmojiTargetMoment.value.inputComment = (activeEmojiTargetMoment.value.inputComment || '') + emoji
+  }
+}
+
+function handleGlobalStickerSelect(emoji: { meaning: string }) {
+  const text = `[表情: ${emoji.meaning}]`
+  if (activeEmojiTarget.value === 'newMomentContent') {
+    newMomentContent.value += text
+  } else if (activeEmojiTarget.value === 'forumCommentInput') {
+    forumCommentInput.value += text
+  } else if (activeEmojiTarget.value === 'newForumContent') {
+    newForumContent.value += text
+  } else if (activeEmojiTarget.value === 'momentComment' && activeEmojiTargetMoment.value) {
+    activeEmojiTargetMoment.value.inputComment = (activeEmojiTargetMoment.value.inputComment || '') + text
+  }
+  showGlobalEmojiPanel.value = false
+}
+
+// ── 评论区 @mention 角色联想自动补全机制 ──
+const showForumAtList = ref(false)
+const forumAtSearchQuery = ref('')
+
+const filteredForumAtCharacters = computed(() => {
+  const query = forumAtSearchQuery.value.trim().toLowerCase()
+  if (!query) return characterList.value
+  return characterList.value.filter(c => c.name.toLowerCase().includes(query))
+})
+
+function handleForumCommentInput(e: Event) {
+  const el = e.target as HTMLInputElement
+  const val = el.value
+  const pos = el.selectionStart || 0
+  const textBefore = val.substring(0, pos)
+  const lastAt = textBefore.lastIndexOf('@')
+  
+  if (lastAt !== -1) {
+    const queryText = textBefore.substring(lastAt + 1)
+    if (!queryText.includes(' ') && !queryText.includes('\n') && queryText.length <= 10) {
+      showForumAtList.value = true
+      forumAtSearchQuery.value = queryText
+      return
+    }
+  }
+  showForumAtList.value = false
+}
+
+function selectForumAtCharacter(char: any) {
+  const el = document.querySelector('#forum-comment-input-el') as HTMLInputElement
+  if (!el) {
+    const lastAt = forumCommentInput.value.lastIndexOf('@')
+    if (lastAt !== -1) {
+      forumCommentInput.value = forumCommentInput.value.substring(0, lastAt) + `@${char.name} `
+    }
+    showForumAtList.value = false
+    return
+  }
+  
+  const val = el.value
+  const pos = el.selectionStart || val.length
+  const textBefore = val.substring(0, pos)
+  const lastAt = textBefore.lastIndexOf('@')
+  
+  if (lastAt !== -1) {
+    const before = val.substring(0, lastAt)
+    const after = val.substring(pos)
+    forumCommentInput.value = before + `@${char.name} ` + after
+    
+    nextTick(() => {
+      el.focus()
+      const newPos = lastAt + char.name.length + 2
+      el.setSelectionRange(newPos, newPos)
+    })
+  }
+  showForumAtList.value = false
+}
+
+const activeMomentForAt = ref<any>(null)
+const showMomentAtList = ref(false)
+const momentAtSearchQuery = ref('')
+
+const filteredMomentAtCharacters = computed(() => {
+  const query = momentAtSearchQuery.value.trim().toLowerCase()
+  if (!query) return characterList.value
+  return characterList.value.filter(c => c.name.toLowerCase().includes(query))
+})
+
+function handleMomentCommentInput(e: Event, moment: any) {
+  const el = e.target as HTMLInputElement
+  const val = el.value
+  const pos = el.selectionStart || 0
+  const textBefore = val.substring(0, pos)
+  const lastAt = textBefore.lastIndexOf('@')
+  
+  if (lastAt !== -1) {
+    const queryText = textBefore.substring(lastAt + 1)
+    if (!queryText.includes(' ') && !queryText.includes('\n') && queryText.length <= 10) {
+      activeMomentForAt.value = moment
+      showMomentAtList.value = true
+      momentAtSearchQuery.value = queryText
+      return
+    }
+  }
+  showMomentAtList.value = false
+}
+
+function selectMomentAtCharacter(char: any) {
+  const moment = activeMomentForAt.value
+  if (!moment) return
+  
+  const el = document.querySelector(`#moment-comment-input-el-${moment.id}`) as HTMLInputElement
+  if (!el) {
+    const lastAt = (moment.inputComment || '').lastIndexOf('@')
+    if (lastAt !== -1) {
+      moment.inputComment = moment.inputComment.substring(0, lastAt) + `@${char.name} `
+    }
+    showMomentAtList.value = false
+    return
+  }
+  
+  const val = el.value
+  const pos = el.selectionStart || val.length
+  const textBefore = val.substring(0, pos)
+  const lastAt = textBefore.lastIndexOf('@')
+  
+  if (lastAt !== -1) {
+    const before = val.substring(0, lastAt)
+    const after = val.substring(pos)
+    moment.inputComment = before + `@${char.name} ` + after
+    
+    nextTick(() => {
+      el.focus()
+      const newPos = lastAt + char.name.length + 2
+      el.setSelectionRange(newPos, newPos)
+    })
+  }
+  showMomentAtList.value = false
+}
+
+const emojiList = [
+  // 脸部与表情
+  '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','😋','😛','😜','🤪','😝','🤑','🤗','🫣','🤭','🫢','🫡','🤫','🫠','😏','😒','🙄','😬','🤥','🫨','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','🫤','😟','🙁','😮','😯','😲','😳','🥺','🥹','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','👿','😈','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖',
+  // 手势与爱心
+  '👋','🤚','🖐️','✋','🖖','👌','🤌','🤏','✌️','🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🧠','🫀','🫁','🦷','👀','👅','👄','💋','❤️','🩷','🧡','💛','💚','💙','🩵','💜','🤎','🖤','🩶','🤍','💔','❤️‍🔥','❤️‍🩹','❣️','💕','💞','💓','💗','💖','💘','💝','💟','💌',
+  // 常用其他
+  '✨','🌟','⭐','💫','🔥','💥','🌈','☀️','🌤️','⛅','🌥️','☁️','🌧️','⛈️','❄️','🌊','🌸','🌹','🌺','🌻','🍁','🍃','🍀','🍓','🍉','🍌','🍍','🍎','🍑','🍒','🍕','🍔','🍟','🍿','🍩','🎂','🍰','🍫','🍬','☕','🥤','🍺','🍻','🍷','🥂','🎮','🎲','🎯','🎨','🎬','🎤','🎧','🚗','🚲','✈️','🚀','🛸','🔔','💡','🔑','🎈','🎉','🎊','🎁','🧧'
+]
+
+// ===================== 红包 =====================
+const showRedPacketModal = ref(false)
+const redPacketAmount = ref(1)
+const redPacketTitle = ref('恭喜发财，大吉大利')
+
+// ===================== 右键菜单 =====================
+const contextMenu = reactive<{ visible: boolean; x: number; y: number; char: any | null; type: 'chat' | 'contact' | 'message'; message: any | null }>({
+  visible: false, x: 0, y: 0, char: null, type: 'chat', message: null
+})
+
+// ===================== 导入相关 =====================
+const dragOver = ref(false)
+const uploading = ref(false)
+const uploadStep = ref<'idle' | 'parsing' | 'summarizing'>('idle')
+const parseError = ref<string | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+const isPreviewOpen = ref(false)
+
+// 智能检测当前是否真正处于可以与角色发送消息的“聊天会话界面”中
+const isChattingActive = computed(() => {
+  return activeView.value === 'chat' &&
+         sideView.value === 'chat' &&
+         selectedCharacterId.value !== null &&
+         !showUserProfileModal.value &&
+         !showBrainPanel.value &&
+         !showDiaryPanel.value &&
+         !isPreviewOpen.value
+})
+
+// 监听是否处于当前活跃角色的正常聊天页，一旦切回，即时清零未读数并落盘
+watch(isChattingActive, (newActive) => {
+  if (newActive && selectedCharacterId.value) {
+    const charId = selectedCharacterId.value
+    if (conversationMeta[charId] && conversationMeta[charId].unread && conversationMeta[charId].unread > 0) {
+      conversationMeta[charId].unread = 0
+      window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
+    }
+  }
+})
+
+const uploadedRawData = ref<any>({})
+const uploadedRawBytes = ref<number[]>([])
+const uploadedAvatarUrl = ref('')
+const previewPinyinName = ref('')
+const previewSoul = ref('')
+const previewWorld = ref('')
+
+// ===================== 大模型配置 =====================
+const testing = ref(false)
+const saving = ref(false)
+const testResult = ref<any | null>(null)
+const showPrimaryApiKey = ref(false)
+const showSecondaryApiKey = ref(false)
+const enableSecondary = ref(false)
+
+
+const PRESET_MODELS: Record<string, string[]> = {
+  openai: ['gpt-5.5', 'gpt-4o', 'gpt-4-turbo'],
+  deepseek: ['deepseek-v4-flash', 'deepseek-chat', 'deepseek-reasoner'],
+  gemini: ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash'],
+  anthropic: ['claude-sonnet-4.6', 'claude-3-opus-20240229'],
+  ollama: ['qwen2.5', 'llama3.1', 'phi3']
+}
+
+const primary = reactive({
+  provider: 'openai' as any,
+  model: 'gpt-5.5',
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: '',
+  supportsSystem: true,
+  temperature: 1.0
+})
+
+const secondary = reactive({
+  provider: 'openai' as any,
+  model: 'gpt-5.5',
+  baseUrl: 'https://api.openai.com/v1',
+  apiKey: '',
+  supportsSystem: true,
+  temperature: 1.0
+})
+
+const primaryConfigs = reactive<Record<string, any>>({
+  openai: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-5.5', supportsSystem: true, temperature: 1.0 },
+  deepseek: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-v4-flash', supportsSystem: true, temperature: 1.0 },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: '', model: 'gemini-1.5-flash', supportsSystem: true, temperature: 1.0 },
+  anthropic: { baseUrl: 'https://api.anthropic.com', apiKey: '', model: 'claude-sonnet-4.6', supportsSystem: true, temperature: 1.0 },
+  ollama: { baseUrl: 'http://localhost:11434', apiKey: '', model: 'qwen2.5', supportsSystem: true, temperature: 1.0 }
+})
+
+const secondaryConfigs = reactive<Record<string, any>>({
+  openai: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-5.5', supportsSystem: true, temperature: 1.0 },
+  deepseek: { baseUrl: 'https://api.deepseek.com', apiKey: '', model: 'deepseek-v4-flash', supportsSystem: true, temperature: 1.0 },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: '', model: 'gemini-1.5-flash', supportsSystem: true, temperature: 1.0 },
+  anthropic: { baseUrl: 'https://api.anthropic.com', apiKey: '', model: 'claude-sonnet-4.6', supportsSystem: true, temperature: 1.0 },
+  ollama: { baseUrl: 'http://localhost:11434', apiKey: '', model: 'qwen2.5', supportsSystem: true, temperature: 1.0 }
+})
+
+const lastPrimaryProvider = ref('openai')
+const lastSecondaryProvider = ref('openai')
+
+// ===================== 搜索功能 =====================
+const searchContactResults = computed(() => {
+  if (!searchQuery.value) return []
+  const q = searchQuery.value.toLowerCase()
+  return characterList.value.filter(c => c.name.toLowerCase().includes(q))
+})
+
+const searchMessageResults = computed(() => {
+  if (!searchQuery.value) return []
+  const q = searchQuery.value.toLowerCase()
+  const results: any[] = []
+  for (const char of characterList.value) {
+    const msgs = allMessages[char.id] || []
+    for (const msg of msgs) {
+      if (msg.content && msg.content.toLowerCase().includes(q)) {
+        results.push({ id: `${char.id}-${msg.content}`, characterId: char.id, charName: char.name, content: msg.content })
+      }
+    }
+  }
+  return results.slice(0, 10)
+})
+
+function highlightSearch(text: string): string {
+  if (!searchQuery.value) return text
+  const escaped = searchQuery.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return text.replace(new RegExp(escaped, 'gi'), match => `<mark>${match}</mark>`)
+}
+
+// ===================== 最后一条消息（用于会话列表预览） =====================
+function getLastMessage(charId: string) {
+  const msgs = allMessages[charId] || []
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (!msgs[i].isSystem && (msgs[i].role === 'user' || msgs[i].role === 'assistant')) {
+      return msgs[i]
+    }
+  }
+  return null
+}
+
+function restoreMessageProps(m: any) {
+  const result: any = {
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    character_id: m.character_id,
+    isSystem: m.role === 'system',
+    timestamp: m.timestamp || Date.now()
+  }
+  
+  if (m.content) {
+    // 自动清洗历史记录中可能残存的红包控制字符，确保绝不显露代码
+    if (typeof m.content === 'string') {
+      result.content = m.content
+        .replace(/\[RECEIVE_RED_PACKET\]/g, '')
+        .replace(/\[RETURN_RED_PACKET\]/g, '')
+        .trim()
+    }
+
+    if (m.content.startsWith('[character_diary]:')) {
+      try {
+        const jsonStr = m.content.replace('[character_diary]:', '')
+        const diaryObj = JSON.parse(jsonStr)
+        result.diary = diaryObj
+        result.content = `[日记: ${diaryObj.date}]`
+      } catch (_) {}
+    } else if (m.content.startsWith('[wechat_red_packet]:')) {
+      try {
+        const jsonStr = m.content.replace('[wechat_red_packet]:', '')
+        const redPacket = JSON.parse(jsonStr)
+        result.redPacket = redPacket
+        result.content = `[发送红包: ${redPacket.amount} 元, 附言: ${redPacket.title}]`
+      } catch (_) {}
+    } else if (m.content.startsWith('[wechat_custom_emoji]:')) {
+      try {
+        const jsonStr = m.content.replace('[wechat_custom_emoji]:', '')
+        const emoji = JSON.parse(jsonStr)
+        result.customEmojiUrl = emoji.base64
+        result.content = `[表情: ${emoji.meaning}]`
+      } catch (_) {}
+    } else if (m.content.startsWith('[wechat_image_media]:')) {
+      const mediaPath = m.content.replace('[wechat_image_media]:', '')
+      result.content = ''
+      result.imageBase64 = '' // 初始占位，待异步读取填充
+      const char = characterList.value.find(c => c.id === m.character_id)
+      if (char) {
+        window.api.invoke('read-image-media', { folderName: char.folder_name, mediaPath }).then(res => {
+          if (res.success) {
+            result.imageBase64 = res.base64
+          }
+        })
+      }
+    }
+  }
+  
+  return result
+}
+
+// ===================== 加载角色列表 =====================
+async function loadCharacters() {
+  try {
+    const res = await window.api.invoke('get-characters')
+    if (res.success && res.characters) {
+      characterList.value = res.characters
+      for (const char of characterList.value) {
+        const avatarData = await window.api.invoke('get-character-avatar', char.folder_name)
+        characterAvatars.value[char.id] = avatarData
+        // 初始化 conversationMeta
+        if (!conversationMeta[char.id]) {
+          conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+        }
+        // 异步从数据库恢复会话元数据（免打扰/置顶/隐藏等）
+        window.api.invoke('get-conversation-meta', { characterId: char.id }).then(metaRes => {
+          if (metaRes.success && metaRes.meta) {
+            Object.assign(conversationMeta[char.id], metaRes.meta)
+          }
+        })
+        // 懒加载最近几条消息以便预览
+        const histRes = await window.api.invoke('get-chat-history', { characterId: char.id, limit: 50 })
+        if (histRes.success && histRes.history) {
+          allMessages[char.id] = histRes.history.map((m: any) => restoreMessageProps(m))
+        }
+      }
+    }
+  } catch (error) {
+    console.error('加载角色库异常:', error)
+  }
+}
+
+// ===================== 选中角色 =====================
+async function selectCharacter(charId: string) {
+  selectedCharacterId.value = charId
+  activeView.value = 'chat'
+  sideView.value = 'chat'
+
+  // 预检性格进化草案，用以展示顶部吸顶成长横幅
+  try {
+    const draftRes = await window.api.invoke('get-soul-draft', { characterId: charId })
+    if (draftRes.success && draftRes.hasDraft) {
+      activeEvolutionCharId.value = charId
+      activeEvolutionDraft.value = draftRes.draft
+    } else {
+      activeEvolutionCharId.value = ''
+      activeEvolutionDraft.value = null
+    }
+  } catch (_) {
+    activeEvolutionCharId.value = ''
+    activeEvolutionDraft.value = null
+  }
+
+  // 微信级细节：如果该会话曾经被删除/隐藏，在再次发起会话时，100% 自动恢复其在列表中的可见性
+  if (!conversationMeta[charId]) {
+    conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
+  } else {
+    conversationMeta[charId].hidden = false
+  }
+
+  // 清零未读并物理落盘同步
+  if (conversationMeta[charId]) {
+    conversationMeta[charId].unread = 0
+    window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
+  }
+
+  // 重置输入状态
+  chatInputText.value = ''
+  pastedImageBase64.value = ''
+  isStreaming.value = false
+  typingQueue.value = []
+  if (typingTimer) { clearInterval(typingTimer); typingTimer = null }
+
+  // 读取最新历史
+  if (charId === creatorBotId) {
+    if (!allMessages[charId] || allMessages[charId].length === 0) {
+      allMessages[charId] = [
+        {
+          role: 'assistant',
+          content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。'
+        }
+      ]
+    }
+    nextTick(() => scrollToBottom('auto'))
+    return
+  }
+
+  try {
+    const chatHistoryRes = await window.api.invoke('get-chat-history', { characterId: charId, limit: 50 })
+    if (chatHistoryRes.success && chatHistoryRes.history) {
+      allMessages[charId] = chatHistoryRes.history.map((m: any) => restoreMessageProps(m))
+    } else {
+      allMessages[charId] = []
+    }
+    nextTick(() => scrollToBottom('auto'))
+  } catch (error) {
+    console.error('读取聊天历史异常:', error)
+  }
+}
+
+async function selectCharacterFromContacts(charId: string) {
+  await selectCharacter(charId)
+  sideView.value = 'chat'
+}
+
+// ===================== 级联下拉添加角色菜单交互 =====================
+function toggleAddMenu() {
+  showAddMenu.value = !showAddMenu.value
+  showAddCharacterMenu.value = false
+}
+
+function triggerAddCharacter() {
+  showAddMenu.value = false
+  showAddCharacterMenu.value = true
+}
+
+function triggerImportCharacterCard() {
+  showAddCharacterMenu.value = false
+  openImportView()
+}
+
+const creatorBotId = 'character_creator_bot'
+async function triggerCreateNewCharacter() {
+  showAddCharacterMenu.value = false
+  
+  // 强力重置后端创角会话状态机，保证为 step 1
+  try {
+    await window.api.invoke('reset-creator-bot')
+  } catch (err) {
+    console.error('重置后端创角会话失败:', err)
+  }
+
+  // 检查当前角色列表中是否已有这个虚拟 Bot，如果没有则推入
+  if (!characterList.value.some(c => c.id === creatorBotId)) {
+    // 插入到最前面，给用户最直接的即时反馈！
+    characterList.value.unshift({
+      id: creatorBotId,
+      name: '角色卡创建Bot',
+      first_mes: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。',
+      created_at: Date.now()
+    })
+  }
+
+  // 无论如何覆盖清空该Bot的消息历史，彻底清除上一次对话痕迹
+  allMessages[creatorBotId] = [
+    {
+      role: 'assistant',
+      content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。',
+      created_at: Date.now()
+    }
+  ]
+  
+  // 选中并开始对话
+  selectCharacter(creatorBotId)
+  sideView.value = 'chat'
+  activeView.value = 'chat'
+}
+
+// ===================== 导入角色 =====================
+function openImportView() {
+  activeView.value = 'import'
+  selectedCharacterId.value = null
+}
+
+function triggerFileInput() { fileInput.value?.click() }
+
+async function handleFileSelect(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (files && files.length > 0) await processUploadedFile(files[0])
+}
+
+async function handleCardDrop(e: DragEvent) {
+  dragOver.value = false
+  const files = e.dataTransfer?.files
+  if (files && files.length > 0) {
+    if (files[0].type !== 'image/png') {
+      parseError.value = '文件格式不正确，必须为 PNG 格式的角色卡！'
+      return
+    }
+    await processUploadedFile(files[0])
+  }
+}
+
+async function processUploadedFile(file: File) {
+  uploading.value = true
+  uploadStep.value = 'parsing'
+  parseError.value = null
+  isPreviewOpen.value = false
+
+  const localReader = new FileReader()
+  localReader.onload = () => { uploadedAvatarUrl.value = localReader.result as string }
+  localReader.readAsDataURL(file)
+
+  const arrayReader = new FileReader()
+  arrayReader.onload = async () => {
+    try {
+      const arrayBuffer = arrayReader.result as ArrayBuffer
+      const rawBytes = Array.from(new Uint8Array(arrayBuffer))
+      uploadedRawBytes.value = rawBytes
+
+      const parseRes = await window.api.invoke('parse-character-card', rawBytes)
+      if (!parseRes.success) throw new Error(parseRes.error || '解析失败')
+
+      uploadedRawData.value = parseRes.data
+      uploadStep.value = 'summarizing'
+
+      const summarizeRes = await window.api.invoke('summarize-character', JSON.parse(JSON.stringify(parseRes.data)))
+      if (!summarizeRes.success) throw new Error(summarizeRes.error || 'AI 提炼失败')
+
+      const pinyinRes = await window.api.invoke('get-pinyin-name', parseRes.data.name)
+      previewPinyinName.value = pinyinRes.success ? pinyinRes.uniqueFolderName : ''
+      previewSoul.value = summarizeRes.summary.soul
+      previewWorld.value = summarizeRes.summary.world
+
+      uploading.value = false
+      uploadStep.value = 'idle'
+      isPreviewOpen.value = true
+    } catch (e: any) {
+      parseError.value = e.message || '导入异常'
+      uploading.value = false
+      uploadStep.value = 'idle'
+    }
+  }
+  arrayReader.readAsArrayBuffer(file)
+}
+
+async function onImportConfirm(data: { folderName: string; name: string; soul: string; world: string }) {
+  isPreviewOpen.value = false
+  try {
+    const res = await window.api.invoke('import-character', {
+      folderName: data.folderName,
+      name: data.name,
+      cardData: JSON.parse(JSON.stringify(uploadedRawData.value)),
+      soul: data.soul,
+      world: data.world,
+      uint8ArrayData: JSON.parse(JSON.stringify(uploadedRawBytes.value))
+    })
+    if (res.success && res.character) {
+      await loadCharacters()
+      await selectCharacter(res.character.id)
+      activeView.value = 'chat'
+    } else {
+      showCustomAlert('导入失败', `角色导入失败: ${res.error || '文件保存失败'}`, 'error')
+    }
+  } catch (error: any) {
+    showCustomAlert('导入异常', `${error.message || error}`, 'error')
+  }
+}
+
+function onImportCancel() { isPreviewOpen.value = false }
+
+// ===================== 发送消息 =====================
+async function sendChatMessage() {
+  const char = activeCharacter.value
+  // 解除阻断：不再因为 isStreaming 而拦截，仅当输入文本与图片均为空时 return
+  if (!char || (!chatInputText.value.trim() && !pastedImageBase64.value)) return
+
+  const userMsg = chatInputText.value.trim()
+  const imageBase64 = pastedImageBase64.value
+
+  chatInputText.value = ''
+  pastedImageBase64.value = ''
+  showEmojiPanel.value = false
+  showPlusMenu.value = false
+
+  // 生成唯一的消息ID，用于在 SQLite 数据库中独立持久化该条消息气泡
+  const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+  lastUserMsgId.value = userMsgId
+
+  // 1. 立即在聊天列表追加该用户消息的绿色气泡进行渲染展示，提供最顺畅的即发即现体验
+  if (!allMessages[char.id]) allMessages[char.id] = []
+  allMessages[char.id].push({
+    id: userMsgId,
+    role: 'user',
+    content: userMsg,
+    imageBase64: imageBase64 || undefined,
+    created_at: new Date().toISOString()
+  })
+  nextTick(() => scrollToBottom())
+
+  // 2. 物理落盘已完全移交给后台 3 秒合并时唯一落盘，从而解除重复产生的双条消息 Bug
+
+  // 3. 将本条消息推入延时合并队列中，准备进行 3 秒内的多消息聚合
+  pendingUserMessages.value.push({
+    content: userMsg,
+    imageBase64: imageBase64 || undefined
+  })
+
+  // 4. 重置并刷新 3 秒延时聚合防抖定时器
+  if (messageMergeTimer) {
+    clearTimeout(messageMergeTimer)
+  }
+  
+  messageMergeTimer = setTimeout(async () => {
+    await triggerMergedAiResponse(char)
+  }, 3000)
+}
+
+// 聚合期满，向 AI 发起真正的回复请求
+async function triggerMergedAiResponse(char: any, overrideText?: string) {
+  if (!overrideText && pendingUserMessages.value.length === 0) return
+
+  // 1. 合并 3 秒内的所有用户短消息（换行符拼接）
+  const mergedText = overrideText || pendingUserMessages.value.map(m => m.content).filter(Boolean).join('\n')
+  const lastImage = overrideText ? undefined : pendingUserMessages.value.find(m => m.imageBase64)?.imageBase64
+
+  // 2. 清空缓存队列与合并定时器
+  if (!overrideText) {
+    pendingUserMessages.value = []
+    if (messageMergeTimer) {
+      clearTimeout(messageMergeTimer)
+      messageMergeTimer = null
+    }
+  }
+
+  // 不再提前推送助理空白气泡，仅通过 isStreaming.value 激活顶部“对方正在输入...”状态
+  isStreaming.value = true
+  scrubber.reset()
+  typingQueue.value = []
+  nextTick(() => scrollToBottom())
+
+  try {
+    // 4. 发起大模型一次性返回调用
+    const res = await window.api.invoke('chat-stream', {
+      characterId: char.id,
+      folderName: char.folder_name,
+      userMessage: mergedText || '（用户发来了一张图片）',
+      chatMode: chatMode.value,
+      imageBase64: lastImage || undefined,
+      userMsgId: overrideText ? `msg_override_${Date.now()}` : (lastUserMsgId.value || 'msg_merged_' + Date.now()),
+      dbMessage: mergedText
+    })
+
+    if (!res.success) throw new Error(res.error || '连接断开')
+
+    // 5. 仅当 IPC 返回了实际内容时（普通角色非流式模式）才调用渲染播放器
+    // Creator Bot 走的是 event.sender.send 流式推送，res.content 为 undefined，无需在此渲染
+    if (res.content) {
+      await handleAssistantResponse(char, res.content, res.redPacketAction)
+    }
+
+  } catch (err: any) {
+    isStreaming.value = false
+    const msgs = allMessages[char.id] || []
+    if (msgs.length > 0) {
+      const last = msgs[msgs.length - 1]
+      if (last.role === 'assistant') last.content += `\n[系统异常]: ${err.message || err}`
+    }
+  }
+}
+
+// 微信级分段打字仿真播放器
+async function handleAssistantResponse(char: any, content: string, redPacketAction: string | null) {
+  // A. 处理红包决策状态更新与返款
+  if (redPacketAction && char.id === selectedCharacterId.value) {
+    const msgs = allMessages[char.id] || []
+    const isReceive = redPacketAction === 'receive'
+    const isReturn = redPacketAction === 'return'
+    
+    // 逆序寻找最近一封等待处理的红包消息进行物理状态更新与退款提示
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i]
+      if (msg.role === 'user' && msg.redPacket && (!msg.redPacket.status || msg.redPacket.status === 'waiting')) {
+        if (isReceive) {
+          msg.redPacket.status = 'received'
+        } else if (isReturn) {
+          msg.redPacket.status = 'returned'
+          const amount = parseFloat(msg.redPacket.amount)
+          if (!isNaN(amount) && amount > 0) {
+            userProfile.walletBalance += amount
+            saveUserProfileLocal()
+            showCustomAlert('红包被退回', `角色退回了你的红包，金额 ${amount.toFixed(2)} 元已全额退回您的虚拟钱包！`, 'info')
+          }
+        }
+        
+        // 物理保存红包的最新状态到 SQLite
+        if (msg.id) {
+          const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
+            amount: msg.redPacket.amount,
+            title: msg.redPacket.title,
+            status: msg.redPacket.status
+          })}`
+          window.api.invoke('update-message-content', {
+            messageId: msg.id,
+            content: updatedDbMessage
+          })
+        }
+        break
+      }
+    }
+  }
+
+  // B. 根据当前聊天模式分发渲染
+  const msgs = allMessages[char.id] || []
+  
+  if (chatMode.value === 'descriptive') {
+    // B.1 包含描写模式：直接向会话追加一条完整的助理回复气泡，瞬间呈现
+    msgs.push({
+      role: 'assistant',
+      content: content,
+      created_at: new Date().toISOString()
+    })
+    isStreaming.value = false
+    nextTick(() => scrollToBottom())
+
+    // 检查是否不在当前活跃会话或活跃窗口中
+    if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
+      if (!conversationMeta[char.id]) {
+        conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+      }
+      conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
+      window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
+    }
+  } else {
+    // B.2 纯对话模式：采用高维微信级智能分句重组算法，进行有节奏的逐句打字弹射播放
+    const paragraphs: string[] = []
+    const lines = content.split('\n').map(l => l.trim()).filter(Boolean)
+    
+    for (const line of lines) {
+      if (line.length <= 25) {
+        paragraphs.push(line)
+        continue
+      }
+      
+      // 基于标准句尾标点进行高精度二次拆分
+      const sentences = line.split(/(?<=[。；！？!?])\s*/)
+        .map(s => s.trim())
+        .filter(Boolean)
+        
+      let currentTemp = ''
+      for (const s of sentences) {
+        if (currentTemp.length === 0) {
+          currentTemp = s
+        } else {
+          // 合并过短的断句片段，防止显示太细造成刷屏
+          if (currentTemp.length + s.length <= 15 || s.length < 4) {
+            currentTemp += s
+          } else {
+            paragraphs.push(currentTemp)
+            currentTemp = s
+          }
+        }
+      }
+      if (currentTemp) {
+        paragraphs.push(currentTemp)
+      }
+    }
+
+    if (paragraphs.length === 0) {
+      isStreaming.value = false
+      return
+    }
+
+    // 开启串行异步微信分段打字发送模拟
+    for (let idx = 0; idx < paragraphs.length; idx++) {
+      const text = paragraphs[idx]
+      
+      // 在顶部标题栏显示“对方正在输入...”
+      isStreaming.value = true
+      
+      // 根据每句话的字数拟真思考打字的时长
+      const typeDelay = Math.min(Math.max(text.length * 100, 1000), 2800)
+      await new Promise(resolve => setTimeout(resolve, typeDelay))
+
+      // 延迟结束，该句段瞬间作为独立的微信助理气泡弹射展示出来！
+      msgs.push({
+        role: 'assistant',
+        content: text,
+        created_at: new Date().toISOString()
+      })
+      nextTick(() => scrollToBottom())
+
+      // 检查是否不在当前活跃会话或活跃窗口中
+      if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
+        if (!conversationMeta[char.id]) {
+          conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+        }
+        conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
+        window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
+      }
+
+      // 如果有下一句，微等 500ms 作为大脑思考打字间隔空隙，随后再次进入“对方正在输入”状态
+      if (idx < paragraphs.length - 1) {
+        isStreaming.value = false
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }
+
+    isStreaming.value = false
+  }
+
+  // 刷新记忆与日记视图
+  setTimeout(async () => {
+    const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
+    if (memRes.success) activeMemory.value = memRes.content
+    const diaryRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Diary.md' })
+    if (diaryRes.success) activeDiary.value = diaryRes.content
+  }, 1500)
+}
+
+function handleKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendChatMessage()
+  }
+}
+
+// 粘贴图片处理
+function handlePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.startsWith('image/')) {
+      e.preventDefault()
+      const file = items[i].getAsFile()
+      if (!file) continue
+      const reader = new FileReader()
+      reader.onload = () => { pastedImageBase64.value = reader.result as string }
+      reader.readAsDataURL(file)
+      break
+    }
+  }
+}
+
+
+// 拖拽文件进入与悬停处理器
+function handleDragEnter(e: DragEvent) {
+  if (!isChattingActive.value) return
+  if (e.dataTransfer?.types.includes('Files')) {
+    isDraggingFile.value = true
+  }
+}
+
+function handleDragOver(e: DragEvent) {
+  if (!isChattingActive.value) return
+  if (e.dataTransfer?.types.includes('Files')) {
+    isDraggingFile.value = true
+  }
+}
+
+function handleDragLeave() {
+  isDraggingFile.value = false
+}
+
+// 释放拖拽文件处理器
+function handleDrop(e: DragEvent) {
+  if (!isChattingActive.value) {
+    isDraggingFile.value = false
+    return
+  }
+  isDraggingFile.value = false
+  const files = e.dataTransfer?.files
+  if (!files || files.length === 0) return
+  
+  // 仅截取并解析拖拽列表中的第一张图片
+  for (let i = 0; i < files.length; i++) {
+    if (files[i].type.startsWith('image/')) {
+      const file = files[i]
+      const reader = new FileReader()
+      reader.onload = () => {
+        pastedImageBase64.value = reader.result as string
+      }
+      reader.readAsDataURL(file)
+      break
+    }
+  }
+}
+
+
+// ===================== 滚动到底部 =====================
+function scrollToBottom(behavior: 'auto' | 'smooth' = 'smooth') {
+  if (chatContainer.value) {
+    chatContainer.value.scrollTo({ top: chatContainer.value.scrollHeight, behavior })
+  }
+}
+
+// ===================== 底部输入区高度拖拽 =====================
+function startInputResize(e: MouseEvent) {
+  e.preventDefault()
+  const startY = e.clientY
+  const startHeight = inputHeight.value
+
+  const onMouseMove = (ev: MouseEvent) => {
+    const deltaY = ev.clientY - startY
+    const newHeight = startHeight - deltaY
+    inputHeight.value = Math.max(110, Math.min(350, newHeight))
+  }
+
+  const onMouseUp = () => {
+    localStorage.setItem('echo_input_height', inputHeight.value.toString())
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
+  }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+}
+
+// ===================== 打字机效果 =====================
+function startTypingEffect() {
+  if (typingTimer) return
+  typingTimer = setInterval(() => {
+    if (typingQueue.value.length > 0) {
+      const ch = typingQueue.value.shift()
+      const msgs = allMessages[selectedCharacterId.value || ''] || []
+      if (msgs.length > 0) {
+        const last = msgs[msgs.length - 1]
+        if (last.role === 'assistant') last.content += ch
+      }
+      scrollToBottom()
+    } else if (!isStreaming.value) {
+      clearInterval(typingTimer)
+      typingTimer = null
+      handleRedPacketStatusOnDone()
+    }
+  }, 30)
+}
+
+function scrubRedPacketFromQueue() {
+  const queueText = typingQueue.value.join('')
+  
+  let isReceive = false
+  let isReturn = false
+  
+  if (queueText.includes('[RECEIVE_RED_PACKET]')) {
+    isReceive = true
+  } else if (queueText.includes('[RETURN_RED_PACKET]')) {
+    isReturn = true
+  }
+  
+  if (!isReceive && !isReturn) return
+  
+  const targetTag = isReceive ? '[RECEIVE_RED_PACKET]' : '[RETURN_RED_PACKET]'
+  let updatedText = queueText.replace(targetTag, '').trim()
+  
+  typingQueue.value = updatedText.split('')
+  
+  const charId = selectedCharacterId.value
+  if (charId && allMessages[charId]) {
+    const msgs = allMessages[charId]
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i]
+      if (msg.role === 'user' && msg.redPacket && (!msg.redPacket.status || msg.redPacket.status === 'waiting')) {
+        if (isReceive) {
+          msg.redPacket.status = 'received'
+        } else if (isReturn) {
+          msg.redPacket.status = 'returned'
+          const amount = parseFloat(msg.redPacket.amount)
+          if (!isNaN(amount) && amount > 0) {
+            userProfile.walletBalance += amount
+            saveUserProfileLocal()
+            showCustomAlert('红包被退回', `角色退回了你的红包，金额 ${amount.toFixed(2)} 元已全额退回您的虚拟钱包！`, 'info')
+          }
+        }
+        
+        // 物理保存红包的最新状态更新到 SQLite 数据库中，防止退出后状态丢失
+        if (msg.id) {
+          const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
+            amount: msg.redPacket.amount,
+            title: msg.redPacket.title,
+            status: msg.redPacket.status
+          })}`
+          window.api.invoke('update-message-content', {
+            messageId: msg.id,
+            content: updatedDbMessage
+          })
+        }
+        break
+      }
+    }
+  }
+}
+
+function handleRedPacketStatusOnDone() {
+  const charId = selectedCharacterId.value
+  if (!charId || !allMessages[charId]) return
+  
+  const msgs = allMessages[charId]
+  if (msgs.length === 0) return
+  
+  const lastAssistant = msgs[msgs.length - 1]
+  if (lastAssistant.role !== 'assistant') return
+  
+  let isReceive = false
+  let isReturn = false
+  
+  if (lastAssistant.content.includes('[RECEIVE_RED_PACKET]')) {
+    isReceive = true
+    lastAssistant.content = lastAssistant.content.replace(/\[RECEIVE_RED_PACKET\]/g, '').trim()
+  } else if (lastAssistant.content.includes('[RETURN_RED_PACKET]')) {
+    isReturn = true
+    lastAssistant.content = lastAssistant.content.replace(/\[RETURN_RED_PACKET\]/g, '').trim()
+  }
+  
+  if (!isReceive && !isReturn) return
+  
+  // 逆序寻找最近一封等待处理的红包消息
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const msg = msgs[i]
+    if (msg.role === 'user' && msg.redPacket) {
+      if (isReceive) {
+        msg.redPacket.status = 'received'
+      } else if (isReturn) {
+        msg.redPacket.status = 'returned'
+        const amount = parseFloat(msg.redPacket.amount)
+        if (!isNaN(amount) && amount > 0) {
+          userProfile.walletBalance += amount
+          saveUserProfileLocal()
+          showCustomAlert('红包被退回', `角色退回了你的红包，金额 ${amount.toFixed(2)} 元已全额退回您的虚拟钱包！`, 'info')
+        }
+      }
+      
+      // 物理保存红包的最新状态更新到 SQLite 数据库中，防止退出后状态丢失
+      if (msg.id) {
+        const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
+          amount: msg.redPacket.amount,
+          title: msg.redPacket.title,
+          status: msg.redPacket.status
+        })}`
+        window.api.invoke('update-message-content', {
+          messageId: msg.id,
+          content: updatedDbMessage
+        })
+      }
+      break
+    }
+  }
+}
+
+function pushToTypingQueue(text: string) {
+  for (let i = 0; i < text.length; i++) typingQueue.value.push(text[i])
+  startTypingEffect()
+}
+
+// ===================== Emoji & 自定义表情 =====================
+function toggleEmojiPanel() { showEmojiPanel.value = !showEmojiPanel.value; showPlusMenu.value = false }
+function togglePlusMenu() { showPlusMenu.value = !showPlusMenu.value; showEmojiPanel.value = false }
+function insertEmoji(emoji: string) { chatInputText.value += emoji; chatTextarea.value?.focus() }
+
+function saveCustomEmojis() {
+  try {
+    localStorage.setItem('echo_custom_emojis', JSON.stringify(customEmojiList.value))
+  } catch (_) {}
+}
+
+function triggerEmojiUpload() {
+  emojiFileInput.value?.click()
+}
+
+function handleEmojiFileSelect(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files || files.length === 0) return
+  const file = files[0]
+  
+  const reader = new FileReader()
+  reader.onload = (event) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const MAX_WIDTH = 128
+      const MAX_HEIGHT = 128
+      let width = img.width
+      let height = img.height
+      
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width)
+          width = MAX_WIDTH
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width = Math.round((width * MAX_HEIGHT) / height)
+          height = MAX_HEIGHT
+        }
+      }
+      
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx?.drawImage(img, 0, 0, width, height)
+      
+      const compressedBase64 = canvas.toDataURL('image/webp', 0.8)
+      tempEmojiBase64.value = compressedBase64
+      tempEmojiMeaning.value = ''
+      showAddEmojiModal.value = true
+    }
+    img.src = event.target?.result as string
+  }
+  reader.readAsDataURL(file)
+  
+  if (emojiFileInput.value) emojiFileInput.value.value = ''
+}
+
+function confirmAddEmoji() {
+  if (!tempEmojiMeaning.value.trim() || !tempEmojiBase64.value) return
+  if (customEmojiList.value.length >= 60) {
+    showCustomAlert('表情包上限', '自定义表情包最多添加 60 个，请先删除部分旧表情！', 'error')
+    return
+  }
+  
+  customEmojiList.value.push({
+    id: Date.now().toString(),
+    base64: tempEmojiBase64.value,
+    meaning: tempEmojiMeaning.value.trim()
+  })
+  
+  saveCustomEmojis()
+  showAddEmojiModal.value = false
+}
+
+function deleteCustomEmoji(id: string) {
+  customEmojiList.value = customEmojiList.value.filter(item => item.id !== id)
+  saveCustomEmojis()
+}
+
+async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
+  const char = activeCharacter.value
+  if (!char) return
+  
+  showEmojiPanel.value = false
+  
+  if (!allMessages[char.id]) allMessages[char.id] = []
+  
+  // 生成唯一的 userMsgId，用于物理保存与定位消息
+  const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+  
+  const contentText = `[表情: ${emoji.meaning}]`
+  allMessages[char.id].push({
+    id: userMsgId,
+    role: 'user',
+    content: contentText,
+    customEmojiUrl: emoji.base64,
+    created_at: new Date().toISOString()
+  })
+  
+  isStreaming.value = true
+  scrubber.reset()
+  typingQueue.value = []
+  nextTick(() => scrollToBottom())
+  
+  try {
+    const res = await window.api.invoke('chat-stream', {
+      characterId: char.id,
+      folderName: char.folder_name,
+      userMessage: `[表情: ${emoji.meaning}]`,
+      chatMode: chatMode.value,
+      userMsgId: userMsgId,
+      dbMessage: `[wechat_custom_emoji]:${JSON.stringify({ meaning: emoji.meaning, base64: emoji.base64 })}`
+    })
+    if (!res.success) throw new Error(res.error || '连接断开')
+    await handleAssistantResponse(char, res.content, res.redPacketAction)
+  } catch (err: any) {
+    isStreaming.value = false
+    const msgs = allMessages[char.id] || []
+    if (msgs.length > 0) {
+      const last = msgs[msgs.length - 1]
+      if (last.role === 'assistant') last.content += `\n[系统异常]: ${err.message || err}`
+    }
+  }
+}
+
+// ===================== 红包 =====================
+function openRedPacket() { showRedPacketModal.value = true; showPlusMenu.value = false }
+
+async function sendRedPacket() {
+  const char = activeCharacter.value
+  if (!char || redPacketAmount.value <= 0) return
+  if (userProfile.walletBalance < redPacketAmount.value) {
+    showCustomAlert('余额不足', '当前虚拟钱包余额不足，请先充值！', 'error')
+    return
+  }
+  userProfile.walletBalance -= redPacketAmount.value
+  showRedPacketModal.value = false
+
+  const amount = redPacketAmount.value
+  const title = redPacketTitle.value.trim() || '恭喜发财，大吉大利'
+  if (!allMessages[char.id]) allMessages[char.id] = []
+  
+  // 生成唯一的 userMsgId，用于物理保存与定位消息
+  const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+
+  allMessages[char.id].push({
+    id: userMsgId,
+    role: 'user',
+    content: `[发送红包: ${amount} 元, 附言: ${title}]`,
+    redPacket: { amount, title, status: 'waiting' },
+    created_at: new Date().toISOString()
+  })
+  isStreaming.value = true
+  scrubber.reset()
+  typingQueue.value = []
+  nextTick(() => scrollToBottom())
+
+  try {
+    const res = await window.api.invoke('chat-stream', {
+      characterId: char.id,
+      folderName: char.folder_name,
+      userMessage: `[USER_RED_ENVELOPE: ${amount}元, 祝福语: "${title}"] 用户给你发了 ${amount} 元的红包，附言：“${title}”。
+
+请以你当前的 AI 角色性格和设定，独立决定是否“领取”或“退回”这个红包：
+- 如果你根据性格和设定决定【领取红包】：请你务必在你的回复的【最开始】加入一行控制符：[RECEIVE_RED_PACKET] ，并以角色的性格热情或符合人设地感谢用户！
+- 如果你根据性格和设定决定【退回红包】（拒收）：请你务必在你的回复的【最开始】加入一行控制符：[RETURN_RED_PACKET] ，以你的性格傲娇、委婉或符合设定地拒绝红包并说明缘由。
+
+请直接开始你符合人设的自然对话回复，不要向用户暴露控制符的存在。`,
+      chatMode: chatMode.value,
+      userMsgId: userMsgId,
+      dbMessage: `[wechat_red_packet]:${JSON.stringify({ amount, title, status: 'waiting' })}`
+    })
+    if (!res.success) throw new Error(res.error || '连接断开')
+    await handleAssistantResponse(char, res.content, res.redPacketAction)
+  } catch (err: any) {
+    isStreaming.value = false
+    const msgs = allMessages[char.id] || []
+    if (msgs.length > 0) {
+      const last = msgs[msgs.length - 1]
+      if (last.role === 'assistant') last.content += `\n[系统异常]: ${err.message || err}`
+    }
+  }
+
+  saveUserProfileLocal()
+}
+
+// ===================== 用户设置 =====================
+function openUserProfile() {
+  showUserProfileModal.value = true
+  // 加载全局 USER.md并同步基础资料姓名
+  window.api.invoke('read-global-user-md').then((res: any) => {
+    if (res.success) {
+      globalUserMdContent.value = res.content
+      if (res.nickname !== undefined && res.nickname.trim() !== '') {
+        userProfile.nickname = res.nickname
+        saveUserProfileLocal()
+      }
+    }
+  })
+}
+
+function triggerAvatarInput() { avatarFileInput.value?.click() }
+
+function handleAvatarChange(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files || !files[0]) return
+  const reader = new FileReader()
+  reader.onload = () => { userProfile.avatarUrl = reader.result as string }
+  reader.readAsDataURL(files[0])
+}
+
+function closeUserProfileModal() {
+  if (!userProfile.nickname || userProfile.nickname.trim() === '') {
+    showCustomAlert('姓名未设置', '为了保证数字生命的正常交互，您必须先设置您的姓名！', 'error')
+    return
+  }
+  showUserProfileModal.value = false
+}
+
+async function saveUserProfile() {
+  // 根据当前所在的页签，决定保存的源头
+  const source = userProfileActiveTab.value === 'profile' ? 'profile' : 'markdown'
+  
+  // 仅在基础资料表单页签下才强制要求姓名不能为空（如果是在手写Markdown，豁免此校验，交由物理写盘后逆向同步）
+  if (source === 'profile') {
+    if (!userProfile.nickname || userProfile.nickname.trim() === '') {
+      showCustomAlert('姓名未设置', '为了保证数字生命的正常交互，您必须先设置您的姓名！', 'error')
+      return
+    }
+  }
+  
+  saveUserProfileLocal()
+  
+  // 保存全局 USER.md 且同步写回姓名
+  const syncRes = await window.api.invoke('save-global-user-md', { 
+    content: globalUserMdContent.value,
+    nickname: userProfile.nickname,
+    source: source
+  })
+  if (syncRes?.success) {
+    if (syncRes.updatedContent !== undefined) {
+      globalUserMdContent.value = syncRes.updatedContent
+    }
+    // 只有当物理文件逆向解析出的姓名非空时，才同步并覆盖前端缓存，防止零占位物理清空将已有姓名抹杀
+    if (syncRes.nickname !== undefined && syncRes.nickname.trim() !== '') {
+      userProfile.nickname = syncRes.nickname
+      saveUserProfileLocal()
+    }
+  }
+  showUserProfileModal.value = false
+}
+
+function saveUserProfileLocal() {
+  try {
+    localStorage.setItem('echo_user_profile', JSON.stringify({
+      avatarUrl: userProfile.avatarUrl,
+      nickname: userProfile.nickname,
+      signature: userProfile.signature,
+      location: userProfile.location,
+      walletBalance: userProfile.walletBalance
+    }))
+  } catch (_) {}
+}
+
+function loadUserProfileLocal() {
+  try {
+    const stored = localStorage.getItem('echo_user_profile')
+    if (stored) {
+      const data = JSON.parse(stored)
+      userProfile.avatarUrl = data.avatarUrl || ''
+      userProfile.nickname = data.nickname || ''
+      userProfile.signature = data.signature || ''
+      userProfile.location = data.location || ''
+      userProfile.walletBalance = data.walletBalance ?? 1000
+    } else {
+      userProfile.nickname = ''
+    }
+  } catch (_) {
+    userProfile.nickname = ''
+  }
+}
+
+// ===================== 大脑面板 =====================
+async function openBrainPanel() {
+  const char = activeCharacter.value
+  if (!char) return
+  showBrainPanel.value = true
+  brainActiveTab.value = 'soul'
+  brainEditModes.soul = false
+  brainEditModes.world = false
+  brainEditModes.memory = false
+  brainEditModes.charUser = false
+
+  const soulRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Soul.md' })
+  brainSoulContent.value = soulRes.success ? soulRes.content : ''
+
+  const worldRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'World.md' })
+  brainWorldContent.value = worldRes.success ? worldRes.content : ''
+
+  const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
+  brainMemoryContent.value = memRes.success ? memRes.content : ''
+
+  const userRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'USER.md' })
+  brainCharUserContent.value = userRes.success ? userRes.content : ''
+}
+
+async function saveBrainFiles() {
+  const char = activeCharacter.value
+  if (!char) return
+  const memRes = await window.api.invoke('save-memory-file', { folderName: char.folder_name, content: brainMemoryContent.value })
+  const userRes = await window.api.invoke('save-char-user-md', { folderName: char.folder_name, content: brainCharUserContent.value })
+  const soulRes = await window.api.invoke('save-character-files', { folderName: char.folder_name, soul: brainSoulContent.value, world: brainWorldContent.value })
+  if (memRes.success && userRes.success && soulRes.success) {
+    showBrainPanel.value = false
+    showCustomAlert('保存成功', '角色设定、世界设定与记忆文件已成功保存并实时生效！', 'success')
+  } else {
+    showCustomAlert('保存失败', '部分或全部配置文件保存失败，请确保应用具有写入文件的权限后重试。', 'error')
+  }
+}
+
+// ===================== 日记面板 =====================
+const isWritingDiary = ref(false)
+
+async function openDiaryForCharacter(charId: string) {
+  const char = characterList.value.find(c => c.id === charId)
+  if (!char) return
+  
+  selectedCharacterId.value = char.id
+  selectedContactId.value = char.id
+  sideView.value = 'contacts'
+  
+  const res = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
+  activeDiary.value = res.success ? res.content : ''
+  selectedDiaryIdx.value = 0
+  showDiaryPanel.value = true
+}
+
+async function openDiaryPanel() {
+  const char = activeCharacter.value
+  if (!char) return
+  const res = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
+  activeDiary.value = res.success ? res.content : ''
+  selectedDiaryIdx.value = 0
+  showDiaryPanel.value = true
+}
+
+async function triggerManualDiary() {
+  const char = activeCharacter.value || characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+  
+  isWritingDiary.value = true
+  try {
+    const res = await window.api.invoke('write-diary-manually', {
+      folderName: char.folder_name,
+      characterId: char.id
+    })
+    
+    if (res.success) {
+      // 检查当前用户是否已经切走（不是当前活跃会话，或者不在聊天活动窗口中）
+      if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
+        if (!conversationMeta[char.id]) {
+          conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+        }
+        conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
+        window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
+      } else {
+        // 重新读取以刷新日记视图
+        const diaryRes = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
+        activeDiary.value = diaryRes.success ? diaryRes.content : ''
+        selectedDiaryIdx.value = 0
+      }
+    } else {
+      showCustomAlert('无法打扰', res.error || '自省生成日记失败', 'info')
+    }
+  } catch (err: any) {
+    showCustomAlert('系统异常', err.message || err, 'error')
+  } finally {
+    isWritingDiary.value = false
+  }
+}
+
+// ===================== 大模型运行数据统计页面 =====================
+const isStatsLoading = ref(false)
+const statsViewMode = ref<'day' | 'week'>('day')
+const currentStatsModelRole = ref<'primary' | 'secondary'>('primary')
+const statsData = ref({
+  hasSecondary: false,
+  totalCalls: 0,
+  totalTokens: 0,
+  primaryCalls: 0,
+  primaryTokens: 0,
+  secondaryCalls: 0,
+  secondaryTokens: 0,
+  statsDays: [] as any[],
+  statsWeeks: [] as any[]
+})
+const deepseekBalance = ref<any>(null)
+const isBalanceLoading = ref(false)
+
+const hasDeepSeek = computed(() => {
+  return primary.provider === 'deepseek' || (enableSecondary.value && secondary.provider === 'deepseek')
+})
+
+async function openStatsPanel() {
+  sideView.value = 'stats'
+  currentStatsModelRole.value = 'primary'
+  isStatsLoading.value = true
+  try {
+    const res = await window.api.invoke('get-stats-data')
+    if (res.success && res.stats) {
+      statsData.value = res.stats
+    } else {
+      showCustomAlert('加载失败', res.error || '无法获取统计数据', 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('加载异常', err.message || err, 'error')
+  } finally {
+    isStatsLoading.value = false
+  }
+
+  // 只有当渠道为 Deepseek 时，才有余额获取和拉取功能，严格限制逻辑
+  if (hasDeepSeek.value) {
+    refreshDeepSeekBalance()
+  } else {
+    deepseekBalance.value = null
+  }
+}
+
+async function refreshDeepSeekBalance() {
+  if (!hasDeepSeek.value) return
+
+  isBalanceLoading.value = true
+  // 核心：彻底消除闪烁！刷新时绝不将 deepseekBalance.value 设为 null，以保留先前的稳定渲染和数值！
+  try {
+    const res = await window.api.invoke('fetch-deepseek-balance')
+    if (res.success) {
+      deepseekBalance.value = res
+    } else {
+      console.warn('[Stats] 查询 DeepSeek 余额失败:', res.error)
+    }
+  } catch (err: any) {
+    console.warn('[Stats] 查询 DeepSeek 余额异常:', err)
+  } finally {
+    isBalanceLoading.value = false
+  }
+}
+
+function getBarHeightPercent(value: number, list: any[], key: 'calls' | 'tokens') {
+  if (!list || list.length === 0) return '8%'
+  const max = Math.max(...list.map(item => item[key] || 0))
+  if (max === 0) return '8%'
+  // 底部预留 8% 作为最低柱高，以保证即便数据极低也有基本的视觉像素点亮，提升美感
+  const percent = 8 + (value / max) * 92
+  return `${percent}%`
+}
+
+// ===================== 右键菜单 =====================
+function openContextMenu(e: MouseEvent, char: any) {
+  contextMenu.visible = true
+  contextMenu.x = e.clientX
+  contextMenu.y = e.clientY
+  contextMenu.char = char
+  contextMenu.type = 'chat'
+}
+
+function openContactContextMenu(e: MouseEvent, char: any) {
+  contextMenu.visible = true
+  contextMenu.x = e.clientX
+  contextMenu.y = e.clientY
+  contextMenu.char = char
+  contextMenu.type = 'contact'
+}
+
+function ctxPin() {
+  const id = contextMenu.char?.id
+  if (!id) return
+  if (!conversationMeta[id]) conversationMeta[id] = {}
+  conversationMeta[id].pinned = !conversationMeta[id].pinned
+  window.api.invoke('save-conversation-meta', { characterId: id, ...conversationMeta[id] })
+  contextMenu.visible = false
+}
+
+function ctxMarkUnread() {
+  const id = contextMenu.char?.id
+  if (!id) return
+  if (!conversationMeta[id]) conversationMeta[id] = {}
+  if (conversationMeta[id].unread && conversationMeta[id].unread > 0) {
+    conversationMeta[id].unread = 0
+  } else {
+    conversationMeta[id].unread = 1
+  }
+  window.api.invoke('save-conversation-meta', { characterId: id, ...conversationMeta[id] })
+  contextMenu.visible = false
+}
+
+function ctxToggleMute() {
+  const id = contextMenu.char?.id
+  if (!id) return
+  if (!conversationMeta[id]) conversationMeta[id] = {}
+  conversationMeta[id].muted = !conversationMeta[id].muted
+  window.api.invoke('save-conversation-meta', { characterId: id, ...conversationMeta[id] })
+  contextMenu.visible = false
+}
+
+function ctxHideConversation() {
+  const id = contextMenu.char?.id
+  if (!id) return
+  if (!conversationMeta[id]) conversationMeta[id] = {}
+  conversationMeta[id].hidden = true
+  window.api.invoke('save-conversation-meta', { characterId: id, ...conversationMeta[id] })
+  if (selectedCharacterId.value === id) {
+    selectedCharacterId.value = null
+  }
+  contextMenu.visible = false
+}
+
+function ctxStartChat() {
+  const char = contextMenu.char
+  if (char) {
+    selectCharacter(char.id)
+  }
+  contextMenu.visible = false
+}
+
+async function ctxDeleteCharacter() {
+  const char = contextMenu.char
+  if (!char) return
+  contextMenu.visible = false
+  showCustomConfirm(
+    '抹除角色',
+    `确定要彻底删除角色 [${char.name}] 吗？此操作不可逆，将物理抹除其在磁盘上的所有记忆、日记、以及相关的聊天历史。`,
+    async () => {
+      try {
+        const res = await window.api.invoke('delete-character', { characterId: char.id })
+        if (res.success) {
+          showCustomAlert('物理抹除成功', `角色 [${char.name}] 的专属记忆、日记及物理文件已被安全彻底抹除。`, 'success')
+          if (selectedCharacterId.value === char.id) {
+            selectedCharacterId.value = null
+          }
+          if (selectedContactId.value === char.id) {
+            selectedContactId.value = null
+          }
+          characterList.value = characterList.value.filter(c => c.id !== char.id)
+        } else {
+          showCustomAlert('删除失败', `${res.message || '未知错误'}`, 'error')
+        }
+      } catch (err: any) {
+        showCustomAlert('删除异常', `${err.message || err}`, 'error')
+      }
+    }
+  )
+}
+
+// 全局点击隐藏右键菜单、emoji 面板以及播放队列侧滑抽屉
+function handleGlobalClick(e?: MouseEvent) {
+  contextMenu.visible = false
+  showEmojiPanel.value = false
+  showGlobalEmojiPanel.value = false // 隐藏多端通用的全局表情面板
+  showPlusMenu.value = false
+  showAddMenu.value = false
+  showAddCharacterMenu.value = false
+
+  // 处理播放队列抽屉点击外部自动隐藏
+  if (showQueueDrawer.value && e) {
+    const target = e.target as HTMLElement
+    const drawerEl = document.querySelector('.play-queue-drawer-container')
+    const triggerBtn = document.querySelector('.play-queue-trigger-button')
+    
+    // 如果点击目标不是抽屉本身且不在抽屉内部，也不是触发按钮本身且不在触发按钮内部
+    const clickedInsideDrawer = drawerEl && drawerEl.contains(target)
+    const clickedInsideTrigger = triggerBtn && triggerBtn.contains(target)
+    
+    if (!clickedInsideDrawer && !clickedInsideTrigger) {
+      showQueueDrawer.value = false
+    }
+  }
+
+  // 点击其他区域自动收起角色内心状态下拉浮窗及微调Popover
+  showStatesDropdown.value = false
+  activePopoverKey.value = null
+}
+
+// ===================== 主题切换 =====================
+function toggleTheme(toDark?: boolean) {
+  isDark.value = toDark !== undefined ? toDark : !isDark.value
+  if (isDark.value) document.documentElement.classList.add('dark')
+  else document.documentElement.classList.remove('dark')
+  localStorage.setItem('echo_theme', isDark.value ? 'dark' : 'light')
+}
+
+// ===================== 设置弹窗 =====================
+function openSettingsModal() { showSettingsModal.value = true }
+
+// ===================== 大模型配置方法 =====================
+function syncActiveConfigsToBases() {
+  primaryConfigs[primary.provider] = { baseUrl: primary.baseUrl, apiKey: primary.apiKey, model: primary.model, supportsSystem: primary.supportsSystem, temperature: primary.temperature }
+  secondaryConfigs[secondary.provider] = { baseUrl: secondary.baseUrl, apiKey: secondary.apiKey, model: secondary.model, supportsSystem: secondary.supportsSystem, temperature: secondary.temperature }
+}
+
+function onPrimaryProviderChange() {
+  primaryConfigs[lastPrimaryProvider.value] = { baseUrl: primary.baseUrl, apiKey: primary.apiKey, model: primary.model, supportsSystem: primary.supportsSystem, temperature: primary.temperature }
+  const cfg = primaryConfigs[primary.provider]
+  Object.assign(primary, cfg)
+  lastPrimaryProvider.value = primary.provider
+}
+
+function onSecondaryProviderChange() {
+  secondaryConfigs[lastSecondaryProvider.value] = { baseUrl: secondary.baseUrl, apiKey: secondary.apiKey, model: secondary.model, supportsSystem: secondary.supportsSystem, temperature: secondary.temperature }
+  const cfg = secondaryConfigs[secondary.provider]
+  Object.assign(secondary, cfg)
+  lastSecondaryProvider.value = secondary.provider
+}
+
+function viewCharacterDetails() {
+  if (activeCharacter.value && activeCharacter.value.id !== 'character_creator_bot') {
+    sideView.value = 'contacts'
+    selectCharacterForContactDetails(activeCharacter.value.id)
+  }
+}
+
+const fetchingPrimaryModels = ref(false)
+const primaryModelsList = ref<string[]>([])
+const primaryModelsError = ref('')
+
+const fetchingSecondaryModels = ref(false)
+const secondaryModelsList = ref<string[]>([])
+const secondaryModelsError = ref('')
+
+const showPrimaryDropdown = ref(false)
+const showSecondaryDropdown = ref(false)
+
+const showPrimaryProviderDropdown = ref(false)
+const showSecondaryProviderDropdown = ref(false)
+
+const modelProviders = [
+  { value: 'openai', label: 'OpenAI 兼容协议' },
+  { value: 'deepseek', label: 'DeepSeek 官方协议' },
+  { value: 'gemini', label: 'Gemini 兼容协议' },
+  { value: 'anthropic', label: 'Claude 兼容协议' },
+  { value: 'ollama', label: '本地 Ollama' }
+]
+
+function selectProvider(type: 'primary' | 'secondary', val: string) {
+  if (type === 'primary') {
+    primary.provider = val
+    onPrimaryProviderChange()
+    showPrimaryProviderDropdown.value = false
+  } else {
+    secondary.provider = val
+    onSecondaryProviderChange()
+    showSecondaryProviderDropdown.value = false
+  }
+}
+
+function hideProviderDropdownDelayed(type: 'primary' | 'secondary') {
+  setTimeout(() => {
+    if (type === 'primary') {
+      showPrimaryProviderDropdown.value = false
+    } else {
+      showSecondaryProviderDropdown.value = false
+    }
+  }, 200)
+}
+
+const filteredPrimaryModels = computed(() => {
+  const q = (primary.model || '').toLowerCase().trim()
+  if (!q) return primaryModelsList.value
+  
+  // 1. 精确匹配：如果是已填好的正常模型名称，再次获得焦点时应直接展开显示全量列表，方便用户点击重选
+  const hasExactMatch = primaryModelsList.value.some(m => m.toLowerCase() === q)
+  if (hasExactMatch) {
+    return primaryModelsList.value
+  }
+  
+  // 2. 正常模糊匹配
+  const filtered = primaryModelsList.value.filter(m => m.toLowerCase().includes(q))
+  
+  // 3. 安全兜底：如果过滤出来是空（比如用户输入了列表中没有的专有自定义模型名称），我们直接为其返回全量列表，绝不展示空白！
+  if (filtered.length === 0) {
+    return primaryModelsList.value
+  }
+  return filtered
+})
+
+const filteredSecondaryModels = computed(() => {
+  const q = (secondary.model || '').toLowerCase().trim()
+  if (!q) return secondaryModelsList.value
+  
+  // 1. 精确匹配
+  const hasExactMatch = secondaryModelsList.value.some(m => m.toLowerCase() === q)
+  if (hasExactMatch) {
+    return secondaryModelsList.value
+  }
+  
+  // 2. 正常模糊匹配
+  const filtered = secondaryModelsList.value.filter(m => m.toLowerCase().includes(q))
+  
+  // 3. 安全兜底
+  if (filtered.length === 0) {
+    return secondaryModelsList.value
+  }
+  return filtered
+})
+
+function selectModel(type: 'primary' | 'secondary', modelName: string) {
+  if (type === 'primary') {
+    primary.model = modelName
+    showPrimaryDropdown.value = false
+  } else {
+    secondary.model = modelName
+    showSecondaryDropdown.value = false
+  }
+}
+
+function hideDropdownDelayed(type: 'primary' | 'secondary') {
+  setTimeout(() => {
+    if (type === 'primary') {
+      showPrimaryDropdown.value = false
+    } else {
+      showSecondaryDropdown.value = false
+    }
+  }, 200)
+}
+
+async function fetchModelList(type: 'primary' | 'secondary') {
+  if (type === 'primary') {
+    fetchingPrimaryModels.value = true
+    primaryModelsError.value = ''
+    try {
+      const result = await window.api.invoke('fetch-models', { config: { ...primary } })
+      if (result.success) {
+        primaryModelsList.value = result.models || []
+        if (primaryModelsList.value.length === 0) {
+          primaryModelsError.value = '拉取成功，但返回的模型列表为空'
+        }
+      } else {
+        primaryModelsError.value = `拉取失败: ${result.error}`
+      }
+    } catch (e: any) {
+      primaryModelsError.value = `请求异常: ${e.message || e}`
+    } finally {
+      fetchingPrimaryModels.value = false
+    }
+  } else {
+    fetchingSecondaryModels.value = true
+    secondaryModelsError.value = ''
+    try {
+      const result = await window.api.invoke('fetch-models', { config: { ...secondary } })
+      if (result.success) {
+        secondaryModelsList.value = result.models || []
+        if (secondaryModelsList.value.length === 0) {
+          secondaryModelsError.value = '拉取成功，但返回的模型列表为空'
+        }
+      } else {
+        secondaryModelsError.value = `拉取失败: ${result.error}`
+      }
+    } catch (e: any) {
+      secondaryModelsError.value = `请求异常: ${e.message || e}`
+    } finally {
+      fetchingSecondaryModels.value = false
+    }
+  }
+}
+
+
+
+async function testModelConnection() {
+  testing.value = true
+  testResult.value = null
+  try {
+    const result = await window.api.invoke('test-model-adapter', { primary: { ...primary }, secondary: enableSecondary.value ? { ...secondary } : null })
+    testResult.value = result
+  } catch (error: any) {
+    testResult.value = { success: false, primary: { success: false, message: error.message || error }, secondary: null }
+  } finally {
+    testing.value = false }
+}
+
+async function saveModelConfig() {
+  saving.value = true
+  syncActiveConfigsToBases()
+  try {
+    const result = await window.api.invoke('save-settings', {
+      primary: { ...primary },
+      secondary: enableSecondary.value ? { ...secondary } : null,
+      enableSecondary: enableSecondary.value,
+      primaryConfigs: JSON.parse(JSON.stringify(primaryConfigs)),
+      secondaryConfigs: JSON.parse(JSON.stringify(secondaryConfigs)),
+      primaryProvider: primary.provider,
+      secondaryProvider: secondary.provider,
+      chatMode: chatMode.value,
+      globalPrompt: globalPrompt.value
+    })
+    if (result?.success) {
+      showSettingsModal.value = false
+      showCustomAlert('配置保存成功', '全局大模型与通道配置已成功写入本地 SQLite，重启软件依然生效。', 'success')
+    } else {
+      showCustomAlert('配置保存失败', `${result?.error}`, 'error')
+    }
+  } catch (error: any) {
+    showCustomAlert('保存异常', `${error.message}`, 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+function showComingSoon(name: string) {
+  showCustomAlert('即将上线', `${name} 功能即将上线，敬请期待！`, 'info')
+}
+
+// 供 Vue3 模板中内联事件处理器安全调用的 window API 封装方法
+function triggerAlert(msg: string): void {
+  showCustomAlert('提示', msg, 'info')
+}
+
+function setAutoSkipLocalStorage(val: boolean): void {
+  window.localStorage.setItem('music_auto_skip_error', String(val))
+}
+
+async function syncCustomSources() {
+  try {
+    await window.api.invoke('music-load-custom-sources', JSON.parse(JSON.stringify(customSources.value)))
+  } catch (err: any) {
+    console.error('同步音源沙箱列表异常:', err)
+  }
+}
+
+async function importCustomMusicSource() {
+  try {
+    const res = await window.api.invoke('music-import-custom-source')
+    if (res.success && res.filePath) {
+      if (customSources.value.some(s => s.path === res.filePath)) {
+        showCustomAlert('提示', '该音源脚本已在列表中，无需重复导入。', 'info')
+        return
+      }
+      const newSource = {
+        id: String(Date.now()),
+        name: res.name,
+        path: res.filePath
+      }
+      customSources.value.push(newSource)
+      window.localStorage.setItem('music_custom_sources', JSON.stringify(customSources.value))
+      
+      await syncCustomSources()
+      showCustomAlert('音源导入成功', `自定义外部音源《${res.name}》已成功装载并加入级联解析列表！`, 'success')
+    } else if (res.error && res.error !== '用户取消了选择') {
+      showCustomAlert('导入音源失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('导入异常', err.message, 'error')
+  }
+}
+
+async function importCustomMusicSourceFromUrl() {
+  const url = onlineSourceUrl.value.trim()
+  if (!url) {
+    showCustomAlert('提示', '请输入有效的自定义音源 URL 链接！', 'info')
+    return
+  }
+  if (!url.startsWith('http')) {
+    showCustomAlert('提示', '音源 URL 必须以 http:// 或 https:// 开头！', 'info')
+    return
+  }
+  
+  isDownloadingSource.value = true
+  try {
+    const res = await window.api.invoke('music-import-custom-source-url', url)
+    if (res.success && res.filePath) {
+      if (customSources.value.some(s => s.path === res.filePath)) {
+        showCustomAlert('提示', '该音源脚本已在列表中，无需重复导入。', 'info')
+        return
+      }
+      const newSource = {
+        id: String(Date.now()),
+        name: res.name,
+        path: res.filePath
+      }
+      customSources.value.push(newSource)
+      window.localStorage.setItem('music_custom_sources', JSON.stringify(customSources.value))
+      onlineSourceUrl.value = '' // 清空输入框
+      
+      await syncCustomSources()
+      showCustomAlert('音源导入成功', `在线自定义音源《${res.name}》已成功物理下载、装载并加入级联解析列表！`, 'success')
+    } else {
+      showCustomAlert('导入音源失败', res.error || '未知网络错误', 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('导入异常', err.message, 'error')
+  } finally {
+    isDownloadingSource.value = false
+  }
+}
+
+async function removeCustomMusicSource(id: string) {
+  const index = customSources.value.findIndex(s => s.id === id)
+  if (index !== -1) {
+    const name = customSources.value[index].name
+    customSources.value.splice(index, 1)
+    window.localStorage.setItem('music_custom_sources', JSON.stringify(customSources.value))
+    
+    await syncCustomSources()
+    showCustomAlert('音源已卸载', `自定义音源《${name}》已安全移出级联列表。`, 'info')
+  }
+}
+
+async function applyDesktopLyricTheme() {
+  window.localStorage.setItem('music_lyric_bg_color', lyricBgColor.value)
+  window.localStorage.setItem('music_lyric_text_color', lyricTextColor.value)
+  try {
+    const res = await window.api.invoke('lyric-window-update-theme', {
+      bgColor: lyricBgColor.value,
+      textColor: lyricTextColor.value
+    })
+    if (res && res.success) {
+      showCustomAlert('应用成功', '桌面歌词个性化主题已实时应用并同步！', 'success')
+    }
+  } catch (err: any) {
+    console.error('[App.vue] 同步桌面歌词主题异常:', err)
+    showCustomAlert('应用异常', err.message || '主题同步失败', 'error')
+  }
+}
+
+function handleCoverError(e: Event) {
+  const imgEl = e.target as HTMLImageElement
+  if (imgEl && imgEl.src !== DEFAULT_COVER) {
+    imgEl.src = DEFAULT_COVER
+  }
+}
+
+// ===================== 音乐播放器专属控制函数 =====================
+function formatDuration(sec: number): string {
+  if (isNaN(sec) || sec < 0) return '00:00'
+  const minutes = Math.floor(sec / 60)
+  const seconds = Math.floor(sec % 60)
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+}
+
+const RECOMMEND_CATS = ['全部', '华语', '流行', '摇滚', '民谣', '电子', '轻音乐', 'ACG', '怀旧', '治愈']
+const currentRecommendCat = ref('全部')
+const recommendPlaylistOffset = ref(0)
+
+async function loadRecommendPlaylists(isRefresh = false) {
+  if (isLoadingPlaylists.value) return
+  isLoadingPlaylists.value = true
+  try {
+    if (isRefresh) {
+      const catIdx = Math.floor(Math.random() * RECOMMEND_CATS.length)
+      currentRecommendCat.value = RECOMMEND_CATS[catIdx]
+      recommendPlaylistOffset.value = Math.floor(Math.random() * 4) * 30 // 0, 30, 60, 90
+    } else {
+      currentRecommendCat.value = '全部'
+      recommendPlaylistOffset.value = 0
+    }
+
+    const res = await window.api.invoke('wy-get-recommend-playlists', {
+      cat: currentRecommendCat.value,
+      offset: recommendPlaylistOffset.value
+    })
+    if (res.success) {
+      recommendPlaylists.value = res.playlists
+    }
+  } catch (err) {
+    console.error('获取推荐歌单异常:', err)
+  } finally {
+    isLoadingPlaylists.value = false
+  }
+}
+
+async function loadLeaderboardList(bangid: string) {
+  activeBangId.value = bangid
+  if (isLoadingLeaderboard.value) return
+  isLoadingLeaderboard.value = true
+  try {
+    const res = await window.api.invoke('wy-get-leaderboard', bangid)
+    if (res.success) {
+      leaderboardSongs.value = res.list
+    }
+  } catch (err) {
+    console.error('获取排行榜异常:', err)
+  } finally {
+    isLoadingLeaderboard.value = false
+  }
+}
+
+async function loadPlaylistDetails(playlistId: string, playlistName: string) {
+  console.log(`[App.vue] ======= 准备加载推荐歌单 =======`)
+  console.log(`[App.vue] 歌单ID: ${playlistId}, 歌单名称: "${playlistName}"`)
+  
+  // 智能记录返回源渠道。如果是从搜索视图里点击的歌单，关闭搜索视图以展现详情
+  if (showMusicSearchResultsView.value) {
+    playlistDetailsBackTab.value = 'search'
+    showMusicSearchResultsView.value = false
+  } else {
+    playlistDetailsBackTab.value = 'recommend'
+  }
+
+  currentDetailPlaylistName.value = playlistName
+  currentDetailPlaylistSongs.value = []
+  playlistCurrentPage.value = 1 // 重置分页码
+  activeMusicTab.value = 'playlist_detail' // 切换到专用歌单详情视图渲染
+  isLoadingPlaylistDetails.value = true
+  try {
+    const detailUrl = `https://music.163.com/playlist?id=${playlistId}`
+    console.log(`[App.vue] 正在向主进程请求 IPC 'music-import-playlist', 携带链接: ${detailUrl}`)
+    const res = await window.api.invoke('music-import-playlist', detailUrl)
+    console.log(`[App.vue] 主进程返回响应:`, res)
+    if (res.success) {
+      currentDetailPlaylistSongs.value = res.songs
+      console.log(`[App.vue] 成功解析歌单！歌曲总条数: ${res.songs.length}`)
+    } else {
+      console.error(`[App.vue] 获取歌单详情失败！错误原因为:`, res.error)
+      alert(res.error || '获取歌单歌曲详情失败')
+    }
+  } catch (err: any) {
+    console.error('[App.vue] 加载歌单歌曲发生致命异常:', err)
+  } finally {
+    isLoadingPlaylistDetails.value = false
+  }
+}
+
+// 退出/返回歌单详情专属处理函数
+function exitPlaylistDetails() {
+  currentDetailPlaylistSongs.value = []
+  if (playlistDetailsBackTab.value === 'search') {
+    showMusicSearchResultsView.value = true // 顺畅返回搜索结果主视图
+  } else {
+    activeMusicTab.value = 'recommend' // 顺畅返回推荐歌单网格大视图
+  }
+}
+
+function prevPlaylistPage() {
+  if (playlistCurrentPage.value > 1) {
+    playlistCurrentPage.value--
+    const container = document.querySelector('.flex-1.overflow-y-auto')
+    if (container) container.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+function nextPlaylistPage() {
+  const maxPage = Math.ceil(currentDetailPlaylistSongs.value.length / 20)
+  if (playlistCurrentPage.value < maxPage) {
+    playlistCurrentPage.value++
+    const container = document.querySelector('.flex-1.overflow-y-auto')
+    if (container) container.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+// ===================== 音乐搜索与实时联想逻辑 =====================
+let musicSuggestTimeout: any = null
+
+watch(musicSearchKeyword, (newVal) => {
+  if (musicSuggestTimeout) clearTimeout(musicSuggestTimeout)
+  const val = newVal.trim()
+  if (!val) {
+    musicSearchSuggestions.value = []
+    showMusicSearchSuggestions.value = false
+    return
+  }
+  
+  musicSuggestTimeout = setTimeout(async () => {
+    try {
+      const res = await window.api.invoke('wy-search-suggest', val)
+      if (res.success && res.songs) {
+        musicSearchSuggestions.value = res.songs
+        showMusicSearchSuggestions.value = true
+      }
+    } catch (err) {
+      console.error('搜索联想获取失败:', err)
+    }
+  }, 200)
+})
+
+function handleSearchBlur() {
+  setTimeout(() => {
+    showMusicSearchSuggestions.value = false
+  }, 250)
+}
+
+async function triggerMusicSearch() {
+  const val = musicSearchKeyword.value.trim()
+  if (!val) return
+  showMusicSearchSuggestions.value = false
+  isLoadingMusicSearchResults.value = true
+  showMusicSearchResultsView.value = true // 切换到大主区域的搜索结果界面！
+  try {
+    if (musicSearchType.value === 'song') {
+      const res = await window.api.invoke('wy-search-songs', val)
+      if (res.success) {
+        musicSearchResults.value = res.songs
+      }
+    } else {
+      const res = await window.api.invoke('wy-search-playlists', val)
+      if (res.success) {
+        musicSearchPlaylistsResults.value = res.playlists
+      }
+    }
+  } catch (err) {
+    console.error('执行正式搜索发生异常:', err)
+  } finally {
+    isLoadingMusicSearchResults.value = false
+  }
+}
+
+function changeSearchTab(tab: string) {
+  musicSearchType.value = tab
+  triggerMusicSearch()
+}
+
+function handleSuggestClick(song: any) {
+  musicSearchKeyword.value = `${song.name} - ${song.singer}`
+  showMusicSearchSuggestions.value = false
+  triggerMusicSearch()
+}
+
+function exitMusicSearch() {
+  showMusicSearchResultsView.value = false
+  musicSearchKeyword.value = ''
+  musicSearchResults.value = []
+  musicSearchPlaylistsResults.value = []
+  musicSearchType.value = 'song'
+}
+
+async function triggerCreatePlaylist() {
+  const name = newPlaylistName.value.trim()
+  if (!name) return
+  await musicStore.createPlaylist(name)
+  newPlaylistName.value = ''
+  showCreatePlaylistModal.value = false
+}
+
+async function triggerImportPlaylist() {
+  const link = importPlaylistLink.value.trim()
+  if (!link) return
+  isImportingPlaylist.value = true
+  try {
+    const res = await window.api.invoke('music-import-playlist', link)
+    if (res.success) {
+      const playlistId = musicStore.state.activePlaylistId
+      if (playlistId === 'love') {
+        alert('请先在左侧选择或创建一个您的自建列表，不能直接导入到收藏夹中哦 🐾')
+        return
+      }
+      
+      let importedCount = 0
+      for (const song of res.songs) {
+        await musicStore.addSongToCustomPlaylist(playlistId, song)
+        importedCount++
+      }
+      
+      await musicStore.loadPlaylistSongs(playlistId)
+      alert(`成功解析歌单《${res.playlistName}》，已一键为您导入 ${importedCount} 首歌曲！🎉`)
+      importPlaylistLink.value = ''
+      showImportPlaylistModal.value = false
+    } else {
+      alert(res.error || '歌单导入解析失败，请检查链接')
+    }
+  } catch (err) {
+    console.error('导入歌单发生异常:', err)
+  } finally {
+    isImportingPlaylist.value = false
+  }
+}
+
+watch(
+  () => musicStore.state.currentLyricIndex,
+  (newIdx) => {
+    if (newIdx >= 0 && lyricContainerRef.value) {
+      nextTick(() => {
+        const container = lyricContainerRef.value
+        if (container) {
+          const activeEl = container.querySelector('.lyric-line-active') as HTMLElement
+          if (activeEl) {
+            const containerHeight = container.clientHeight
+            const offsetTop = activeEl.offsetTop
+            const itemHeight = activeEl.clientHeight
+            container.scrollTo({
+              top: offsetTop - containerHeight / 2 + itemHeight / 2,
+              behavior: 'smooth'
+            })
+          }
+        }
+      })
+    }
+  }
+)
+
+// ===================== 生命周期 =====================
+onMounted(async () => {
+  // 同步桌面歌词自定义底色和文字颜色
+  try {
+    await window.api.invoke('lyric-window-update-theme', {
+      bgColor: lyricBgColor.value,
+      textColor: lyricTextColor.value
+    })
+  } catch (_) {}
+
+  // 同步加载所有导入的自定义音源到主进程沙箱中
+  await syncCustomSources()
+
+  // 加载音乐模块数据
+  loadRecommendPlaylists()
+  loadLeaderboardList(activeBangId.value)
+  fetchStatePresets()
+  // 加载通用常规设置
+  try {
+    const genRes = await window.api.invoke('get-general-settings')
+    if (genRes.success && genRes.config) {
+      generalConfig.value = genRes.config
+      if (generalConfig.value.enable_music === undefined) {
+        generalConfig.value.enable_music = false
+      }
+    }
+  } catch (e) {
+    console.error('加载通用设置异常:', e)
+  }
+
+  // 加载社媒朋友圈与论坛列表
+  loadMomentsList()
+  loadForumPostsList()
+
+  // 加载主题
+  const savedTheme = localStorage.getItem('echo_theme')
+  if (savedTheme === 'dark') { isDark.value = true; document.documentElement.classList.add('dark') }
+  else { document.documentElement.classList.remove('dark') }
+
+  // 加载用户个人信息并通过 IPC 向主进程同步画像权威数据
+  loadUserProfileLocal()
+  window.api.invoke('read-global-user-md').then((res: any) => {
+    if (res.success) {
+      globalUserMdContent.value = res.content
+      // 只有当物理文件中能解析出非空姓名时，才同步覆盖前端缓存
+      // 避免空白 USER.md 导致 localStorage 中的姓名被抹空
+      if (res.nickname !== undefined && res.nickname.trim() !== '') {
+        userProfile.nickname = res.nickname
+        saveUserProfileLocal()
+      }
+    }
+    // 检测是否最终设置了姓名，如果没有设置，弹出个人中心的弹出框，并提示用户必须完成设置
+    if (!userProfile.nickname || userProfile.nickname.trim() === '') {
+      showUserProfileModal.value = true
+      userProfileActiveTab.value = 'profile'
+      showCustomAlert('设置姓名', '检测到您尚未设置姓名，请先完成基础资料中的姓名设置以开启数字生命旅程！', 'info')
+    }
+  })
+
+  // 加载自定义表情
+  try {
+    const stored = localStorage.getItem('echo_custom_emojis')
+    if (stored) {
+      customEmojiList.value = JSON.parse(stored)
+    }
+  } catch (_) {}
+
+  // 加载角色列表
+  await loadCharacters()
+
+  // 加载大模型配置
+  try {
+    const result = await window.api.invoke('get-settings')
+    if (result?.success && result.config) {
+      const {
+        primaryConfigs: savedPrimaryConfigs,
+        secondaryConfigs: savedSecondaryConfigs,
+        primaryProvider,
+        secondaryProvider,
+        enableSecondary: savedEnableSecondary,
+        chatMode: savedChatMode,
+        globalPrompt: savedGlobalPrompt
+      } = result.config
+
+      // 1. 恢复各大渠道独立配置库
+      if (savedPrimaryConfigs) {
+        Object.assign(primaryConfigs, savedPrimaryConfigs)
+      }
+      if (savedSecondaryConfigs) {
+        Object.assign(secondaryConfigs, savedSecondaryConfigs)
+      }
+
+      // 2. 恢复启用的渠道类型
+      const activePrimaryProvider = primaryProvider || 'openai'
+      const activeSecondaryProvider = secondaryProvider || 'openai'
+
+      primary.provider = activePrimaryProvider
+      secondary.provider = activeSecondaryProvider
+      lastPrimaryProvider.value = activePrimaryProvider
+      lastSecondaryProvider.value = activeSecondaryProvider
+
+      // 3. 将对应渠道的具体内容覆写到当前主/副模型配置
+      const activePrimary = primaryConfigs[activePrimaryProvider]
+      if (activePrimary) {
+        Object.assign(primary, activePrimary)
+        primary.provider = activePrimaryProvider
+      }
+
+      const activeSecondary = secondaryConfigs[activeSecondaryProvider]
+      if (activeSecondary) {
+        Object.assign(secondary, activeSecondary)
+        secondary.provider = activeSecondaryProvider
+      }
+
+      enableSecondary.value = !!savedEnableSecondary
+      if (savedChatMode) chatMode.value = savedChatMode
+      if (savedGlobalPrompt !== undefined) globalPrompt.value = savedGlobalPrompt
+
+      console.log('[App] 大模型配置恢复完成，当前提供商:', primary.provider)
+    } else {
+      lastPrimaryProvider.value = primary.provider
+      lastSecondaryProvider.value = secondary.provider
+    }
+  } catch (error) {
+    console.error('加载大模型设置异常:', error)
+  }
+
+  // 监听后台自省增量状态更新广播
+  window.api.receive('character-state-updated', (data: { characterId: string, updates: any[] }) => {
+    if (activeCharacter.value) {
+      const activeFolder = (activeCharacter.value.folder_name || '').toLowerCase()
+      const activeId = (activeCharacter.value.id || '').toLowerCase()
+      const targetId = (data.characterId || '').toLowerCase()
+      if (activeFolder === targetId || activeId === targetId) {
+        fetchActiveCharacterStates()
+      }
+    }
+  })
+
+  // 监听流式 chunk
+  window.api.receive('chat-chunk', (data: { content: string; done: boolean; isSystem?: boolean }) => {
+    if (data.content && data.content.includes('[SUCCESS_CREATION_JUMP]:')) {
+      const parts = data.content.split('[SUCCESS_CREATION_JUMP]:')
+      const folderName = parts[1].trim()
+      
+      // 立即重置流式标志，确保新创建出来的角色对话框发送按钮立即可用，避免卡死
+      isStreaming.value = false
+      
+      // 延迟 3.5 秒跳转，让用户看清成功提示
+      setTimeout(async () => {
+        // 从左侧列表中移除临时虚拟创角 Bot
+        characterList.value = characterList.value.filter(c => c.id !== creatorBotId)
+        delete allMessages[creatorBotId]
+        
+        // 重新加载正式角色列表并选中跳转到新鲜出炉的角色
+        await loadCharacters()
+        selectCharacter(folderName)
+      }, 3500)
+      
+      return
+    }
+
+    if (data.done) {
+      isStreaming.value = false
+      // 快速处理并清洗 typingQueue 中的红包控制符并更新卡片状态
+      scrubRedPacketFromQueue()
+      // 重新读取角色文件以刷新记忆/日记展示
+      setTimeout(async () => {
+        const char = activeCharacter.value
+        if (char) {
+          const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
+          if (memRes.success) activeMemory.value = memRes.content
+          const diaryRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Diary.md' })
+          if (diaryRes.success) activeDiary.value = diaryRes.content
+        }
+      }, 1500)
+      return
+    }
+
+    if (data.isSystem) {
+      const msgs = allMessages[selectedCharacterId.value || '']
+      if (msgs) {
+        msgs.push({ role: 'system', content: data.content, isSystem: true })
+        msgs.push({ role: 'assistant', content: '' })
+        nextTick(() => scrollToBottom())
+      }
+      return
+    }
+
+    const cleanContent = scrubber.scrub(data.content)
+    if (cleanContent) {
+      // 确保消息列表末尾有 assistant 气泡容器，Creator Bot 流式推送时不会预先 push 空气泡
+      // 若最后一条不是 assistant，则自动插入一条，供 startTypingEffect 逐字追加
+      const charId = selectedCharacterId.value || ''
+      const msgs = allMessages[charId]
+      if (msgs && (msgs.length === 0 || msgs[msgs.length - 1].role !== 'assistant')) {
+        msgs.push({ role: 'assistant', content: '', created_at: new Date().toISOString() })
+        nextTick(() => scrollToBottom())
+      }
+      pushToTypingQueue(cleanContent)
+    }
+  })
+
+  // 监听朋友圈动态和论坛帖子的后台实时更新以点亮 Badge 气泡
+  window.api.receive('social-moment-updated', () => {
+    if (sideView.value !== 'moments') {
+      unreadMomentsCount.value += 1
+    }
+  })
+
+  window.api.receive('social-forum-updated', () => {
+    if (sideView.value !== 'forum') {
+      unreadForumCount.value += 1
+    }
+  })
+
+  // 监听 sideView 的变化，切入时实时清空未读数并自动拉取对应数据
+  watch(sideView, async (newVal) => {
+    if (newVal === 'moments') {
+      unreadMomentsCount.value = 0
+      hasNewMomentNotification.value = false
+      await loadMomentsList()
+    } else if (newVal === 'forum') {
+      unreadForumCount.value = 0
+      unreadForumPostIds.value = []
+      await selectBoard('all')
+    } else if (newVal === 'favorites') {
+      await loadFavoritesList()
+    }
+  })
+
+  // 监听后台 AI 消息与搭讪的通用扩展通道
+  window.api.receive('proactive-chat-message', (data: { characterId: string; message: any }) => {
+    const charId = data.characterId
+    // 将消息追加到对应缓存
+    if (!allMessages[charId]) allMessages[charId] = []
+    allMessages[charId].push(restoreMessageProps(data.message))
+    
+    // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
+    if (selectedCharacterId.value !== charId || !isChattingActive.value) {
+      if (!conversationMeta[charId]) {
+        conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
+      }
+      conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
+      window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
+    } else {
+      nextTick(() => scrollToBottom())
+    }
+  })
+
+  // 监听后台主动发出的普通搭讪聊天消息，点亮会话列表的未读数与消息流
+  window.api.receive('receive-message', (msg: any) => {
+    const charId = msg.character_id
+    if (!charId) return
+    // 将消息追加到对应缓存
+    if (!allMessages[charId]) allMessages[charId] = []
+    if (!allMessages[charId].some(m => m.id === msg.id)) {
+      allMessages[charId].push(restoreMessageProps(msg))
+    }
+    
+    // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
+    if (selectedCharacterId.value !== charId || !isChattingActive.value) {
+      if (!conversationMeta[charId]) {
+        conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
+      }
+      conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
+      window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
+    } else {
+      nextTick(() => scrollToBottom())
+    }
+  })
+
+  // 监听朋友圈点赞广播，实时更新点赞数和点赞者列表头像，并处理未读通知
+  window.api.receive('social-moment-liked-broadcast', (data: { momentId: string; characterId: string; authorName: string; authorAvatar?: string; targetAuthorId?: string }) => {
+    // 实时更新内存中对应 moment 的点赞数和点赞者列表
+    const targetMoment = momentsList.value.find((m: any) => m.id === data.momentId)
+    if (targetMoment) {
+      targetMoment.likes = (targetMoment.likes || 0) + 1
+      if (!targetMoment.likes_list) targetMoment.likes_list = []
+      // 避免重复追加
+      const alreadyLiked = targetMoment.likes_list.some((l: any) => l.character_id === data.characterId)
+      if (!alreadyLiked) {
+        targetMoment.likes_list.push({
+          moment_id: data.momentId,
+          character_id: data.characterId,
+          author_name: data.authorName,
+          timestamp: Date.now()
+        })
+      }
+    }
+    // 如果是针对用户发的朋友圈，点亮通知
+    if (data.targetAuthorId === 'user') {
+      if (sideView.value !== 'moments') {
+        unreadMomentsCount.value += 1
+      }
+      hasNewMomentNotification.value = true
+      newMomentTargetId.value = data.momentId
+    }
+  })
+
+
+  // 监听朋友圈评论广播：实时追加评论到对应moment，并处理通知
+  window.api.receive('social-moment-comment-added', (comment: any) => {
+    // 实时将评论追加到内存中对应 moment 的 comments 数组
+    const targetMoment = momentsList.value.find((m: any) => m.id === comment.moment_id)
+    if (targetMoment) {
+      if (!targetMoment.comments) targetMoment.comments = []
+      // 避免重复追加
+      const alreadyExists = targetMoment.comments.some((c: any) => c.id === comment.id)
+      if (!alreadyExists) {
+        targetMoment.comments.push(comment)
+      }
+    }
+    // 如果是针对用户朋友圈的评论或回复，点亮通知
+    if (comment.target_author_id === 'user') {
+      if (sideView.value !== 'moments') {
+        unreadMomentsCount.value += 1
+      }
+      hasNewMomentNotification.value = true
+      newMomentTargetId.value = comment.moment_id
+    }
+  })
+
+  // 监听论坛评论广播，如果是针对用户的回复，点亮最左侧论坛导航按钮的未读红点及对应帖子的红点
+  window.api.receive('social-forum-comment-added', (comment: any) => {
+    // 1. 如果当前正在详细阅读这个帖子，实时追加评论到当前评论列表中
+    if (selectedForumPost.value && selectedForumPost.value.id === comment.post_id) {
+      if (!forumCommentsList.value.some(c => c.id === comment.id)) {
+        forumCommentsList.value.push(comment)
+      }
+    }
+
+    // 2. 更新未读状态与红点
+    if (comment.target_author_id === 'user') {
+      if (sideView.value !== 'forum') {
+        unreadForumCount.value += 1
+      }
+      // 如果当前没有正在详细阅读这个帖子，加入帖子未读列表以点亮帖子卡片红点
+      if (selectedForumPost.value?.id !== comment.post_id) {
+        if (!unreadForumPostIds.value.includes(comment.post_id)) {
+          unreadForumPostIds.value.push(comment.post_id)
+        }
+      }
+    }
+  })
+
+  // 全局点击事件（关闭菜单）
+  document.addEventListener('click', handleGlobalClick)
+
+  // =================== 新增社媒与性格人设进化 IPC 监听器 ===================
+  // 1. 监听状态 delta 更新以触发前端飞入动效
+  window.api.receive('character-state-updated', (data: { characterId: string; updates: { key: string; delta?: number; value?: any }[] }) => {
+    const char = characterList.value.find(c => {
+      const folder = (c.folder_name || '').toLowerCase()
+      const cid = (c.id || '').toLowerCase()
+      const target = (data.characterId || '').toLowerCase()
+      return folder === target || cid === target
+    })
+    if (!char) return
+    const charId = char.id
+    
+    if (!stateDeltas.value[charId]) stateDeltas.value[charId] = {}
+    for (const update of data.updates) {
+      if (characterStates.value[charId]) {
+        const item = characterStates.value[charId].items.find((i: any) => i.key === update.key)
+        if (item) {
+          if (item.type === 'text') {
+            // 文本型状态：同时兼容 update.value 与 update.delta，只要有更新字串就进行合并与动效飞入
+            const txtVal = update.value !== undefined ? update.value : update.delta
+            if (txtVal !== undefined && txtVal !== null) {
+              const strVal = String(txtVal).trim()
+              item.value = strVal
+              stateDeltas.value[charId][update.key] = `➔ ${strVal}`
+            }
+          } else {
+            // 数值型状态：智能兼顾绝对值 value 覆盖与相对值 delta 累加
+            const minVal = item.min ?? 0
+            const maxVal = item.max ?? 100
+            const numericVal = typeof item.value === 'number' ? item.value : (Number(item.value) || 0)
+            
+            if (update.value !== undefined && update.value !== null && update.value !== '') {
+              // 绝对值更新模式
+              const targetVal = Number(update.value)
+              if (!isNaN(targetVal)) {
+                const newVal = Math.max(minVal, Math.min(maxVal, targetVal))
+                const diff = newVal - numericVal
+                stateDeltas.value[charId][update.key] = diff >= 0 ? `+${diff}` : diff
+                item.value = newVal
+              }
+            } else if (update.delta !== undefined && update.delta !== null) {
+              // 相对值更新模式
+              const deltaVal = Number(update.delta)
+              if (!isNaN(deltaVal)) {
+                const newVal = Math.max(minVal, Math.min(maxVal, numericVal + deltaVal))
+                stateDeltas.value[charId][update.key] = deltaVal >= 0 ? `+${deltaVal}` : deltaVal
+                item.value = newVal
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // 3秒后淡出更新标志
+    setTimeout(() => {
+      if (stateDeltas.value[charId]) {
+        for (const update of data.updates) {
+          delete stateDeltas.value[charId][update.key]
+        }
+      }
+    }, 3000)
+  })
+
+  // 2. 监听性格进化草案生成通知
+  window.api.receive('soul-evolution-proposed', (data: { characterId: string; draft: any }) => {
+    activeEvolutionCharId.value = data.characterId
+    activeEvolutionDraft.value = data.draft
+    showToast(`🌱 检测到 ${characterList.value.find(c => c.id === data.characterId)?.name} 产生了人设性格演化提案！`)
+  })
+})
+
+// ===================== 朋友圈 & 论坛 & 状态 & 成长线交互方法 =====================
+// 点击朋友圈新动态提醒条，优雅滚动到对应的卡片位置，并附加精美的高亮闪烁边框效果
+function scrollToNewMoment() {
+  hasNewMomentNotification.value = false
+  unreadMomentsCount.value = 0
+  
+  if (!newMomentTargetId.value) return
+  
+  const targetId = newMomentTargetId.value
+  newMomentTargetId.value = null // 消费后即时重置
+  
+  nextTick(() => {
+    const el = document.getElementById(`moment-item-${targetId}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('ring-2', 'ring-primary', 'ring-offset-2', 'scale-[1.01]')
+      setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'scale-[1.01]')
+      }, 2000)
+    }
+  })
+}
+
+// 1. 加载朋友圈和论坛
+async function loadMomentsList() {
+  const res = await window.api.invoke('fetch-moments', { limit: 50 })
+  if (res.success) {
+    momentsList.value = res.moments
+  }
+}
+
+async function loadForumPostsList() {
+  const res = await window.api.invoke('fetch-forum-posts', { limit: 50 })
+  if (res.success) {
+    forumPostsList.value = res.posts
+  }
+}
+
+// 手动物理删除朋友圈动态
+async function deleteUserMomentItem(moment: any) {
+  showCustomConfirm(
+    '确认删除朋友圈',
+    '您确定要物理删除此动态吗？该操作将永久级联清除该动态下的所有点赞和评论，且不可恢复。',
+    async () => {
+      const res = await window.api.invoke('delete-moment', { momentId: moment.id })
+      if (res.success) {
+        showToast('朋友圈动态已成功删除 ✨')
+        await loadMomentsList()
+      } else {
+        showToast(`删除失败: ${res.error || '未知错误'}`)
+      }
+    }
+  )
+}
+
+// 手动物理删除论坛帖子
+async function deleteForumPostItem(post: any) {
+  showCustomConfirm(
+    '确认删除帖子',
+    `您确定要物理删除帖子《${post.title}》吗？该操作将永久级联清除该帖子下的所有评论，且不可恢复。`,
+    async () => {
+      const res = await window.api.invoke('delete-forum-post', { postId: post.id })
+      if (res.success) {
+        showToast('论坛帖子已成功删除 ✨')
+        selectedForumPost.value = null
+        await selectBoard(selectedBoardId.value)
+      } else {
+        showToast(`删除失败: ${res.error || '未知错误'}`)
+      }
+    }
+  )
+}
+
+// 2. 点赞/取消点赞朋友圈
+async function toggleLikeMoment(moment: any) {
+  const newLiked = moment.liked === 1 ? 0 : 1
+  const res = await window.api.invoke('like-moment', { momentId: moment.id, liked: newLiked })
+  if (res.success) {
+    moment.liked = newLiked
+    moment.likes += newLiked === 1 ? 1 : -1
+    // 同步更新真实点赞者列表（用于头像显示）
+    if (res.likes_list !== undefined) {
+      moment.likes_list = res.likes_list
+    }
+    if (newLiked === 1) {
+      showToast('已点赞！❤️')
+    }
+  }
+}
+
+// 3. 手动刷新朋友圈
+let momentsCooldownTimer: any = null
+async function refreshMoments() {
+  if (isRefreshingMoments.value) return
+  isRefreshingMoments.value = true
+  momentsCooldownText.value = '正在刷新...'
+  
+  const res = await window.api.invoke('refresh-moments')
+  isRefreshingMoments.value = false
+  
+  if (res.success) {
+    momentsList.value = res.moments
+    if (res.cached) {
+      showToast(res.error || '已为您展示最新缓存')
+    } else {
+      showToast(`成功刷新！已更新朋友圈 🌟`)
+    }
+    startMomentsCooldown()
+  } else {
+    showToast(`刷新失败: ${res.error}`)
+    momentsCooldownText.value = ''
+  }
+}
+
+function startMomentsCooldown() {
+  if (momentsCooldownTimer) clearTimeout(momentsCooldownTimer)
+  momentsCooldownText.value = '冷却中...'
+  momentsCooldownTimer = setTimeout(() => {
+    momentsCooldownText.value = ''
+  }, 5000) // 前台做 5 秒物理呼吸视觉防抖
+}
+
+// 4. 手动刷新论坛
+let forumCooldownTimer: any = null
+async function refreshForum() {
+  if (isRefreshingForum.value) return
+  isRefreshingForum.value = true
+  forumCooldownText.value = '正在刷新...'
+
+  const res = await window.api.invoke('refresh-forum')
+  isRefreshingForum.value = false
+
+  if (res.success) {
+    forumPostsList.value = res.posts
+    if (res.cached) {
+      showToast(res.error || '已为您展示最新缓存')
+    } else {
+      showToast(`成功刷新！已更新论坛讨论 💡`)
+    }
+    startForumCooldown()
+  } else {
+    showToast(`刷新论坛失败: ${res.error}`)
+    forumCooldownText.value = ''
+  }
+}
+
+function startForumCooldown() {
+  if (forumCooldownTimer) clearTimeout(forumCooldownTimer)
+  forumCooldownText.value = '冷却中...'
+  forumCooldownTimer = setTimeout(() => {
+    forumCooldownText.value = ''
+  }, 5000)
+}
+
+// 5. 朋友圈动态补充逻辑
+async function publishUserMoment() {
+  const content = newMomentContent.value.trim()
+  if (!content) return
+  
+  const res = await window.api.invoke('publish-user-moment', { content })
+  if (res.success) {
+    newMomentContent.value = ''
+    showToast('朋友圈动态发表成功！✨')
+    // 立即重新加载朋友圈
+    await loadMomentsList()
+  } else {
+    showToast(`发表失败: ${res.error}`)
+  }
+}
+
+
+
+async function toggleFavoriteMoment(moment: any) {
+  const newFav = !moment.isFavorited
+  if (newFav) {
+    const res = await window.api.invoke('add-favorite', {
+      type: 'moment',
+      targetId: moment.id,
+      characterId: moment.character_id,
+      authorName: moment.author_name,
+      authorAvatar: moment.author_avatar || '',
+      title: '朋友圈动态',
+      content: moment.content
+    })
+    if (res.success) {
+      moment.isFavorited = true
+      showToast('已加入我的收藏书签！🔖')
+    }
+  } else {
+    const res = await window.api.invoke('remove-favorite', {
+      type: 'moment',
+      targetId: moment.id
+    })
+    if (res.success) {
+      moment.isFavorited = false
+      showToast('已取消收藏 🐾')
+    }
+  }
+}
+
+function startMomentReply(moment: any, comment: any) {
+  moment.replyPlaceholder = `回复 @${comment.author_name}: `
+  moment.replyTo = {
+    commentId: comment.id,
+    name: comment.author_name
+  }
+}
+
+async function deleteMomentCommentItem(moment: any, comment: any) {
+  const res = await window.api.invoke('delete-moment-comment', { commentId: comment.id })
+  if (res.success) {
+    showToast('评论已删除 🐾')
+    if (moment.comments) {
+      moment.comments = moment.comments.filter((c: any) => c.id !== comment.id)
+    }
+  } else {
+    showToast(`删除失败: ${res.error}`)
+  }
+}
+
+async function deleteForumCommentItem(comment: any) {
+  const res = await window.api.invoke('delete-forum-comment', { commentId: comment.id, postId: comment.post_id })
+  if (res.success) {
+    showToast('回复已删除 🐾')
+    forumCommentsList.value = forumCommentsList.value.filter(c => c.id !== comment.id)
+    if (selectedForumPost.value && selectedForumPost.value.id === comment.post_id) {
+      selectedForumPost.value.replies_count = Math.max(0, selectedForumPost.value.replies_count - 1)
+    }
+  } else {
+    showToast(`删除失败: ${res.error}`)
+  }
+}
+
+async function submitMomentComment(moment: any) {
+  const content = moment.inputComment?.trim()
+  if (!content) return
+  
+  const payload: any = {
+    momentId: moment.id,
+    content: content
+  }
+  
+  if (moment.replyTo) {
+    payload.replyToCommentId = moment.replyTo.commentId
+    payload.replyToName = moment.replyTo.name
+  }
+  
+  const res = await window.api.invoke('comment-moment', payload)
+  if (res.success) {
+    moment.inputComment = ''
+    moment.replyPlaceholder = ''
+    moment.replyTo = null
+    showToast('发送成功！')
+    
+    // 物理拉取更新该 Moment 的评论流
+    await loadMomentsList()
+  } else {
+    showToast(`评论失败: ${res.error}`)
+  }
+}
+
+// 6. 三栏回音社区补充逻辑
+async function selectBoard(boardId: string) {
+  selectedBoardId.value = boardId
+  const res = await window.api.invoke('fetch-forum-posts', { boardId })
+  if (res.success) {
+    forumPostsList.value = res.posts
+  }
+}
+
+async function selectForumPostDetail(post: any) {
+  // 清除该帖子的未读红点
+  unreadForumPostIds.value = unreadForumPostIds.value.filter(id => id !== post.id)
+  if (unreadForumPostIds.value.length === 0) {
+    unreadForumCount.value = 0
+  }
+
+  selectedForumPost.value = post
+  forumCommentInput.value = ''
+  forumReplyPlaceholder.value = ''
+  selectedCommentToReply.value = null
+  
+  // 1. 获取帖子详情并自动增加浏览量 views
+  const res = await window.api.invoke('fetch-forum-post-detail', { postId: post.id })
+  if (res.success) {
+    // 局部更新列表及右侧详情的 views 计数
+    post.views = res.post.views
+    forumCommentsList.value = res.comments
+    
+    // 2. 检测该贴的收藏状态
+    const favRes = await window.api.invoke('check-favorite-status', { type: 'forum', targetId: post.id })
+    if (favRes.success) {
+      post.isFavorited = favRes.exist
+    }
+  }
+}
+
+function startForumReply(comment: any) {
+  forumReplyPlaceholder.value = `回复 @${comment.author_name}: `
+  selectedCommentToReply.value = comment
+}
+
+async function submitForumComment() {
+  const post = selectedForumPost.value
+  if (!post) return
+  
+  const content = forumCommentInput.value.trim()
+  if (!content) return
+  
+  const payload: any = {
+    postId: post.id,
+    content: content
+  }
+  
+  if (selectedCommentToReply.value) {
+    payload.replyToCommentId = selectedCommentToReply.value.id
+    payload.replyToName = selectedCommentToReply.value.author_name
+  }
+  
+  const res = await window.api.invoke('comment-forum', payload)
+  if (res.success) {
+    forumCommentInput.value = ''
+    forumReplyPlaceholder.value = ''
+    selectedCommentToReply.value = null
+    showToast('回复发表成功！✨')
+    
+    // 重新获取评论和帖子详情以刷新
+    await selectForumPostDetail(post)
+    // 联动刷新中间栏的帖子 replies_count
+    await selectBoard(selectedBoardId.value)
+  } else {
+    showToast(`评论失败: ${res.error}`)
+  }
+}
+
+async function toggleFavoriteForumPost(post: any) {
+  const newFav = !post.isFavorited
+  if (newFav) {
+    const res = await window.api.invoke('add-favorite', {
+      type: 'forum',
+      targetId: post.id,
+      characterId: post.character_id,
+      authorName: post.author_name,
+      authorAvatar: post.author_avatar || '',
+      title: post.title,
+      content: post.content
+    })
+    if (res.success) {
+      post.isFavorited = true
+      showToast('已加入我的论坛收藏书签！🔖')
+    }
+  } else {
+    const res = await window.api.invoke('remove-favorite', {
+      type: 'forum',
+      targetId: post.id
+    })
+    if (res.success) {
+      post.isFavorited = false
+      showToast('已取消收藏帖子 🐾')
+    }
+  }
+}
+
+function openPublishForumModal() {
+  newForumTitle.value = ''
+  newForumContent.value = ''
+  newForumBoardId.value = 'tech'
+  showPublishForumModal.value = true
+}
+
+async function publishUserForumPost() {
+  const title = newForumTitle.value.trim()
+  const content = newForumContent.value.trim()
+  const boardId = newForumBoardId.value
+  
+  if (!title || !content) {
+    showToast('请完整输入帖子标题和内容！')
+    return
+  }
+  
+  const res = await window.api.invoke('publish-user-forum-post', { boardId, title, content })
+  if (res.success) {
+    showPublishForumModal.value = false
+    showToast('帖子成功发表回音社区！🚀')
+    // 自动切换并重新拉取新帖所属的特定板块，让用户立竿见影地看到自己的发表
+    await selectBoard(boardId)
+  } else {
+    showToast(`发帖失败: ${res.error}`)
+  }
+}
+
+// 7. 统一收藏中心逻辑
+async function loadFavoritesList() {
+  const res = await window.api.invoke('get-favorites', { type: selectedFavType.value })
+  if (res.success) {
+    favoritesList.value = res.favorites
+    // 默认不选中任何一个，防死锁
+    selectedFavorite.value = null
+  }
+}
+
+async function selectFavoriteType(type: string) {
+  selectedFavType.value = type
+  await loadFavoritesList()
+}
+
+async function deleteFavoriteItem(fav: any) {
+  showCustomConfirm(
+    '确认取消收藏',
+    '您确定要将此项从我的微型书签中取消收藏吗？',
+    async () => {
+      const res = await window.api.invoke('remove-favorite', { type: fav.type, targetId: fav.target_id })
+      if (res.success) {
+        showToast('已取消收藏书签 🐾')
+        // 重载列表
+        await loadFavoritesList()
+      } else {
+        showToast(`取消失败: ${res.error}`)
+      }
+    }
+  )
+}
+
+// 8. 聊天气泡右键上下文菜单事件
+function openMessageContextMenu(e: MouseEvent, msg: any) {
+  if (msg.redPacket) return // 红包消息无法右键
+  
+  contextMenu.visible = true
+  contextMenu.x = e.clientX
+  contextMenu.y = e.clientY
+  contextMenu.char = activeCharacter.value
+  contextMenu.message = msg
+  contextMenu.type = 'message'
+}
+
+function ctxCopyMessage() {
+  const content = contextMenu.message?.content
+  if (content) {
+    navigator.clipboard.writeText(content)
+    showToast('消息文本复制成功！📋')
+  }
+  contextMenu.visible = false
+}
+
+async function ctxFavoriteMessage() {
+  const msg = contextMenu.message
+  const char = contextMenu.char
+  if (!msg || !char) return
+  
+  const res = await window.api.invoke('add-favorite', {
+    type: 'chat',
+    targetId: msg.id || `msg_${msg.timestamp || Date.now()}`,
+    characterId: char.id,
+    authorName: char.name,
+    authorAvatar: char.avatar || '',
+    title: `与 ${char.name} 的对话`,
+    content: msg.content
+  })
+  if (res.success) {
+    showToast('对话气泡成功收藏！🔖')
+  } else {
+    showToast(`收藏失败: ${res.error}`)
+  }
+  contextMenu.visible = false
+}
+
+async function ctxRegenerateMessage() {
+  const char = contextMenu.char
+  if (!char || isStreaming.value) return
+  contextMenu.visible = false
+  
+  showCustomConfirm(
+    '重新回复消息',
+    `您确定要删除此条旧回复，并要求 [${char.name}] 重新回复吗？\n\n注意：如果角色有连续多段气泡，它们将被同时统一抹去并由 AI 重新接管渲染。`,
+    async () => {
+      const res = await window.api.invoke('regenerate-reply', { characterId: char.id })
+      if (res.success) {
+        // 1. 前端物理擦除 Messages 里的旧助理回复气泡
+        const msgs = allMessages[char.id]
+        if (msgs) {
+          // pop 掉尾部连续的所有 role === 'assistant' 气泡
+          while (msgs.length > 0 && msgs[msgs.length - 1].role === 'assistant') {
+            msgs.pop()
+          }
+        }
+        
+        // 2. 找到倒数第一条用户的消息内容作为大模型的 userMessage 输入
+        const userMsgs = msgs.filter(m => m.role === 'user')
+        if (userMsgs.length === 0) {
+          showToast('没有找到可以用来重新触发的历史消息！')
+          return
+        }
+        const lastUserMsg = userMsgs[userMsgs.length - 1]
+        
+        // 3. 触发重答流
+        await triggerMergedAiResponse(char, lastUserMsg.content)
+      } else {
+        showToast(`重新回复触发失败: ${res.error}`)
+      }
+    }
+  )
+}
+
+function ctxForwardMessage() {
+  const msg = contextMenu.message
+  if (!msg) return
+  
+  messageToForward.value = msg
+  forwardQuery.value = ''
+  showForwardModal.value = true
+  contextMenu.visible = false
+}
+
+async function forwardMessageToCharacter(targetChar: any) {
+  const msg = messageToForward.value
+  if (!msg || !targetChar) return
+  
+  showForwardModal.value = false
+  showToast(`正在将消息转发给 [${targetChar.name}]... 🚀`)
+  
+  // 对转发消息内容进行前缀清洗，防止残留“转发自其他频道的消息”字样
+  let cleanContent = msg.content || ''
+  cleanContent = cleanContent.replace(/^\[?转发自其他频道的消息\]?\s*[:：]?\s*/g, '').trim()
+  
+  // 1. 物理插入转发的 user 消息到目标角色的 Messages 表中
+  const userMsg = {
+    id: `msg_user_${Date.now()}_forward`,
+    character_id: targetChar.id,
+    role: 'user' as const,
+    content: cleanContent,
+    timestamp: Date.now(),
+    token_usage: 0
+  }
+  
+  // 保存到数据库
+  await window.api.invoke('save-message', userMsg)
+  
+  // 2. 如果当前正处于该角色的聊天，或前端已缓存，联动插入
+  if (!allMessages[targetChar.id]) {
+    allMessages[targetChar.id] = []
+  }
+  allMessages[targetChar.id].push(restoreMessageProps(userMsg))
+  
+  // 3. 自动跳转到该角色的聊天页！
+  await selectCharacter(targetChar.folder_name)
+  sideView.value = 'chat'
+  
+  // 4. 发送一个空包来触发该角色的 AI 针对该转发话题做出聊天响应！
+  await triggerMergedAiResponse(targetChar, userMsg.content)
+}
+
+// 6. 保存通用常规设置
+async function saveGeneralSettings() {
+  const res = await window.api.invoke('save-general-settings', {
+    show_schedule: generalConfig.value.show_schedule,
+    show_goals: generalConfig.value.show_goals,
+    cron_frequency: generalConfig.value.cron_frequency,
+    enable_music: generalConfig.value.enable_music
+  })
+  if (!res.success) {
+    showToast(`保存失败: ${res.error}`)
+  } else {
+    // 物理防呆拦截：如果关闭了音乐功能，直接强行物理停播音乐，并退回侧边栏
+    if (!generalConfig.value.enable_music) {
+      if (sideView.value === 'music') {
+        sideView.value = 'chat'
+      }
+      musicStore.stop()
+    }
+  }
+}
+
+// 7. 打开状态自定义配置弹窗
+function openCustomizeStatesModal() {
+  const charId = selectedContactId.value
+  if (!charId || !characterStates.value[charId]) return
+  editingStatesString.value = JSON.stringify(characterStates.value[charId], null, 2)
+  showCustomizeStatesModal.value = true
+}
+
+// 保存自定义状态
+async function saveCustomizedStates() {
+  const charId = selectedContactId.value
+  const char = characterList.value.find(c => c.id === charId)
+  if (!charId || !char) return
+  
+  try {
+    const parsed = JSON.parse(editingStatesString.value)
+    if (!parsed.items || !parsed.items.length) {
+      throw new Error('缺少 items 数组状态项描述。')
+    }
+    
+    const res = await window.api.invoke('write-character-state', {
+      folderName: char.folder_name,
+      state: parsed
+    })
+    
+    if (res.success) {
+      characterStates.value[charId] = parsed
+      showCustomizeStatesModal.value = false
+      showToast('角色状态指标配置成功！🛠️')
+    } else {
+      showToast(`写入失败: ${res.error}`)
+    }
+  } catch (err: any) {
+    showToast(`格式解析失败: ${err.message}`)
+  }
+}
+
+// 8. 审批性格演变
+async function approveSoulEvolution() {
+  if (!activeEvolutionCharId.value) return
+  const charId = activeEvolutionCharId.value
+  const res = await window.api.invoke('approve-soul-draft', { characterId: charId })
+  if (res.success) {
+    if (selectedContactId.value === charId) {
+      await selectCharacterForContactDetails(charId)
+    }
+    showEvolutionModal.value = false
+    activeEvolutionDraft.value = null
+    activeEvolutionCharId.value = ''
+    showToast('性格人设升级进化应用成功！🌱')
+  } else {
+    showToast('批准应用演化修改失败。')
+  }
+}
+
+async function rejectSoulEvolution() {
+  if (!activeEvolutionCharId.value) return
+  const charId = activeEvolutionCharId.value
+  await window.api.invoke('reject-soul-draft', { characterId: charId })
+  showEvolutionModal.value = false
+  activeEvolutionDraft.value = null
+  activeEvolutionCharId.value = ''
+  showToast('已安全丢弃/拒绝性格人设演化。')
+}
+
+// 极简精致的全局通知系统
+const toastMessage = ref('')
+const toastVisible = ref(false)
+let toastTimer: any = null
+
+function showToast(msg: string) {
+  toastMessage.value = msg
+  toastVisible.value = true
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toastVisible.value = false
+  }, 3000)
+}
+
+function formatTime(time: any): string {
+  return formatMessageTime(time)
+}
+
+onUnmounted(() => {
+  if (typingTimer) { clearInterval(typingTimer); typingTimer = null }
+  document.removeEventListener('click', handleGlobalClick)
+})
+</script>
+
+<style lang="postcss" scoped>
+/* ===== 导航栏颜色系统 ===== */
+.nav-icon-btn {
+  @apply w-10 h-10 rounded-xl flex items-center justify-center text-nav-icon hover:text-nav-icon-hover hover:bg-nav-icon-hover-bg transition-all active:scale-95;
+}
+.nav-icon-btn-active {
+  @apply text-primary bg-nav-icon-active-bg;
+}
+
+/* ===== 聊天气泡 ===== */
+.user-chat-bubble {
+  @apply px-3.5 py-2.5 rounded-2xl rounded-br-md bg-user-bubble text-user-bubble-text text-sm leading-relaxed shadow-sm;
+}
+.ai-chat-bubble {
+  @apply px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-ai-bubble text-ai-bubble-text text-sm leading-relaxed shadow-sm border;
+  border-color: var(--chat-border);
+}
+
+/* ===== 红包/转账气泡 ===== */
+.wechat-red-packet-bubble {
+  @apply flex items-center space-x-2 px-3.5 py-2.5 rounded-2xl rounded-br-md bg-red-500 text-white text-sm shadow-sm;
+}
+.wechat-transfer-bubble {
+  @apply flex items-center space-x-2 px-3.5 py-2.5 rounded-2xl rounded-br-md bg-green-600 text-white text-sm shadow-sm;
+}
+
+/* ===== 弹窗 ===== */
+.modal-overlay {
+  @apply fixed inset-0 z-50 backdrop-blur-sm flex items-center justify-center;
+  background-color: rgba(0, 0, 0, 0.4);
+}
+.modal-panel {
+  @apply bg-surface rounded-2xl shadow-2xl overflow-hidden border;
+  border-color: var(--outline-variant);
+}
+.modal-header {
+  @apply flex items-center justify-between px-5 py-4 border-b text-sm font-bold text-on-surface;
+  border-bottom-color: var(--outline-variant);
+}
+.modal-close-btn {
+  @apply p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-all;
+}
+
+/* ===== 表单元素 ===== */
+.form-group {
+  @apply flex flex-col space-y-1.5;
+}
+.form-label {
+  @apply text-xs font-bold text-on-surface-variant uppercase tracking-wider;
+}
+.form-input {
+  @apply w-full px-3 py-2 rounded-lg bg-surface-low border border-outline-variant text-on-surface text-sm focus:outline-none focus:border-primary transition-all;
+}
+
+/* ===== 按钮 ===== */
+.btn-primary {
+  @apply px-4 py-2 rounded-lg bg-primary text-on-primary text-xs font-bold hover:opacity-90 transition-all shadow-sm;
+}
+.btn-secondary {
+  @apply px-4 py-2 rounded-lg bg-surface-high border border-outline-variant text-on-surface text-xs font-semibold hover:bg-surface-highest transition-all;
+}
+
+/* ===== 工具栏按钮 ===== */
+.input-tool-btn {
+  @apply p-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-high transition-all;
+}
+
+/* ===== 设置区块标题 ===== */
+.settings-section-title {
+  @apply text-xs font-bold text-on-surface-variant uppercase tracking-wider;
+}
+
+/* ===== 聊天模式选项 ===== */
+.chat-mode-btn {
+  @apply flex flex-col items-center p-4 rounded-xl border-2 bg-surface transition-all cursor-pointer;
+  border-color: var(--outline-variant);
+}
+.chat-mode-btn:hover {
+  border-color: var(--primary);
+}
+.chat-mode-btn-active {
+  @apply border-primary;
+  background-color: var(--primary-opacity-5);
+}
+
+/* ===== 上下文菜单 ===== */
+.ctx-menu-item {
+  @apply w-full flex items-center px-4 py-2 text-xs font-semibold text-on-surface hover:bg-surface-high transition-colors;
+}
+
+/* 细滚动条 */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--outline-variant); border-radius: 9999px; }
+</style>
