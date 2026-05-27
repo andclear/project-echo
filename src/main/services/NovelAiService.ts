@@ -166,11 +166,21 @@ export class NovelAiService {
       console.error('[NovelAiService] 写入诊断文件失败:', fsErr)
     }
     
-    // 官方设计：
-    // - data.anlas：代表额外单独付费购买的 Paid Anlas 余额
-    // - data.subscription?.anlas：代表月度订阅赠送的 Subscription Anlas 余额
+    // 1. 读取付费单独购买点数 (Paid Anlas)
     const paidAnlas = typeof data.anlas === 'number' ? data.anlas : 0
-    const subAnlas = typeof data.subscription?.anlas === 'number' ? data.subscription.anlas : 0
+    
+    // 2. 读取月度订阅赠送点数 (Subscription Anlas)
+    let subAnlas = typeof data.subscription?.anlas === 'number' ? data.subscription.anlas : 0
+    
+    // 🚀 核心智能兜底：
+    // 对于 Opus 顶级订阅（tier: 3），NovelAI 官方在接口中不再显式列出 anlas 字段（因为享受无限免点生图特权）。
+    // 其月度包含的这 10000+ 点数额度会被以 fixedTrainingStepsLeft (固定训练步数额度) 展现。
+    if (subAnlas === 0 && data.subscription) {
+      const trainingAnlas = data.subscription.trainingStepsLeft?.fixedTrainingStepsLeft
+      if (typeof trainingAnlas === 'number' && trainingAnlas > 0) {
+        subAnlas = trainingAnlas
+      }
+    }
     
     return paidAnlas + subAnlas
   }
