@@ -62,7 +62,7 @@ export class NovelAiService {
     }
 
     const baseUrl = (config.baseUrl || 'https://image.novelai.net').replace(/\/$/, '')
-    const url = `${baseUrl}/anime/generate-image`
+    const url = `${baseUrl}/ai/generate-image`
 
     // 默认尺寸匹配
     let width = 832
