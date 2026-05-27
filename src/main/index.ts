@@ -478,7 +478,7 @@ function registerIpcHandlers(): void {
         { role: 'user', content: `请帮我提取该角色的人设外貌特征，以下是人设文档：\n\n${soul}` }
       ]
 
-      const response = await modelAdapter.chat(messages, { useSecondary: true })
+      const response = await modelAdapter.chat(messages)
       const raw = response.content.trim()
 
       let tags = ''
@@ -699,7 +699,7 @@ function registerIpcHandlers(): void {
         { role: 'user', content: `【角色设定 Soul.md】：\n${soulContent}\n\n【角色记忆 Memory.md】：\n${memoryContent}\n\n【最近聊天上下文】：\n${contextText}\n\n请帮我生成当前画面场景的生图 Prompt 和描述。` }
       ]
 
-      const response = await modelAdapter.chat(messages, { useSecondary: true })
+      const response = await modelAdapter.chat(messages)
       const raw = response.content.trim()
 
       let prompt = ''
@@ -821,7 +821,7 @@ ${soulContent}
 
           const response = await modelAdapter.chat([
             { role: 'user', content: prompt }
-          ], { useSecondary: true })
+          ])
 
           console.log('[evaluateInitialIntimacy] 大模型亲密度评估原始响应:', response)
           
