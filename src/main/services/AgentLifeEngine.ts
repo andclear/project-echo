@@ -7,6 +7,7 @@ import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { SocialMediaService } from './SocialMediaService';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
+import { NovelAiService } from './NovelAiService';
 
 export interface WakeContext {
   wakeAgent: boolean;
@@ -570,9 +571,15 @@ Please output in exactly this XML format:
     messages.push(...historyMessages);
 
     // 插入最终触发思考指令
-    const instructionContent = shouldWriteDiary
+    // 系统随机判定搭讪是否生图，生图几率为 55%
+    const shouldDraw = Math.random() < 0.55;
+    let instructionContent = shouldWriteDiary
       ? `[系统指令]：当前时间是 ${period} ${timeDesc}。请开启你的第一人称真实感悟与心理自省，并在 <diary> 标签内写下一篇日记。结合上文的真实聊天上下文和上述 Active Reflection Context，决定是否要向用户主动发起搭讪对话（在 <message> 标签中，或输出 [SILENT]）。`
       : `[系统指令]：当前时间是 ${period} ${timeDesc}。请开启你的第一人称思考，并结合上文的真实聊天上下文和上述 Active Reflection Context，决定是否在 <message> 标签中向用户主动发起搭讪对话（或输出 [SILENT]）。`;
+
+    if (shouldDraw) {
+      instructionContent += `\n\n[系统特别指令]：本轮触发 55% 共享自拍/美图概率，你当前决定随搭讪附带发送一张符合你当前日程或自省情景的自拍或身边景物配图给用户。请你务必在输出的 <message> 标签内容最末尾，以特定标签形式追加配图英文提示词及中文画面简述：\n<image_prompt>极其详细的英文画作提示词（Danbooru 标签，不要包含衣服，用于文生图）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>\n注意：图片内容应与你发送的搭讪文本高度契合，例如自拍照、正在做的事情、身边的咖啡等。如果不发送搭讪，则无需此配图输出。`;
+    }
 
     // 维持 messages 数组严格的角色交替结构
     if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
@@ -659,12 +666,21 @@ Please output in exactly this XML format:
 
       // 2. 发送主动消息（若非静默）
       if (messageText && messageText !== '[SILENT]') {
+        // 解析可能存在的配图标签
+        const imagePromptMatch = messageText.match(/<image_prompt>([\s\S]*?)<\/image_prompt>/i);
+        const imageDescMatch = messageText.match(/<image_desc>([\s\S]*?)<\/image_desc>/i);
+
+        const cleanText = messageText
+          .replace(/<image_prompt>[\s\S]*?<\/image_prompt>/gi, '')
+          .replace(/<image_desc>[\s\S]*?<\/image_desc>/gi, '')
+          .trim();
+
         const msgId = `active_${charId}_${Date.now()}`;
         const newMsg = {
           id: msgId,
           character_id: charId,
           role: 'assistant',
-          content: messageText,
+          content: cleanText,
           timestamp: Date.now(),
           token_usage: 0
         };
@@ -677,7 +693,7 @@ Please output in exactly this XML format:
         db.setSetting(`active_count_today_${charId}`, String(currentCount + 1));
         db.setSetting(`active_last_timestamp_${charId}`, Date.now().toString());
         db.setSetting(`active_today_date_${charId}`, todayStr);
-        console.log(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪落盘与推送成功: "${messageText}"`);
+        console.log(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪文本落盘与推送成功: "${cleanText}"`);
 
         // 广播给渲染层前端以推入对话气泡
         const windows = BrowserWindow.getAllWindows();
@@ -685,11 +701,86 @@ Please output in exactly this XML format:
           windows[0].webContents.send('receive-message', newMsg);
         }
 
+        // 尝试生成主动美图并推送
+        if (shouldDraw && imagePromptMatch && imageDescMatch) {
+          const imagePrompt = imagePromptMatch[1].trim();
+          const imageDesc = imageDescMatch[1].trim();
+
+          try {
+            const configStr = db.getSetting('novelai_config');
+            if (configStr) {
+              const config = JSON.parse(configStr);
+              if (config.apiKey && config.apiKey.trim() !== '') {
+                // 读取外貌特征
+                let appearancePrompt = '';
+                const appearanceContent = this.storageManager.readCharacterFile(folderName, 'Appearance.md');
+                if (appearanceContent) {
+                  const tagsMatch = appearanceContent.match(/### Appearance Tags\s*([\s\S]*?)(?:### Appearance Description|$)/i);
+                  if (tagsMatch) {
+                    appearancePrompt = tagsMatch[1].trim();
+                  }
+                }
+
+                const finalPrompt = appearancePrompt 
+                  ? `${appearancePrompt}, ${imagePrompt}`
+                  : imagePrompt;
+
+                // 生成自拍/随拍美图 (portrait/纵向)
+                const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, 'portrait');
+
+                const charDir = path.join(baseDir, folderName);
+                const mediaDir = path.join(charDir, 'media');
+                if (!fs.existsSync(mediaDir)) {
+                  fs.mkdirSync(mediaDir, { recursive: true });
+                }
+
+                const filename = `proactive_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.png`;
+                fs.writeFileSync(path.join(mediaDir, filename), imageBuffer);
+
+                // 额外保存同名元数据 .json
+                const metaFilename = filename.replace('.png', '.json');
+                const metadata = {
+                  prompt: finalPrompt,
+                  dimensions: 'portrait',
+                  timestamp: Date.now(),
+                  prefixType: 'proactive'
+                };
+                fs.writeFileSync(path.join(mediaDir, metaFilename), JSON.stringify(metadata, null, 2));
+
+                // 物理落盘图片特殊格式的消息到会话流
+                const imgMsgId = `active_img_${charId}_${Date.now()}`;
+                const newImgMsg = {
+                  id: imgMsgId,
+                  character_id: charId,
+                  role: 'assistant',
+                  content: `[wechat_image_media]:media/${filename}`,
+                  timestamp: Date.now() + 50, // 稍微延后以保持顺序
+                  token_usage: 0
+                };
+                db.saveMessage(newImgMsg);
+
+                console.log(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪生成美图成功: media/${filename}`);
+
+                // 广播给渲染层前端以推入对话图片气泡 (同时附加 base64 以极速渲染)
+                if (windows.length > 0) {
+                  windows[0].webContents.send('receive-message', {
+                    ...newImgMsg,
+                    content: '',
+                    imageBase64: `data:image/png;base64,${imageBuffer.toString('base64')}`
+                  });
+                }
+              }
+            }
+          } catch (drawErr: any) {
+            console.error(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪绘图失败:`, drawErr.message || drawErr);
+          }
+        }
+
         // 唤起系统级通知
         if (Notification.isSupported()) {
           const notif = new Notification({
             title: char.name,
-            body: messageText
+            body: cleanText
           });
           notif.show();
         }

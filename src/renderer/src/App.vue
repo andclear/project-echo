@@ -2052,6 +2052,76 @@
               </div>
 
 
+              <!-- E. AI 绘图设置 (Tab: drawing) -->
+              <div v-else-if="activeSettingsTab === 'drawing'" class="space-y-6 animate-in fade-in duration-200">
+                <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-5 space-y-5">
+                  <div class="flex items-center space-x-2.5 border-b border-outline-variant/20 pb-4">
+                    <div class="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                      <ImageIcon class="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 class="text-xs font-bold text-on-surface">NovelAI 绘图设置</h3>
+                      <p class="text-[10px] text-on-surface-variant mt-0.5">配置 NovelAI 文生图（T2I）API 参数以激活数字生命的美图共享与私聊生图功能</p>
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-group md:col-span-2">
+                      <label class="form-label font-bold text-xs">API Key</label>
+                      <div class="relative">
+                        <input v-model="novelai.apiKey" :type="showApiKey ? 'text' : 'password'" placeholder="输入您的 NovelAI API Key (以 pst- 开头)" class="form-input pr-10" />
+                        <button @click="showApiKey = !showApiKey" type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary transition-all">
+                          <EyeIcon v-if="!showApiKey" class="w-4 h-4" />
+                          <EyeOffIcon v-else class="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="form-group">
+                      <label class="form-label font-bold text-xs">API Base URL</label>
+                      <input v-model="novelai.baseUrl" type="text" placeholder="https://image.novelai.net" class="form-input" />
+                    </div>
+
+                    <div class="form-group">
+                      <label class="form-label font-bold text-xs">模型选择</label>
+                      <input v-model="novelai.model" type="text" placeholder="nai-diffusion-4-5-full" class="form-input font-mono" />
+                      <div class="flex flex-wrap gap-1 mt-1.5">
+                        <button type="button" @click="novelai.model = 'nai-diffusion-4-5-full'" class="px-2 py-0.5 rounded bg-surface border border-outline-variant hover:border-primary text-[10px]" :class="{ '!border-primary text-primary bg-primary/5': novelai.model === 'nai-diffusion-4-5-full' }">nai-diffusion-4-5-full</button>
+                        <button type="button" @click="novelai.model = 'nai-diffusion-4-5-curated'" class="px-2 py-0.5 rounded bg-surface border border-outline-variant hover:border-primary text-[10px]" :class="{ '!border-primary text-primary bg-primary/5': novelai.model === 'nai-diffusion-4-5-curated' }">nai-diffusion-4-5-curated</button>
+                      </div>
+                    </div>
+
+                    <div class="form-group md:col-span-2">
+                      <label class="form-label font-bold text-xs">默认负面提示词 (Undesired Content)</label>
+                      <textarea v-model="novelai.negativePrompt" rows="3" placeholder="输入默认排除的 Tags" class="form-input font-mono text-xs resize-none"></textarea>
+                    </div>
+
+                    <div class="md:col-span-2 flex items-center justify-between bg-surface-high/20 p-4 rounded-xl border border-outline-variant/10">
+                      <div class="space-y-0.5">
+                        <label class="font-bold text-xs text-on-surface">手动生图确认模式</label>
+                        <p class="text-[10px] text-on-surface-variant">开启后，点击聊天输入框的生图按钮会先弹窗预览并可编辑 Prompt 提示词</p>
+                      </div>
+                      <button @click="novelai.confirmMode = !novelai.confirmMode" class="w-10 h-6 rounded-full transition-all relative flex items-center p-0.5 border" :class="novelai.confirmMode ? 'bg-primary border-primary' : 'bg-outline-variant/40 border-outline-variant/40'">
+                        <div class="w-4 h-4 rounded-full bg-white transition-all shadow-sm" :class="novelai.confirmMode ? 'translate-x-4' : 'translate-x-0'"></div>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center justify-between border-t border-outline-variant/20 pt-4 bg-surface-low/10 p-4 rounded-xl">
+                    <div class="flex items-center space-x-2">
+                      <span class="text-xs font-bold text-on-surface">Anlas 剩余点数:</span>
+                      <span v-if="isLoadingAnlas" class="text-xs font-mono text-primary animate-pulse">查询中...</span>
+                      <span v-else class="text-sm font-mono font-extrabold text-primary">{{ anlasPoints }} 点</span>
+                    </div>
+                    <button @click="refreshAnlas" :disabled="isLoadingAnlas || !novelai.apiKey" class="px-3 py-1.5 rounded-lg border border-outline-variant text-[11px] text-on-surface hover:bg-surface-high transition-all flex items-center space-x-1 disabled:opacity-50">
+                      <RefreshCwIcon class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoadingAnlas }" />
+                      <span>刷新点数</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+
               <!-- D. 数据备份与迁移 (Tab: migration) -->
               <div v-else-if="activeSettingsTab === 'migration'" class="space-y-6 select-none animate-in fade-in duration-200">
                 <div class="bg-surface-low/20 p-6 rounded-2xl border border-outline-variant/10 text-center relative overflow-hidden">
@@ -2160,12 +2230,32 @@
             <!-- 固定底部操作粘滞栏 -->
             <div v-if="activeSettingsTab !== 'about' && activeSettingsTab !== 'migration'" class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none">
               <div class="flex items-center justify-between max-w-3xl w-full mx-auto">
-                <button @click="testModelConnection" :disabled="testing" class="btn-secondary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 rounded-xl active:scale-95 transition-all">
+                <button 
+                  v-if="activeSettingsTab === 'drawing'"
+                  @click="refreshAnlas" 
+                  :disabled="isLoadingAnlas || !novelai.apiKey" 
+                  class="btn-secondary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 rounded-xl active:scale-95 transition-all"
+                >
+                  <Loader2Icon v-if="isLoadingAnlas" class="w-3.5 h-3.5 animate-spin" />
+                  <RefreshCwIcon v-else class="w-3.5 h-3.5" />
+                  <span>{{ isLoadingAnlas ? '获取中...' : '刷新点数' }}</span>
+                </button>
+                <button 
+                  v-else
+                  @click="testModelConnection" 
+                  :disabled="testing" 
+                  class="btn-secondary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 rounded-xl active:scale-95 transition-all"
+                >
                   <ActivityIcon v-if="!testing" class="w-3.5 h-3.5" />
                   <Loader2Icon v-else class="w-3.5 h-3.5 animate-spin" />
                   <span>{{ testing ? '测试中...' : '测试接口' }}</span>
                 </button>
-                <button @click="saveModelConfig" :disabled="saving" class="btn-primary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 font-bold rounded-xl active:scale-95 transition-all">
+
+                <button 
+                  @click="activeSettingsTab === 'drawing' ? saveNovelAiConfig() : saveModelConfig()" 
+                  :disabled="saving" 
+                  class="btn-primary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 font-bold rounded-xl active:scale-95 transition-all"
+                >
                   <Loader2Icon v-if="saving" class="w-3.5 h-3.5 animate-spin" />
                   <SaveIcon v-else class="w-3.5 h-3.5" />
                   <span>{{ saving ? '保存中...' : '保存配置' }}</span>
@@ -2460,6 +2550,105 @@
                       <SparklesIcon class="w-20 h-20 text-secondary" />
                     </div>
                     <div v-html="renderMarkdown(contactGoalsContent || '*当前角色暂无长期目标设定*')"></div>
+                  </div>
+                </div>
+
+                <!-- F. 外貌设定 Tab -->
+                <div v-else-if="contactActiveTab === 'appearance'" class="h-full flex-1 flex flex-col min-h-0">
+                  <div class="flex items-center justify-between mb-2 flex-shrink-0 select-none">
+                    <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">外貌特征设定 (Appearance.md)</div>
+                    <div class="flex items-center space-x-2">
+                      <button 
+                        @click="extractAppearance" 
+                        :disabled="isExtractingAppearance" 
+                        class="flex items-center space-x-1 text-xs text-secondary border border-secondary/20 hover:border-secondary bg-secondary/5 hover:bg-secondary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none"
+                        title="调用 AI 深度阅读性格人设，提炼并翻译为精准的绘图 tags 标签"
+                      >
+                        <Loader2Icon v-if="isExtractingAppearance" class="w-3.5 h-3.5 animate-spin" />
+                        <SparklesIcon v-else class="w-3.5 h-3.5" />
+                        <span>AI 自动提炼</span>
+                      </button>
+                      <button 
+                        @click="contactEditModes.appearance = !contactEditModes.appearance" 
+                        class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none"
+                      >
+                        <component :is="contactEditModes.appearance ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                        <span>{{ contactEditModes.appearance ? '预览外貌' : '修改外貌' }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- 预览模式 -->
+                  <div v-if="!contactEditModes.appearance" class="flex-1 p-4 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm" v-html="renderMarkdown(contactAppearanceContent || '*暂无专属外貌设定，您可以点击「AI 自动提炼」或手动「修改外貌」以初始化角色长相外貌*')"></div>
+                  <!-- 编辑模式 -->
+                  <textarea v-else v-model="contactAppearanceContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto min-h-[300px] shadow-inner" placeholder="### Appearance Tags&#10;1girl, long blue hair, twin tails...&#10;&#10;### Appearance Description&#10;一位长着天蓝色双马尾和亮晶晶眼眸的美少女，经常穿着华丽的裙装。"></textarea>
+
+                  <div v-if="contactEditModes.appearance" class="flex justify-end space-x-2 mt-3 flex-shrink-0 select-none">
+                    <button @click="contactEditModes.appearance = false; selectCharacterForContactDetails(selectedContactId)" class="btn-secondary text-xs py-1.5 px-4">取消</button>
+                    <button @click="saveAppearanceFile" class="btn-primary text-xs py-1.5 px-4">保存</button>
+                  </div>
+                </div>
+
+                <!-- G. 专属图库 Tab -->
+                <div v-else-if="contactActiveTab === 'gallery'" class="h-full flex-1 flex flex-col min-h-0">
+                  <div class="flex items-center justify-between mb-4 flex-shrink-0 select-none">
+                    <div>
+                      <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">专属历史画册 (GALLERY)</div>
+                      <p class="text-[9px] text-on-surface-variant mt-0.5">该角色在自省生活、发帖、私聊中生成的精美影像</p>
+                    </div>
+                    <button 
+                      @click="loadContactGallery(characterList.find(c => c.id === selectedContactId)?.folder_name)" 
+                      :disabled="isLoadingGallery" 
+                      class="flex items-center space-x-1 text-[10px] text-on-surface-variant border border-outline-variant/60 bg-surface-high/30 hover:bg-surface-high/50 hover:text-on-surface px-2 py-1 rounded transition-all font-bold"
+                    >
+                      <RefreshCwIcon class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoadingGallery }" />
+                      <span>刷新图库</span>
+                    </button>
+                  </div>
+
+                  <!-- 图库内容 -->
+                  <div v-if="isLoadingGallery" class="flex-1 flex flex-col items-center justify-center py-10 space-y-3">
+                    <Loader2Icon class="w-8 h-8 text-primary animate-spin" />
+                    <span class="text-xs text-on-surface-variant">正在搜集精美影像...</span>
+                  </div>
+                  <div v-else-if="!contactGalleryImages.length" class="flex-1 flex flex-col items-center justify-center py-12 text-center border-2 border-dashed border-outline-variant/40 rounded-2xl bg-surface-high/10">
+                    <ImageIcon class="w-10 h-10 text-on-surface-variant/40 mb-2.5" />
+                    <h4 class="text-xs font-bold text-on-surface-variant">尚无已生成的影像</h4>
+                    <p class="text-[10px] text-on-surface-variant/60 mt-1 max-w-[240px] leading-relaxed">
+                      与角色私聊聊天时触发“AI 绘图”、角色在朋友圈发帖、或角色闲暇搭讪时，会在此逐步收藏沉淀精美画卷。
+                    </p>
+                  </div>
+                  <div v-else class="flex-1 overflow-y-auto pr-1">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      <div 
+                        v-for="img in contactGalleryImages" 
+                        :key="img.filename" 
+                        @click="openImagePreview(img)"
+                        class="group relative aspect-[3/4] rounded-xl border border-outline-variant/30 overflow-hidden bg-surface-high cursor-pointer shadow-sm hover:shadow-md transition-all duration-300 transform hover:-translate-y-0.5 select-none"
+                      >
+                        <!-- 图片容器 -->
+                        <div class="w-full h-full relative">
+                          <img 
+                            v-if="img.base64" 
+                            :src="img.base64" 
+                            class="w-full h-full object-cover group-hover:scale-105 transition-all duration-500" 
+                            loading="lazy"
+                          />
+                          <!-- 异步加载骨架 -->
+                          <div v-else class="w-full h-full flex items-center justify-center bg-surface-high/50">
+                            <Loader2Icon class="w-5 h-5 text-on-surface-variant/20 animate-spin" />
+                          </div>
+                        </div>
+
+                        <!-- 渐变阴影底色 & 文字 -->
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-end p-3 text-white">
+                          <span class="text-[9px] font-semibold text-white/90 font-mono">{{ formatGalleryTime(img.createdAt) }}</span>
+                          <span class="text-[10px] font-bold mt-1 line-clamp-2 leading-snug drop-shadow-sm text-primary-light">
+                            {{ img.prefixType === 'social' ? '朋友圈配图' : img.prefixType === 'proactive' ? '随拍美图' : '私聊聊天' }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3892,7 +4081,14 @@
                   </div>
 
                   <!-- 高颜值微信红包封面卡片 -->
-                  <div v-if="msg.redPacket" class="wechat-red-packet-card mb-1 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none">
+                  <div 
+                    v-if="msg.redPacket" 
+                    class="wechat-red-packet-card mb-1 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none"
+                    @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                    @touchstart="onLongPressStart($event, msg, 'message')"
+                    @touchend="onLongPressEnd"
+                    @touchmove="onLongPressMove"
+                  >
                     <!-- A. 等待领取状态 (waiting) -->
                     <template v-if="!msg.redPacket.status || msg.redPacket.status === 'waiting'">
                       <!-- 上半部分：红橙渐变 -->
@@ -4025,7 +4221,15 @@
                   </div>
 
                   <!-- 高颜值回音红包卡片 (角色发给用户) -->
-                  <div v-else-if="msg.redPacket" class="wechat-red-packet-card mb-1 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[210px]" @click="handleReceiveCharacterRedPacket(msg)">
+                  <div 
+                    v-else-if="msg.redPacket" 
+                    class="wechat-red-packet-card mb-1 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[210px]" 
+                    @click="handleReceiveCharacterRedPacket(msg)"
+                    @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                    @touchstart="onLongPressStart($event, msg, 'message')"
+                    @touchend="onLongPressEnd"
+                    @touchmove="onLongPressMove"
+                  >
                     <!-- A. 等待领取状态 (waiting) -->
                     <template v-if="!msg.redPacket.status || msg.redPacket.status === 'waiting'">
                       <!-- 上半部分：红橙渐变 -->
@@ -4152,6 +4356,17 @@
                 title="会话历史"
               >
                 <HistoryIcon class="w-5 h-5" />
+              </button>
+
+              <!-- AI 绘图 -->
+              <button
+                @click="triggerChatImageGeneration"
+                :disabled="isAnalyzingPrompt || isDrawingImage"
+                class="input-tool-btn disabled:opacity-50"
+                title="AI 绘图"
+              >
+                <Loader2Icon v-if="isAnalyzingPrompt || isDrawingImage" class="w-5 h-5 animate-spin" />
+                <SparklesIcon v-else class="w-5 h-5 text-secondary hover:text-primary transition-all duration-300" />
               </button>
             </div>
 
@@ -6367,10 +6582,157 @@
     <SparklesIcon class="w-3.5 h-3.5 text-amber-400 animate-spin" style="animation-duration: 4s;" />
     <span>{{ toastMessage }}</span>
   </div>
+
+  <!-- A. AI 绘图场景 Prompt 预览与微调确认 Modal -->
+  <div 
+    v-if="showPromptConfirmModal" 
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 select-none"
+    @click.self="showPromptConfirmModal = false"
+  >
+    <div class="max-w-md w-full bg-surface-low border border-outline-variant/20 rounded-2xl p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 text-on-surface">
+      <div class="flex items-center space-x-2.5 border-b border-outline-variant/20 pb-3">
+        <div class="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+          <SparklesIcon class="w-4 h-4" />
+        </div>
+        <div>
+          <h3 class="text-xs font-bold">微调绘图场景设计</h3>
+          <p class="text-[9px] text-on-surface-variant mt-0.5">确认或修改当前场景生成的绘图细节与尺寸</p>
+        </div>
+      </div>
+
+      <!-- 场景简述展示 -->
+      <div class="space-y-1 bg-surface-high/30 p-3 rounded-xl border border-outline-variant/10">
+        <span class="text-[9px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">场景中文设计构想</span>
+        <p class="text-xs text-on-surface leading-relaxed select-text">{{ confirmedDescription }}</p>
+      </div>
+
+      <!-- Prompt Tags 编辑框 -->
+      <div class="space-y-1.5">
+        <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">生图 Prompt (Tags) - 支持自由微调</label>
+        <textarea v-model="confirmedPrompt" rows="4" class="form-input font-mono text-[10px] leading-relaxed resize-none bg-surface p-3" placeholder="1girl, detailed background..."></textarea>
+        <p class="text-[9px] text-on-surface-variant leading-normal">注：绘图时，系统会自动将您在角色物理目录中提炼的 Appearance 专属外貌特征标签合并在最前面，以确保五官和形象不偏离。</p>
+      </div>
+
+      <!-- 尺寸长宽比选择 -->
+      <div class="space-y-2">
+        <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">长宽比尺寸选择</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button 
+            type="button" 
+            @click="confirmedDimensions = 'portrait'" 
+            class="p-2.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95"
+            :class="confirmedDimensions === 'portrait' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/60 text-on-surface-variant'"
+          >
+            <div class="w-3 h-5 border border-current rounded-sm mb-1 opacity-70"></div>
+            <span class="text-[10px] font-bold">纵向 832x1216</span>
+          </button>
+          <button 
+            type="button" 
+            @click="confirmedDimensions = 'landscape'" 
+            class="p-2.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95"
+            :class="confirmedDimensions === 'landscape' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/60 text-on-surface-variant'"
+          >
+            <div class="w-5 h-3 border border-current rounded-sm mb-1 opacity-70"></div>
+            <span class="text-[10px] font-bold">横向 1216x832</span>
+          </button>
+          <button 
+            type="button" 
+            @click="confirmedDimensions = 'square'" 
+            class="p-2.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95"
+            :class="confirmedDimensions === 'square' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/60 text-on-surface-variant'"
+          >
+            <div class="w-4 h-4 border border-current rounded-sm mb-1.5 opacity-70"></div>
+            <span class="text-[10px] font-bold">正方 1024x1024</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div class="flex space-x-3 pt-2">
+        <button @click="showPromptConfirmModal = false" class="btn-secondary flex-1 text-xs py-2 rounded-xl">取消</button>
+        <button @click="executeNovelAiImageGeneration" class="btn-primary flex-1 text-xs py-2 rounded-xl flex items-center justify-center space-x-1">
+          <SparklesIcon class="w-3.5 h-3.5" />
+          <span>确定绘制场景</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- B. 大图预览毛玻璃 Modal -->
+  <div 
+    v-if="showBigImageModal" 
+    class="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 select-none"
+    @click.self="showBigImageModal = false"
+  >
+    <div class="relative max-w-4xl w-full bg-surface-low border border-outline-variant/20 rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[85vh] animate-in zoom-in-95 duration-200 text-on-surface">
+      <!-- 关闭按钮 -->
+      <button 
+        @click="showBigImageModal = false" 
+        class="absolute right-4 top-4 z-10 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-all cursor-pointer border border-white/10"
+      >
+        <XIcon class="w-4 h-4" />
+      </button>
+
+      <!-- 图片展示区 -->
+      <div class="flex-1 bg-black/40 flex items-center justify-center min-h-[300px] md:min-h-0 overflow-hidden relative">
+        <img 
+          :src="bigImageUrl" 
+          class="max-w-full max-h-[50vh] md:max-h-[80vh] object-contain shadow-inner" 
+        />
+      </div>
+
+      <!-- 详细信息及 Prompt 侧边区 -->
+      <div class="w-full md:w-80 border-t md:border-t-0 md:border-l border-outline-variant/20 p-5 flex flex-col justify-between overflow-y-auto max-h-[35vh] md:max-h-none">
+        <div class="space-y-4">
+          <div>
+            <span class="px-2.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary text-[9px] font-extrabold uppercase tracking-wide">
+              {{ bigImageInfo?.prefixType === 'social' ? '社媒朋友圈' : bigImageInfo?.prefixType === 'proactive' ? '随拍美图' : '私聊生图' }}
+            </span>
+            <h4 class="text-xs font-extrabold text-on-surface mt-2">影像详细信息</h4>
+          </div>
+
+          <div class="space-y-2 text-[10px] text-on-surface-variant bg-surface-high/30 p-3 rounded-xl border border-outline-variant/10">
+            <div class="flex justify-between">
+              <span>生成时间:</span>
+              <span class="font-mono">{{ formatGalleryFullTime(bigImageInfo?.createdAt) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>长宽尺寸:</span>
+              <span class="font-mono">{{ bigImageInfo?.dimensions === 'landscape' ? '1216 x 832' : bigImageInfo?.dimensions === 'square' ? '1024 x 1024' : '832 x 1216' }}</span>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">生图 Prompt (Tags)</label>
+            <div class="bg-surface-high font-mono text-[9px] text-on-surface p-3 rounded-xl border border-outline-variant/20 leading-relaxed overflow-y-auto max-h-[140px] select-text">
+              {{ bigImageInfo?.prompt || '暂无保存提示词元数据 (旧图片)' }}
+            </div>
+            <button 
+              v-if="bigImageInfo?.prompt"
+              @click="copyText(bigImageInfo.prompt)" 
+              class="px-2 py-0.5 rounded border border-outline-variant/60 text-[9px] text-on-surface-variant hover:text-on-surface bg-surface hover:bg-surface-high transition-all"
+            >
+              复制 Prompt Tags
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-5 border-t border-outline-variant/20 pt-4 flex select-none">
+          <button 
+            @click="downloadImage(bigImageUrl, bigImageInfo?.filename)" 
+            class="btn-primary flex-1 text-xs py-2 rounded-xl flex items-center justify-center space-x-1.5 active:scale-95 transition-all"
+          >
+            <DownloadIcon class="w-4 h-4" />
+            <span>保存/下载图片</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch, toRaw } from 'vue'
 import ClockView from './components/ClockView.vue'
 import {
   MessageSquare as MessageSquareIcon,
@@ -6822,16 +7184,28 @@ const userMdEditing = ref(false)
 // ===================== 设置 =====================
 const showSettingsModal = ref(false)
 const chatMode = ref<'descriptive' | 'dialogue'>('descriptive')
-const activeSettingsTab = ref<'general' | 'states' | 'primary' | 'secondary' | 'migration' | 'about'>('general')
+const activeSettingsTab = ref<'general' | 'states' | 'primary' | 'secondary' | 'drawing' | 'migration' | 'about'>('general')
 const globalPrompt = ref('')
-const settingsMenus: { id: 'general' | 'states' | 'primary' | 'secondary' | 'migration' | 'about'; label: string; icon: any }[] = [
+const settingsMenus: { id: 'general' | 'states' | 'primary' | 'secondary' | 'drawing' | 'migration' | 'about'; label: string; icon: any }[] = [
   { id: 'general', label: '常规设置', icon: SettingsIcon },
   { id: 'states', label: '状态栏设置', icon: HeartIcon },
   { id: 'primary', label: '主大模型', icon: CpuIcon },
   { id: 'secondary', label: '辅助大模型', icon: CpuIcon },
+  { id: 'drawing', label: 'AI 绘图', icon: ImageIcon },
   { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
   { id: 'about', label: '关于软件', icon: HelpCircleIcon }
 ]
+
+// ===================== NovelAI 绘图配置 =====================
+const novelai = reactive({
+  apiKey: '',
+  baseUrl: 'https://image.novelai.net',
+  model: 'nai-diffusion-4-5-full',
+  negativePrompt: 'low quality, bad anatomy, worst quality, 3d, monochrome, sketch',
+  confirmMode: true
+})
+const anlasPoints = ref(0)
+const isLoadingAnlas = ref(false)
 
 function openSettingsPage() {
   sideView.value = 'settings'
@@ -7488,7 +7862,7 @@ async function triggerDreamReflection() {
           folderName: char.folder_name
         })
         if (res.success) {
-          showCustomAlert('梦境反射成功', `✨ ${char.name} 已完成梦境反思进化！专属避坑补丁已 Patch 到物理技能中。`, 'success')
+          showCustomAlert('梦境反射成功', `✨ ${char.name} 已完成梦境反思进化！专属避坑补丁已成功应用至日常行为守则中。`, 'success')
         } else {
           showCustomAlert('睡眠被打断', `${res.error || '大模型未吐出有效的避坑反思'}`, 'error')
         }
@@ -7689,9 +8063,16 @@ const contactActiveTab = ref('soul')
 const contactSoulContent = ref('')
 const contactMemoryContent = ref('')
 const contactUserContent = ref('')
+const contactAppearanceContent = ref('')
 const contactHasDiary = ref(false)
 const contactMemoryRawContent = ref('')
-const contactEditModes = reactive({ soul: false, memory: false, user: false })
+const contactEditModes = reactive({ soul: false, memory: false, user: false, appearance: false })
+const contactGalleryImages = ref<any[]>([])
+const isLoadingGallery = ref(false)
+const isExtractingAppearance = ref(false)
+const showBigImageModal = ref(false)
+const bigImageUrl = ref('')
+const bigImageInfo = ref<any>(null)
 
 const isEditingContactName = ref(false)
 const editingContactName = ref('')
@@ -7850,6 +8231,7 @@ async function selectCharacterForContactDetails(charId: string) {
   contactEditModes.soul = false
   contactEditModes.memory = false
   contactEditModes.user = false
+  contactEditModes.appearance = false
   
   // A. 读取 Soul.md
   const soulRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Soul.md' })
@@ -7863,6 +8245,13 @@ async function selectCharacterForContactDetails(charId: string) {
   // C. 读取 USER.md
   const userRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'USER.md' })
   contactUserContent.value = userRes.success ? userRes.content : ''
+
+  // CA. 读取 Appearance.md
+  const appRes = await window.api.invoke('read-appearance-file', { folderName: char.folder_name })
+  contactAppearanceContent.value = appRes.success ? appRes.content : ''
+
+  // CB. 异步加载专属图库画册
+  loadContactGallery(char.folder_name)
   
   // D. 预检日记
   const diaryRes = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
@@ -8304,7 +8693,8 @@ function restoreMessageProps(m: any) {
   if (m.content) {
     // 自动清洗历史记录中可能残存的红包控制字符，确保绝不显露代码
     if (typeof m.content === 'string') {
-      const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/g
+      // 🚀 升级为超强容错全局正则，支持全半角冒号/逗号、反单引号包裹、忽略大小写
+      const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
       result.content = m.content
         .replace(/\[RECEIVE_RED_PACKET\]/g, '')
         .replace(/\[RETURN_RED_PACKET\]/g, '')
@@ -9242,7 +9632,8 @@ function scrubRedPacketFromQueue() {
   const queueText = typingQueue.value.join('')
   
   // 🚀 前端 done 兜底：强力抹杀 typingQueue 里面残存的任何主动发红包控制符 [SEND_RED_PACKET: ...]
-  const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/g
+  // 🚀 升级为超强容错全局正则，支持全半角冒号/逗号、反单引号包裹、忽略大小写
+  const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
   let updatedText = queueText.replace(sendReg, '').trim()
 
   let isReceive = false
@@ -9259,7 +9650,10 @@ function scrubRedPacketFromQueue() {
   
   // 🚀 进一步清除未闭合的小说动作半截括号残余（如：“(红”）
   const halfBracketReg = /[（(][^）)]*$/g
-  updatedText = updatedText.replace(halfBracketReg, '').trim()
+
+  updatedText = updatedText
+    .replace(halfBracketReg, '')
+    .trim()
 
   typingQueue.value = updatedText.split('')
   
@@ -10319,6 +10713,261 @@ async function saveModelConfig() {
   }
 }
 
+// ===================== NovelAI 绘图前端交互逻辑 =====================
+const showApiKey = ref(false)
+
+async function saveNovelAiConfig() {
+  saving.value = true
+  try {
+    const res = await window.api.invoke('save-novelai-config', toRaw(novelai))
+    if (res.success) {
+      showSettingsModal.value = false
+      showCustomAlert('配置保存成功', 'NovelAI 绘图配置已成功写入本地 SQLite，并已实时生效！', 'success')
+    } else {
+      showCustomAlert('保存失败', `${res.error || '未知错误'}`, 'error')
+    }
+  } catch (error: any) {
+    showCustomAlert('保存异常', `${error.message}`, 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function refreshAnlas() {
+  if (!novelai.apiKey) return
+  isLoadingAnlas.value = true
+  try {
+    const res = await window.api.invoke('fetch-novelai-anlas', { apiKey: novelai.apiKey })
+    if (res.success) {
+      anlasPoints.value = res.anlas
+    } else {
+      showToast(`点数获取失败: ${res.error}`)
+    }
+  } catch (e: any) {
+    showToast(`点数获取异常: ${e.message}`)
+  } finally {
+    isLoadingAnlas.value = false
+  }
+}
+
+async function loadContactGallery(folderName: string) {
+  isLoadingGallery.value = true
+  contactGalleryImages.value = []
+  try {
+    const res = await window.api.invoke('get-gallery-images', { folderName })
+    if (res.success && res.images) {
+      // 1. 先骨架占位
+      const list = res.images.map((img: any) => ({
+        ...img,
+        base64: ''
+      }))
+      contactGalleryImages.value = list
+
+      // 2. 异步发起读取 Base64 填充，保证性能与秒开体验
+      list.forEach(async (img: any, idx: number) => {
+        try {
+          const readRes = await window.api.invoke('read-image-media', {
+            folderName,
+            mediaPath: img.relativePath
+          })
+          if (readRes.success) {
+            contactGalleryImages.value[idx].base64 = readRes.base64
+          }
+        } catch (err) {
+          console.error(`加载图片 ${img.filename} 失败:`, err)
+        }
+      })
+    }
+  } catch (e) {
+    console.error('载入角色图库失败:', e)
+  } finally {
+    isLoadingGallery.value = false
+  }
+}
+
+async function extractAppearance() {
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+  isExtractingAppearance.value = true
+  try {
+    const res = await window.api.invoke('extract-appearance-features', { folderName: char.folder_name })
+    if (res.success) {
+      const formatted = `### Appearance Tags\n${res.tags}\n\n### Appearance Description\n${res.description}`
+      contactAppearanceContent.value = formatted
+      showToast('AI 外貌特征提取成功 🌟')
+      
+      // 顺便落盘保存
+      await window.api.invoke('save-appearance-file', { folderName: char.folder_name, content: formatted })
+    } else {
+      showCustomAlert('提取失败', `${res.error || 'AI 提炼失败，请重试。'}`, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('提取异常', `${err.message || String(err)}`, 'error')
+  } finally {
+    isExtractingAppearance.value = false
+  }
+}
+
+async function saveAppearanceFile() {
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+  try {
+    const res = await window.api.invoke('save-appearance-file', {
+      folderName: char.folder_name,
+      content: contactAppearanceContent.value
+    })
+    if (res.success) {
+      contactEditModes.appearance = false
+      showToast('外貌设定保存成功 🎉')
+    } else {
+      showToast(`保存失败: ${res.error}`)
+    }
+  } catch (err: any) {
+    showToast(`保存异常: ${err.message}`)
+  }
+}
+
+function openImagePreview(img: any) {
+  bigImageUrl.value = img.base64
+  bigImageInfo.value = img
+  showBigImageModal.value = true
+}
+
+function downloadImage(base64Data: string, filename: string) {
+  const link = document.createElement('a')
+  link.href = base64Data
+  link.download = filename || `echo_drawing_${Date.now()}.png`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  showToast('图片下载已触发 🌊')
+}
+
+function formatGalleryTime(timestamp: number) {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  return `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+}
+
+function formatGalleryFullTime(timestamp: number) {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`
+}
+
+// ===================== 聊天框 AI 绘图交互逻辑 =====================
+const showPromptConfirmModal = ref(false)
+const isAnalyzingPrompt = ref(false)
+const isDrawingImage = ref(false)
+const confirmedPrompt = ref('')
+const confirmedDescription = ref('')
+const confirmedDimensions = ref<'portrait' | 'landscape' | 'square'>('portrait')
+
+async function triggerChatImageGeneration() {
+  if (!activeCharacter.value) return
+  if (!novelai.apiKey) {
+    showCustomAlert('未配置绘图', '您尚未配置 NovelAI API Key，请前往「设置 - AI 绘图」进行配置。', 'info')
+    return
+  }
+
+  isAnalyzingPrompt.value = true
+  const charId = activeCharacter.value.id
+  const recentMsgs = (allMessages.value[charId] || []).slice(-20)
+
+  showToast('AI 正在深度领悟上下文气氛中... 🔮')
+
+  try {
+    const res = await window.api.invoke('analyze-chat-image-prompt', {
+      characterId: charId,
+      folderName: activeCharacter.value.folder_name,
+      recentMessages: recentMsgs
+    })
+
+    if (res.success) {
+      confirmedPrompt.value = res.prompt
+      confirmedDescription.value = res.description
+      confirmedDimensions.value = 'portrait' // 默认 portrait 纵向
+
+      if (novelai.confirmMode) {
+        showPromptConfirmModal.value = true
+      } else {
+        await executeNovelAiImageGeneration()
+      }
+    } else {
+      showCustomAlert('分析场景失败', `${res.error || 'AI 分析上下文场景失败，请重试。'}`, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('分析场景异常', `${err.message || String(err)}`, 'error')
+  } finally {
+    isAnalyzingPrompt.value = false
+  }
+}
+
+async function executeNovelAiImageGeneration() {
+  if (!activeCharacter.value) return
+  isDrawingImage.value = true
+  showPromptConfirmModal.value = false
+  
+  showToast('AI 画笔绘制中，预计需要 3~8 秒... 🎨')
+
+  const charId = activeCharacter.value.id
+  try {
+    const res = await window.api.invoke('generate-novelai-image', {
+      characterId: charId,
+      folderName: activeCharacter.value.folder_name,
+      prompt: confirmedPrompt.value,
+      dimensions: confirmedDimensions.value,
+      prefixType: 'drawing'
+    })
+
+    if (res.success) {
+      showToast('画卷落笔成功！🎉')
+      
+      const imgMsgId = `chat_img_${charId}_${Date.now()}`
+      const newImgMsg = {
+        id: imgMsgId,
+        character_id: charId,
+        role: 'assistant',
+        content: `[wechat_image_media]:${res.relativePath}`,
+        timestamp: Date.now(),
+        token_usage: 0
+      }
+      
+      const saveRes = await window.api.invoke('save-character-message', {
+        characterId: charId,
+        message: newImgMsg
+      })
+
+      if (saveRes.success) {
+        if (!allMessages.value[charId]) {
+          allMessages.value[charId] = []
+        }
+        allMessages.value[charId].push(newImgMsg)
+        
+        nextTick(() => {
+          scrollToBottom('smooth')
+        })
+
+        refreshAnlas()
+      }
+    } else {
+      showCustomAlert('生图失败', `${res.error || '绘图引擎出错了，请检查设置。'}`, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('生图异常', `${err.message || String(err)}`, 'error')
+  } finally {
+    isDrawingImage.value = false
+  }
+}
+
+function copyText(text: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('已复制到剪贴板 📋')
+  }).catch(() => {
+    showToast('复制失败 😢')
+  })
+}
+
 function showComingSoon(name: string) {
   showCustomAlert('即将上线', `${name} 功能即将上线，敬请期待！`, 'info')
 }
@@ -10848,6 +11497,19 @@ onMounted(async () => {
     console.error('加载大模型设置异常:', error)
   }
 
+  // 加载 NovelAI 绘图配置
+  try {
+    const naiRes = await window.api.invoke('get-novelai-config')
+    if (naiRes.success && naiRes.config) {
+      Object.assign(novelai, naiRes.config)
+      if (novelai.apiKey) {
+        refreshAnlas()
+      }
+    }
+  } catch (e) {
+    console.error('加载 NovelAI 配置异常:', e)
+  }
+
   // 监听后台自省增量状态更新广播
   window.api.receive('character-state-updated', (data: { characterId: string, updates: any[] }) => {
     if (activeCharacter.value) {
@@ -10907,8 +11569,10 @@ onMounted(async () => {
           if (msgs.length > 0) {
             const last = msgs[msgs.length - 1]
             if (last.role === 'assistant') {
-              const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/g
+              // 🚀 升级为超强容错全局正则，支持全半角冒号/逗号、反单引号包裹、忽略大小写
+              const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
               const halfBracketReg = /[（(][^）)]*$/g
+
               let cleanedContent = data.content
                 .replace(/\[RECEIVE_RED_PACKET\]/g, '')
                 .replace(/\[RETURN_RED_PACKET\]/g, '')
@@ -11691,8 +12355,7 @@ async function deleteFavoriteItem(fav: any) {
 
 // 8. 聊天气泡右键上下文菜单事件
 function openMessageContextMenu(e: MouseEvent, msg: any) {
-  if (msg.redPacket) return // 红包消息无法右键
-  
+  // 🚀 核心改动：允许红包消息触发右键上下文菜单，实现历史气泡的自愈式物理擦除
   contextMenu.visible = true
   const pos = adjustContextMenuPosition(e, 'message')
   contextMenu.x = pos.x

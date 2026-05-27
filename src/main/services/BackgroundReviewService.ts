@@ -6,7 +6,7 @@ import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 /**
  * BackgroundReviewService
  * 静默睡眠进化反思服务，负责在后台通过辅助大模型深度剖析聊天快照，
- * 寻找用户的 Frustration 挫败纠错信号，并物理 Patch 写回 Soul.md 和技能的 SKILL.md。
+ * 寻找用户的 Frustration 挫败纠错信号，并物理 Patch 写回角色专属的 DREAM.md。
  */
 export class BackgroundReviewService {
   private storageManager: CharacterStorageManager;
@@ -56,9 +56,9 @@ export class BackgroundReviewService {
       }
     }
 
-    // 2. 组装睡眠自省专用 Prompt (挫败信号捕获与技能 Patch 指令)
+    // 2. 组装睡眠自省专用 Prompt (挫败信号捕获与行为补丁指令)
     const systemPrompt = `You are the sleeping inner-subconscious curator of the AI Character "${folderName}".
-Your task is to analyze the recent conversation transcript for any "User Frustration Signals" (e.g., user correcting style, complaints like "别给我放这种歌", "不要这样称呼我", "少说废话", or "Don't do X").
+Your task is to analyze the recent conversation transcript for any "User Frustration Signals" (e.g., user correcting style, complaints like "不要这样称呼我", "少说废话", "你太啰嗦了", or "Don't do X").
 
 Below is the existing DREAM.md patch guidelines for this character:
 [EXISTING DREAM.MD GUIDELINES]
@@ -68,7 +68,7 @@ ${existingDreamContent}
 CRITICAL DEDUPLICATION & COMBINING RULE:
 Compare any potential new patches with the EXISTING DREAM.MD GUIDELINES above. If a potential patch has the same meaning, targets the same behavior, or addresses the same pitfall as an existing rule (even if described using different words or expressions), you MUST NOT output it. Do not add any semantically duplicate or redundant rules. Only output highly unique, newly discovered frustration rules.
 
-1. "skill_patches": Action execution pitfalls. If user complained about how a specific skill (like "play-music") behaved, generate a precise pitfall guideline patch (e.g. "避坑：深夜禁止推荐摇滚乐").
+1. "behavior_patches": Behavioral pitfall guidelines. Generate a precise pitfall guideline patch based on user frustration (e.g. "避坑：不要使用过于生硬的书面语").
 
 CRITICAL LANGUAGE RULE: The generated 'patch_content' MUST be written in Simplified Chinese (简体中文) to ensure the AI's internal memory alignment remains high.
 
@@ -76,9 +76,9 @@ You MUST reply with a single JSON object matching this structure EXACTLY. If no 
 
 Target JSON format:
 {
-  "skill_patches": [
+  "behavior_patches": [
     {
-      "skill_name": "play-music",
+      "category": "通用",
       "patch_content": "declarative pitfall/guideline to be appended to DREAM.md, or null"
     }
   ]
@@ -102,11 +102,11 @@ Target JSON format:
       }
 
       const parsed = JSON.parse(jsonMatch[0]) as {
-        skill_patches: { skill_name: string; patch_content: string | null }[] | null;
+        behavior_patches: { category: string; patch_content: string | null }[] | null;
       };
 
-      // 4. 物理 Patch 写盘：将反思避坑补丁追加写入专属 DREAM.md，并不再改动 Soul.md 与 skills 目录
-      if (Array.isArray(parsed.skill_patches)) {
+      // 4. 物理 Patch 写盘：将反思避坑补丁追加写入专属 DREAM.md，并不再改动 Soul.md
+      if (Array.isArray(parsed.behavior_patches)) {
         const dreamMdPath = path.join(charDir, 'DREAM.md');
         let dreamContent = '';
         
@@ -117,16 +117,16 @@ Target JSON format:
         }
         
         let hasNewPatch = false;
-        for (const skillPatch of parsed.skill_patches) {
-          if (skillPatch.patch_content && skillPatch.patch_content.trim()) {
-            const cleanPatch = skillPatch.patch_content.trim();
+        for (const patch of parsed.behavior_patches) {
+          if (patch.patch_content && patch.patch_content.trim()) {
+            const cleanPatch = patch.patch_content.trim();
             // 防重复写入
             if (!dreamContent.includes(cleanPatch)) {
               // 自动将默认占位说明行替换成真实条目
               if (dreamContent.includes('暂无梦境自省事实与避坑规则沉淀。')) {
                 dreamContent = dreamContent.replace('暂无梦境自省事实与避坑规则沉淀。', '').trim();
               }
-              dreamContent += `\n* 避坑补丁（${skillPatch.skill_name || '通用'}）：${cleanPatch}`;
+              dreamContent += `\n* 避坑补丁（${patch.category || '通用'}）：${cleanPatch}`;
               hasNewPatch = true;
               console.log(`[BackgroundReviewService] ✔ 梦境进化避坑追加至 DREAM.md: "${cleanPatch}"`);
             }

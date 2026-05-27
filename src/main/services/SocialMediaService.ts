@@ -5,6 +5,7 @@ import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { StateReaderWriter } from '../utils/StateReaderWriter';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
+import { NovelAiService } from './NovelAiService';
 
 export class SocialMediaService {
   private storageManager: CharacterStorageManager;
@@ -152,22 +153,94 @@ Instructions:
 1. Write a short Moments post in Simplified Chinese (简体中文).
 2. It MUST be within 100 characters, can include relevant emojis (✨, 🎮, 🍵, etc.).
 3. Base it on your schedules or recent chats, but make it relatable to anyone reading your timeline. DO NOT make it a direct message to the user.
-4. Output ONLY the post content. Do not wrap in markdown or JSON.`;
+4. Output ONLY the post content. Do not wrap in markdown or JSON.
+5. 【重要】你可以自决是否为这条朋友圈附加一张配图：
+   - 如果决定配图，你必须在朋友圈正文最末尾，以特定标签追加配图英文提示词及中文画面简述：
+     <image_prompt>极其详细的英文画作提示词（Danbooru 标签，不要包含衣服，用于文生图）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>
+   - 如果决定不附加配图，则绝不输出上述标签。`;
 
     const response = await modelAdapter.chat([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: '发一条轻松写意的微信朋友圈动态吧。' }
     ], { useSecondary: true });
 
-    const content = response.content.trim().replace(/^["']|["']$/g, ''); // 清理两端引号
+    let raw = response.content.trim().replace(/^["']|["']$/g, ''); // 清理两端引号
 
-    if (content) {
+    // 解析配图标签
+    const imagePromptMatch = raw.match(/<image_prompt>([\s\S]*?)<\/image_prompt>/i);
+    const imageDescMatch = raw.match(/<image_desc>([\s\S]*?)<\/image_desc>/i);
+
+    let textContent = raw
+      .replace(/<image_prompt>[\s\S]*?<\/image_prompt>/gi, '')
+      .replace(/<image_desc>[\s\S]*?<\/image_desc>/gi, '')
+      .trim();
+
+    if (textContent) {
+      let finalContent = textContent;
+
+      if (imagePromptMatch && imageDescMatch) {
+        const imagePrompt = imagePromptMatch[1].trim();
+        const imageDesc = imageDescMatch[1].trim();
+
+        try {
+          // 读取 NovelAI 配置
+          const configStr = db.getSetting('novelai_config');
+          if (configStr) {
+            const config = JSON.parse(configStr);
+            if (config.apiKey && config.apiKey.trim() !== '') {
+              // 提取外貌特征
+              let appearancePrompt = '';
+              const appearanceContent = this.storageManager.readCharacterFile(folderName, 'Appearance.md');
+              if (appearanceContent) {
+                const tagsMatch = appearanceContent.match(/### Appearance Tags\s*([\s\S]*?)(?:### Appearance Description|$)/i);
+                if (tagsMatch) {
+                  appearancePrompt = tagsMatch[1].trim();
+                }
+              }
+
+              // 组合最终生图提示词
+              const finalPrompt = appearancePrompt 
+                ? `${appearancePrompt}, ${imagePrompt}`
+                : imagePrompt;
+
+              // 生成社交大图 (portrait/纵向)
+              const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, 'portrait');
+
+              const charDir = path.join(baseDir, folderName);
+              const mediaDir = path.join(charDir, 'media');
+              if (!fs.existsSync(mediaDir)) {
+                fs.mkdirSync(mediaDir, { recursive: true });
+              }
+
+              const filename = `social_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.png`;
+              fs.writeFileSync(path.join(mediaDir, filename), imageBuffer);
+
+              // 额外保存同名元数据 .json
+              const metaFilename = filename.replace('.png', '.json');
+              const metadata = {
+                prompt: finalPrompt,
+                dimensions: 'portrait',
+                timestamp: Date.now(),
+                prefixType: 'social'
+              };
+              fs.writeFileSync(path.join(mediaDir, metaFilename), JSON.stringify(metadata, null, 2));
+
+              // 拼接隐藏注释
+              finalContent = `${textContent}\n\n<!-- [wechat_image_media]:media/${filename} --><!-- [image_desc]:${imageDesc} -->`;
+              console.log(`[SocialMediaService] 角色 ${char.name} 后台生成朋友圈动态成功，并自动文生图落盘: media/${filename}`);
+            }
+          }
+        } catch (imageErr: any) {
+          console.error(`[SocialMediaService] 角色 ${char.name} 朋友圈生图失败，降级为纯文本朋友圈:`, imageErr.message || imageErr);
+        }
+      }
+
       const moment = {
         id: `moment_${char.id}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         character_id: char.id,
         author_name: char.name,
         author_avatar: char.avatar,
-        content: content,
+        content: finalContent,
         timestamp: Date.now(),
         likes: 0 // 初始点赞数为0，由真实互动产生
       };
@@ -305,7 +378,11 @@ ${boardInstructions}
 3. The format MUST be exactly:
 Title: [Your post title]
 Body: [Your post rich text content]
-4. Do not output anything else.`;
+4. Do not output anything else.
+5. 【重要】你可以自决是否为这条论坛帖子附加一张配图：
+   - 如果决定配图，你必须在帖子的 Body 内容最末尾，以特定标签追加配图英文提示词及中文画面简述：
+     <image_prompt>极其详细的英文画作提示词（Danbooru 标签，不要包含衣服，用于文生图）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>
+   - 如果决定不附加配图，则绝不输出上述标签。`;
 
     const response = await modelAdapter.chat([
       { role: 'system', content: systemPrompt },
@@ -319,14 +396,85 @@ Body: [Your post rich text content]
     const title = titleMatch ? titleMatch[1].trim() : `${char.name}的最新感悟`;
     const body = bodyMatch ? bodyMatch[1].trim() : raw;
 
+    let finalBody = body;
+
+    // 解析配图标签
+    const imagePromptMatch = body.match(/<image_prompt>([\s\S]*?)<\/image_prompt>/i);
+    const imageDescMatch = body.match(/<image_desc>([\s\S]*?)<\/image_desc>/i);
+
+    let textBody = body
+      .replace(/<image_prompt>[\s\S]*?<\/image_prompt>/gi, '')
+      .replace(/<image_desc>[\s\S]*?<\/image_desc>/gi, '')
+      .trim();
+
     if (body) {
+      if (imagePromptMatch && imageDescMatch) {
+        const imagePrompt = imagePromptMatch[1].trim();
+        const imageDesc = imageDescMatch[1].trim();
+
+        try {
+          // 读取 NovelAI 配置
+          const configStr = db.getSetting('novelai_config');
+          if (configStr) {
+            const config = JSON.parse(configStr);
+            if (config.apiKey && config.apiKey.trim() !== '') {
+              // 提取外貌特征
+              let appearancePrompt = '';
+              const appearanceContent = this.storageManager.readCharacterFile(folderName, 'Appearance.md');
+              if (appearanceContent) {
+                const tagsMatch = appearanceContent.match(/### Appearance Tags\s*([\s\S]*?)(?:### Appearance Description|$)/i);
+                if (tagsMatch) {
+                  appearancePrompt = tagsMatch[1].trim();
+                }
+              }
+
+              // 组合最终生图提示词
+              const finalPrompt = appearancePrompt 
+                ? `${appearancePrompt}, ${imagePrompt}`
+                : imagePrompt;
+
+              // 生成社交大图 (portrait/纵向)
+              const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, 'portrait');
+
+              const charDir = path.join(baseDir, folderName);
+              const mediaDir = path.join(charDir, 'media');
+              if (!fs.existsSync(mediaDir)) {
+                fs.mkdirSync(mediaDir, { recursive: true });
+              }
+
+              const filename = `social_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.png`;
+              fs.writeFileSync(path.join(mediaDir, filename), imageBuffer);
+
+              // 额外保存同名元数据 .json
+              const metaFilename = filename.replace('.png', '.json');
+              const metadata = {
+                prompt: finalPrompt,
+                dimensions: 'portrait',
+                timestamp: Date.now(),
+                prefixType: 'social'
+              };
+              fs.writeFileSync(path.join(mediaDir, metaFilename), JSON.stringify(metadata, null, 2));
+
+              // 拼接隐藏注释
+              finalBody = `${textBody}\n\n<!-- [wechat_image_media]:media/${filename} --><!-- [image_desc]:${imageDesc} -->`;
+              console.log(`[SocialMediaService] 角色 ${char.name} 后台生成论坛发帖成功，并自动文生图落盘: media/${filename}`);
+            }
+          }
+        } catch (imageErr: any) {
+          console.error(`[SocialMediaService] 角色 ${char.name} 论坛生图失败，降级为纯文本论坛帖:`, imageErr.message || imageErr);
+          finalBody = textBody;
+        }
+      } else {
+        finalBody = textBody;
+      }
+
       const post = {
         id: `post_${char.id}_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         character_id: char.id,
         author_name: char.name,
         author_avatar: char.avatar,
         title: title,
-        content: body,
+        content: finalBody,
         timestamp: Date.now(),
         views: 0,         // 初始浏览量为0，由真实点击产生
         replies_count: 0, // 初始回复数为0，由真实评论产生
@@ -487,7 +635,15 @@ Please strictly apply these relationship constraints, mood, energy levels, and c
             }
           }
 
-          const systemPrompt = `You are ${char.name}. You are commenting on ${target.author_name}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${target.author_name} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}\nYour comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.\n\nPersonality Soul Profile:\n${soulContent}${memoryInjection}${intimacyGuidance}\n\nTarget Post Content to Comment:\n"${type === 'moment' ? target.content : (target.title + ': ' + target.content)}"\n\nInstructions:\n1. Write a very brief, organic comment (in Simplified Chinese) as if you are browsing your timeline.${isUserTarget ? ' Since this is the USER\'s post, leverage your relationship, memories, or common nickname for a personalized and warm comment.' : ''}\n2. Relevant emojis are allowed. Keep it under 40 characters.\n3. Output ONLY the raw comment text. No quotes, no wrappers.`;
+          // 提取配图隐藏说明
+          let hiddenImageGuidance = '';
+          const imageDescMatch = target.content.match(/<!--\s*\[image_desc\]:([\s\S]*?)\s*-->/i);
+          if (imageDescMatch) {
+            const imageDesc = imageDescMatch[1].trim();
+            hiddenImageGuidance = `\n\n【动态附带配图场景】：当前内容附带一张图片，画面展示内容为：“${imageDesc}”。在您以第一人称角色性格发表社交网络评论时，请务必针对此配图景象或内容细节进行精准、自然的评价与调侃，展示出你确实看到了动态里的这张图片，杜绝视而不见！`;
+          }
+
+          const systemPrompt = `You are ${char.name}. You are commenting on ${target.author_name}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${target.author_name} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}\nYour comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.\n\nPersonality Soul Profile:\n${soulContent}${memoryInjection}${intimacyGuidance}${hiddenImageGuidance}\n\nTarget Post Content to Comment:\n"${type === 'moment' ? target.content : (target.title + ': ' + target.content)}"\n\nInstructions:\n1. Write a very brief, organic comment (in Simplified Chinese) as if you are browsing your timeline.${isUserTarget ? ' Since this is the USER\'s post, leverage your relationship, memories, or common nickname for a personalized and warm comment.' : ''}\n2. Relevant emojis are allowed. Keep it under 40 characters.\n3. Output ONLY the raw comment text. No quotes, no wrappers.`;
 
           const response = await modelAdapter.chat([
             { role: 'system', content: systemPrompt },
@@ -742,12 +898,20 @@ Please strictly apply these relationship constraints, mood, energy levels, and c
         userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
       }
 
+      // 提取配图隐藏说明
+      let hiddenImageGuidance = '';
+      const imageDescMatch = targetContent.match(/<!--\s*\[image_desc\]:([\s\S]*?)\s*-->/i);
+      if (imageDescMatch) {
+        const imageDesc = imageDescMatch[1].trim();
+        hiddenImageGuidance = `\n\n【动态附带配图场景】：该动态附带有一张图片，画面展示内容为：“${imageDesc}”。在你们围绕该动态进行深度评论与链式对话互动时，请在回复中时刻注意关联该图片的景象，使你们的讨论能够极其逼真地针对画面细节展开互动！`;
+      }
+
       const systemPrompt = `You are ${char.name}. You are responding to a comment made on your ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserComment ? `\nNote that ${authorDisplayName} is the USER {{user}} whom you have chat history and memories with. Use a familiar, responsive, and highly personalized tone accordingly.` : ''}
 Your response must perfectly represent your personality profile below, be extremely natural, lively, and within 40 characters.
 
 Personality Soul Profile:
 ${soulContent}
-${intimacyGuidance}
+${intimacyGuidance}${hiddenImageGuidance}
 
 ${isUserComment ? `User Profiles (including global identity & your specific records of the User):\n${userProfilesXml}\n` : ''}
 Recent Chat Memories between you and User (getChatHistory):

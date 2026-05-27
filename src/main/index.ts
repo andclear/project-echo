@@ -23,6 +23,7 @@ import { StateReaderWriter, StateItem } from './utils/StateReaderWriter'
 import { SocialMediaService } from './services/SocialMediaService'
 import { SoulEvolutionService } from './services/SoulEvolutionService'
 import { MusicService } from './services/MusicService'
+import { NovelAiService } from './services/NovelAiService'
 
 // 完美解决 macOS 系统代理或 VPN 拦截导致的 Chromium 网络服务崩溃及本地 Dev 调试加载问题，确保开发服务器端口彻底绕过系统代理自检，且网络进程防崩
 app.commandLine.appendSwitch('proxy-bypass-list', '127.0.0.1;localhost;<local>;127.0.0.1:5173;localhost:5173;127.0.0.1:5174;localhost:5174;127.0.0.1:5175;localhost:5175')
@@ -404,7 +405,321 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // 4.1 获取 NovelAI 配置 IPC 通道
+  ipcMain.handle('get-novelai-config', async () => {
+    try {
+      const db = getDatabaseService()
+      const configStr = db.getSetting('novelai_config')
+      if (configStr) {
+        return { success: true, config: JSON.parse(configStr) }
+      }
+      return { success: true, config: null }
+    } catch (error: any) {
+      console.error('[IPC] 读取 NovelAI 配置失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.2 保存 NovelAI 配置 IPC 通道
+  ipcMain.handle('save-novelai-config', async (_, payload: any) => {
+    try {
+      console.log('[IPC] 正在保存 NovelAI 配置到 Settings 表')
+      const db = getDatabaseService()
+      db.setSetting('novelai_config', JSON.stringify(payload))
+      return { success: true }
+    } catch (error: any) {
+      console.error('[IPC] 保存 NovelAI 配置失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.3 获取 NovelAI Anlas 余额 IPC 通道
+  ipcMain.handle('fetch-novelai-anlas', async (_, payload: { apiKey: string }) => {
+    try {
+      const anlas = await NovelAiService.fetchAnlas(payload.apiKey)
+      return { success: true, anlas }
+    } catch (error: any) {
+      console.error('[IPC] 获取 NovelAI Anlas 余额失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.4 提取角色外貌固定特征 IPC 通道
+  ipcMain.handle('extract-appearance-features', async (_, payload: { folderName: string }) => {
+    try {
+      const storageManager = new CharacterStorageManager()
+      const soul = storageManager.readCharacterFile(payload.folderName, 'Soul.md')
+      if (!soul) {
+        return { success: false, error: '性格设定文件 Soul.md 为空或不存在' }
+      }
+
+      const db = getDatabaseService()
+      const configStr = db.getSetting('model_config')
+      if (!configStr) {
+        throw new Error('未配置全局大模型参数，请前往设置中心先进行配置保存！')
+      }
+      const settings = JSON.parse(configStr)
+      const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+
+      const systemPrompt = `你是一个非常专业的人物设定提取助手。请仔细阅读并分析给出的 AI 角色性格人设文档（Soul.md），精炼提取出其【固定的、永久的、不随场景改变的物理外貌特征】。
+要求：
+1. 【重要】绝对不能包含衣服、首饰或任何容易随着场景和穿着改变的物品（如：连衣裙、项链、帽子、包包、眼镜等）。
+2. 只关注固定的身体外貌特征：如性别、年龄外观、眼睛颜色、发色、发型、肤色、身材特征（身高、丰满程度）、面部特征（泪痣、表情倾向）等。
+3. 将提取的外貌特征翻译并整理为一套 NovelAI/Danbooru 精简英语提示词（Tags）以及一段简短的中文外貌说明。
+4. 输出必须严格按照以下格式排版，不要写任何 \`\`\` 块包裹：
+### Appearance Tags
+(在这里只输出半角逗号分隔的英文生图 Tag，例如: 1girl, blue eyes, silver long hair, twin tails, pale skin, petite)
+
+### Appearance Description
+(在这里用中文描述该角色的固定外貌特征，例如: 银发双马尾少女，拥有蔚蓝的双眸，皮肤白皙，身材娇小)`
+
+      const messages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `请帮我提取该角色的人设外貌特征，以下是人设文档：\n\n${soul}` }
+      ]
+
+      const response = await modelAdapter.chat(messages, { useSecondary: true })
+      const raw = response.content.trim()
+
+      let tags = ''
+      let description = ''
+
+      const tagsMatch = raw.match(/### Appearance Tags\s*([\s\S]*?)(?:### Appearance Description|$)/i)
+      const descMatch = raw.match(/### Appearance Description\s*([\s\S]*)/i)
+
+      if (tagsMatch) tags = tagsMatch[1].trim()
+      if (descMatch) description = descMatch[1].trim()
+
+      return { success: true, tags, description }
+    } catch (error: any) {
+      console.error('[IPC] 提取角色外貌特征失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.5 读取角色专属 Appearance.md IPC 通道
+  ipcMain.handle('read-appearance-file', async (_, payload: { folderName: string }) => {
+    try {
+      const storageManager = new CharacterStorageManager()
+      const content = storageManager.readCharacterFile(payload.folderName, 'Appearance.md')
+      return { success: true, content }
+    } catch (error: any) {
+      console.error(`[IPC] 读取 Appearance.md 失败:`, error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.6 保存角色专属 Appearance.md IPC 通道
+  ipcMain.handle('save-appearance-file', async (_, payload: { folderName: string; content: string }) => {
+    try {
+      const storageManager = new CharacterStorageManager()
+      storageManager.writeCharacterFile(payload.folderName, 'Appearance.md', payload.content)
+      return { success: true }
+    } catch (error: any) {
+      console.error(`[IPC] 保存 Appearance.md 失败:`, error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.7 调用 NovelAI 生成图片并落盘至角色专属 media 目录 IPC 通道
+  ipcMain.handle('generate-novelai-image', async (_, payload: {
+    characterId: string
+    folderName: string
+    prompt: string
+    dimensions: 'portrait' | 'landscape' | 'square'
+    prefixType?: 'chat' | 'social' | 'proactive'
+  }) => {
+    try {
+      const db = getDatabaseService()
+      const naiConfigStr = db.getSetting('novelai_config')
+      if (!naiConfigStr) {
+        return { success: false, error: '未配置 NovelAI 参数，请前往设置页面进行配置。' }
+      }
+      const naiConfig = JSON.parse(naiConfigStr)
+
+      const storageManager = new CharacterStorageManager()
+      const charDir = join(storageManager.getBaseDir(), payload.folderName)
+
+      // 读取外貌固定特征
+      let appearancePrompt = ''
+      const appearanceContent = storageManager.readCharacterFile(payload.folderName, 'Appearance.md')
+      if (appearanceContent) {
+        const tagsMatch = appearanceContent.match(/### Appearance Tags\s*([\s\S]*?)(?:### Appearance Description|$)/i)
+        if (tagsMatch) {
+          appearancePrompt = tagsMatch[1].trim()
+        }
+      }
+
+      // 组装最终提示词：外貌特征 + 当前动作场景
+      const finalPrompt = appearancePrompt 
+        ? `${appearancePrompt}, ${payload.prompt}`
+        : payload.prompt
+
+      // 调用 NovelAI 绘图
+      const imageBuffer = await NovelAiService.generateImage(naiConfig, finalPrompt, payload.dimensions)
+
+      // 确保 media 文件夹存在
+      const mediaDir = join(charDir, 'media')
+      if (!fs.existsSync(mediaDir)) {
+        fs.mkdirSync(mediaDir, { recursive: true })
+      }
+
+      // 保存图片
+      const prefix = payload.prefixType || 'drawing'
+      const timestamp = Date.now()
+      const filename = `${prefix}_${timestamp}_${Math.random().toString(36).substr(2, 5)}.png`
+      const fullPath = join(mediaDir, filename)
+      fs.writeFileSync(fullPath, imageBuffer)
+
+      // 额外保存同名元数据 .json 文件，便于图库秒开与精确读取提示词和尺寸
+      const metaFilename = filename.replace('.png', '.json')
+      const metaFullPath = join(mediaDir, metaFilename)
+      const metadata = {
+        prompt: finalPrompt,
+        dimensions: payload.dimensions,
+        timestamp,
+        prefixType: prefix
+      }
+      fs.writeFileSync(metaFullPath, JSON.stringify(metadata, null, 2))
+
+      const relativePath = `media/${filename}`
+      const base64 = `data:image/png;base64,${imageBuffer.toString('base64')}`
+
+      return {
+        success: true,
+        relativePath,
+        base64
+      }
+    } catch (error: any) {
+      console.error('[IPC] NovelAI 绘图发生异常:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.8 获取角色专属已生成图库图片 IPC 通道
+  ipcMain.handle('get-gallery-images', async (_, payload: { folderName: string }) => {
+    try {
+      const storageManager = new CharacterStorageManager()
+      const charDir = join(storageManager.getBaseDir(), payload.folderName)
+      const mediaDir = join(charDir, 'media')
+
+      if (!fs.existsSync(mediaDir)) {
+        return { success: true, images: [] }
+      }
+
+      const files = fs.readdirSync(mediaDir)
+      const list: any[] = []
+
+      for (const file of files) {
+        if (
+          file.endsWith('.png') && (
+            file.startsWith('drawing_') ||
+            file.startsWith('social_') ||
+            file.startsWith('proactive_')
+          )
+        ) {
+          const filePath = join(mediaDir, file)
+          const stat = fs.statSync(filePath)
+          
+          let meta: any = {}
+          const metaPath = filePath.replace('.png', '.json')
+          if (fs.existsSync(metaPath)) {
+            try {
+              meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+            } catch (e) {
+              console.error('读取图片 metadata 失败:', e)
+            }
+          }
+          
+          list.push({
+            filename: file,
+            relativePath: `media/${file}`,
+            createdAt: stat.mtimeMs,
+            prompt: meta.prompt || '',
+            dimensions: meta.dimensions || 'portrait',
+            prefixType: meta.prefixType || (file.startsWith('social_') ? 'social' : file.startsWith('proactive_') ? 'proactive' : 'chat')
+          })
+        }
+      }
+
+      // 倒序：最迎生成的在前
+      list.sort((a, b) => b.createdAt - a.createdAt)
+
+      return { success: true, images: list }
+    } catch (error: any) {
+      console.error('[IPC] 读取图库列表失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.9 分析聊天上下文自动生成绘图 Prompt IPC 通道
+  ipcMain.handle('analyze-chat-image-prompt', async (_, payload: { 
+    characterId: string; 
+    folderName: string;
+    recentMessages: any[];
+  }) => {
+    try {
+      const db = getDatabaseService()
+      
+      // A. 读取 Memory.md 记忆系统与 Soul.md 人设文件
+      const storageManager = new CharacterStorageManager()
+      const memoryContent = storageManager.readCharacterFile(payload.folderName, 'Memory.md') || ''
+      const soulContent = storageManager.readCharacterFile(payload.folderName, 'Soul.md') || ''
+
+      // B. 初始化大模型
+      const configStr = db.getSetting('model_config')
+      if (!configStr) {
+        throw new Error('未配置全局大模型参数，请前往设置中心先进行配置保存！')
+      }
+      const settings = JSON.parse(configStr)
+      const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+
+      // C. 组装提示词系统指令
+      const systemPrompt = `你是一个非常专业且具有艺术审美的 NovelAI 绘图提示词生成大师。
+请你仔细阅读并深度结合 AI 角色的性格设定 (Soul.md)、记忆系统 (Memory.md) 以及他们之间最近的聊天上下文对话内容，为当前场景构思并生成一副精美的文生图（T2I）提示词。
+
+你的核心目标是生成一个能反映【当前聊天气氛、角色动作、神情动作、周围环境以及画面细节】的 NovelAI 绘图 Prompt。
+
+【极其重要的约束规则】：
+1. 你的返回必须包含两个部分：
+   - 英文生图 Tags (英文逗号分隔的 NovelAI Danbooru 风格 Tag 提示词)。
+   - 中文画面内容描述 (一两句话简述画面中发生了什么，包括角色和 NPC 的互动细节)。
+2. 【NPC 说明】：如果当前场景中存在其他 NPC 或者是多人场景，你必须在生成的 Tags 和中文描述中，【明确说明 NPC 的人数及外观特征】（例如: 1girl 与另一个金发青年站在一起 -> 1girl, 1boy, blonde hair boy standing next to her）。
+3. 你的输出必须严格按照以下格式排版，不要写任何 \`\`\` 块包裹：
+### Image Prompt
+(在这里只输出当前场景的生图 Tag，不需要把角色的固定外貌 Tag 包含进来，因为后续系统会自动拼接入外貌 Tag。例如: sitting in a cafe, sipping coffee, smiling, window view, depth of field, sunset lighting)
+
+### Image Description
+(在这里用中文对画面做一个简述。例如: 少女正坐在温馨的咖啡厅窗边，手端着热咖啡，对着镜头微微甜笑，身后是落日余晖洒在街景上。)`
+
+      const contextText = payload.recentMessages.map(m => `${m.role === 'user' ? '用户' : '角色'}: ${m.content}`).join('\n')
+      
+      const messages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `【角色设定 Soul.md】：\n${soulContent}\n\n【角色记忆 Memory.md】：\n${memoryContent}\n\n【最近聊天上下文】：\n${contextText}\n\n请帮我生成当前画面场景的生图 Prompt 和描述。` }
+      ]
+
+      const response = await modelAdapter.chat(messages, { useSecondary: true })
+      const raw = response.content.trim()
+
+      let prompt = ''
+      let description = ''
+
+      const promptMatch = raw.match(/### Image Prompt\s*([\s\S]*?)(?:### Image Description|$)/i)
+      const descMatch = raw.match(/### Image Description\s*([\s\S]*)/i)
+
+      if (promptMatch) prompt = promptMatch[1].trim()
+      if (descMatch) description = descMatch[1].trim()
+
+      return { success: true, prompt, description }
+    } catch (error: any) {
+      console.error('[IPC] 分析聊天生图 Prompt 失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
   // 5. 获取中文对应的拼音及其唯一不冲突物理路径 IPC 通道
+
   ipcMain.handle('get-pinyin-name', async (_, name: string) => {
     try {
       const storageManager = new CharacterStorageManager()
@@ -1258,16 +1573,13 @@ ${soulContent}
     let redPacketSend: { amount: number; title: string; status: string } | null = null
 
     // A. 判定是否为角色主动发红包
-    const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/
+    // 🚀 升级为超强容错正则，支持反单引号包裹、中文全角冒号/逗号、忽略大小写
+    const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/i
+    const sendRegGlobal = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
     const sendMatch = accumulatedResponse.match(sendReg)
     if (sendMatch) {
       const amount = parseFloat(sendMatch[1])
       let title = sendMatch[3].trim()
-      
-      // 🚀 核心优化：强制附言祝福语限制在 15 个字以内，以防大模型超出限制
-      if (title.length > 15) {
-        title = title.substring(0, 15)
-      }
       
       // 读取角色当前钱包余额进行校验阻断
       const statePath = join(charDir, 'State.md')
@@ -1285,6 +1597,116 @@ ${soulContent}
         } else {
           // 物理拦截超额扣款，降级为常规对话
           console.warn(`[Economy Block] 角色 ${characterId} 余额不足（当前 ${currentBalance}元，欲发送 ${amount}元）。已强制物理拦截并降级。`)
+        }
+      }
+    }
+
+    // A2. [System Auto-heal]: 如果大模型在文本里口头描述了发红包、转账等财务动作，但最终并未成功触发发红包动作（可能由于没有输出控制符，或者控制符由于余额超限被拦截降级），系统在此智能识别并为其强制补发一个真实微信红包卡片！
+    if (redPacketAction !== 'send') {
+      const isReceiveOrReturn = accumulatedResponse.includes('[RECEIVE_RED_PACKET]') || accumulatedResponse.includes('[RETURN_RED_PACKET]')
+      if (!isReceiveOrReturn) {
+        // 捕获口语化发红包/转账动作意图
+        const hasTransferWord = /(?:转账|发红包|塞个红包|发个红包|钱转过去|转给你了|喏，?\s*转过去|发个小红包|给你转|给你发个)/i.test(accumulatedResponse)
+        if (hasTransferWord) {
+          let amount = 8.8 // 默认惊喜红包金额
+          const parsedTitle = '喏，给你的转账！'
+
+          // [System Engine] 中文数词工业级强健解析器
+          const parseCnAmount = (cnStr: string): number => {
+            let val = 0
+            let temp = 0
+            const cnNums: Record<string, number> = {
+              '零': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9
+            }
+            const cnUnits: Record<string, number> = {
+              '十': 10, '百': 100, '千': 1000, '万': 10000
+            }
+            
+            // 极速解析常见大写单字
+            if (cnStr === '两万' || cnStr === '二万') return 20000
+            if (cnStr === '五万') return 50000
+            if (cnStr === '十万') return 100000
+            if (cnStr === '两千' || cnStr === '二千') return 2000
+            if (cnStr === '五千') return 5000
+            
+            for (let i = 0; i < cnStr.length; i++) {
+              const char = cnStr[i]
+              if (cnNums[char] !== undefined) {
+                temp = cnNums[char]
+              } else if (cnUnits[char] !== undefined) {
+                const unit = cnUnits[char]
+                if (unit === 10000) {
+                  val = (val + (temp || 1)) * 10000
+                  temp = 0
+                } else {
+                  val += (temp || 1) * unit
+                  temp = 0
+                }
+              }
+            }
+            val += temp
+            return val
+          }
+
+          // [System Engine] 时态排除与意图精准定位算法：抓取金额，排除如“昨天”、“以前”等过去叙事，锁定当下真实财务动作金额
+          const matches = [...accumulatedResponse.matchAll(/(?:([^\n，。？！（()]*?)(?:转账|转了|发了|塞了|给|付|转账成功，?)\s*((?:两|二|三|四|五|六|七|八|九|十|百|千|万|\d+(?:\.\d+)?)+)\s*(?:元|万|块)?)/gi)]
+          let currentActionAmount: number | null = null
+          const pastWords = ['昨天', '以前', '上周', '上次', '前天', '过去', '之前']
+
+          if (matches.length > 0) {
+            // 从后往前遍历，锁定最后发生（最新动作）的且无过去时态修饰的真实当下金额
+            for (let i = matches.length - 1; i >= 0; i--) {
+              const prefixContext = matches[i][1] || ''
+              const rawAmountStr = matches[i][2]
+
+              // 检查该金额前 15 个字内是否包含过去时修饰词，若是则属于历史抱怨叙事，直接过滤
+              const isPastNarrative = pastWords.some(word => prefixContext.includes(word))
+              if (!isPastNarrative) {
+                let val = 0
+                if (/^\d+(?:\.\d+)?$/.test(rawAmountStr)) {
+                  // A. 阿拉伯数字
+                  val = parseFloat(rawAmountStr)
+                  const fullMatch = matches[i][0]
+                  if (fullMatch.includes('万') || accumulatedResponse.includes(`${rawAmountStr}万`)) {
+                    val = val * 10000
+                  }
+                } else {
+                  // B. 中文数词大写
+                  val = parseCnAmount(rawAmountStr)
+                }
+
+                if (!isNaN(val) && val > 0) {
+                  currentActionAmount = val
+                  break // 成功锁定当下动作金额，优雅退出
+                }
+              }
+            }
+          }
+
+          if (currentActionAmount !== null) {
+            amount = currentActionAmount
+          }
+
+          // 读取角色钱包余额做上限截断与校验
+          const statePath = join(charDir, 'State.md')
+          const charState = StateReaderWriter.readState(statePath)
+          const balanceItem = charState.items.find(i => i.key === 'balance')
+          const currentBalance = balanceItem ? Number(balanceItem.value) : 5200.0
+          
+          if (amount > 0) {
+            // 如果口头承诺的金额超出了当前钱包余额，系统自动做自愈式上限裁剪截断，保证红包卡片一定能生成
+            if (amount > currentBalance) {
+              amount = currentBalance
+            }
+            
+            // 只要截断后依然大于 0.01 元，就自动强行补发微信红包
+            if (amount >= 0.01) {
+              StateReaderWriter.applyStateUpdates(statePath, [{ key: 'balance', delta: -amount }])
+              redPacketAction = 'send'
+              redPacketSend = { amount, title: parsedTitle, status: 'waiting' }
+              console.log(`[Economy Autocure] 物理识别到角色口头转账陈述，已自动为其强效追加微信真实红包：金额 ${amount} 元`)
+            }
+          }
         }
       }
     }
@@ -1314,16 +1736,13 @@ ${soulContent}
       redPacketAction = 'return'
     }
 
-    // 对 AI 回复进行强效后置动作净化与控制符全局擦除
-    // 🚀 双向物理拦截防线：强制物理抹去任何在文本或动作描写中关于转账、发钱、发红包、已转出等穿帮的小说体叙事，确保文字彻底干净
-    const economyCleanReg = /[（(][^）)]*(?:转账|红包|转出|发钱|给钱|送钱|压岁钱)[^）)]*[）)]/g
-    const economySentenceReg = /(?:给你?转了?\d+元|给你?发了?\d+元红包|塞给你?一个红包|给你?塞红包|给你?发红包|微信转账|红包已发送)/g
+    // 对 AI 回复进行系统控制符代码全局擦除，原汁原味地保留 AI 输出的所有对话描述与转账口语台词，杜绝暴力屏蔽带来的残损体验
     const halfBracketReg = /[（(][^）)]*$/g // 🚀 针对流式生成中断导致的未闭合半截括号动作（如：“(红”）进行优雅自愈擦除
     
     let finalResponse = accumulatedResponse
       .replace(/\[RECEIVE_RED_PACKET\]/g, '')
       .replace(/\[RETURN_RED_PACKET\]/g, '')
-      .replace(sendReg, '')
+      .replace(sendRegGlobal, '')
       
     // 🚀 降维干涉：如果已成功提取了红包 Payload，采取精准字面量强制擦除，100% 排除正则可能匹配不到的漏网情况
     if (sendMatch && sendMatch[0]) {
@@ -1331,8 +1750,6 @@ ${soulContent}
     }
     
     finalResponse = finalResponse
-      .replace(economyCleanReg, '')
-      .replace(economySentenceReg, '')
       .replace(halfBracketReg, '')
       .trim()
 
@@ -1532,7 +1949,7 @@ ${soulContent}
     }
   })
 
-  // 14. 触发做梦反思进化测试 (防挫败与 Patch SKILL.md 测试) IPC 通道
+  // 14. 触发做梦反思进化测试 (防挫败与 Patch DREAM.md 测试) IPC 通道
   ipcMain.handle('trigger-review-test', async (_, payload: { characterId: string; folderName: string }) => {
     try {
       const { characterId, folderName } = payload

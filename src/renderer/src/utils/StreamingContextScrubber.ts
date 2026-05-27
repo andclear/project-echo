@@ -12,6 +12,11 @@ export class StreamingContextScrubber {
   private inDiscardSpan: boolean = false;
   private discardTag: string = '';
 
+  // 新增：中括号控制符丢弃状态
+  private inBracket: boolean = false;
+  private currentBracketBuffer: string = '';
+  private inDiscardBracket: boolean = false;
+
   // 需要完全隐式丢弃其“内部所有内容”的标签集合
   private readonly discardSpanTags = new Set(['memory-context', 'system-note', 'thought']);
 
@@ -25,16 +30,52 @@ export class StreamingContextScrubber {
     for (let i = 0; i < chunk.length; i++) {
       const char = chunk[i];
 
-      if (this.inDiscardSpan) {
-        // 处于完全丢弃内容的 Span 中，累加字符以便检测结束标签
-        this.buffer += char;
+      // 1. 处理中括号红包/转账控制符的跨 Chunk 流式丢弃
+      if (this.inDiscardBracket) {
+        if (char === ']') {
+          this.inDiscardBracket = false;
+          this.inBracket = false;
+          this.currentBracketBuffer = '';
+        }
+        continue;
+      }
+
+      if (char === '[') {
+        this.inBracket = true;
+        this.currentBracketBuffer = '[';
+        continue;
+      }
+
+      if (this.inBracket) {
+        this.currentBracketBuffer += char;
+        const lowerBuf = this.currentBracketBuffer.toLowerCase();
         
-        // 查找结束标签，例如 "</memory-context>"
+        // 如果检测到包含发红包、收红包、退红包等系统控制符前缀，立即切入丢弃状态，吃掉后续字符
+        if (
+          lowerBuf.startsWith('[send_red_packet') ||
+          lowerBuf.startsWith('[receive_red_packet') ||
+          lowerBuf.startsWith('[return_red_packet')
+        ) {
+          this.inDiscardBracket = true;
+          continue;
+        }
+
+        if (char === ']') {
+          this.inBracket = false;
+          // 若不是系统控制符，说明是常规的小说动作描写中括号（如 [笑]），直接安全放行输出
+          output += this.currentBracketBuffer;
+          this.currentBracketBuffer = '';
+        }
+        continue;
+      }
+
+      // 2. 原有的 XML 标签丢弃逻辑
+      if (this.inDiscardSpan) {
+        this.buffer += char;
         const endTag = `</${this.discardTag}>`;
         if (this.buffer.endsWith(endTag)) {
           this.inDiscardSpan = false;
           this.discardTag = '';
-          // 结束标签本身也要丢弃，清空临时 buffer
           this.buffer = '';
         }
         continue;
@@ -50,14 +91,11 @@ export class StreamingContextScrubber {
         if (char === '>') {
           this.inTag = false;
           const fullTag = this.currentTagBuffer.trim();
-          
-          // 判定是否是开始丢弃内容标签，如 "memory-context"
           if (this.discardSpanTags.has(fullTag)) {
             this.inDiscardSpan = true;
             this.discardTag = fullTag;
             this.buffer = '';
           }
-          // 过滤所有 XML/HTML 标签本身，故在此不输出任何标签字符
           continue;
         } else {
           this.currentTagBuffer += char;
@@ -81,5 +119,9 @@ export class StreamingContextScrubber {
     this.currentTagBuffer = '';
     this.inDiscardSpan = false;
     this.discardTag = '';
+
+    this.inBracket = false;
+    this.currentBracketBuffer = '';
+    this.inDiscardBracket = false;
   }
 }
