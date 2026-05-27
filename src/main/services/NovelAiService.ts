@@ -138,8 +138,8 @@ export class NovelAiService {
       throw new Error('未配置 API Key')
     }
 
-    const url = 'https://api.novelai.net/user/subscription'
-    console.log('[NovelAiService] 正在查询 NovelAI 账户 Anlas 余额...')
+    const url = 'https://api.novelai.net/user/data'
+    console.log('[NovelAiService] 正在查询 NovelAI 账户全部 Anlas 余额...')
 
     const response = await fetch(url, {
       method: 'GET',
