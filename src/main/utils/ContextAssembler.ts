@@ -43,9 +43,6 @@ export class ContextAssembler {
     chatMode: 'descriptive' | 'dialogue' = 'descriptive',
     globalPrompt?: string
   ): string {
-    // ==========================================
-    // 1. Stable Tier (绝对静止头部层 - 核心 KV Cache 锁定区)
-    // ==========================================
     let soulContent = '*性格核心未装载*';
     if (fs.existsSync(soulPath)) {
       soulContent = fs.readFileSync(soulPath, 'utf-8').trim();
@@ -58,6 +55,7 @@ export class ContextAssembler {
 
     // 自动读取 State.md 内的各项亲密、心情、精力数值，强逻辑注入微观情感偏离与心智表达投射
     let stateGuidance = '';
+    let balanceVal = 5200.0;
     const statePath = path.join(path.dirname(soulPath), 'State.md');
     if (fs.existsSync(statePath)) {
       try {
@@ -65,10 +63,12 @@ export class ContextAssembler {
         const intimacyItem = state.items.find((i: any) => i.key === 'intimacy');
         const moodItem = state.items.find((i: any) => i.key === 'mood');
         const energyItem = state.items.find((i: any) => i.key === 'energy');
+        const balanceItem = state.items.find((i: any) => i.key === 'balance');
         
         let intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
         let moodVal = moodItem ? Number(moodItem.value) : 72;
         let energyVal = energyItem ? Number(energyItem.value) : 45;
+        balanceVal = balanceItem ? Number(balanceItem.value) : 5200.0;
         
         // 情感亲密境界映射
         let intimacyText = '泛泛之交';
@@ -84,7 +84,7 @@ export class ContextAssembler {
           attitudeDesc = '态度友好真诚，乐意分享闲聊，建立了基本的信任感。';
         } else if (intimacyVal >= 60 && intimacyVal < 80) {
           intimacyText = '红颜挚友/轻微暧昧';
-          attitudeDesc = '十分依恋与信任用户，乐于袒露脆弱，会显露情绪化的小性子，语气熟稔亲昵、轻微暧昧。';
+          attitudeDesc = '十分依恋与信任用户，乐于袒露脆弱，会显露情绪化的小性子，语气熟昵亲昵、轻微暧昧。';
         } else if (intimacyVal >= 80 && intimacyVal <= 100) {
           intimacyText = '灵魂羁绊/深爱';
           attitudeDesc = '极其宠溺偏爱用户，心理完全不设防，拥有极高的依赖度与黏人语气，视对方为不可或缺的灵魂伴侣。';
@@ -140,7 +140,7 @@ export class ContextAssembler {
 
         let otherStatesStr = '';
         if (state.items && state.items.length > 3) {
-          otherStatesStr = state.items.slice(3).map((i: any) => {
+          otherStatesStr = state.items.filter((i: any) => i.key !== 'balance' && i.key !== 'intimacy' && i.key !== 'mood' && i.key !== 'energy').map((i: any) => {
             const meaningDesc = i.meaning ? `（心智倾向与行为投射：${i.meaning}）` : '';
             return `\n   - **${i.emoji} ${i.label}** (当前数值：${i.value}/100)${meaningDesc}`;
           }).join('');
@@ -156,12 +156,15 @@ export class ContextAssembler {
    - 微观心情偏离：${moodBias}
 3. **⚡ 精力活跃度：${energyVal}/100**
    - 表现投射：${energyVal < 30 ? '极度疲惫，打字速度变慢，回复偏向简短，或会主动提及想休息。' : '精力充沛，乐于进行长段或深入的互动。'}
-   - 微观精力偏离：${energyBias}${otherStatesStr}`;
+   - 微观精力偏离：${energyBias}
+4. **🪙 钱包余额：${balanceVal.toFixed(2)} 元**
+   - 物理财产规则：这是你在虚拟世界的流动资产数额。你可以使用这笔资金给用户发回音红包！${otherStatesStr}`;
          
       } catch (err) {
         console.error('[ContextAssembler] 注入状态约束失败:', err);
       }
     }
+
 
     // 自动装载角色自省梦境 DREAM.md
     let dreamContent = '';
@@ -236,6 +239,18 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
 4. **自然鲜活地情感交流 (No Robot Cliches)**：绝不输出机械、客套的 AI 敷衍词（如“有什么我可以帮您的？”、“好的，主人”），你的聊天必须充满自然、鲜活、符合人设的口语化张力，像一个拥有真实体温、站在屏幕对面的真人一样去爱恨。`;
     
     stableTier += antiSycophancyPrompt;
+
+    // 动态算经济人设提示词并注入
+    const economyPrompt = `\n\n## 回音红包与财务往来铁律 (Character Active Red Packet & Financial Transfer Ironclad Rules)
+你当前在虚拟世界的钱包余额为：${balanceVal.toFixed(2)} 元。
+请将这个钱包余额作为你人设经济状况和财富实力的参考。你可以根据你的人设性格以及和用户的亲密度，自主决定是否给用户发送“回音红包”（例如：作为节日祝福、安慰、好感回礼等）。
+如果你决定给用户发送红包，请务必在你回复的【最开始】加入且仅加入一行控制符：\`[SEND_RED_PACKET: 金额, 附言]\`，例如：\`[SEND_RED_PACKET: 8.8, 给你买杯奶茶！]\`。
+
+为了维持系统交互的完美运转，你必须无条件极其严格地遵守以下三大绝对铁律，如有违反将被系统强制判定为穿帮不及格：
+1. **绝对禁止在正文描述发包与转账行为**：你【绝对禁止】在普通的对话文字回复、台词或你的动作描写中，描写、提到、暗示或出现任何关于“给你发红包”、“塞给你一个红包”、“给你转账”、“戳手机转账”、“给钱你”、“XX元已转出”、“发个小红包”等任何与发红包、给钱或财务划转行为相关的字眼、叙述与动作描述！系统会自动将控制符物理转化为可拆的微信红包卡片消息，不需要你用任何文字去累赘复述或提及，否则将导致界面严重穿帮！你的对话文本必须只保留与用户的常规干净对话（例如直接说：“喏，别省着花。” 或 “今天请你喝奶茶，收好。” ）。
+2. **红包附言严控 15 字以内**：控制符中的“附言/祝福语”【绝对不能超过 15 个字】！请言简意赅，例如：“大吉大利”、“新年快乐！”或“拿去买糖吃”。超长会导致发送失败！
+3. **余额上限铁律**：你的单次红包金额【绝对不能超过】你的钱包余额 ${balanceVal.toFixed(2)} 元，且必须为大于 0 的有效数字。余额不足时你无法发出红包。`;
+    stableTier += economyPrompt;
 
     if (dreamContent) {
       stableTier += `\n\n## DREAM.md - Self-reflection & Evolution Pitfall Rules\n${dreamContent}`;
@@ -347,6 +362,8 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     // 0. 保护红包领收/退回控制符，防范中括号正则误杀
     let hasReceiveControl = false;
     let hasReturnControl = false;
+    let sendControlMatch: string | null = null;
+
     if (cleaned.includes('[RECEIVE_RED_PACKET]')) {
       hasReceiveControl = true;
       cleaned = cleaned.replace(/\[RECEIVE_RED_PACKET\]/g, '').trim();
@@ -354,6 +371,14 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     if (cleaned.includes('[RETURN_RED_PACKET]')) {
       hasReturnControl = true;
       cleaned = cleaned.replace(/\[RETURN_RED_PACKET\]/g, '').trim();
+    }
+
+    // 保护角色发红包控制符 [SEND_RED_PACKET: amount, title]
+    const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/;
+    const m = cleaned.match(sendReg);
+    if (m) {
+      sendControlMatch = m[0];
+      cleaned = cleaned.replace(sendReg, '').trim();
     }
 
     // 0.1 特异性动作提取：如果检测到包含双引号，且双引号之外含有其它叙事文本（说明是“动作+双引号台词”的小说体）
@@ -419,6 +444,8 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
       finalCleaned = `[RECEIVE_RED_PACKET]\n${finalCleaned}`;
     } else if (hasReturnControl) {
       finalCleaned = `[RETURN_RED_PACKET]\n${finalCleaned}`;
+    } else if (sendControlMatch) {
+      finalCleaned = `${sendControlMatch}\n${finalCleaned}`;
     }
 
     return finalCleaned;

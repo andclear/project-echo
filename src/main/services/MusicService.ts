@@ -903,6 +903,15 @@ export class MusicService {
       return { success: true, list }
     })
 
+    ipcMain.handle('music-get-download-path', async () => {
+      try {
+        const downloadFolder = join(app.getPath('downloads'), 'EchoMusic')
+        return { success: true, path: downloadFolder }
+      } catch (err: any) {
+        return { success: false, error: err.message }
+      }
+    })
+
     ipcMain.handle('db-music-delete-download', async (_, id: string) => {
       db.deleteDownload(id)
       return { success: true }

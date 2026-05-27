@@ -195,7 +195,7 @@ class MusicPlayerStore {
   }
 
   // 3. 读取本地 Settings 中对音质和下载的配置
-  private loadSettings() {
+  private async loadSettings() {
     const quality = localStorage.getItem('music_play_quality') || '128k'
     const autoSkip = localStorage.getItem('music_auto_skip_error') !== 'false'
     const deskLrc = localStorage.getItem('music_enable_desktop_lyric') === 'true'
@@ -210,6 +210,16 @@ class MusicPlayerStore {
       const bgColor = localStorage.getItem('music_lyric_bg_color') || 'rgba(15, 23, 42, 0.45)'
       const textColor = localStorage.getItem('music_lyric_text_color') || 'linear-gradient(135deg, #a5b4fc, #818cf8, #6366f1)'
       ;(window as any).api.invoke('lyric-window-update-theme', { bgColor, textColor })
+    }
+
+    // 动态获取当前用户本机的物理音乐下载路径
+    try {
+      const res = await (window as any).api.invoke('music-get-download-path')
+      if (res.success && res.path) {
+        this.state.downloadPath = res.path
+      }
+    } catch (e) {
+      console.error('[Store] 获取物理下载存储路径异常:', e)
     }
   }
 

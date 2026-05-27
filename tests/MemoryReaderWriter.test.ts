@@ -96,4 +96,56 @@ describe('MemoryReaderWriter 单元测试', () => {
     expect(rawText).toContain('- **音乐口味**：偏爱后摇与轻音乐');
     expect(rawText).toContain('- **用户姓名**：杨越老师');
   });
+
+  it('5. 用户直接手工修改底部 Markdown 文本时，读取时应当能够智能检测、以降级 Markdown 为准，并全自动写盘对齐纠偏 JSON 块', () => {
+    const stm = ['原汁原味的短期记忆 #1'];
+    const ltm = {
+      '原有生日': '10月24日',
+      '原有名字': '李华'
+    };
+
+    // 1. 正常写入物理文件
+    MemoryReaderWriter.writeMemory(memoryFile, stm, ltm);
+
+    // 2. 模拟用户手工在外部修改底部的 Markdown 内容（比如修改了生日，修改了短期记忆）
+    const customContent = `<!--
+{
+  "stm": [
+    "原汁原味的短期记忆 #1"
+  ],
+  "ltm": {
+    "原有生日": "10月24日",
+    "原有名字": "李华"
+  }
+}
+-->
+
+# 角色记忆存储区
+
+## 短期记忆 (STM)
+- 用户今天心情非常好并且喜欢唱歌了！
+
+## 长期记忆 (LTM)
+- **原有生日**：12月25日
+- **原有名字**：李明
+- **新增偏好**：超级爱编程
+`;
+    fs.writeFileSync(memoryFile, customContent, 'utf-8');
+
+    // 3. 调用 readMemory，应该能检测到不一致，并以 Markdown 内容为最高优先准则读取
+    const data = MemoryReaderWriter.readMemory(memoryFile);
+
+    // 验证读取出来的是否是手工改动后的 Markdown 记忆，而不是旧的 JSON
+    expect(data.stm).toEqual(['用户今天心情非常好并且喜欢唱歌了！']);
+    expect(data.ltm['原有生日']).toBe('12月25日');
+    expect(data.ltm['原有名字']).toBe('李明');
+    expect(data.ltm['新增偏好']).toBe('超级爱编程');
+
+    // 4. 验证物理文件此时是否已经实现了“智能对齐”，上面的 JSON 注释应该已经自动自愈成了最新的内容！
+    const selfHealedContent = fs.readFileSync(memoryFile, 'utf-8');
+    expect(selfHealedContent).toContain('"原有生日": "12月25日"');
+    expect(selfHealedContent).toContain('"原有名字": "李明"');
+    expect(selfHealedContent).toContain('"新增偏好": "超级爱编程"');
+    expect(selfHealedContent).toContain('"用户今天心情非常好并且喜欢唱歌了！"');
+  });
 });

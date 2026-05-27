@@ -29,8 +29,19 @@ export class SocialMediaService {
     const resultWeek = Math.ceil((now.getDay() + 1 + numberOfDays) / 7);
     const thisWeekStr = `${currentYear}-W${resultWeek}`;
 
-    // 过滤出有过聊天记录的活跃角色
-    const activeChars = characters.filter(c => db.getChatHistory(c.id, 1).length > 0);
+    // 过滤出有过聊天记录的活跃角色，且排除掉开启了“消息免打扰”的角色，以实现朋友圈和论坛后台静默
+    const activeChars = characters.filter(c => {
+      if (db.getChatHistory(c.id, 1).length === 0) return false;
+      
+      const metaStr = db.getSetting(`meta_${c.id}`);
+      if (metaStr) {
+        try {
+          const meta = JSON.parse(metaStr);
+          if (meta.muted) return false;
+        } catch (_) {}
+      }
+      return true;
+    });
     if (activeChars.length === 0) return;
 
     // ── 朋友圈：每次 tick 只随机选取 1 个今天尚未发过动态的角色 ──
@@ -349,8 +360,20 @@ Body: [Your post rich text content]
   public async evaluateSocialInteraction(target: any, type: 'moment' | 'forum_post', modelAdapter: ModelAdapter): Promise<void> {
     const db = getDatabaseService();
     const characters = db.getAllCharacters();
-    // 过滤出排除作者自身，且有过对话记录的活跃角色
-    const activeChars = characters.filter(c => c.id !== target.character_id && db.getChatHistory(c.id, 1).length > 0);
+    // 过滤出排除作者自身，且有过对话记录的活跃角色，同时排除掉开启了“消息免打扰”的角色，防止其点赞/评论
+    const activeChars = characters.filter(c => {
+      if (c.id === target.character_id) return false;
+      if (db.getChatHistory(c.id, 1).length === 0) return false;
+
+      const metaStr = db.getSetting(`meta_${c.id}`);
+      if (metaStr) {
+        try {
+          const meta = JSON.parse(metaStr);
+          if (meta.muted) return false;
+        } catch (_) {}
+      }
+      return true;
+    });
     if (activeChars.length === 0) return;
 
     const baseDir = this.storageManager.getBaseDir();
@@ -576,6 +599,21 @@ Please strictly apply these relationship constraints, mood, energy levels, and c
 
     // 3. 回复概率评估与深度校验门控
     const isUserComment = (comment.character_id === 'user' || !comment.character_id || comment.author_name === '我' || comment.author_name === 'User');
+
+    // 2.5 消息免打扰（muted）角色链式回复拦截
+    // 若 responder 开启了消息免打扰，只有在用户主动回复评论时才允许回复（视同@角色），否则必须静默
+    const metaStr = db.getSetting(`meta_${responderId}`);
+    if (metaStr) {
+      try {
+        const meta = JSON.parse(metaStr);
+        if (meta.muted) {
+          if (!isUserComment) {
+            console.log(`[SocialMediaService] 链式回复拦截：角色 ${responderName || responderId} 处于“消息免打扰”状态，且当前被回复的不是用户评论，保持静默。`);
+            return;
+          }
+        }
+      } catch (_) {}
+    }
 
     if (isUserComment) {
       // 1) 用户回复角色：不受深度限制，且角色必须回复（100% 回复）

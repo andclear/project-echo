@@ -33,7 +33,53 @@ export class MemoryReaderWriter {
   }
 
   /**
+   * 从物理 Markdown 文本中正则反向提取短期与长期记忆条目（当用户在外部直接修改 Markdown 时）
+   */
+  public static parseMarkdownToMemoryData(content: string): MemoryData {
+    const stm: string[] = [];
+    const ltm: Record<string, string> = {};
+
+    // 1. 提取 STM (支持中文与英文标题的粗粒度检索)
+    const stmMatch = content.match(/## 短期记忆 \(STM\)([\s\S]*?)(## 长期记忆|$)/i);
+    if (stmMatch && stmMatch[1]) {
+      const lines = stmMatch[1].split('\n');
+      for (const line of lines) {
+        const cleanLine = line.trim();
+        if (cleanLine.startsWith('-')) {
+          const fact = cleanLine.substring(1).trim();
+          if (fact && !fact.includes('暂无短期记忆') && !fact.includes('暂无长期记忆')) {
+            stm.push(fact);
+          }
+        }
+      }
+    }
+
+    // 2. 提取 LTM
+    const ltmMatch = content.match(/## 长期记忆 \(LTM\)([\s\S]*)$/i);
+    if (ltmMatch && ltmMatch[1]) {
+      const lines = ltmMatch[1].split('\n');
+      for (const line of lines) {
+        const cleanLine = line.trim();
+        if (cleanLine.startsWith('-')) {
+          // 匹配 - **键**：值 或 - **键**: 值
+          const itemMatch = cleanLine.match(/^-\s*\*\*(.*?)\*\*[:：](.*)$/);
+          if (itemMatch) {
+            const key = itemMatch[1].trim();
+            const val = itemMatch[2].trim();
+            if (key && val) {
+              ltm[key] = val;
+            }
+          }
+        }
+      }
+    }
+
+    return { stm, ltm };
+  }
+
+  /**
    * 从物理 Memory.md 文件中读取 JSON 记忆数据
+   * 若发现用户手工直接在外部修改了 Markdown 纯文本导致不一致，系统会启动智能纠偏机制，自动重新渲染 JSON 物理落盘对齐。
    * @param filePath 物理 Memory.md 文件绝对路径
    */
   public static readMemory(filePath: string): MemoryData {
@@ -41,15 +87,43 @@ export class MemoryReaderWriter {
       this.ensureFile(filePath);
       const content = fs.readFileSync(filePath, 'utf-8');
       
-      // 正则匹配 <!-- 与 --> 之间的 JSON 块
+      // 1. 尝试解析 HTML 注释中的 JSON 块
+      let jsonData: MemoryData | null = null;
       const match = content.match(/<!--([\s\S]*?)-->/);
       if (match && match[1]) {
-        const jsonStr = match[1].trim();
-        const data = JSON.parse(jsonStr) as MemoryData;
-        return {
-          stm: Array.isArray(data.stm) ? data.stm : [],
-          ltm: typeof data.ltm === 'object' && data.ltm !== null ? data.ltm : {}
-        };
+        try {
+          const jsonStr = match[1].trim();
+          const data = JSON.parse(jsonStr) as MemoryData;
+          jsonData = {
+            stm: Array.isArray(data.stm) ? data.stm : [],
+            ltm: typeof data.ltm === 'object' && data.ltm !== null ? data.ltm : {}
+          };
+        } catch (je) {
+          console.warn(`[MemoryReaderWriter] JSON 注释解析失败，将降级尝试 Markdown 解析:`, je);
+        }
+      }
+
+      // 2. 提取 Markdown 中的最新条目
+      const mdData = this.parseMarkdownToMemoryData(content);
+
+      // 3. 智能对比与自动物理对齐 (Autoreconciliation)
+      if (jsonData) {
+        // 判断两个数据源是否一致
+        const isStmEqual = JSON.stringify(jsonData.stm) === JSON.stringify(mdData.stm);
+        const isLtmEqual = JSON.stringify(jsonData.ltm) === JSON.stringify(mdData.ltm);
+        
+        if (!isStmEqual || !isLtmEqual) {
+          console.log(`[MemoryReaderWriter] 检测到用户手工直接修改了底部的 Markdown 文本！正在智能同步对齐 JSON 注释...`);
+          // 以手工修改的 Markdown 内容为准，重新写盘自动纠偏！
+          this.writeMemory(filePath, mdData.stm, mdData.ltm);
+          return mdData;
+        }
+        return jsonData;
+      } else {
+        // JSON 缺失或损坏，直接使用 Markdown 解析的数据，并自动写盘修复
+        console.log(`[MemoryReaderWriter] JSON 注释损坏或缺失！使用 Markdown 解析并自动写盘修复...`);
+        this.writeMemory(filePath, mdData.stm, mdData.ltm);
+        return mdData;
       }
     } catch (e) {
       console.error(`[MemoryReaderWriter] 读取记忆文件失败: ${filePath}`, e);
@@ -64,12 +138,12 @@ export class MemoryReaderWriter {
    * @param stm 短期记忆数组
    * @param ltm 长期记忆键值对
    */
-  public static writeMemory(filePath: string, stm: string[], ltm: Record<string, string>): void {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
+  /**
+   * 动态同步生成带有 JSON 注释和 Markdown 自检区的 Memory.md 文件内容
+   * @param stm 短期记忆数组
+   * @param ltm 长期记忆键值对
+   */
+  public static generateMemoryMarkdown(stm: string[], ltm: Record<string, string>): string {
     // 在写入前，对短期记忆进行溢出切片保护
     const boundedSTM = stm.slice(-this.MAX_STM_SIZE);
     
@@ -96,6 +170,23 @@ export class MemoryReaderWriter {
         markdownContent += `- **${key}**：${ltm[key]}\n`;
       });
     }
+    return markdownContent;
+  }
+
+  /**
+   * 将短期与长期记忆物理安全地写入 Memory.md 文件中
+   * 并同步渲染底部易读 Markdown 自然语言区
+   * @param filePath 物理 Memory.md 文件绝对路径
+   * @param stm 短期记忆数组
+   * @param ltm 长期记忆键值对
+   */
+  public static writeMemory(filePath: string, stm: string[], ltm: Record<string, string>): void {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const markdownContent = this.generateMemoryMarkdown(stm, ltm);
 
     // 原子化安全写盘
     fs.writeFileSync(filePath, markdownContent, 'utf-8');

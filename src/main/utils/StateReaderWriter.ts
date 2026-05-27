@@ -20,6 +20,67 @@ export interface CharacterState {
 
 export class StateReaderWriter {
   /**
+   * 根据 Soul.md 包含的设定关键字，智能生成符合角色人设的初始钱包余额
+   */
+  private static generateInitialBalanceBySoul(filePath: string): number {
+    const dir = path.dirname(filePath);
+    const soulPath = path.join(dir, 'Soul.md');
+    let economyLevel = 1; // 默认 1 档（自给自足）
+    
+    if (fs.existsSync(soulPath)) {
+      try {
+        const soulContent = fs.readFileSync(soulPath, 'utf8').toLowerCase();
+        
+        // 3 档：财务自由 / 霸道总裁 / 豪门
+        if (
+          soulContent.includes('总裁') || 
+          soulContent.includes('千金') || 
+          soulContent.includes('富豪') || 
+          soulContent.includes('富有') || 
+          soulContent.includes('神豪') || 
+          soulContent.includes('财务自由') || 
+          soulContent.includes('豪门')
+        ) {
+          economyLevel = 3;
+        } 
+        // 0 档：贫困窘迫 / 穷学生 / 流浪
+        else if (
+          soulContent.includes('贫困') || 
+          soulContent.includes('窘迫') || 
+          soulContent.includes('穷学生') || 
+          soulContent.includes('流浪') || 
+          soulContent.includes('负债') || 
+          soulContent.includes('拮据')
+        ) {
+          economyLevel = 0;
+        } 
+        // 2 档：财务小康 / 白领 / 中产 / 店主
+        else if (
+          soulContent.includes('小康') || 
+          soulContent.includes('中产') || 
+          soulContent.includes('老板') || 
+          soulContent.includes('富裕')
+        ) {
+          economyLevel = 2;
+        }
+      } catch (_) {}
+    }
+    
+    // 根据经济等级生成初始随机余额
+    switch (economyLevel) {
+      case 0: // 3,000 ~ 8,000 元
+        return Math.floor(3000 + Math.random() * 5000);
+      case 2: // 200,000 ~ 300,000 元
+        return Math.floor(200000 + Math.random() * 100000);
+      case 3: // 1,000,000 ~ 1,500,000 元
+        return Math.floor(1000000 + Math.random() * 500000);
+      case 1: // 8,000 ~ 30,000 元
+      default:
+        return Math.floor(8000 + Math.random() * 22000);
+    }
+  }
+
+  /**
    * 初始化 State.md 默认初始状态
    */
   public static getInitialState(): CharacterState {
@@ -27,7 +88,17 @@ export class StateReaderWriter {
       items: [
         { key: "intimacy",   label: "亲密度", value: 20, emoji: "❤️", min: 0, max: 100, type: 'number' },
         { key: "mood",       label: "心情",   value: 72, emoji: "😊", min: 0, max: 100, type: 'number' },
-        { key: "energy",     label: "精力",   value: 45, emoji: "⚡", min: 0, max: 100, type: 'number' }
+        { key: "energy",     label: "精力",   value: 45, emoji: "⚡", min: 0, max: 100, type: 'number' },
+        { 
+          key: "balance",    
+          label: "钱包余额", 
+          value: 5200.0, 
+          emoji: "🪙", 
+          min: 0, 
+          type: 'number', 
+          meaning: "该数字生命角色在虚拟世界的流动资产", 
+          rule: "当用户给角色发红包、购买礼物时余额增加；角色自主发送红包时余额扣减" 
+        }
       ],
       last_updated: new Date().toISOString().split('T')[0]
     };
@@ -39,6 +110,11 @@ export class StateReaderWriter {
   public static readState(filePath: string): CharacterState {
     if (!fs.existsSync(filePath)) {
       const init = this.getInitialState();
+      // 根据 Soul 设定动态调整初始余额值
+      const balanceItem = init.items.find(i => i.key === 'balance');
+      if (balanceItem) {
+        balanceItem.value = this.generateInitialBalanceBySoul(filePath);
+      }
       this.writeState(filePath, init);
       return init;
     }
@@ -46,7 +122,23 @@ export class StateReaderWriter {
       const raw = fs.readFileSync(filePath, 'utf8').trim();
       const match = raw.match(/<!--\s*([\s\S]*?)\s*-->/);
       if (match) {
-        return JSON.parse(match[1]);
+        const state = JSON.parse(match[1]);
+        // 向后兼容补齐：若读取的 State 中缺少 balance 字段，自动为其补齐
+        let hasBalance = state.items.some((i: any) => i.key === 'balance');
+        if (!hasBalance) {
+          state.items.push({
+            key: "balance",
+            label: "钱包余额",
+            value: this.generateInitialBalanceBySoul(filePath),
+            emoji: "🪙",
+            min: 0,
+            type: 'number',
+            meaning: "该数字生命角色在虚拟世界的流动资产",
+            rule: "当用户给角色发红包、购买礼物时余额增加；角色自主发送红包时余额扣减"
+          });
+          this.writeState(filePath, state);
+        }
+        return state;
       }
     } catch (_) {}
     return this.getInitialState();
@@ -68,7 +160,11 @@ ${state.items.map(item => {
   if (item.type === 'text') {
     return `- **${item.emoji} ${item.label} (${item.key})**：${item.value}${meaningSuffix}${ruleSuffix}`;
   } else {
-    return `- **${item.emoji} ${item.label} (${item.key})**：${item.value} (范围：${item.min ?? 0}-${item.max ?? 100})${meaningSuffix}${ruleSuffix}`;
+    if (item.key === 'balance') {
+      return `- **${item.emoji} ${item.label} (${item.key})**：${item.value} (范围：${item.min ?? 0}-无上限)${meaningSuffix}${ruleSuffix}`;
+    } else {
+      return `- **${item.emoji} ${item.label} (${item.key})**：${item.value} (范围：${item.min ?? 0}-${item.max ?? 100})${meaningSuffix}${ruleSuffix}`;
+    }
   }
 }).join('\n')}
 
@@ -93,7 +189,7 @@ ${state.items.map(item => {
         } else {
           // 数字型或未指定类型的数值型状态栏更新：支持绝对值覆盖与相对值累加增量两种模式
           const minVal = item.min ?? 0;
-          const maxVal = item.max ?? 100;
+          const maxVal = item.max ?? (item.key === 'balance' ? 9999999999999 : 100);
           const currentVal = typeof item.value === 'number' ? item.value : (Number(item.value) || 0);
           
           if (update.value !== undefined && update.value !== null && update.value !== '') {

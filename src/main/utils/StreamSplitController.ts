@@ -59,9 +59,13 @@ export class StreamSplitController {
       if (this.splitPuncts.has(char)) {
         // 截断出完整的句子（包含该标点本身）
         const sentence = this.buffer.slice(0, searchIdx + 1);
-        const trimmed = sentence.trim();
-        if (trimmed) {
-          onSentence(trimmed);
+        
+        // 🚀 核心优化：保留可能存在的换行符，不要粗暴地使用 trim() 将其剥离，否则流式渲染时换行符会彻底丢失！
+        // 仅 trim 掉首尾的普通水平空白字符，若包含换行符则予以高保真显式保留传输
+        let processed = sentence.replace(/^[ \t\r]+|[ \t\r]+$/g, '');
+        
+        if (processed) {
+          onSentence(processed);
         }
         // 刷新缓冲区
         this.buffer = this.buffer.slice(searchIdx + 1);
@@ -79,9 +83,9 @@ export class StreamSplitController {
    * @param onSentence 句子推送回调
    */
   public flush(onSentence: (sentence: string) => void): void {
-    const trimmed = this.buffer.trim();
-    if (trimmed) {
-      onSentence(trimmed);
+    let processed = this.buffer.replace(/^[ \t\r]+|[ \t\r]+$/g, '');
+    if (processed) {
+      onSentence(processed);
     }
     this.buffer = '';
     this.isSkillCollecting = false;

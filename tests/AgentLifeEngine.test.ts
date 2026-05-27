@@ -144,8 +144,10 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
   });
 
   test('4. 清晨问候 (07:00-09:00) 弱事件触发', () => {
+    // 构造清晨时间环境: 2026-05-25 08:30:00
+    const morningTime = new Date('2026-05-25T08:30:00');
     // 注入消息在 10 小时前 (小于 36 小时)
-    const tenHoursAgo = Date.now() - 10 * 60 * 60 * 1000;
+    const tenHoursAgo = morningTime.getTime() - 10 * 60 * 60 * 1000;
     mockHistory = [
       {
         id: 'msg_recent',
@@ -157,9 +159,6 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
       }
     ];
 
-    // 构造清晨时间环境: 2026-05-25 08:30:00
-    const morningTime = new Date('2026-05-25T08:30:00');
-    
     const wakeResult = engine.checkWakeGate(testCharId, morningTime);
     expect(wakeResult.wakeAgent).toBe(true);
     expect(wakeResult.triggerStrength).toBe('weak');
@@ -170,20 +169,21 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
     // 写入一个当天（2026-05-25）有具体日程的安排
     fs.writeFileSync(path.join(charPath, 'Schedule.md'), '# 近7天日程\n- **2026-05-25**: 参加水神大剧院的庆功宴', 'utf8');
 
+    // 检测时间设为当天：2026-05-25 12:00:00
+    const evalTime = new Date('2026-05-25T12:00:00');
+
     // 注入聊天历史以满足非全新静默条件
+    const fiveHoursAgo = evalTime.getTime() - 5 * 60 * 60 * 1000;
     mockHistory = [
       {
         id: 'msg_recent',
         character_id: testCharId,
         role: 'user',
         content: '芙宁娜，等你的演出。',
-        timestamp: Date.now() - 5 * 60 * 60 * 1000,
+        timestamp: fiveHoursAgo,
         token_usage: 10
       }
     ];
-
-    // 检测时间设为当天：2026-05-25 12:00:00
-    const evalTime = new Date('2026-05-25T12:00:00');
 
     const wakeResult = engine.checkWakeGate(testCharId, evalTime);
     expect(wakeResult.wakeAgent).toBe(true);
@@ -248,5 +248,28 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
     // 期望：因为今日已达 3 次上限，门控强行关闭
     expect(wakeResult.wakeAgent).toBe(false);
     expect(wakeResult.reason).toContain('今日主动搭讪已达 3 次上限');
+  });
+
+  test('8. 对话期间 20 分钟静默防打扰拦截', () => {
+    const evalTime = new Date('2026-05-25T12:00:00');
+    // 注入最后一条消息在 15 分钟前 (小于 20 分钟)
+    const fifteenMinsAgo = evalTime.getTime() - 15 * 60 * 1000;
+    mockHistory = [
+      {
+        id: 'msg_recent',
+        character_id: testCharId,
+        role: 'user',
+        content: '芙宁娜，等下见！',
+        timestamp: fifteenMinsAgo,
+        token_usage: 10
+      }
+    ];
+
+    // 试图进行唤醒检测
+    const wakeResult = engine.checkWakeGate(testCharId, evalTime);
+
+    // 期望：因为在 20 分钟内有对话，门控强行关闭且原因明确
+    expect(wakeResult.wakeAgent).toBe(false);
+    expect(wakeResult.reason).toContain('20 分钟内与该角色有过对话交流');
   });
 });

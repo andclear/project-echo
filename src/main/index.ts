@@ -112,8 +112,42 @@ function createWindow(): void {
     if (!(app as any).isQuiting) {
       event.preventDefault(); // 阻断物理关闭退出
       win.hide();       // 隐式退至后台运行
+      
+      // 🚀 核心修复：仅在用户主动点 “X” 关闭窗口将其隐式隐藏到后台时，才物理隐藏 Dock 图标！
+      // 彻底解决全局监听 win.on('hide') 误杀窗口最小化、挂机挂后台系统 App Nap 导致的 Dock 图标和整个窗口莫名不见丢失的重大 macOS 交互 Bug！
+      if (process.platform === 'darwin' && app.dock) {
+        app.dock.hide();
+      }
     }
   });
+
+  // 监听窗口显示事件，在 macOS 上同步显示 Dock 图标并确保设置高清晰度应用图标，防范系统因 show/hide 导致的图标丢失 Bug
+  win.on('show', () => {
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.show()
+      
+      // 🚀 核心修复：强行重新设置一次 Dock 图标，解决 macOS 在隐藏后重新 show 导致的图标丢失或退化为默认原子图标的 Bug
+      try {
+        const iconPath = app.isPackaged
+          ? join(process.resourcesPath, 'icon.png')
+          : join(app.getAppPath(), 'icon.png');
+        
+        if (fs.existsSync(iconPath)) {
+          const dockIcon = nativeImage.createFromPath(iconPath);
+          app.dock.setIcon(dockIcon);
+        } else {
+          // 优雅降级兜底：使用 tray.png 作为 Dock 图标
+          const fallbackPath = join(getResourcesPath(), 'tray.png');
+          if (fs.existsSync(fallbackPath)) {
+            const fallbackIcon = nativeImage.createFromPath(fallbackPath);
+            app.dock.setIcon(fallbackIcon);
+          }
+        }
+      } catch (e) {
+        console.error('[Mac Dock] 设置应用图标异常:', e);
+      }
+    }
+  })
 
   // 实例化并创建系统状态栏/系统托盘常驻图标，开启跨端关闭不退出常驻功能
   createSystemTray(win);
@@ -325,6 +359,21 @@ function registerIpcHandlers(): void {
       }
     }
   })
+
+  // 物理删除单条消息 IPC 通道
+  ipcMain.handle('delete-message', async (_, payload: { messageId: string }) => {
+    try {
+      console.log('[IPC] 收到物理删除消息请求，ID:', payload.messageId)
+      const db = getDatabaseService()
+      db.deleteMessage(payload.messageId)
+      return { success: true }
+    } catch (error: any) {
+      console.error('[IPC] 物理删除消息失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+
 
   // 3. 全局设置保存 IPC 通道
   ipcMain.handle('save-settings', async (_, payload: { primary: ModelConfig; secondary: ModelConfig | null; enableSecondary: boolean }) => {
@@ -691,14 +740,14 @@ ${soulContent}
           let accumulatedResponse = ''
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
-            event.sender.send('chat-chunk', { content: chunk.content, done: false })
+            event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
           }
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
           session.step = 2 // 转移到 Step 2
 
-          event.sender.send('chat-chunk', { content: '', done: true })
+          event.sender.send('chat-chunk', { characterId, content: '', done: true })
           return { success: true }
 
         } else if (session.step === 2) {
@@ -722,14 +771,14 @@ ${soulContent}
           let accumulatedResponse = ''
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
-            event.sender.send('chat-chunk', { content: chunk.content, done: false })
+            event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
           }
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
           session.step = 3 // 转移到 Step 3
 
-          event.sender.send('chat-chunk', { content: '', done: true })
+          event.sender.send('chat-chunk', { characterId, content: '', done: true })
           return { success: true }
 
         } else if (session.step === 3) {
@@ -753,14 +802,14 @@ ${soulContent}
           let accumulatedResponse = ''
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
-            event.sender.send('chat-chunk', { content: chunk.content, done: false })
+            event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
           }
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
           session.step = 4 // 转移到 Step 4（设定生成阶段）
 
-          event.sender.send('chat-chunk', { content: '', done: true })
+          event.sender.send('chat-chunk', { characterId, content: '', done: true })
           return { success: true }
 
         } else if (session.step === 4) {
@@ -792,7 +841,7 @@ ${soulContent}
           let accumulatedResponse = ''
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
-            event.sender.send('chat-chunk', { content: chunk.content, done: false })
+            event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
           }
 
           // 解析并缓存设定
@@ -823,7 +872,7 @@ ${soulContent}
           session.history.push({ role: 'assistant', content: accumulatedResponse })
           session.step = 5 // 转移到 Step 5，等待用户确认或调整人设
 
-          event.sender.send('chat-chunk', { content: '', done: true })
+          event.sender.send('chat-chunk', { characterId, content: '', done: true })
           return { success: true }
 
         } else if (session.step === 5) {
@@ -838,12 +887,12 @@ ${soulContent}
 
             for (let i = 0; i < confirmMsg.length; i += 5) {
               const chunk = confirmMsg.substring(i, i + 5)
-              event.sender.send('chat-chunk', { content: chunk, done: false })
+              event.sender.send('chat-chunk', { characterId, content: chunk, done: false })
               await new Promise(r => setTimeout(r, 10))
             }
 
             session.step = 6 // 转移到状态 6，等待上传头像
-            event.sender.send('chat-chunk', { content: '', done: true })
+            event.sender.send('chat-chunk', { characterId, content: '', done: true })
             return { success: true }
           } else {
             const creatorModifyPrompt = `# Role: 角色卡创建Bot
@@ -871,7 +920,7 @@ ${soulContent}
             let accumulatedResponse = ''
             for await (const chunk of chatStreamGen) {
               accumulatedResponse += chunk.content
-              event.sender.send('chat-chunk', { content: chunk.content, done: false })
+              event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
             }
 
             // 重新解析并缓存
@@ -889,7 +938,7 @@ ${soulContent}
             session.history.push({ role: 'user', content: userMessage })
             session.history.push({ role: 'assistant', content: accumulatedResponse })
 
-            event.sender.send('chat-chunk', { content: '', done: true })
+            event.sender.send('chat-chunk', { characterId, content: '', done: true })
             return { success: true }
           }
 
@@ -901,11 +950,11 @@ ${soulContent}
 
             for (let i = 0; i < errorMsg.length; i += 5) {
               const chunk = errorMsg.substring(i, i + 5)
-              event.sender.send('chat-chunk', { content: chunk, done: false })
+              event.sender.send('chat-chunk', { characterId, content: chunk, done: false })
               await new Promise(r => setTimeout(r, 10))
             }
 
-            event.sender.send('chat-chunk', { content: '', done: true })
+            event.sender.send('chat-chunk', { characterId, content: '', done: true })
             return { success: true }
           }
 
@@ -920,7 +969,7 @@ ${soulContent}
           // 流式回显
           for (let i = 0; i < welcomeMsg.length; i += 5) {
             const chunk = welcomeMsg.substring(i, i + 5)
-            event.sender.send('chat-chunk', { content: chunk, done: false })
+            event.sender.send('chat-chunk', { characterId, content: chunk, done: false })
             await new Promise(r => setTimeout(r, 10))
           }
 
@@ -960,6 +1009,7 @@ ${soulContent}
 
           // 发送带有特殊后缀指令的前台通知
           event.sender.send('chat-chunk', {
+            characterId,
             content: `\n[SUCCESS_CREATION_JUMP]: ${confirmedFolderName}`,
             done: false
           })
@@ -967,13 +1017,13 @@ ${soulContent}
           // 清空会话
           creatorSessions.delete(CREATOR_BOT_ID)
 
-          event.sender.send('chat-chunk', { content: '', done: true })
+          event.sender.send('chat-chunk', { characterId, content: '', done: true })
           return { success: true }
         }
       } catch (err: any) {
         console.error('[CreatorBot] 运行崩溃:', err)
-        event.sender.send('chat-chunk', { content: `\n[系统异常]: ${err.message || err}`, done: false })
-        event.sender.send('chat-chunk', { content: '', done: true })
+        event.sender.send('chat-chunk', { characterId, content: `\n[系统异常]: ${err.message || err}`, done: false })
+        event.sender.send('chat-chunk', { characterId, content: '', done: true })
         return { success: false, error: err.message || err }
       } finally {
         InferenceMutex.unlock()
@@ -1047,21 +1097,25 @@ ${soulContent}
     const streamSplit = new StreamSplitController()
     let lastObservation = ''
 
+    let lastUsage: any = undefined
     try {
       const chatStreamGen = modelAdapter.chatStream(messages, { usePrimary: true })
 
       for await (const chunk of chatStreamGen) {
         accumulatedResponse += chunk.content
+        if (chunk.usage) {
+          lastUsage = chunk.usage
+        }
 
         // 送入 StreamSplitController 进行标点断句和 [CALL_SKILL] 拦截
         const skillCalls = streamSplit.processChunk(chunk.content, (sentence) => {
           const processedContent = chatMode === 'dialogue'
             ? ContextAssembler.cleanDialogueActions(sentence)
             : sentence
-          // 非流式输出：静默接收，不向前端实时分发碎片
-          // if (processedContent) {
-          //   event.sender.send('chat-chunk', { content: processedContent, done: false })
-          // }
+          // 流式输出：仅在动作描写模式下，实时向前端分发片段
+          if (chatMode === 'descriptive' && processedContent) {
+            event.sender.send('chat-chunk', { characterId, content: processedContent, done: false })
+          }
         })
 
         // 处理沙箱隔离运行
@@ -1125,6 +1179,7 @@ ${soulContent}
 
           // 发送系统 Observation 气泡
           event.sender.send('chat-chunk', {
+            characterId,
             content: `\n[系统动作执行完成]: ${observation}\n`,
             done: false,
             isSystem: true
@@ -1137,10 +1192,10 @@ ${soulContent}
         const processedContent = chatMode === 'dialogue'
           ? ContextAssembler.cleanDialogueActions(sentence)
           : sentence
-        // 非流式输出：静默接收，不向前端实时分发碎片
-        // if (processedContent) {
-        //   event.sender.send('chat-chunk', { content: processedContent, done: false })
-        // }
+        // 流式输出：仅在动作描写模式下，实时向前端分发片段
+        if (chatMode === 'descriptive' && processedContent) {
+          event.sender.send('chat-chunk', { characterId, content: processedContent, done: false })
+        }
       })
 
       // Observation 闭环回传 LLM 续写
@@ -1161,24 +1216,27 @@ ${soulContent}
 
         for await (const chunk of followUpStream) {
           followUpAccumulated += chunk.content
+          if (chunk.usage) {
+            lastUsage = chunk.usage
+          }
           followUpSplit.processChunk(chunk.content, (sentence) => {
             const processedContent = chatMode === 'dialogue'
               ? ContextAssembler.cleanDialogueActions(sentence)
               : sentence
-            // 非流式输出：静默接收，不向前端实时分发碎片
-            // if (processedContent) {
-            //   event.sender.send('chat-chunk', { content: processedContent, done: false })
-            // }
+            // 流式输出：仅在动作描写模式下，实时向前端分发片段
+            if (chatMode === 'descriptive' && processedContent) {
+              event.sender.send('chat-chunk', { characterId, content: processedContent, done: false })
+            }
           })
         }
         followUpSplit.flush((sentence) => {
           const processedContent = chatMode === 'dialogue'
             ? ContextAssembler.cleanDialogueActions(sentence)
             : sentence
-          // 非流式输出：静默接收，不向前端实时分发碎片
-          // if (processedContent) {
-          //   event.sender.send('chat-chunk', { content: processedContent, done: false })
-          // }
+          // 流式输出：仅在动作描写模式下，实时向前端分发片段
+          if (chatMode === 'descriptive' && processedContent) {
+            event.sender.send('chat-chunk', { characterId, content: processedContent, done: false })
+          }
         })
         accumulatedResponse += `\n[Observation]: ${lastObservation}\n` + followUpAccumulated
       }
@@ -1195,18 +1253,87 @@ ${soulContent}
     const userMsgId = payload.userMsgId || crypto.randomUUID()
     const assistantMsgId = crypto.randomUUID()
 
-    // 判定红包动作自决结果
-    let redPacketAction: 'receive' | 'return' | null = null
+    // 判定红包动作自决结果 (包含双向收发逻辑)
+    let redPacketAction: 'receive' | 'return' | 'send' | null = null
+    let redPacketSend: { amount: number; title: string; status: string } | null = null
+
+    // A. 判定是否为角色主动发红包
+    const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/
+    const sendMatch = accumulatedResponse.match(sendReg)
+    if (sendMatch) {
+      const amount = parseFloat(sendMatch[1])
+      let title = sendMatch[3].trim()
+      
+      // 🚀 核心优化：强制附言祝福语限制在 15 个字以内，以防大模型超出限制
+      if (title.length > 15) {
+        title = title.substring(0, 15)
+      }
+      
+      // 读取角色当前钱包余额进行校验阻断
+      const statePath = join(charDir, 'State.md')
+      const charState = StateReaderWriter.readState(statePath)
+      const balanceItem = charState.items.find(i => i.key === 'balance')
+      const currentBalance = balanceItem ? Number(balanceItem.value) : 5200.0
+      
+      if (!isNaN(amount) && amount > 0) {
+        if (amount <= currentBalance) {
+          // 余额充足，扣除余额写盘，允许发送红包
+          StateReaderWriter.applyStateUpdates(statePath, [{ key: 'balance', delta: -amount }])
+          redPacketAction = 'send'
+          redPacketSend = { amount, title, status: 'waiting' }
+          console.log(`[Economy] 角色 ${characterId} 自主发送了回音红包：金额 ${amount} 元，附言: "${title}"`)
+        } else {
+          // 物理拦截超额扣款，降级为常规对话
+          console.warn(`[Economy Block] 角色 ${characterId} 余额不足（当前 ${currentBalance}元，欲发送 ${amount}元）。已强制物理拦截并降级。`)
+        }
+      }
+    }
+
+    // B. 判定是否为领取/退回用户红包
     if (accumulatedResponse.includes('[RECEIVE_RED_PACKET]')) {
       redPacketAction = 'receive'
+      // 物理加钱给角色钱包
+      try {
+        const statePath = join(charDir, 'State.md')
+        const lastRedMsg = db.getChatHistory(characterId, 50).filter((m: any) => m.role === 'user' && m.content.startsWith('[wechat_red_packet]:')).pop()
+        if (lastRedMsg) {
+          const jsonStr = lastRedMsg.content.replace('[wechat_red_packet]:', '')
+          const rp = JSON.parse(jsonStr)
+          if (!rp.status || rp.status === 'waiting') {
+            const receivedAmount = parseFloat(rp.amount)
+            if (!isNaN(receivedAmount) && receivedAmount > 0) {
+              StateReaderWriter.applyStateUpdates(statePath, [{ key: 'balance', delta: receivedAmount }])
+              console.log(`[Economy] 角色 ${characterId} 领受用户红包，财富 +${receivedAmount} 元`)
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Economy] 角色收红包加款异常:', err)
+      }
     } else if (accumulatedResponse.includes('[RETURN_RED_PACKET]')) {
       redPacketAction = 'return'
     }
 
     // 对 AI 回复进行强效后置动作净化与控制符全局擦除
+    // 🚀 双向物理拦截防线：强制物理抹去任何在文本或动作描写中关于转账、发钱、发红包、已转出等穿帮的小说体叙事，确保文字彻底干净
+    const economyCleanReg = /[（(][^）)]*(?:转账|红包|转出|发钱|给钱|送钱|压岁钱)[^）)]*[）)]/g
+    const economySentenceReg = /(?:给你?转了?\d+元|给你?发了?\d+元红包|塞给你?一个红包|给你?塞红包|给你?发红包|微信转账|红包已发送)/g
+    const halfBracketReg = /[（(][^）)]*$/g // 🚀 针对流式生成中断导致的未闭合半截括号动作（如：“(红”）进行优雅自愈擦除
+    
     let finalResponse = accumulatedResponse
       .replace(/\[RECEIVE_RED_PACKET\]/g, '')
       .replace(/\[RETURN_RED_PACKET\]/g, '')
+      .replace(sendReg, '')
+      
+    // 🚀 降维干涉：如果已成功提取了红包 Payload，采取精准字面量强制擦除，100% 排除正则可能匹配不到的漏网情况
+    if (sendMatch && sendMatch[0]) {
+      finalResponse = finalResponse.replace(sendMatch[0], '')
+    }
+    
+    finalResponse = finalResponse
+      .replace(economyCleanReg, '')
+      .replace(economySentenceReg, '')
+      .replace(halfBracketReg, '')
       .trim()
 
     if (chatMode === 'dialogue') {
@@ -1258,60 +1385,102 @@ ${soulContent}
     // 提示：大模型运行数据统计已在 ModelAdapter 底层拦截器中高保全无感统一记录，此处无需再次手动写入，防止数据重复统计。
 
     // 根据聊天模式进行物理存盘分段处理
-    if (chatMode === 'dialogue') {
-      // 纯对话模式：采用微信级智能分句重组算法拆分为多条独立的消息持久化，确保重启后历史记录天然为极其自然的微信短气泡
-      const paragraphs: string[] = []
-      const lines = finalResponse.split('\n').map(l => l.trim()).filter(Boolean)
-      
-      for (const line of lines) {
-        if (line.length <= 25) {
-          paragraphs.push(line)
-          continue
-        }
+    let finalMsgTimestamp = Date.now() + 50
+
+    // 1. 先存盘大模型的对话纯文字内容（如果存在文字的话）
+    if (finalResponse.trim().length > 0) {
+      if (chatMode === 'dialogue') {
+        // 纯对话模式：采用微信级智能分句重组算法拆分为多条独立的消息持久化，确保重启后历史记录天然为极其自然的微信短气泡
+        const paragraphs: string[] = []
+        const lines = finalResponse.split('\n').map(l => l.trim()).filter(Boolean)
         
-        // 基于标准句尾标点进行高精度二次拆分
-        const sentences = line.split(/(?<=[。；！？!?])\s*/)
-          .map(s => s.trim())
-          .filter(Boolean)
+        for (const line of lines) {
+          if (line.length <= 25) {
+            paragraphs.push(line)
+            continue
+          }
           
-        let currentTemp = ''
-        for (const s of sentences) {
-          if (currentTemp.length === 0) {
-            currentTemp = s
-          } else {
-            // 合并过短的片段（如感叹句或字数极少句），防范切分过碎刷屏
-            if (currentTemp.length + s.length <= 15 || s.length < 4) {
-              currentTemp += s
-            } else {
-              paragraphs.push(currentTemp)
+          // 基于标准句尾标点进行高精度二次拆分
+          const sentences = line.split(/(?<=[。；！？!?])\s*/)
+            .map(s => s.trim())
+            .filter(Boolean)
+            
+          let currentTemp = ''
+          for (const s of sentences) {
+            if (currentTemp.length === 0) {
               currentTemp = s
+            } else {
+              // 合并过短的片段（如感叹句或字数极少句），防范切分过碎刷屏
+              if (currentTemp.length + s.length <= 15 || s.length < 4) {
+                currentTemp += s
+              } else {
+                paragraphs.push(currentTemp)
+                currentTemp = s
+              }
             }
           }
+          if (currentTemp) {
+            paragraphs.push(currentTemp)
+          }
         }
-        if (currentTemp) {
-          paragraphs.push(currentTemp)
-        }
-      }
-      
-      paragraphs.forEach((p, idx) => {
+        
+        let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
+        let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
+        let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
+
+        paragraphs.forEach((p, idx) => {
+          const pTimestamp = Date.now() + 50 + idx * 100
+          const isLast = (idx === paragraphs.length - 1) && !redPacketSend
+          db.saveMessage({
+            id: crypto.randomUUID(),
+            character_id: characterId,
+            role: 'assistant',
+            content: p,
+            timestamp: pTimestamp,
+            token_usage: isLast ? (finalPromptTokens + finalCompletionTokens) : 0,
+            prompt_tokens: isLast ? finalPromptTokens : undefined,
+            completion_tokens: isLast ? finalCompletionTokens : undefined,
+            cached_tokens: isLast ? finalCachedTokens : undefined
+          })
+          finalMsgTimestamp = pTimestamp
+        })
+      } else {
+        // 包含描写模式：作为完整长文本单条存盘
+        let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
+        let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
+        let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
+        
+        const isLast = !redPacketSend
         db.saveMessage({
-          id: crypto.randomUUID(),
+          id: assistantMsgId,
           character_id: characterId,
           role: 'assistant',
-          content: p,
-          timestamp: Date.now() + 50 + idx * 100, // 顺序微调
-          token_usage: 0
+          content: finalResponse,
+          timestamp: finalMsgTimestamp,
+          token_usage: isLast ? (finalPromptTokens + finalCompletionTokens) : 0,
+          prompt_tokens: isLast ? finalPromptTokens : undefined,
+          completion_tokens: isLast ? finalCompletionTokens : undefined,
+          cached_tokens: isLast ? finalCachedTokens : undefined
         })
-      })
-    } else {
-      // 包含描写模式：作为完整长文本单条存盘
+      }
+    }
+
+    // 2. 如果存在主动发送红包，则再单独保存一条 [wechat_red_packet] 格式的消息，且排在文字气泡的最后面
+    if (redPacketSend) {
+      let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
+      let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
+      let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
+
       db.saveMessage({
-        id: assistantMsgId,
+        id: crypto.randomUUID(),
         character_id: characterId,
         role: 'assistant',
-        content: finalResponse,
-        timestamp: Date.now() + 50,
-        token_usage: 0
+        content: `[wechat_red_packet]:${JSON.stringify(redPacketSend)}`,
+        timestamp: finalMsgTimestamp + 500, // 稍微延迟 500ms 确保排在文字气泡后面
+        token_usage: finalPromptTokens + finalCompletionTokens,
+        prompt_tokens: finalPromptTokens,
+        completion_tokens: finalCompletionTokens,
+        cached_tokens: finalCachedTokens
       })
     }
 
@@ -1328,14 +1497,29 @@ ${soulContent}
       console.error('[MemoryService] 提取异常:', err)
     })
 
+    let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
+    let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
+    let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
+
     // 向前端广播一次性 done 信号，携带完整的清洗后回复内容，以保持最大前向兼容
-    event.sender.send('chat-chunk', { content: finalResponse, done: true })
+    event.sender.send('chat-chunk', {
+      characterId,
+      content: finalResponse,
+      done: true,
+      prompt_tokens: finalPromptTokens,
+      completion_tokens: finalCompletionTokens,
+      cached_tokens: finalCachedTokens
+    })
 
     // IPC 接口 Promise 结果一次性完整带回
     return {
       success: true,
       content: finalResponse,
-      redPacketAction: redPacketAction
+      redPacketAction: redPacketAction,
+      redPacketSend: redPacketSend ? JSON.parse(JSON.stringify(redPacketSend)) : null,
+      prompt_tokens: finalPromptTokens,
+      completion_tokens: finalCompletionTokens,
+      cached_tokens: finalCachedTokens
     }
   }); ipcMain.handle('trigger-life-reflection', async () => {
     try {
@@ -2880,7 +3064,7 @@ ${soulContent}
           // 数字型状态强制转换并安全截断 Clamp
           const val = Number(payload.value)
           const minVal = item.min ?? 0
-          const maxVal = item.max ?? 100
+          const maxVal = item.max ?? (payload.key === 'balance' ? 999999999 : 100)
           item.value = isNaN(val) ? minVal : Math.max(minVal, Math.min(maxVal, val))
         }
         state.last_updated = new Date().toISOString().split('T')[0]
@@ -3052,7 +3236,7 @@ ${soulContent}
   })
 
   // 9. 保存通用常规设置
-  ipcMain.handle('save-general-settings', async (_, payload: { show_schedule: boolean; show_goals: boolean; cron_frequency: string; enable_music?: boolean; lan_mapping_enabled?: boolean; lan_mapping_port?: number }) => {
+  ipcMain.handle('save-general-settings', async (_, payload: { show_schedule: boolean; show_goals: boolean; cron_frequency: string; enable_music?: boolean; lan_mapping_enabled?: boolean; lan_mapping_port?: number; enable_token_stats?: boolean }) => {
     try {
       const db = getDatabaseService()
       db.setSetting('general_config', JSON.stringify(payload))
@@ -3100,7 +3284,8 @@ ${soulContent}
           cron_frequency: 'active',
           enable_music: false,
           lan_mapping_enabled: false,
-          lan_mapping_port: 6868
+          lan_mapping_port: 6868,
+          enable_token_stats: true
         }
       }
     } catch (e: any) {
@@ -3518,7 +3703,9 @@ export function createSystemTray(targetWindow: BrowserWindow) {
   }
 
   tray = new Tray(trayImage);
+  tray.setToolTip('Echo - 回音');
 
+  // 建立极致纯净的原生托盘上下文菜单（非 Mac 平台下的首选）
   const contextMenu = Menu.buildFromTemplate([
     { 
       label: '打开 Echo', 
@@ -3537,14 +3724,14 @@ export function createSystemTray(targetWindow: BrowserWindow) {
     }
   ]);
 
-  tray.setToolTip('Echo - 回音');
-  tray.setContextMenu(contextMenu);
-
-  // Windows / Linux 特有交互：左键单击或双击图标直接打开软件主界面
-  if (process.platform !== 'darwin') {
-    tray.on('click', () => {
-      targetWindow.show();
-      targetWindow.focus();
-    });
+  if (process.platform === 'darwin') {
+    // 🚀 Mac 平台特有升级：爱心右侧绝对不要显示时间
+    tray.setTitle('');
   }
+
+  tray.setContextMenu(contextMenu);
+  tray.on('click', () => {
+    targetWindow.show();
+    targetWindow.focus();
+  });
 }

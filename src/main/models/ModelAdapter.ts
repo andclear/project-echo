@@ -21,6 +21,12 @@ export interface ChatMessage {
 export interface ChatChunk {
   content: string
   done: boolean
+  usage?: {
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+    cached_tokens?: number
+  }
 }
 
 export interface ChatResponse {
@@ -31,6 +37,9 @@ export interface ChatResponse {
 export interface ChatOptions {
   usePrimary?: boolean
   useSecondary?: boolean
+  skipSystemInjection?: boolean // 是否跳过所有全局提示词与时间感知等背景 System 注入，用于纯净低消耗连通性测试
+  characterId?: string
+  characterName?: string
 }
 
 
@@ -137,7 +146,10 @@ export class OpenAIProvider implements IModelProvider {
     const payload: Record<string, any> = {
       model: config.model,
       messages: finalMessages,
-      stream: true
+      stream: true,
+      stream_options: {
+        include_usage: true
+      }
     }
 
     if (config.temperature !== undefined) {
@@ -185,8 +197,15 @@ export class OpenAIProvider implements IModelProvider {
             try {
               const parsed = JSON.parse(rawJson)
               const content = parsed.choices?.[0]?.delta?.content || ''
-              if (content) {
-                yield { content, done: false }
+              const usage = parsed.usage ? {
+                prompt_tokens: parsed.usage.prompt_tokens,
+                completion_tokens: parsed.usage.completion_tokens,
+                total_tokens: parsed.usage.total_tokens,
+                cached_tokens: parsed.usage.prompt_tokens_details?.cached_tokens
+              } : undefined
+
+              if (content || usage) {
+                yield { content, done: false, usage }
               }
             } catch (e) {
               // 容错处理
@@ -202,8 +221,15 @@ export class OpenAIProvider implements IModelProvider {
           try {
             const parsed = JSON.parse(rawJson)
             const content = parsed.choices?.[0]?.delta?.content || ''
-            if (content) {
-              yield { content, done: false }
+            const usage = parsed.usage ? {
+              prompt_tokens: parsed.usage.prompt_tokens,
+              completion_tokens: parsed.usage.completion_tokens,
+              total_tokens: parsed.usage.total_tokens,
+              cached_tokens: parsed.usage.prompt_tokens_details?.cached_tokens
+            } : undefined
+
+            if (content || usage) {
+              yield { content, done: false, usage }
             }
           } catch (_) {}
         }
@@ -674,6 +700,67 @@ export class ModelAdapter {
   }
 
   /**
+   * 运行时全自动拦截替换 {{char}} 和 <char> 为角色的真实姓名
+   */
+  private replaceCharacterPlaceholders(messages: ChatMessage[], options?: ChatOptions): ChatMessage[] {
+    try {
+      let charName = ''
+      
+      // 1. 优先从 options 中获取
+      if (options?.characterName) {
+        charName = options.characterName
+      }
+      
+      // 2. 其次通过 options 中的 characterId 从数据库检索
+      if (!charName && options?.characterId) {
+        try {
+          const db = getDatabaseService()
+          const char = db.getAllCharacters().find(c => c.id === options.characterId)
+          if (char && char.name) {
+            charName = char.name
+          }
+        } catch (_) {}
+      }
+      
+      // 3. 再次，通过 System Prompt 智能推导提取角色姓名 (零摩擦智能识别)
+      if (!charName) {
+        const systemMsg = messages.find((m) => m.role === 'system')
+        if (systemMsg && systemMsg.content) {
+          // 正则 1: 识别 ## SOUL.md \n # 角色姓名
+          const soulMatch = systemMsg.content.match(/## SOUL\.md[^\n]*\s*\n#\s*([^\n\r#]+)/)
+          if (soulMatch && soulMatch[1]) {
+            charName = soulMatch[1].trim()
+          }
+          
+          // 正则 2: 兜底识别 You are (角色名)
+          if (!charName) {
+            const youAreMatch = systemMsg.content.match(/You are ([^\n\.\#\:\!]+)[\.\!]/i)
+            if (youAreMatch && youAreMatch[1]) {
+              charName = youAreMatch[1].trim()
+            }
+          }
+        }
+      }
+
+      if (charName) {
+        // 对 messages 进行深拷贝并执行字符串全局替换
+        const cloned = JSON.parse(JSON.stringify(messages)) as ChatMessage[]
+        for (const msg of cloned) {
+          if (msg.content) {
+            // 替换 {{char}} 和 <char> 为角色姓名
+            msg.content = msg.content.replace(/{{char}}/g, charName)
+            msg.content = msg.content.replace(/<char>/g, charName)
+          }
+        }
+        return cloned
+      }
+    } catch (error) {
+      console.error('[ModelAdapter] 替换角色占位符失败:', error)
+    }
+    return messages
+  }
+
+  /**
    * 自动在 System Prompt 中注入极其精确的当前现实时间戳与时段感知提示，消除 AI 时间紊乱
    */
   private injectCurrentTimePrompt(messages: ChatMessage[]): ChatMessage[] {
@@ -744,9 +831,13 @@ export class ModelAdapter {
     messages: ChatMessage[],
     options?: ChatOptions
   ): Promise<ChatResponse> {
-    let processedMessages = this.injectCurrentTimePrompt(messages)
-    processedMessages = this.injectGlobalPrompt(processedMessages)
-    processedMessages = this.replaceUserPlaceholders(processedMessages)
+    let processedMessages = messages
+    if (!options?.skipSystemInjection) {
+      processedMessages = this.injectCurrentTimePrompt(processedMessages)
+      processedMessages = this.injectGlobalPrompt(processedMessages)
+      processedMessages = this.replaceUserPlaceholders(processedMessages)
+      processedMessages = this.replaceCharacterPlaceholders(processedMessages, options)
+    }
     const config = this.getTargetConfig(options)
     const provider = ProviderFactory.getProvider(config.provider)
     const res = await provider.chat(config, processedMessages)
@@ -770,17 +861,25 @@ export class ModelAdapter {
     messages: ChatMessage[],
     options?: ChatOptions
   ): AsyncGenerator<ChatChunk, void, unknown> {
-    let processedMessages = this.injectCurrentTimePrompt(messages)
-    processedMessages = this.injectGlobalPrompt(processedMessages)
-    processedMessages = this.replaceUserPlaceholders(processedMessages)
+    let processedMessages = messages
+    if (!options?.skipSystemInjection) {
+      processedMessages = this.injectCurrentTimePrompt(processedMessages)
+      processedMessages = this.injectGlobalPrompt(processedMessages)
+      processedMessages = this.replaceUserPlaceholders(processedMessages)
+      processedMessages = this.replaceCharacterPlaceholders(processedMessages, options)
+    }
     const config = this.getTargetConfig(options)
     const provider = ProviderFactory.getProvider(config.provider)
 
     let fullContent = ''
+    let finalUsage: any = undefined
     try {
       for await (const chunk of provider.chatStream(config, processedMessages)) {
         if (chunk.content) {
           fullContent += chunk.content
+        }
+        if (chunk.usage) {
+          finalUsage = chunk.usage
         }
         yield chunk
       }
@@ -791,13 +890,12 @@ export class ModelAdapter {
         // 自动精确匹配主副模型身份
         const role = (options?.usePrimary || (!options?.useSecondary && !this.secondary)) ? 'primary' : 'secondary'
         
-        // 计算精确的输入和输出字符开销，估算 Token
-        const inputCharCount = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0)
-        const outputCharCount = fullContent.length
-        // 1.4 字符/Token 复合折算比率
-        const estimatedTokens = Math.max(1, Math.ceil((inputCharCount + outputCharCount) * 1.4))
+        // 优先使用真实的使用指标进行记账
+        const recordedTokens = finalUsage?.total_tokens ?? Math.max(1, Math.ceil(
+          (messages.reduce((sum, m) => sum + (m.content?.length || 0), 0) + fullContent.length) * 1.4
+        ))
         
-        db.recordModelCall(role, config.model, estimatedTokens)
+        db.recordModelCall(role, config.model, recordedTokens)
       } catch (err: any) {
         console.error('[ModelAdapter] 流式拦截自动记账异常:', err.message)
       }

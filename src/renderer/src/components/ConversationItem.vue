@@ -1,9 +1,9 @@
 <template>
   <!-- 会话列表条目：显示角色头像、名称、最后消息、时间、未读数、免打扰图标 -->
   <div
-    class="px-3 h-[60px] flex-shrink-0 flex items-center space-x-2.5 cursor-pointer transition-colors relative select-none"
+    class="px-3 h-[68px] flex-shrink-0 flex items-center space-x-2.5 cursor-pointer transition-colors relative select-none"
     :class="[
-      isSelected ? 'bg-conversation-selected' : 'hover:bg-conversation-hover',
+      isSelected ? 'bg-conversation-selected' : (isPinned ? 'bg-secondary/[0.04] dark:bg-secondary/[0.03] hover:bg-conversation-hover' : 'hover:bg-conversation-hover'),
       isMuted ? 'opacity-70' : ''
     ]"
     @click="$emit('click')"
@@ -43,7 +43,9 @@
     <div class="flex-1 min-w-0">
       <div class="flex items-center justify-between mb-0.5">
         <span class="text-sm font-semibold text-on-surface truncate max-w-[120px]">{{ character.name }}</span>
-        <div class="flex items-center space-x-1 flex-shrink-0">
+        <div class="flex items-center space-x-1.5 flex-shrink-0">
+          <!-- 置顶小图钉 -->
+          <PinIcon v-if="isPinned" class="w-3 h-3 text-secondary/60 dark:text-secondary/50 transform rotate-45" />
           <!-- 免打扰图标 -->
           <BellOffIcon v-if="isMuted" class="w-3 h-3 text-on-surface-variant/40" />
           <!-- 最后消息时间 -->
@@ -62,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { BellOffIcon, UserIcon, Brain as BrainIcon } from 'lucide-vue-next'
+import { BellOffIcon, UserIcon, Brain as BrainIcon, Pin as PinIcon } from 'lucide-vue-next'
 
 const props = defineProps<{
   character: any
@@ -72,6 +74,7 @@ const props = defineProps<{
   lastMessage: any
   isMuted?: boolean
   isHidden?: boolean
+  isPinned?: boolean
 }>()
 
 defineEmits<{

@@ -1,14 +1,19 @@
 <template>
+  <!-- 精致跳秒时钟独立分流视图 -->
+  <div v-if="isClockView" class="w-full h-full select-none overflow-hidden" :class="{ 'dark': isDark }">
+    <ClockView />
+  </div>
   <!-- 根容器，支持亮色/暗色模式 -->
   <div
+    v-else
     class="w-full flex flex-col bg-background text-on-surface font-sans select-none overflow-hidden"
     :class="{ 'dark': isDark }"
     :style="isMobile ? { height: viewportHeight } : { height: '100%' }"
     @dragenter.prevent="handleDragEnter"
   >
     <!-- macOS 拖拽条 -->
-    <div v-if="!isMobile" class="h-7 w-full flex-shrink-0 bg-transparent flex items-center justify-center pointer-events-none select-none" style="-webkit-app-region: drag;">
-      <span class="text-[11px] font-medium tracking-wide text-on-surface/40 font-sans">Echo-回音</span>
+    <div v-if="!isMobile" class="h-7 w-full flex-shrink-0 bg-surface border-b border-outline-variant/30 flex items-center justify-center pointer-events-none select-none shadow-sm" style="-webkit-app-region: drag;">
+      <span class="text-[11px] font-semibold tracking-wide text-on-surface/60 font-sans">Echo-回音</span>
     </div>
 
     <!-- 三栏主体布局 -->
@@ -39,11 +44,12 @@
           <!-- 对话 -->
           <button
             @click="sideView = 'chat'"
-            class="nav-icon-btn"
+            class="nav-icon-btn relative"
             :class="{ 'nav-icon-btn-active': sideView === 'chat' }"
             title="对话"
           >
             <MessageSquareIcon class="w-5 h-5" />
+            <span v-if="hasUnreadConversations" class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full shadow-sm scale-95 animate-pulse"></span>
           </button>
 
           <!-- 通讯录 -->
@@ -165,32 +171,18 @@
                   <PlusCircleIcon class="w-4 h-4" stroke-width="1.5" />
                 </button>
                 
-                <!-- 下拉一级菜单：添加角色 / 发起群聊 -->
+                <!-- 下拉扁平化菜单：创建角色 / 导入角色卡 / 发起群聊 -->
                 <div
                   v-if="showAddMenu"
-                  class="absolute right-0 mt-1.5 w-32 bg-surface border border-outline-variant rounded-xl shadow-2xl py-1.5 z-50 overflow-hidden select-none"
+                  class="absolute right-0 mt-1.5 w-32 bg-surface border border-outline-variant rounded-xl shadow-2xl py-1.5 z-50 overflow-hidden select-none animate-in fade-in duration-100"
                 >
                   <button
-                    @click.stop="triggerAddCharacter"
+                    @click.stop="triggerCreateNewCharacter"
                     class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
                   >
-                    <UserIcon class="w-4 h-4 text-primary" stroke-width="1.5" />
-                    <span>添加角色</span>
+                    <PenLineIcon class="w-4 h-4 text-secondary" stroke-width="1.5" />
+                    <span>创建角色</span>
                   </button>
-                  <button
-                    @click.stop="showComingSoon('发起群聊')"
-                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 opacity-60 cursor-pointer font-medium"
-                  >
-                    <UsersIcon class="w-4 h-4 text-secondary" stroke-width="1.5" />
-                    <span>发起群聊</span>
-                  </button>
-                </div>
-
-                <!-- 下拉二级子菜单：导入角色卡 / 创建角色 -->
-                <div
-                  v-if="showAddCharacterMenu"
-                  class="absolute right-0 mt-1.5 w-36 bg-surface border border-outline-variant rounded-xl shadow-2xl py-1.5 z-50 overflow-hidden select-none"
-                >
                   <button
                     @click.stop="triggerImportCharacterCard"
                     class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
@@ -199,11 +191,11 @@
                     <span>导入角色卡</span>
                   </button>
                   <button
-                    @click.stop="triggerCreateNewCharacter"
-                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
+                    @click.stop="showComingSoon('发起群聊'); showAddMenu = false"
+                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 opacity-60 cursor-pointer font-medium"
                   >
-                    <PenLineIcon class="w-4 h-4 text-secondary" stroke-width="1.5" />
-                    <span>创建角色</span>
+                    <UsersIcon class="w-4 h-4 text-secondary" stroke-width="1.5" />
+                    <span>发起群聊</span>
                   </button>
                 </div>
               </div>
@@ -225,6 +217,7 @@
                 :last-message="getLastMessage(char.id)"
                 :is-muted="conversationMeta[char.id]?.muted"
                 :is-hidden="conversationMeta[char.id]?.hidden"
+                :is-pinned="conversationMeta[char.id]?.pinned"
                 @click="selectCharacter(char.id)"
                 @contextmenu.prevent="openContextMenu($event, char)"
                 @touchstart="onLongPressStart($event, char, 'chat')"
@@ -246,6 +239,7 @@
                   :last-message="getLastMessage(char.id)"
                   :is-muted="conversationMeta[char.id]?.muted"
                   :is-hidden="conversationMeta[char.id]?.hidden"
+                  :is-pinned="conversationMeta[char.id]?.pinned"
                   @click="selectCharacter(char.id)"
                   @contextmenu.prevent="openContextMenu($event, char)"
                   @touchstart="onLongPressStart($event, char, 'chat')"
@@ -265,6 +259,7 @@
                     :is-selected="selectedCharacterId === char.id"
                     :unread="0"
                     :last-message="null"
+                    :is-pinned="conversationMeta[char.id]?.pinned"
                     @click="selectCharacter(char.id)"
                   />
                 </div>
@@ -360,8 +355,8 @@
           </div>
           <!-- 底部版本与客户端名称 -->
           <div class="px-4 py-3.5 border-t border-sidebar-border/30 text-[10px] text-on-surface-variant/40 font-mono flex-shrink-0 select-none">
-            <div>Echo Client v1.0.0</div>
-            <div class="mt-0.5 opacity-60">数字生命自省进化客户端</div>
+            <div>Echo - 回音 v1.0.0</div>
+            <div class="mt-0.5 opacity-60">AIRP 聊天客户端</div>
           </div>
         </template>
         
@@ -678,17 +673,26 @@
                         :key="item.label"
                         class="flex-1 h-full flex flex-col justify-end items-center min-w-0 group relative"
                       >
-                        <!-- 发光 Tooltip 数值提示 -->
-                        <div class="absolute bottom-full mb-1.5 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 bg-slate-900/90 dark:bg-white text-white dark:text-slate-900 text-[9px] font-bold font-mono px-2.5 py-1.5 rounded-xl shadow-lg border border-outline-variant/10 pointer-events-none transition-all duration-200 z-10 whitespace-nowrap flex flex-col space-y-0.5 leading-tight">
-                          <span class="text-on-surface-variant/70 border-b border-outline-variant/20 pb-1 mb-1 text-center font-sans">{{ item.fullLabel }}</span>
+                        <!-- 极具高级磨砂玻璃感与清晰对比度的高级 Tooltip 悬浮框 -->
+                        <div class="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md text-slate-800 dark:text-slate-200 text-[10px] font-bold font-mono px-3 py-2 rounded-2xl shadow-xl border border-slate-200/50 dark:border-slate-800/40 pointer-events-none transition-all duration-200 z-10 whitespace-nowrap flex flex-col space-y-1.5 leading-tight">
+                          <span class="text-slate-500 dark:text-slate-400 border-b border-slate-200/60 dark:border-slate-800/60 pb-1 text-center font-sans font-medium">{{ item.fullLabel }}</span>
                           
-                          <!-- 分模型展示 -->
+                          <!-- 分模型展示，采用高对比度鲜明配色 -->
                           <template v-if="statsData.hasSecondary">
-                            <span v-if="currentStatsModelRole === 'secondary'" class="text-secondary font-black font-sans">辅助模型: {{ item.secondaryCalls }} 次</span>
-                            <span v-else class="text-primary font-black font-sans">主模型: {{ item.primaryCalls }} 次</span>
+                            <span v-if="currentStatsModelRole === 'secondary'" class="text-pink-600 dark:text-pink-400 font-extrabold font-sans flex items-center space-x-1 justify-center">
+                              <span>●</span>
+                              <span>辅助模型: {{ item.secondaryCalls }} 次</span>
+                            </span>
+                            <span v-else class="text-blue-600 dark:text-blue-400 font-extrabold font-sans flex items-center space-x-1 justify-center">
+                              <span>●</span>
+                              <span>主模型: {{ item.primaryCalls }} 次</span>
+                            </span>
                           </template>
                           <template v-else>
-                            <span class="text-primary font-black font-sans">AI调用次数: {{ item.calls }} 次</span>
+                            <span class="text-blue-600 dark:text-blue-400 font-extrabold font-sans flex items-center space-x-1 justify-center">
+                              <span>●</span>
+                              <span>AI调用次数: {{ item.calls }} 次</span>
+                            </span>
                           </template>
                         </div>
 
@@ -735,17 +739,26 @@
                         :key="item.label"
                         class="flex-1 h-full flex flex-col justify-end items-center min-w-0 group relative"
                       >
-                        <!-- 发光 Tooltip 数值提示 -->
-                        <div class="absolute bottom-full mb-1.5 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 bg-slate-900/90 dark:bg-white text-white dark:text-slate-900 text-[9px] font-bold font-mono px-2.5 py-1.5 rounded-xl shadow-lg border border-outline-variant/10 pointer-events-none transition-all duration-200 z-10 whitespace-nowrap flex flex-col space-y-0.5 leading-tight">
-                          <span class="text-on-surface-variant/70 border-b border-outline-variant/20 pb-1 mb-1 text-center font-sans">{{ item.fullLabel }}</span>
+                        <!-- 极具高级磨砂玻璃感与清晰对比度的高级 Tooltip 悬浮框 -->
+                        <div class="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 scale-95 group-hover:scale-100 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md text-slate-800 dark:text-slate-200 text-[10px] font-bold font-mono px-3 py-2 rounded-2xl shadow-xl border border-slate-200/50 dark:border-slate-800/40 pointer-events-none transition-all duration-200 z-10 whitespace-nowrap flex flex-col space-y-1.5 leading-tight">
+                          <span class="text-slate-500 dark:text-slate-400 border-b border-slate-200/60 dark:border-slate-800/60 pb-1 text-center font-sans font-medium">{{ item.fullLabel }}</span>
                           
-                          <!-- 分模型展示 -->
+                          <!-- 分模型展示，采用高对比度鲜明配色 -->
                           <template v-if="statsData.hasSecondary">
-                            <span v-if="currentStatsModelRole === 'secondary'" class="text-secondary font-black font-sans">辅助模型: {{ item.secondaryTokens.toLocaleString() }} T</span>
-                            <span v-else class="text-primary font-black font-sans">主模型: {{ item.primaryTokens.toLocaleString() }} T</span>
+                            <span v-if="currentStatsModelRole === 'secondary'" class="text-pink-600 dark:text-pink-400 font-extrabold font-sans flex items-center space-x-1 justify-center">
+                              <span>●</span>
+                              <span>辅助模型: {{ item.secondaryTokens.toLocaleString() }} T</span>
+                            </span>
+                            <span v-else class="text-blue-600 dark:text-blue-400 font-extrabold font-sans flex items-center space-x-1 justify-center">
+                              <span>●</span>
+                              <span>主模型: {{ item.primaryTokens.toLocaleString() }} T</span>
+                            </span>
                           </template>
                           <template v-else>
-                            <span class="text-secondary font-black font-sans">算力消耗: {{ item.tokens.toLocaleString() }} T</span>
+                            <span class="text-pink-600 dark:text-pink-400 font-extrabold font-sans flex items-center space-x-1 justify-center">
+                              <span>●</span>
+                              <span>算力消耗: {{ item.tokens.toLocaleString() }} T</span>
+                            </span>
                           </template>
                         </div>
 
@@ -831,7 +844,7 @@
             <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
               <div class="text-sm font-bold text-on-surface flex items-center space-x-2">
                 <GlobeIcon class="w-4 h-4 text-primary animate-pulse" />
-                <span>回音朋友圈 (Moments)</span>
+                <span>回音朋友圈</span>
               </div>
               
               <button
@@ -1343,7 +1356,7 @@
               <header class="h-14 px-4 border-b border-outline-variant/20 flex items-center justify-between flex-shrink-0">
                 <div class="text-xs font-black text-on-surface flex items-center space-x-1.5">
                   <BookmarkIcon class="w-4 h-4 text-primary animate-pulse" />
-                  <span>我的微型书签</span>
+                  <span>收藏夹</span>
                 </div>
               </header>
 
@@ -1522,7 +1535,7 @@
                         :class="!isDark ? 'border-primary bg-primary/5 text-primary shadow-sm font-black' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
                       >
                         <SunIcon class="w-4 h-4 text-primary flex-shrink-0" />
-                        <span class="text-xs">极光亮色 (Aurora Light)</span>
+                        <span class="text-xs">亮色模式</span>
                       </button>
                       <button
                         @click="toggleTheme(true)"
@@ -1530,7 +1543,7 @@
                         :class="isDark ? 'border-primary bg-primary/5 text-primary shadow-sm font-black' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
                       >
                         <MoonIcon class="w-4 h-4 text-primary flex-shrink-0" />
-                        <span class="text-xs">深邃暗色 (Deep Dark)</span>
+                        <span class="text-xs">暗色模式</span>
                       </button>
                     </div>
                   </div>
@@ -1561,7 +1574,7 @@
 
                   <!-- 全局系统提示词 -->
                   <div class="space-y-2 pt-1">
-                    <h4 class="text-[11px] font-bold text-on-surface">全局系统约束指令 (Global Prompt)</h4>
+                    <h4 class="text-[11px] font-bold text-on-surface">全局系统约束指令</h4>
                     <div class="form-group relative">
                       <textarea
                         v-model="globalPrompt"
@@ -1587,8 +1600,8 @@
                           <CalendarIcon class="w-3.5 h-3.5 text-primary" />
                         </div>
                         <div>
-                          <h4 class="text-xs font-bold text-on-surface">显示角色日程栏 (Schedule)</h4>
-                          <p class="text-[9px] text-on-surface-variant mt-0.5">在联系人详情中展示AI角色未来的近7天日程排期。</p>
+                          <h4 class="text-xs font-bold text-on-surface">显示角色日程</h4>
+                          <p class="text-[9px] text-on-surface-variant mt-0.5">在联系人详情中展示角色未来近7天的日程排期。</p>
                         </div>
                       </div>
                       <button @click="generalConfig.show_schedule = !generalConfig.show_schedule; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.show_schedule ? 'bg-primary' : 'bg-outline-variant'">
@@ -1603,8 +1616,8 @@
                           <BarChart3Icon class="w-3.5 h-3.5 text-primary" />
                         </div>
                         <div>
-                          <h4 class="text-xs font-bold text-on-surface">显示角色成长目标 (Goals)</h4>
-                          <p class="text-[9px] text-on-surface-variant mt-0.5">在联系人详情中展示AI角色正在追求的长期成长进化目标。</p>
+                          <h4 class="text-xs font-bold text-on-surface">显示角色成长目标</h4>
+                          <p class="text-[9px] text-on-surface-variant mt-0.5">在联系人详情中展示角色正在追求的长期成长目标。</p>
                         </div>
                       </div>
                       <button @click="generalConfig.show_goals = !generalConfig.show_goals; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.show_goals ? 'bg-primary' : 'bg-outline-variant'">
@@ -1619,12 +1632,28 @@
                           <MusicIcon class="w-3.5 h-3.5 text-primary" />
                         </div>
                         <div>
-                          <h4 class="text-xs font-bold text-on-surface">启用回音音乐功能 (Music)</h4>
+                          <h4 class="text-xs font-bold text-on-surface">启用回音音乐功能</h4>
                           <p class="text-[9px] text-on-surface-variant mt-0.5">开启后可在系统左侧栏激活音乐，并展现全局底部音乐控制栏。</p>
                         </div>
                       </div>
                       <button @click="generalConfig.enable_music = !generalConfig.enable_music; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.enable_music ? 'bg-primary' : 'bg-outline-variant'">
                         <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.enable_music ? 'left-5.5' : 'left-0.5'"></span>
+                      </button>
+                    </div>
+
+                    <!-- 对话中开启token统计 -->
+                    <div class="py-3 flex items-center justify-between last:pb-0">
+                      <div class="flex items-start space-x-3.5">
+                        <div class="p-1.5 rounded-xl bg-surface border border-outline-variant/40 text-on-surface-variant">
+                          <ActivityIcon class="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <div>
+                          <h4 class="text-xs font-bold text-on-surface">对话中开启 Token 统计</h4>
+                          <p class="text-[9px] text-on-surface-variant mt-0.5">开启后，将在与角色的对话窗口中角色回复气泡的下方，小字显示输入/输出 Token 和缓存命中率统计。</p>
+                        </div>
+                      </div>
+                      <button @click="generalConfig.enable_token_stats = !generalConfig.enable_token_stats; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.enable_token_stats ? 'bg-primary' : 'bg-outline-variant'">
+                        <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.enable_token_stats ? 'left-5.5' : 'left-0.5'"></span>
                       </button>
                     </div>
 
@@ -1636,7 +1665,7 @@
                             <GlobeIcon class="w-3.5 h-3.5 text-primary" />
                           </div>
                           <div>
-                            <h4 class="text-xs font-bold text-on-surface">开启局域网映射 (LAN Mapping)</h4>
+                            <h4 class="text-xs font-bold text-on-surface">开启局域网映射</h4>
                             <p class="text-[9px] text-on-surface-variant mt-0.5">开启后允许在打包的独立客户端中，通过局域网其他设备访问本项目，实现完全的数据互通。</p>
                           </div>
                         </div>
@@ -1647,7 +1676,7 @@
                       
                       <!-- 端口输入项 (仅在开启时展示，动画平滑展开) -->
                       <div v-if="generalConfig.lan_mapping_enabled" class="pl-11 pr-2 py-1 flex items-center justify-between text-xs animate-in slide-in-from-top-2 duration-200">
-                        <span class="text-[10px] text-on-surface-variant font-medium">局域网访问端口 (LAN Port)</span>
+                        <span class="text-[10px] text-on-surface-variant font-medium">局域网访问端口</span>
                         <div class="relative w-28">
                           <input
                             v-model.number="generalConfig.lan_mapping_port"
@@ -1678,7 +1707,7 @@
                   <div class="grid grid-cols-2 gap-4">
                     <!-- 字段名称 -->
                     <div class="flex flex-col space-y-1.5">
-                      <label class="text-[11px] font-bold text-on-surface-variant">指标属性名称 (例如：欲望值、好感)</label>
+                      <label class="text-[11px] font-bold text-on-surface-variant">指标属性名称</label>
                       <input 
                         type="text" 
                         v-model="presetForm.label" 
@@ -1703,7 +1732,7 @@
                           class="flex-grow py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer"
                           :class="presetForm.type === 'text' ? 'bg-surface-high text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
                         >
-                          文本型 (自由字串)
+                          文本型
                         </button>
                       </div>
                     </div>
@@ -1711,17 +1740,17 @@
 
                   <!-- 指标含义 -->
                   <div class="flex flex-col space-y-1.5">
-                    <label class="text-[11px] font-bold text-on-surface-variant">指标含义 (作为提示词强约束注入 AI 脑区，例如：好感越高，说话越害羞)</label>
+                    <label class="text-[11px] font-bold text-on-surface-variant">指标含义 (作为提示词强约束注入 AI 脑区，例如：好感越高，聊天表现越亲密)</label>
                     <textarea 
                       v-model="presetForm.meaning" 
                       class="w-full h-16 px-3.5 py-2 rounded-2xl bg-surface border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface resize-none leading-relaxed"
-                      placeholder="例如：欲望值越高，说话越色情，0为正常；或者：黑化值越高，说话语气越病娇冷酷。"
+                      placeholder="例如：好感越高，聊天表现越亲密。可以详细设定"
                     ></textarea>
                   </div>
 
                   <!-- 指标更新规则 -->
                   <div class="flex flex-col space-y-1.5">
-                    <label class="text-[11px] font-bold text-on-surface-variant">指标更新规则 (AI 增减分值所要遵守的自省自然语言法则)</label>
+                    <label class="text-[11px] font-bold text-on-surface-variant">指标更新规则 (AI 增减分值所要遵守的规则)</label>
                     <textarea 
                       v-model="presetForm.rule" 
                       class="w-full h-20 px-3.5 py-2 rounded-2xl bg-surface border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface resize-none leading-relaxed"
@@ -1732,8 +1761,8 @@
                   <!-- 是否设为全局状态栏 -->
                   <div class="py-3 flex items-center justify-between border-t border-b border-outline-variant/30">
                     <div>
-                      <h4 class="text-xs font-bold text-on-surface">设为全局状态栏 (Global State)</h4>
-                      <p class="text-[10px] text-on-surface-variant mt-0.5">设为全局后，该指标将强制无感应用于**所有角色**，且各角色独立持久化各自的分值。</p>
+                      <h4 class="text-xs font-bold text-on-surface">设为全局状态栏</h4>
+                      <p class="text-[10px] text-on-surface-variant mt-0.5">设为全局后，该指标将强制应用于【所有角色】，且各角色独立持久化各自的分值。</p>
                     </div>
                     <button 
                       @click="presetForm.is_global = !presetForm.is_global" 
@@ -1765,7 +1794,7 @@
 
                 <!-- 当前已注册预设列表 -->
                 <div class="space-y-3">
-                  <h3 class="text-xs font-bold text-on-surface-variant uppercase tracking-wider">当前已注册的预设指标 (Presets List)</h3>
+                  <h3 class="text-xs font-bold text-on-surface-variant uppercase tracking-wider">当前已注册的预设指标</h3>
                   
                   <!-- 预设卡片堆叠 -->
                   <div v-if="statePresets.length > 0" class="grid grid-cols-2 gap-3">
@@ -1922,7 +1951,7 @@
                 <div class="flex items-center justify-between pb-6 border-b border-outline-variant/10 mb-4">
                   <div>
                     <h3 class="text-sm font-bold text-on-surface">启用辅助大模型</h3>
-                    <p class="text-[10px] text-on-surface-variant mt-1">开启后，后台梦境睡眠自省进化与人设提炼将优先跑在独立的辅助模型上，保障主聊天通道的算力带宽。</p>
+                    <p class="text-[10px] text-on-surface-variant mt-1">开启后，除角色对话和角色卡导入外的其他调用，都将使用辅助大模型（例如论坛/朋友圈功能等...）。</p>
                   </div>
                   <button @click="enableSecondary = !enableSecondary" class="relative w-11 h-6 rounded-full transition-all focus:outline-none" :class="enableSecondary ? 'bg-primary' : 'bg-outline-variant'">
                     <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all shadow-md" :class="enableSecondary ? 'left-5.5' : 'left-0.5'"></span>
@@ -2023,28 +2052,105 @@
               </div>
 
 
-              <!-- D. 关于软件 -->
+              <!-- D. 数据备份与迁移 (Tab: migration) -->
+              <div v-else-if="activeSettingsTab === 'migration'" class="space-y-6 select-none animate-in fade-in duration-200">
+                <div class="bg-surface-low/20 p-6 rounded-2xl border border-outline-variant/10 text-center relative overflow-hidden">
+                  <!-- 背景微弱流光特效 -->
+                  <div class="absolute -inset-0 opacity-10 bg-gradient-to-r from-primary via-secondary to-primary blur-3xl animate-pulse"></div>
+                  
+                  <div class="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4 shadow-sm relative z-10">
+                    <Share2Icon class="w-7 h-7 text-primary" />
+                  </div>
+                  <h2 class="text-sm font-bold text-on-surface relative z-10">本地数据转移与备份</h2>
+                  <p class="text-xs text-on-surface-variant mt-2 max-w-lg mx-auto leading-relaxed relative z-10">
+                    将您在软件中的核心数据（包括全部聊天记录、角色人设、物理记忆、朋友圈动态、自建歌单和全局设置等）一键打包备份为 <code class="font-mono bg-surface-high px-1.5 py-0.5 rounded text-primary text-[10px]">.echo</code> 的专属文件，方便在不同设备间迁移。
+                  </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <!-- 备份导出卡片 -->
+                  <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-5 flex flex-col justify-between hover:border-primary/20 transition-all group">
+                    <div>
+                      <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:scale-105 transition-all">
+                          <DownloadIcon class="w-4 h-4" />
+                        </div>
+                        <h3 class="text-xs font-bold text-on-surface">一键导出数据备份</h3>
+                      </div>
+                      <p class="text-[11px] text-on-surface-variant mt-3 leading-relaxed">
+                        物理打包本地所有数据，生成备份包，并提供保存路径选择。
+                      </p>
+                    </div>
+                    <button
+                      @click="handleExportProjectData"
+                      :disabled="isExportingData || isImportingData"
+                      class="btn-primary w-full mt-6 py-2 px-4 rounded-xl flex items-center justify-center space-x-2 text-xs font-semibold select-none cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      <Loader2Icon v-if="isExportingData" class="w-3.5 h-3.5 animate-spin" />
+                      <DownloadIcon v-else class="w-3.5 h-3.5" />
+                      <span>{{ isExportingData ? '正在打包导出...' : '导出核心备份 (.echo)' }}</span>
+                    </button>
+                  </div>
+
+                  <!-- 还原导入卡片 -->
+                  <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-5 flex flex-col justify-between hover:border-error/20 transition-all group">
+                    <div>
+                      <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-xl bg-error/10 border border-error/20 flex items-center justify-center text-error group-hover:scale-105 transition-all">
+                          <RefreshCwIcon class="w-4 h-4" />
+                        </div>
+                        <h3 class="text-xs font-bold text-on-surface">一键导入覆盖还原</h3>
+                      </div>
+                      <p class="text-[11px] text-on-surface-variant mt-3 leading-relaxed">
+                        选择本地的 <code class="font-mono bg-surface-high px-1 py-0.5 rounded text-error text-[10px]">.echo</code> 备份文件，删除当前的所有数据，全量覆盖导入，导入后应用将热重启。
+                      </p>
+                    </div>
+                    <button
+                      @click="handleImportProjectData"
+                      :disabled="isExportingData || isImportingData"
+                      class="btn-secondary border-error/20 hover:bg-error/10 hover:text-error hover:border-error/30 w-full mt-6 py-2 px-4 rounded-xl flex items-center justify-center space-x-2 text-xs font-semibold select-none cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      <Loader2Icon v-if="isImportingData" class="w-3.5 h-3.5 animate-spin text-error" />
+                      <RefreshCwIcon v-else class="w-3.5 h-3.5 text-error" />
+                      <span :class="{ 'text-error': !isImportingData }">{{ isImportingData ? '正在全量还原并重启...' : '全量覆盖导入 (.echo)' }}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 安全指引提示区 -->
+                <div class="bg-surface-low/10 border border-outline-variant/10 p-4 rounded-xl flex items-start space-x-3">
+                  <AlertTriangleIcon class="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+                  <div class="space-y-1">
+                    <h4 class="text-[11px] font-bold text-on-surface">导入操作安全提醒</h4>
+                    <p class="text-[10px] text-on-surface-variant leading-relaxed">
+                      由于导入备份为【全量覆盖性质】，导入后将删除现有软件中的所有数据。在点击确认导入前，请务必保证选取的 <code class="font-mono text-primary bg-surface-high px-1 rounded">.echo</code> 文件合法有效。导入过程中请勿强制退出应用或切断电源，以防数据损坏。
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- E. 关于软件 -->
               <div v-else-if="activeSettingsTab === 'about'" class="space-y-6 select-text">
                 <div class="bg-surface-low/20 p-6 rounded-xl text-center select-none">
                   <div class="w-16 h-16 rounded-3xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center mx-auto mb-4 shadow-sm animate-pulse">
                     <SettingsIcon class="w-8 h-8 text-primary" />
                   </div>
-                  <h2 class="text-base font-bold text-on-surface">Echo Platform</h2>
-                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.0 (Desktop Edition)</p>
-                  <p class="text-[10px] text-on-surface-variant mt-1.5 opacity-60">由 Antigravity 强力驱动的数字生命客户端</p>
+                  <h2 class="text-base font-bold text-on-surface">Echo - 回音</h2>
+                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.0 (桌面端)</p>
+                  <p class="text-[10px] text-on-surface-variant mt-1.5 opacity-60">Power By Laopobao</p>
                 </div>
 
                 <div class="space-y-4">
                   <div>
-                    <h3 class="text-xs font-bold text-on-surface uppercase tracking-wider font-mono">关于系统架构</h3>
+                    <h3 class="text-xs font-bold text-on-surface uppercase tracking-wider font-mono">关于 Echo</h3>
                     <p class="text-xs text-on-surface-variant mt-1.5 leading-relaxed">
-                      Echo 是一套创新的数字生命客户端。它支持 SillyTavern 角色卡的零摩擦物理导入，并内置了自适应“双轨记忆”机制（短期滚动记忆 STM 与长期兴趣偏好 LTM）以及千人千面专属侧写（USER.md）。
+                      Echo 是一个AIRP角色扮演对话系统，支持多角色会话。
                     </p>
                   </div>
                   <div>
                     <h3 class="text-xs font-bold text-on-surface uppercase tracking-wider font-mono">AI 安全隔离沙箱</h3>
                     <p class="text-xs text-on-surface-variant mt-1.5 leading-relaxed">
-                      客户端集成了高级安全沙箱隔离层，防止 AI 专属动作逃逸。无论数字生命执行何种专属技能或扩展动作，都将在极致安全的独立沙箱内平稳运行，绝对保障您的系统数据安全。
+                      客户端集成了高级安全沙箱隔离层，无论角色执行何种专属技能或扩展动作，都将在安全的独立沙箱内平稳运行，绝对保障系统数据安全。
                     </p>
                   </div>
                 </div>
@@ -2052,7 +2158,7 @@
             </div>
 
             <!-- 固定底部操作粘滞栏 -->
-            <div v-if="activeSettingsTab !== 'about'" class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none">
+            <div v-if="activeSettingsTab !== 'about' && activeSettingsTab !== 'migration'" class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none">
               <div class="flex items-center justify-between max-w-3xl w-full mx-auto">
                 <button @click="testModelConnection" :disabled="testing" class="btn-secondary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 rounded-xl active:scale-95 transition-all">
                   <ActivityIcon v-if="!testing" class="w-3.5 h-3.5" />
@@ -2195,7 +2301,7 @@
                   </h2>
                   <p class="text-[10px] text-on-surface-variant mt-1.5 flex items-center space-x-1.5 opacity-80">
                     <GlobeIcon class="w-3 h-3 text-primary opacity-70" />
-                    <span>物理角色专属目录：<code>characters/{{ characterList.find(c => c.id === selectedContactId)?.folder_name }}</code></span>
+                    <span>角色专属目录：<code>characters/{{ characterList.find(c => c.id === selectedContactId)?.folder_name }}</code></span>
                   </p>
                   <div class="flex items-center space-x-2 mt-2">
                     <span class="text-[9px] tracking-wider uppercase bg-primary/5 text-primary border border-primary/10 px-1.5 py-0.5 rounded font-bold font-mono">Soul Card</span>
@@ -2255,10 +2361,20 @@
                 <div v-else-if="contactActiveTab === 'memory'" class="h-full flex-1 flex flex-col min-h-0 space-y-4">
                   <div class="flex items-center justify-between mb-0 flex-shrink-0 select-none">
                     <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">双轨记忆设定 (MEMORY.md)</div>
-                    <button @click="contactEditModes.memory = !contactEditModes.memory" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
-                      <component :is="contactEditModes.memory ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
-                      <span>{{ contactEditModes.memory ? '预览记忆' : '修改源码' }}</span>
-                    </button>
+                    <div class="flex items-center space-x-2 flex-shrink-0">
+                      <button 
+                        @click="tidyCharacterMemory('contact')" 
+                        :disabled="isTidyingMemory"
+                        class="flex items-center space-x-1.5 text-xs text-secondary border border-secondary/20 hover:border-secondary bg-secondary/5 hover:bg-secondary/10 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0 animate-fade-in"
+                      >
+                        <component :is="isTidyingMemory ? Loader2Icon : SparklesIcon" class="w-3.5 h-3.5" :class="{ 'animate-spin': isTidyingMemory }" />
+                        <span>{{ isTidyingMemory ? '整理中...' : '整理记忆' }}</span>
+                      </button>
+                      <button @click="contactEditModes.memory = !contactEditModes.memory" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                        <component :is="contactEditModes.memory ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                        <span>{{ contactEditModes.memory ? '预览记忆' : '修改源码' }}</span>
+                      </button>
+                    </div>
                   </div>
                   
                   <!-- 预览模式 -->
@@ -3184,8 +3300,8 @@
                   <h4 class="text-xs font-black text-on-surface flex items-center space-x-1.5">
                     <span>📂</span> <span>默认下载存储路径</span>
                   </h4>
-                  <p class="text-[10.5px] text-on-surface-variant/70 leading-relaxed pr-2 font-mono bg-surface p-3 rounded-xl border border-outline-variant/40">
-                    /Users/lillian/Downloads/EchoMusic
+                  <p class="text-[10.5px] text-on-surface-variant/70 leading-relaxed pr-2 font-mono bg-surface p-3 rounded-xl border border-outline-variant/40 break-all select-text">
+                    {{ musicStore.state.downloadPath || '加载中...' }}
                   </p>
                   <p class="text-[9.5px] text-on-surface-variant/50 leading-relaxed font-bold">
                     🐾 系统在下载音乐时，会自动在此目录下生成独立的同名外挂 <code>.lrc</code> 歌词文件以最大化设备兼容性，同时会使用纯 Buffer ID3 物理无损向音频文件前缀注入包含高清封面、专辑名称、歌手、歌词标签的全部元数据。
@@ -3458,7 +3574,7 @@
               <div class="relative">
                 <div class="text-sm font-bold text-on-surface flex items-center space-x-1.5">
                   <span>{{ activeCharacter.name }}</span>
-                  <span v-if="isStreaming" class="text-xs font-normal text-primary/80 animate-pulse">（对方正在输入...）</span>
+                  <span v-if="isStreaming && streamingCharacterId === activeCharacter.id" class="text-xs font-normal text-primary/80 animate-pulse">（对方正在输入...）</span>
                   
                   <!-- 爱心图标挂件 (入口按钮) -->
                   <button
@@ -3498,9 +3614,61 @@
                       :key="item.key" 
                       class="relative w-full"
                     >
-                      <!-- 编辑状态中的 Inline 输入行 -->
+                      <!-- A. 文本型编辑状态（纵向大容量 textarea） -->
                       <div 
-                        v-if="activePopoverKey === item.key"
+                        v-if="activePopoverKey === item.key && item.type === 'text'"
+                        class="flex flex-col space-y-2 p-3 rounded-xl border border-primary bg-primary/5 text-xs w-full cursor-default select-none animate-in fade-in duration-150"
+                        @click.stop
+                      >
+                        <!-- 顶部标题与删除操作 -->
+                        <div class="flex items-center justify-between">
+                          <div class="flex items-center space-x-1.5 min-w-0">
+                            <span class="text-sm shrink-0">{{ item.emoji }}</span>
+                            <span class="font-bold text-[11px] text-primary truncate">{{ item.label }}</span>
+                          </div>
+                          
+                          <!-- 物理删除该自定义指标 (基础预置指标绝对不可删除) -->
+                          <button 
+                            v-if="!['intimacy', 'mood', 'energy'].includes(item.key)"
+                            @click.stop="deleteCustomState(item.key)"
+                            class="p-1 rounded-md text-red-500 hover:bg-red-500/10 hover:text-red-600 transition-all flex items-center justify-center cursor-pointer"
+                            title="彻底删除该状态指标"
+                          >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                          </button>
+                        </div>
+                        
+                        <!-- 宽敞的多行文本输入区 -->
+                        <textarea 
+                          v-model="popoverValue" 
+                          rows="3"
+                          class="w-full px-2.5 py-1.5 text-[11px] rounded-lg bg-surface border border-outline-variant focus:outline-none focus:border-primary text-on-surface font-medium resize-y focus:ring-1 focus:ring-primary/20 leading-relaxed font-sans"
+                          @keyup.esc="activePopoverKey = null"
+                          placeholder="请输入该指标的长文本人设设定..."
+                        ></textarea>
+                        
+                        <!-- 底部控制按钮 -->
+                        <div class="flex items-center justify-end space-x-2 select-none">
+                          <button 
+                            @click.stop="activePopoverKey = null"
+                            class="btn-secondary text-[10px] py-1 px-3 rounded-lg flex items-center space-x-1"
+                          >
+                            <span>取消</span>
+                          </button>
+                          <button 
+                            @click.stop="saveStateValue(item.key, popoverValue)"
+                            class="btn-primary text-[10px] py-1 px-3.5 font-bold rounded-lg flex items-center space-x-1"
+                          >
+                            <span>保存</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <!-- B. 数字型编辑状态（维持原有横向极简 Inline 条） -->
+                      <div 
+                        v-else-if="activePopoverKey === item.key && item.type !== 'text'"
                         class="flex items-center justify-between px-3 py-1.5 rounded-xl border border-primary bg-primary/5 text-xs font-semibold w-full cursor-default select-none animate-in fade-in duration-150"
                         @click.stop
                       >
@@ -3510,7 +3678,6 @@
                           
                           <!-- 数字型输入框 (只允许输入数字，并设限制) -->
                           <input 
-                            v-if="item.type !== 'text'"
                             type="number" 
                             :min="item.min ?? 0"
                             :max="item.max ?? 100"
@@ -3520,17 +3687,6 @@
                             @keyup.esc="activePopoverKey = null"
                             @keypress="event => { if (!/[0-9]/.test(event.key)) event.preventDefault(); }"
                             placeholder="值"
-                          />
-                          
-                          <!-- 文本型输入框 (自由输入) -->
-                          <input 
-                            v-else
-                            type="text" 
-                            v-model="popoverValue" 
-                            class="w-full px-2 py-1 text-[11px] rounded-lg bg-surface border border-outline-variant focus:outline-none focus:border-primary text-on-surface font-semibold focus:ring-1 focus:ring-primary/20"
-                            @keyup.enter="saveStateValue(item.key, popoverValue)"
-                            @keyup.esc="activePopoverKey = null"
-                            placeholder="输入值"
                           />
                         </div>
 
@@ -3686,8 +3842,10 @@
             </button>
           </div>
 
-          <!-- 聊天气泡区 -->
-          <div ref="chatContainer" class="flex-1 overflow-y-auto px-5 py-4 space-y-3 select-text">
+          <!-- 聊天气泡主容器（相对定位挂载回底悬浮按钮） -->
+          <div class="flex-1 min-h-0 flex flex-col relative">
+            <!-- 聊天气泡区 -->
+            <div ref="chatContainer" class="w-full h-full overflow-y-auto px-5 py-4 space-y-3 select-text" @scroll.passive="handleChatScroll">
             <!-- 初始空白（不显示开场白） -->
             <div v-if="chatMessages.length === 0" class="flex flex-col items-center justify-center h-full text-center">
               <div class="w-14 h-14 rounded overflow-hidden border border-on-surface/5 bg-surface mb-3 shadow-md flex items-center justify-center">
@@ -3866,6 +4024,52 @@
                     </div>
                   </div>
 
+                  <!-- 高颜值回音红包卡片 (角色发给用户) -->
+                  <div v-else-if="msg.redPacket" class="wechat-red-packet-card mb-1 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[210px]" @click="handleReceiveCharacterRedPacket(msg)">
+                    <!-- A. 等待领取状态 (waiting) -->
+                    <template v-if="!msg.redPacket.status || msg.redPacket.status === 'waiting'">
+                      <!-- 上半部分：红橙渐变 -->
+                      <div class="p-3.5 bg-gradient-to-br from-[#f25542] to-[#da3f2d] text-white flex items-center space-x-3.5 border-b border-white/5">
+                        <!-- 金色圆形容器包🧧 -->
+                        <div class="w-10 h-10 rounded-full bg-[#fcedc4]/15 flex items-center justify-center flex-shrink-0 border border-[#fcedc4]/20 shadow-sm">
+                          <span class="text-xl">🧧</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-xs font-bold truncate text-[#fcedc4] leading-normal">{{ msg.redPacket.title || '恭喜发财，大吉大利' }}</div>
+                          <div class="text-[10px] mt-0.5 text-white/90">给你发了一个红包</div>
+                        </div>
+                      </div>
+                      <!-- 下半部分：深红细底条 -->
+                      <div class="px-3.5 py-1.5 bg-[#cf3c2a] text-[#fcedc4]/70 text-[9px] flex items-center justify-between border-t border-white/5 font-medium">
+                        <span>回音红包</span>
+                        <span class="animate-pulse text-yellow-300 font-bold flex items-center space-x-1">
+                          <span>点击拆开</span>
+                          <span>🧧</span>
+                        </span>
+                      </div>
+                    </template>
+
+                    <!-- B. 已拆开 / 已领取状态 (received) -->
+                    <template v-else>
+                      <!-- 上半部分：淡红橙半透明 -->
+                      <div class="p-3.5 bg-gradient-to-br from-[#f25542]/55 to-[#da3f2d]/55 text-white/60 flex items-center space-x-3.5 border-b border-white/5">
+                        <!-- 已拆开红包的信封微标 -->
+                        <div class="w-10 h-10 rounded-full bg-[#fcedc4]/10 flex items-center justify-center flex-shrink-0 border border-[#fcedc4]/10">
+                          <span class="text-lg opacity-60">✉️</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="text-xs font-bold truncate text-[#fcedc4]/70 leading-normal">{{ msg.redPacket.title }}</div>
+                          <div class="text-[10px] opacity-75 mt-0.5">已领取 {{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元</div>
+                        </div>
+                      </div>
+                      <!-- 下半部分：淡红细底条 -->
+                      <div class="px-3.5 py-1.5 bg-[#cf3c2a]/60 text-[#fcedc4]/50 text-[9px] flex items-center justify-between border-t border-white/5 font-medium">
+                        <span>回音红包</span>
+                        <span>已存入零钱</span>
+                      </div>
+                    </template>
+                  </div>
+
                   <!-- 常规文字气泡 -->
                   <div 
                     v-else 
@@ -3877,10 +4081,37 @@
                   >
                     <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
                   </div>
+
+                  <!-- Token 统计小字指标 -->
+                  <div 
+                    v-if="generalConfig.enable_token_stats && msg.prompt_tokens !== undefined && msg.prompt_tokens !== null && msg.prompt_tokens > 0" 
+                    class="text-[9px] text-on-surface-variant/40 mt-1 pl-1 select-none font-mono leading-none flex items-center space-x-1"
+                  >
+                    <span>输入token: {{ msg.prompt_tokens }}</span>
+                    <span>|</span>
+                    <span>输出token: {{ msg.completion_tokens }}</span>
+                    <template v-if="msg.cached_tokens !== undefined && msg.cached_tokens !== null">
+                      <span>|</span>
+                      <span>缓存命中率: {{ msg.prompt_tokens > 0 ? Math.round((msg.cached_tokens / msg.prompt_tokens) * 100) : 0 }}%</span>
+                    </template>
+                  </div>
                 </div>
               </div>
             </template>
           </div>
+          
+          <!-- 回底悬浮按钮 -->
+          <transition name="fade">
+            <button
+              v-if="showScrollToBottomBtn"
+              @click="scrollToBottom('smooth')"
+              class="absolute bottom-4 right-6 w-9 h-9 rounded-full bg-surface/90 hover:bg-surface-high/90 border border-outline-variant/60 flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 active:scale-95 text-primary backdrop-blur cursor-pointer z-20"
+              title="返回最新消息"
+            >
+              <ChevronDownIcon class="w-5 h-5" stroke-width="2.5" />
+            </button>
+          </transition>
+        </div>
 
           <!-- 底部输入区 -->
           <div :style="{ height: inputHeight + 'px' }" class="border-t border-chat-border bg-chat-input-bg flex-shrink-0 flex flex-col relative select-none">
@@ -3911,6 +4142,16 @@
                 title="更多功能"
               >
                 <PlusCircleIcon class="w-5 h-5" />
+              </button>
+
+              <!-- 会话历史 -->
+              <button
+                @click.stop="openChatHistoryModal"
+                class="input-tool-btn"
+                :class="{ 'text-primary bg-surface-high': showChatHistoryModal }"
+                title="会话历史"
+              >
+                <HistoryIcon class="w-5 h-5" />
               </button>
             </div>
 
@@ -4001,7 +4242,6 @@
                   @keydown="handleKeyDown"
                   @paste="handlePaste"
                   @focus="handleTextareaFocus"
-                  :disabled="isStreaming"
                   placeholder="发送消息... (Enter 发送，Shift+Enter 换行)"
                   class="w-full flex-1 py-2 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text"
                   :class="pastedImageBase64 ? 'pl-20 pr-3' : 'px-3'"
@@ -4090,6 +4330,11 @@
           <BookmarkIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
           <span>收藏</span>
         </button>
+        <div class="my-1 border-t border-outline-variant/30"></div>
+        <button class="ctx-menu-item text-error" @click="ctxDeleteMessage">
+          <TrashIcon class="w-3.5 h-3.5 mr-2 text-error" stroke-width="2" />
+          <span>删除此条</span>
+        </button>
       </template>
     </div>
 
@@ -4115,7 +4360,7 @@
             class="flex-1 py-2.5 text-xs font-bold border-b-2 transition-all text-center"
             :class="userProfileActiveTab === 'userMd' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
           >
-            全局画像 (USER.md)
+            个人设定（全局）
           </button>
         </div>
 
@@ -4225,7 +4470,7 @@
           <div v-if="statePresets.length > 0" class="flex flex-col space-y-1.5 pb-3 border-b border-outline-variant/30 mb-3 flex-shrink-0">
             <label class="text-[11px] font-extrabold text-primary flex items-center space-x-1">
               <SparklesIcon class="w-3 h-3 text-primary animate-pulse" />
-              <span>极速应用预置指标模板</span>
+              <span>应用预置指标模板（需在设置中进行配置）</span>
             </label>
             <select 
               @change="event => {
@@ -4254,7 +4499,7 @@
 
           <!-- 字段名称 -->
           <div class="flex flex-col space-y-1.5">
-            <label class="text-xs font-bold text-on-surface-variant">字段属性名称 (例如：欲望值、衣着、位置)</label>
+            <label class="text-xs font-bold text-on-surface-variant">字段属性名称</label>
             <input 
               type="text" 
               v-model="newStateLabel" 
@@ -4265,11 +4510,10 @@
 
           <!-- 指标含义 (注入AI提示词) -->
           <div class="flex flex-col space-y-1.5">
-            <label class="text-xs font-bold text-on-surface-variant">指标含义 (注入AI提示词，例如：欲望值越高，说话越色情，0为正常)</label>
+            <label class="text-xs font-bold text-on-surface-variant">指标含义 (注入AI提示词，告知AI这个指标的具体含义)</label>
             <textarea 
               v-model="newStateMeaning" 
               class="w-full h-16 px-4 py-2 rounded-2xl bg-on-surface/5 border border-outline-variant focus:outline-none focus:border-primary text-xs text-on-surface resize-none"
-              placeholder="请输入该指标对角色性格与说话风格的具体含义影响"
             ></textarea>
           </div>
           
@@ -4289,7 +4533,7 @@
                 class="flex-1 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer"
                 :class="newStateType === 'text' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
               >
-                文本型 (自由字串)
+                文本型
               </button>
             </div>
           </div>
@@ -4360,6 +4604,114 @@
       </div>
     </div>
 
+    <!-- ========================= 弹窗：会话历史 ========================= -->
+    <div v-if="showChatHistoryModal && activeCharacter" class="modal-overlay" @click.self="showChatHistoryModal = false">
+      <div class="modal-panel w-[620px] h-[680px] flex flex-col">
+        <!-- 标题栏 -->
+        <div class="modal-header">
+          <div class="flex items-center space-x-2">
+            <HistoryIcon class="w-4 h-4 text-primary" />
+            <span>{{ activeCharacter.name }} · 会话历史</span>
+          </div>
+          <button @click="showChatHistoryModal = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
+        </div>
+
+        <!-- 搜索框 -->
+        <div class="px-5 py-3 border-b border-outline-variant/30 flex-shrink-0">
+          <div class="relative flex items-center">
+            <SearchIcon class="absolute left-3 w-4 h-4 text-on-surface-variant/50 pointer-events-none" />
+            <input
+              v-model="chatHistorySearchQuery"
+              @input="onChatHistorySearch"
+              type="text"
+              placeholder="搜索与角色的所有对话记录..."
+              class="w-full pl-9 pr-9 py-2.5 rounded-xl bg-surface border border-outline-variant text-sm text-on-surface focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all placeholder-on-surface-variant/40"
+            />
+            <button
+              v-if="chatHistorySearchQuery"
+              @click="chatHistorySearchQuery = ''; onChatHistorySearch()"
+              class="absolute right-3 text-on-surface-variant/50 hover:text-on-surface transition-colors"
+            >
+              <XIcon class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="mt-1.5 text-[10px] text-on-surface-variant/50 pl-0.5">
+            <span v-if="chatHistorySearchQuery && !isChatHistorySearching">
+              找到 {{ chatHistoryDisplayMessages.length }} 条相关记录
+            </span>
+            <span v-else-if="isChatHistorySearching">搜索中...</span>
+            <span v-else>显示最近 50 条聊天记录，搜索可查看全部历史</span>
+          </div>
+        </div>
+
+        <!-- 消息列表 -->
+        <div class="flex-1 overflow-y-auto px-5 py-3 space-y-2 min-h-0">
+          <!-- 加载中 -->
+          <div v-if="isChatHistoryLoading" class="flex items-center justify-center h-full">
+            <div class="flex flex-col items-center space-y-2 text-on-surface-variant/50">
+              <Loader2Icon class="w-6 h-6 animate-spin" />
+              <span class="text-xs">加载历史记录中...</span>
+            </div>
+          </div>
+
+          <!-- 空状态 -->
+          <div v-else-if="chatHistoryDisplayMessages.length === 0" class="flex items-center justify-center h-full">
+            <div class="flex flex-col items-center space-y-2 text-on-surface-variant/40">
+              <HistoryIcon class="w-10 h-10" />
+              <span class="text-sm">{{ chatHistorySearchQuery ? '未找到相关记录' : '暂无聊天记录' }}</span>
+            </div>
+          </div>
+
+          <!-- 消息气泡列表 -->
+          <template v-else>
+            <div
+              v-for="msg in chatHistoryDisplayMessages"
+              :key="msg.id || msg.timestamp"
+              class="flex gap-2.5 animate-fade-in"
+              :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'"
+            >
+              <!-- 头像 -->
+              <div class="flex-shrink-0 w-7 h-7 rounded-full overflow-hidden mt-0.5 border border-outline-variant/30">
+                <template v-if="msg.role === 'user'">
+                  <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover" />
+                  <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover" />
+                </template>
+                <template v-else>
+                  <img
+                    v-if="characterAvatars[activeCharacter.id]"
+                    :src="characterAvatars[activeCharacter.id]"
+                    class="w-full h-full object-cover"
+                  />
+                  <div v-else class="w-full h-full bg-primary/20 flex items-center justify-center text-[10px] font-bold text-primary">
+                    {{ activeCharacter.name?.[0] || '?' }}
+                  </div>
+                </template>
+              </div>
+
+              <!-- 消息体 -->
+              <div class="flex flex-col max-w-[75%]" :class="msg.role === 'user' ? 'items-end' : 'items-start'">
+                <!-- 时间戳 -->
+                <span class="text-[10px] text-on-surface-variant/45 mb-1 px-0.5">
+                  {{ formatHistoryTimestamp(msg.timestamp) }}
+                </span>
+                <!-- 气泡 -->
+                <div
+                  class="px-3 py-2 rounded-2xl text-xs leading-relaxed break-words select-text"
+                  :class="msg.role === 'user'
+                    ? 'bg-primary rounded-tr-sm text-white'
+                    : 'bg-surface border border-outline-variant/50 text-on-surface rounded-tl-sm'"
+                >
+                  <!-- 高亮搜索词 -->
+                  <span v-if="chatHistorySearchQuery" v-html="highlightSearchTerm(msg.content, chatHistorySearchQuery)"></span>
+                  <span v-else>{{ msg.content }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
     <!-- ========================= 弹窗：大脑（角色记忆编辑） ========================= -->
     <div v-if="showBrainPanel && activeCharacter" class="modal-overlay" @click.self="showBrainPanel = false">
       <div class="modal-panel w-[640px] h-[580px] flex flex-col">
@@ -4411,10 +4763,20 @@
           <div v-else-if="brainActiveTab === 'memory'" class="flex-1 flex flex-col min-h-0">
             <div class="flex items-center justify-between mb-2 flex-shrink-0">
               <div class="text-[10px] text-on-surface-variant font-mono">Memory.md · 双轨记忆（STM + LTM）</div>
-              <button @click="brainEditModes.memory = !brainEditModes.memory" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
-                <component :is="brainEditModes.memory ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
-                <span>{{ brainEditModes.memory ? '预览记忆' : '修改记忆' }}</span>
-              </button>
+              <div class="flex items-center space-x-2 flex-shrink-0">
+                <button 
+                  @click="tidyCharacterMemory('brain')" 
+                  :disabled="isTidyingMemory"
+                  class="flex items-center space-x-1.5 text-xs text-secondary border border-secondary/20 hover:border-secondary bg-secondary/5 hover:bg-secondary/10 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0 animate-fade-in"
+                >
+                  <component :is="isTidyingMemory ? Loader2Icon : SparklesIcon" class="w-3.5 h-3.5" :class="{ 'animate-spin': isTidyingMemory }" />
+                  <span>{{ isTidyingMemory ? '整理中...' : '整理记忆' }}</span>
+                </button>
+                <button @click="brainEditModes.memory = !brainEditModes.memory" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                  <component :is="brainEditModes.memory ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                  <span>{{ brainEditModes.memory ? '预览记忆' : '修改记忆' }}</span>
+                </button>
+              </div>
             </div>
             <!-- 预览 -->
             <div v-if="!brainEditModes.memory" class="flex-1 p-4 rounded-lg border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm" v-html="renderMarkdown(brainMemoryContent || '*记忆为空*')"></div>
@@ -4453,7 +4815,7 @@
         <div class="modal-header flex-shrink-0">
           <div class="flex items-center space-x-2">
             <BookOpenIcon class="w-4 h-4 text-secondary" />
-            <span>{{ activeCharacter?.name || (characterList.find(c => c.id === selectedContactId)?.name) }} · 生命日记</span>
+            <span>{{ activeCharacter?.name || (characterList.find(c => c.id === selectedContactId)?.name) }} · 日记簿</span>
           </div>
           <button @click="showDiaryPanel = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
         </div>
@@ -4487,7 +4849,7 @@
             <div v-if="parsedDiariesList.length === 0" class="flex-1 flex flex-col items-center justify-center text-center text-on-surface-variant/40">
               <BookOpenIcon class="w-12 h-12 mb-3 opacity-25" />
               <p class="text-sm font-semibold">寂静如水</p>
-              <p class="text-xs mt-1">角色在午夜之后才会自省写下心路历程</p>
+              <p class="text-xs mt-1">角色最早也要在17点之后才会写日记</p>
             </div>
             <div v-else-if="parsedDiariesList[selectedDiaryIdx]" class="flex-1 flex flex-col">
               <div class="pb-2 border-b border-outline-variant/60 flex items-center justify-between flex-shrink-0">
@@ -4541,6 +4903,49 @@
             <button @click="sendRedPacket" class="btn-primary bg-gradient-to-r from-[#f25542] to-[#da3f2d] hover:opacity-90 text-[#fcedc4] font-bold border-none text-xs py-1.5 px-4 rounded-lg shadow-md active:scale-95 transition-all">塞红包</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：拆回音红包 ========================= -->
+    <div v-if="showReceiveRedPacketModal && activeReceivingRedPacketMsg" class="modal-overlay bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in" @click.self="showReceiveRedPacketModal = false">
+      <div class="bg-[#da4735] w-[280px] h-[370px] rounded-2xl relative flex flex-col items-center justify-between p-6 text-white shadow-2xl overflow-hidden border border-[#ef5644] select-none">
+        
+        <!-- 微信红包顶部好看的半圆翻盖背景切线装饰 -->
+        <div class="absolute top-0 left-0 right-0 h-[120px] bg-[#d23d2b] rounded-b-[140px] shadow-md border-b border-black/5 z-0"></div>
+
+        <!-- 关闭小按钮 -->
+        <button @click="showReceiveRedPacketModal = false" class="absolute top-4 right-4 text-white/60 hover:text-white/90 hover:scale-110 transition-all z-20 text-sm font-bold font-mono">✕</button>
+
+        <div class="flex flex-col items-center mt-6 z-10 w-full">
+          <!-- 发红包角色的头像 -->
+          <div class="w-12 h-12 rounded-full border-2 border-[#fcedc4] bg-surface flex-shrink-0 flex items-center justify-center overflow-hidden shadow-md">
+            <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+            <span v-else class="text-stone-800 text-sm font-bold">👤</span>
+          </div>
+
+          <!-- 角色名 + 提示 -->
+          <div class="text-xs font-bold text-[#fcedc4] mt-2.5 drop-shadow-sm">{{ activeCharacter.name }}</div>
+          <div class="text-[10px] text-white/80 mt-1">给你发了一个回音红包</div>
+
+          <!-- 祝福附言 -->
+          <div class="text-sm font-black mt-6 text-[#fcedc4] max-w-[210px] text-center leading-relaxed italic truncate">
+            “ {{ activeReceivingRedPacketMsg.redPacket.title || '恭喜发财，大吉大利' }} ”
+          </div>
+        </div>
+
+        <!-- 极其炫酷的金色圆形「 拆 」字旋转按钮 -->
+        <div class="z-10 mb-8 flex flex-col items-center justify-center">
+          <button 
+            @click="openCharacterRedPacket" 
+            class="w-[72px] h-[72px] rounded-full bg-[#fcedc4] hover:bg-[#fae6b4] text-[#cf3c2a] font-extrabold text-2xl flex items-center justify-center cursor-pointer shadow-xl border-4 border-[#cf3c2a] active:scale-95 transition-all select-none"
+            :class="{ 'animate-spin': isOpeningRedPacket }"
+            title="拆红包"
+          >
+            {{ isOpeningRedPacket ? '↻' : '拆' }}
+          </button>
+          <div class="text-[9px] text-white/50 mt-3">金额：{{ parseFloat(activeReceivingRedPacketMsg.redPacket.amount).toFixed(2) }} 元</div>
+        </div>
+
       </div>
     </div>
 
@@ -4608,7 +5013,7 @@
           </div>
           <div class="flex-1 min-w-0">
             <h4 class="text-sm font-bold text-on-surface leading-tight">{{ customDialog.title }}</h4>
-            <p class="text-xs text-on-surface-variant mt-2 leading-relaxed whitespace-pre-wrap select-text">{{ customDialog.message }}</p>
+            <p class="text-xs text-on-surface-variant mt-2 leading-relaxed whitespace-pre-wrap break-all select-text">{{ customDialog.message }}</p>
           </div>
         </div>
         
@@ -4652,7 +5057,7 @@
             <div class="flex-1">
               <div class="text-xs font-bold text-on-surface group-hover:text-primary transition-colors">清除窗口会话 (逻辑清除)</div>
               <div class="text-[10px] text-on-surface-variant/70 mt-1 leading-relaxed">
-                清除当前窗口会话。记忆和聊天历史数据**不丢失**，但将从界面上隐藏（无法搜索到），再次打开是空白会话，角色仍保留记忆。
+                清除当前窗口会话。记忆和聊天历史数据【不丢失】，但将从界面上隐藏（无法搜索到），再次打开是空白会话，角色仍保留记忆。
               </div>
             </div>
           </button>
@@ -4663,7 +5068,7 @@
             <div class="flex-1">
               <div class="text-xs font-bold text-red-500 group-hover:text-red-600 transition-colors">清除历史和记忆 (物理彻底清空)</div>
               <div class="text-[10px] text-red-500/70 mt-1 leading-relaxed">
-                ⚠️ **高危操作**：物理清除所有聊天历史。清空专属 `MEMORY.md` 里的长短期记忆，清空该角色专属的 `USER.md` 画像事实，仅保留性格设定 (`SOUL.md`) 与世界设定 (`WORLD.md`)。
+                ⚠️ 【高危操作】*：物理清除所有聊天历史。清空专属 `MEMORY.md` 里的长短期记忆，清空该角色专属的 `USER.md` 画像事实等等文件，仅保留性格设定 (`SOUL.md`) 与世界设定 (`WORLD.md`)。
               </div>
             </div>
           </button>
@@ -4671,6 +5076,37 @@
 
         <div class="flex justify-end pt-1">
           <button @click="customDialog.visible = false" class="btn-secondary text-xs py-1.5 px-5 rounded-lg active:scale-95">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 双轨记忆 AI 整理确认大文本编辑器弹窗 ========================= -->
+    <div v-if="showMemoryTidyModal" class="modal-overlay" @click.self="showMemoryTidyModal = false">
+      <div class="modal-panel max-w-2xl w-full p-6 space-y-4 animate-fade-in shadow-2xl rounded-2xl border border-outline-variant bg-surface/85 backdrop-blur-md flex flex-col max-h-[85vh]">
+        <div class="flex items-center space-x-2 pb-2 border-b border-outline-variant flex-shrink-0">
+          <SparklesIcon class="w-5 h-5 text-secondary animate-pulse" />
+          <h4 class="text-sm font-bold text-on-surface">✨ 【{{ tidyCharName }}】的 AI 整理记忆确认</h4>
+        </div>
+        
+        <p class="text-[11px] text-on-surface-variant leading-relaxed flex-shrink-0">
+          AI 已根据历史交互事实完成了对该角色双轨记忆的归纳与优化（STM & LTM）。
+          请在下方仔细核对。<strong>您也可以直接在框内进行任何手工编辑和修润</strong>。确认无误后点击下方按钮保存生效：
+        </p>
+        
+        <!-- 编辑文本域 -->
+        <textarea 
+          v-model="tidiedMemoryTempContent" 
+          class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-4 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner select-text min-h-[350px] leading-relaxed"
+        ></textarea>
+        
+        <div class="flex justify-end space-x-2.5 pt-2 border-t border-outline-variant flex-shrink-0 select-none">
+          <button @click="showMemoryTidyModal = false" class="btn-secondary text-xs py-2 px-5 rounded-xl">
+            取消
+          </button>
+          <button @click="saveTidiedMemory" class="btn-primary text-xs py-2 px-5 font-bold rounded-xl flex items-center space-x-1.5 active:scale-95 transition-all">
+            <SaveIcon class="w-3.5 h-3.5" />
+            <span>确认并保存</span>
+          </button>
         </div>
       </div>
     </div>
@@ -5935,6 +6371,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
+import ClockView from './components/ClockView.vue'
 import {
   MessageSquare as MessageSquareIcon,
   Users as UsersIcon,
@@ -6006,7 +6443,8 @@ import {
   Edit as EditIcon,
   Check as CheckIcon,
   ChevronDown as ChevronDownIcon,
-  ChevronLeft as ChevronLeftIcon
+  ChevronLeft as ChevronLeftIcon,
+  History as HistoryIcon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -6076,12 +6514,30 @@ if (typeof window !== 'undefined' && !(window as any).api) {
 const md = new MarkdownIt({
   html: true,
   linkify: true,
-  typographer: true
+  typographer: true,
+  breaks: true // 允许将单个换行符渲染为 <br>
 })
 
 function renderMarkdown(content: string) {
   if (!content) return ''
-  return md.render(content)
+  const html = md.render(content)
+  
+  // 识别并包裹非对话内容（中英文括号与中括号里的动作或内心描写），物理防误伤 HTML 标签内部结构
+  return html.replace(/(<[^>]+>)|([^<]+)/g, (_, tag, text) => {
+    if (tag) return tag
+    
+    let temp = text
+    // 1. 替换中文括号 （...）
+    temp = temp.replace(/（([\s\S]*?)）/g, '<span class="narrative-bracket">（$1）</span>')
+    // 2. 替换英文括号 (...)
+    temp = temp.replace(/\(([\s\S]*?)\)/g, '<span class="narrative-bracket">($1)</span>')
+    // 3. 替换中文中括号 【...】
+    temp = temp.replace(/【([\s\S]*?)】/g, '<span class="narrative-bracket">【$1】</span>')
+    // 4. 替换英文中括号 [...]
+    temp = temp.replace(/\[([\s\S]*?)\]/g, '<span class="narrative-bracket">[$1]</span>')
+    
+    return temp
+  })
 }
 
 function renderTextWithStickers(text: string) {
@@ -6117,7 +6573,7 @@ function replaceStickersOnly(html: string) {
 
 // 默认用户头像（从 assets 引入）
 // @ts-ignore
-import defaultAvatarUrl from './assets/default-avatar.png'
+import defaultAvatarUrl from './assets/default-avatar.webp'
 const defaultAvatarSrc = defaultAvatarUrl
 const DEFAULT_COVER = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><defs><radialGradient id="g" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="%236366f1" stop-opacity="0.3"/><stop offset="60%" stop-color="%234f46e5" stop-opacity="0.1"/><stop offset="100%" stop-color="%230f172a" stop-opacity="0.85"/></radialGradient></defs><rect width="300" height="300" fill="url(%23g)"/><circle cx="150" cy="150" r="110" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="6"/><circle cx="150" cy="150" r="80" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4"/><circle cx="150" cy="150" r="50" fill="rgba(255,255,255,0.02)"/><path d="M150 110v50c-3.5-2.2-8.5-3-13-1.5-6.5 2.2-10.5 8.5-8.8 14 1.7 5.5 8.3 8.3 14.8 6 5.5-2 9-7.2 9-12.5v-36h22v-20h-24z" fill="rgba(255,255,255,0.4)"/></svg>'
 
@@ -6126,6 +6582,7 @@ const musicStore = musicPlayerStore
 
 // ===================== 全局状态 =====================
 const isDark = ref(false)
+const isClockView = ref(window.location.search.includes('view=clock'))
 const sideView = ref<'chat' | 'contacts' | 'settings' | 'stats' | 'moments' | 'forum' | 'favorites' | 'music'>('chat')
 const activeView = ref<'chat' | 'import'>('chat')
 
@@ -6217,6 +6674,12 @@ const newPlaylistName = ref('')
 const showImportPlaylistModal = ref(false)
 const importPlaylistLink = ref('')
 const isImportingPlaylist = ref(false)
+const isTidyingMemory = ref(false)
+const showMemoryTidyModal = ref(false)
+const tidiedMemoryTempContent = ref('')
+const tidyCharId = ref('')
+const tidyFolderName = ref('')
+const tidyCharName = ref('')
 const showPlayExpanded = ref(false)
 const showCommentsTab = ref(false)
 const lyricContainerRef = ref<HTMLElement | null>(null)
@@ -6288,7 +6751,8 @@ const generalConfig = ref({
   cron_frequency: 'active', // active, standard, quiet
   enable_music: false,
   lan_mapping_enabled: false,
-  lan_mapping_port: 6868
+  lan_mapping_port: 6868,
+  enable_token_stats: true
 })
 
 // 监听音乐功能的开启/关闭联动
@@ -6298,6 +6762,15 @@ watch(() => generalConfig.value.enable_music, (newVal) => {
       sideView.value = 'chat'
     }
     musicStore.stop()
+  } else {
+    // 音乐功能开启时，实时加载相关音源、同步桌面歌词和拉取榜单/歌单数据
+    window.api.invoke('lyric-window-update-theme', {
+      bgColor: lyricBgColor.value,
+      textColor: lyricTextColor.value
+    }).catch(() => {})
+    syncCustomSources()
+    loadRecommendPlaylists()
+    loadLeaderboardList(activeBangId.value)
   }
 })
 
@@ -6349,19 +6822,69 @@ const userMdEditing = ref(false)
 // ===================== 设置 =====================
 const showSettingsModal = ref(false)
 const chatMode = ref<'descriptive' | 'dialogue'>('descriptive')
-const activeSettingsTab = ref<'general' | 'states' | 'primary' | 'secondary' | 'about'>('general')
+const activeSettingsTab = ref<'general' | 'states' | 'primary' | 'secondary' | 'migration' | 'about'>('general')
 const globalPrompt = ref('')
-const settingsMenus: { id: 'general' | 'states' | 'primary' | 'secondary' | 'about'; label: string; icon: any }[] = [
+const settingsMenus: { id: 'general' | 'states' | 'primary' | 'secondary' | 'migration' | 'about'; label: string; icon: any }[] = [
   { id: 'general', label: '常规设置', icon: SettingsIcon },
   { id: 'states', label: '状态栏设置', icon: HeartIcon },
-  { id: 'primary', label: '主大模型 (Primary)', icon: CpuIcon },
-  { id: 'secondary', label: '辅助大模型 (Secondary)', icon: CpuIcon },
+  { id: 'primary', label: '主大模型', icon: CpuIcon },
+  { id: 'secondary', label: '辅助大模型', icon: CpuIcon },
+  { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
   { id: 'about', label: '关于软件', icon: HelpCircleIcon }
 ]
 
 function openSettingsPage() {
   sideView.value = 'settings'
   activeSettingsTab.value = 'general'
+}
+
+// ===================== 数据备份与迁移逻辑 =====================
+const isExportingData = ref(false)
+const isImportingData = ref(false)
+
+// 一键导出核心数据
+async function handleExportProjectData() {
+  if (isExportingData.value) return
+  isExportingData.value = true
+  try {
+    const res = await window.api.invoke('export-project-data')
+    if (res.success) {
+      showCustomAlert('导出成功', `核心数据备份已顺利打包并导出至:\n${res.path}`, 'success')
+    } else if (res.error && res.error !== '用户取消了导出') {
+      showCustomAlert('导出失败', `备份打包异常: ${res.error}`, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('导出失败', `物理导出遭遇致命错误: ${err.message || String(err)}`, 'error')
+  } finally {
+    isExportingData.value = false
+  }
+}
+
+// 一键导入并全量覆盖核心数据
+function handleImportProjectData() {
+  if (isImportingData.value) return
+  
+  showCustomConfirm(
+    '⚠️ 全量覆盖导入警示',
+    '数据导入为全量覆盖性质。导入后，您现有的全部聊天历史、朋友圈动态、自建角色人设及系统偏好设置将【彻底清空并覆盖】。导入成功后系统将自动强制热重启以重新装载数据。您确定要继续吗？',
+    async () => {
+      isImportingData.value = true
+      try {
+        const res = await window.api.invoke('import-project-data')
+        if (res.success) {
+          showCustomAlert('导入成功', '数据已完美解包并全量覆盖还原落盘！应用即将在 1 秒后自动热重启...', 'success')
+        } else if (res.error && res.error !== '用户取消了导入') {
+          showCustomAlert('导入失败', `备份还原异常: ${res.error}`, 'error')
+          isImportingData.value = false
+        } else {
+          isImportingData.value = false
+        }
+      } catch (err: any) {
+        showCustomAlert('导入失败', `物理导入遭遇致命错误: ${err.message || String(err)}`, 'error')
+        isImportingData.value = false
+      }
+    }
+  )
 }
 
 
@@ -6442,11 +6965,19 @@ const activeCharacter = computed(() => characterList.value.find(c => c.id === se
 
 // 会话元数据（置顶/未读/免打扰/隐藏）
 const conversationMeta = reactive<Record<string, { pinned?: boolean; unread?: number; muted?: boolean; hidden?: boolean }>>({})
+const hasUnreadConversations = computed(() => {
+  return Object.values(conversationMeta).some(meta => meta && meta.unread && meta.unread > 0)
+})
 
 // 所有消息缓存（按角色 id 存储）
 const allMessages = reactive<Record<string, any[]>>({})
 const chatMessages = computed(() => allMessages[selectedCharacterId.value || ''] || [])
 const activeTypingSessions = reactive(new Set<string>())
+
+// 历史消息分页加载状态
+const isLoadingMore = ref(false) // 防止重复并发拉取历史消息
+const hasMoreHistoryMap = reactive<Record<string, boolean>>({}) // 记录各个会话是否还有更早的历史消息
+const showScrollToBottomBtn = ref(false) // 是否显示右下角回底悬浮按钮
 
 // ===================== 角色内心状态系统 (已移至声明下方，安全规避TDZ编译报错) =====================
 const activeCharacterStates = computed(() => {
@@ -6731,23 +7262,47 @@ const chatInputText = ref('')
 const chatTextarea = ref<HTMLTextAreaElement | null>(null)
 const chatContainer = ref<HTMLElement | null>(null)
 const isStreaming = ref(false)
+const streamingCharacterId = ref<string | null>(null)
+
+// 自动侦听全局流式输入状态，并在流式结束时自动清空活跃流式角色 ID
+watch(isStreaming, (newVal) => {
+  if (!newVal) {
+    streamingCharacterId.value = null
+  }
+})
 const pastedImageBase64 = ref('')
 const lastUserMsgId = ref('')
 const isDraggingFile = ref(false)
 const inputHeight = ref(Number(localStorage.getItem('echo_input_height') || '160'))
 
-// 多消息延时聚合防抖状态
-const pendingUserMessages = ref<Array<{ content: string; imageBase64?: string }>>([])
-let messageMergeTimer: any = null
+// 多消息延时聚合防抖状态（分角色独立隔离，防范跨窗口时序冲突与串台 Bug）
+const pendingUserMessagesMap = reactive<Record<string, Array<{ content: string; imageBase64?: string; redPacketPayload?: { amount: number; title: string; userMsgId: string } }>>>({})
+const messageMergeTimersMap = reactive<Record<string, any>>({})
 
-// 监听用户输入框内容改变，实现极其智能的“打字感知防抖”：
-// 只要用户在输入框内打字（输入了有效非空字符），立刻清除之前的聚合定时器，防范 AI 在用户打字思索中途抢话！
+// 监听用户输入框内容改变，实现极其智能的“打字感知防抖”与“输入删空自愈恢复”：
+// 1. 只要用户在输入框内打字（输入了有效非空字符），立刻清除当前聚焦角色的聚合定时器，防范 AI 在用户打字思索中途抢话！
+// 2. 如果用户在打字中途删除、清空了输入框，且后台队列有之前发送的积压消息，说明用户放弃了继续补充，自动延时 2.5 秒后恢复角色回复！
 watch(chatInputText, (newVal) => {
   const trimmed = newVal.trim()
+  const charId = selectedCharacterId.value
+  if (!charId) return
+
   if (trimmed.length > 0) {
-    if (messageMergeTimer) {
-      clearTimeout(messageMergeTimer)
-      messageMergeTimer = null
+    if (messageMergeTimersMap[charId]) {
+      clearTimeout(messageMergeTimersMap[charId])
+      messageMergeTimersMap[charId] = null
+    }
+  } else {
+    // 检测积压等待回复的队列是否非空
+    const pendingQueue = pendingUserMessagesMap[charId] || []
+    if (pendingQueue.length > 0 && !messageMergeTimersMap[charId] && !isStreaming.value) {
+      console.log(`[Typing reconciliation] 检测到用户删空了输入框且存在积压消息，将在 2.5 秒后自动恢复角色回复...`)
+      const char = characterList.value.find(c => c.id === charId)
+      if (char) {
+        messageMergeTimersMap[charId] = setTimeout(async () => {
+          await triggerMergedAiResponse(char)
+        }, 2500)
+      }
     }
   }
 })
@@ -6776,7 +7331,121 @@ const brainWorldContent = ref('')
 const brainMemoryContent = ref('')
 const brainCharUserContent = ref('')
 
-// ===================== 侧边栏宽度拖拽 =====================
+// ===================== 会话历史弹窗 =====================
+const showChatHistoryModal = ref(false)
+const chatHistoryRecentMessages = ref<any[]>([])   // 初始加载的最近 50 条
+const chatHistorySearchResults = ref<any[]>([])    // 搜索结果
+const chatHistorySearchQuery = ref('')
+const isChatHistoryLoading = ref(false)
+const isChatHistorySearching = ref(false)
+let chatHistorySearchTimer: any = null
+
+// 当前显示的消息列表：无搜索词时展示最近记录，有词时展示搜索结果
+const chatHistoryDisplayMessages = computed(() => {
+  if (chatHistorySearchQuery.value.trim()) return chatHistorySearchResults.value
+  return chatHistoryRecentMessages.value
+})
+
+// 打开弹窗并加载最近 50 条记录（100 条原始消息 = 50 轮）
+async function openChatHistoryModal() {
+  if (!selectedCharacterId.value) return
+  showChatHistoryModal.value = true
+  chatHistorySearchQuery.value = ''
+  chatHistorySearchResults.value = []
+  isChatHistoryLoading.value = true
+  try {
+    const res = await window.api.invoke('get-chat-history', {
+      characterId: selectedCharacterId.value,
+      limit: 100
+    })
+    if (res.success && res.history) {
+      // 只保留 user 和 assistant 角色的消息，过滤系统消息
+      chatHistoryRecentMessages.value = res.history.filter(
+        (m: any) => m.role === 'user' || m.role === 'assistant'
+      )
+    } else {
+      chatHistoryRecentMessages.value = []
+    }
+  } catch (err) {
+    console.error('[会话历史] 加载失败:', err)
+    chatHistoryRecentMessages.value = []
+  } finally {
+    isChatHistoryLoading.value = false
+  }
+}
+
+// 搜索输入防抖处理（300ms 延迟，避免每次击键都触发 IPC）
+function onChatHistorySearch() {
+  if (chatHistorySearchTimer) clearTimeout(chatHistorySearchTimer)
+  const query = chatHistorySearchQuery.value.trim()
+  if (!query) {
+    chatHistorySearchResults.value = []
+    isChatHistorySearching.value = false
+    return
+  }
+  isChatHistorySearching.value = true
+  chatHistorySearchTimer = setTimeout(() => {
+    doSearchChatHistory(query)
+  }, 300)
+}
+
+// 实际执行搜索
+async function doSearchChatHistory(keyword: string) {
+  if (!selectedCharacterId.value) return
+  try {
+    const res = await window.api.invoke('search-chat-history', {
+      characterId: selectedCharacterId.value,
+      keyword
+    })
+    if (res.success && res.history) {
+      chatHistorySearchResults.value = res.history.filter(
+        (m: any) => m.role === 'user' || m.role === 'assistant'
+      )
+    } else {
+      chatHistorySearchResults.value = []
+    }
+  } catch (err) {
+    console.error('[会话历史] 搜索失败:', err)
+    chatHistorySearchResults.value = []
+  } finally {
+    isChatHistorySearching.value = false
+  }
+}
+
+// 格式化历史记录时间戳为 yyyy/mm/dd hh:mm
+function formatHistoryTimestamp(ts: any): string {
+  if (!ts) return ''
+  const date = new Date(typeof ts === 'number' ? ts : String(ts))
+  if (isNaN(date.getTime())) return ''
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${yyyy}/${mm}/${dd} ${hh}:${min}`
+}
+
+// 对消息内容中的搜索词进行高亮（安全转义后插入 mark 标签）
+function highlightSearchTerm(text: string, keyword: string): string {
+  if (!text || !keyword) return escapeHtml(text || '')
+  // 转义关键词用于正则，然后对原始文本按关键词 split 并高亮拼装
+  const escapedKw = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = text.split(new RegExp(`(${escapedKw})`, 'gi'))
+  return parts.map(part => {
+    const lower = part.toLowerCase()
+    const kwLower = keyword.toLowerCase()
+    if (lower === kwLower) {
+      return `<mark class="bg-primary/30 text-on-surface rounded px-0.5">${escapeHtml(part)}</mark>`
+    }
+    return escapeHtml(part)
+  }).join('')
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+
 const sidebarWidth = ref(Number(localStorage.getItem('echo_sidebar_width') || '280'))
 
 function startResize(e: MouseEvent) {
@@ -6810,7 +7479,7 @@ async function triggerDreamReflection() {
   
   showCustomConfirm(
     '唤醒梦境自省',
-    `确定要让角色 [${char.name}] 进入梦境睡眠进行反思进化吗？\n\n自省过程大约需要 5-10 秒。期间角色将自动复盘您最近的回合，并将专属避坑指南物理 Patch 进其技能中以实现智能修正。`,
+    `确定要让角色 [${char.name}] 进入梦境睡眠进行反思进化吗？\n期间角色将自动复盘与您最近的交互，以实现自主进化。`,
     async () => {
       isDreaming.value = true
       try {
@@ -6889,7 +7558,7 @@ async function handleCleanOption(option: number) {
     // 选项 2：物理彻底清空
     showCustomConfirm(
       '彻底清除数据警告',
-      `您确定要彻底清空角色 [${char.name}] 的所有聊天记录、长短期记忆和专属用户画像吗？\n\n此操作为高危操作，清空后数据将彻底消失且无法找回！角色仅会保留其核心性格与世界设定。`,
+      `您确定要彻底清空角色 [${char.name}] 的所有聊天记录、长短期记忆和专属用户画像吗？\n此操作为高危操作，清空后数据将彻底消失且无法找回！角色仅会保留其核心性格与世界设定。`,
       async () => {
         try {
           const res = await window.api.invoke('clear-history-and-memory', {
@@ -7626,15 +8295,20 @@ function restoreMessageProps(m: any) {
     content: m.content,
     character_id: m.character_id,
     isSystem: m.role === 'system',
-    timestamp: m.timestamp || Date.now()
+    timestamp: (m.timestamp !== undefined && m.timestamp !== null) ? m.timestamp : Date.now(),
+    prompt_tokens: m.prompt_tokens,
+    completion_tokens: m.completion_tokens,
+    cached_tokens: m.cached_tokens
   }
   
   if (m.content) {
     // 自动清洗历史记录中可能残存的红包控制字符，确保绝不显露代码
     if (typeof m.content === 'string') {
+      const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/g
       result.content = m.content
         .replace(/\[RECEIVE_RED_PACKET\]/g, '')
         .replace(/\[RETURN_RED_PACKET\]/g, '')
+        .replace(sendReg, '')
         .trim()
     }
 
@@ -7768,7 +8442,6 @@ async function selectCharacter(charId: string) {
   // 重置输入状态
   chatInputText.value = ''
   pastedImageBase64.value = ''
-  isStreaming.value = false
   typingQueue.value = []
   if (typingTimer) { clearInterval(typingTimer); typingTimer = null }
 
@@ -7786,12 +8459,27 @@ async function selectCharacter(charId: string) {
     return
   }
 
+  // 🚀 核心优化：若内存中已有该角色的聊天历史（说明之前已加载过），则无需重复去数据库拉取覆盖，防范在合并防抖期或 AI 生成中切换导致消息丢失，并能带来极其顺畅的零卡顿体验！
+  if (allMessages[charId] && allMessages[charId].length > 0) {
+    nextTick(() => scrollToBottom('auto'))
+    return
+  }
+
   try {
-    const chatHistoryRes = await window.api.invoke('get-chat-history', { characterId: charId, limit: 50 })
+    // 首次进入会话时，初始化分页拉取状态
+    hasMoreHistoryMap[charId] = true
+    isLoadingMore.value = false
+
+    const chatHistoryRes = await window.api.invoke('get-chat-history', { characterId: charId, limit: 100 })
     if (chatHistoryRes.success && chatHistoryRes.history) {
       allMessages[charId] = chatHistoryRes.history.map((m: any) => restoreMessageProps(m))
+      // 如果首次拉取的记录条数不足 100 条，代表所有历史已加载完毕，标记为无更多
+      if (chatHistoryRes.history.length < 100) {
+        hasMoreHistoryMap[charId] = false
+      }
     } else {
       allMessages[charId] = []
+      hasMoreHistoryMap[charId] = false
     }
     nextTick(() => scrollToBottom('auto'))
   } catch (error) {
@@ -7805,24 +8493,69 @@ async function selectCharacterFromContacts(charId: string) {
 }
 
 // ===================== 级联下拉添加角色菜单交互 =====================
-function toggleAddMenu() {
-  showAddMenu.value = !showAddMenu.value
-  showAddCharacterMenu.value = false
+async function sendRedPacket() {
+  const char = activeCharacter.value
+  if (!char || redPacketAmount.value <= 0) return
+  if (userProfile.walletBalance < redPacketAmount.value) {
+    showCustomAlert('余额不足', '当前虚拟钱包余额不足，请先充值！', 'error')
+    return
+  }
+  userProfile.walletBalance -= redPacketAmount.value
+  showRedPacketModal.value = false
+
+  const amount = redPacketAmount.value
+  const title = redPacketTitle.value.trim() || '恭喜发财，大吉大利'
+  if (!allMessages[char.id]) allMessages[char.id] = []
+  
+  // 生成唯一的 userMsgId，用于物理保存与定位消息
+  const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+
+  const timestamp = Date.now()
+  conversationActiveTimes[char.id] = timestamp
+  allMessages[char.id].push({
+    id: userMsgId,
+    role: 'user',
+    content: `[发送红包: ${amount} 元, 附言: ${title}]`,
+    redPacket: { amount, title, status: 'waiting' },
+    created_at: new Date().toISOString(),
+    timestamp: timestamp
+  })
+  
+  nextTick(() => scrollToBottom())
+
+  // 🚀 微信级防抖合流：推入 pending 队列，刷新 3 秒定时器，等待文字与红包一次性完美合并
+  const charId = char.id
+  if (!pendingUserMessagesMap[charId]) {
+    pendingUserMessagesMap[charId] = []
+  }
+  pendingUserMessagesMap[charId].push({
+    content: `[发送红包: ${amount} 元, 附言: ${title}]`,
+    redPacketPayload: { amount, title, userMsgId }
+  })
+
+  if (messageMergeTimersMap[charId]) {
+    clearTimeout(messageMergeTimersMap[charId])
+  }
+  
+  messageMergeTimersMap[charId] = setTimeout(async () => {
+    await triggerMergedAiResponse(char)
+  }, 3000)
+
+  saveUserProfileLocal()
 }
 
-function triggerAddCharacter() {
-  showAddMenu.value = false
-  showAddCharacterMenu.value = true
+function toggleAddMenu() {
+  showAddMenu.value = !showAddMenu.value
 }
 
 function triggerImportCharacterCard() {
-  showAddCharacterMenu.value = false
+  showAddMenu.value = false
   openImportView()
 }
 
 const creatorBotId = 'character_creator_bot'
 async function triggerCreateNewCharacter() {
-  showAddCharacterMenu.value = false
+  showAddMenu.value = false
   
   // 强力重置后端创角会话状态机，保证为 step 1
   try {
@@ -7953,8 +8686,8 @@ function onImportCancel() { isPreviewOpen.value = false }
 // ===================== 发送消息 =====================
 async function sendChatMessage() {
   const char = activeCharacter.value
-  // 解除阻断：不再因为 isStreaming 而拦截，仅当输入文本与图片均为空时 return
-  if (!char || (!chatInputText.value.trim() && !pastedImageBase64.value)) return
+  // 安全拦截：当 AI 正在回复（isStreaming 为 true）或者输入与图片均为空时，拦截不予发送
+  if (!char || isStreaming.value || (!chatInputText.value.trim() && !pastedImageBase64.value)) return
 
   const userMsg = chatInputText.value.trim()
   const imageBase64 = pastedImageBase64.value
@@ -7985,40 +8718,77 @@ async function sendChatMessage() {
   // 2. 物理落盘已完全移交给后台 3 秒合并时唯一落盘，从而解除重复产生的双条消息 Bug
 
   // 3. 将本条消息推入延时合并队列中，准备进行 3 秒内的多消息聚合
-  pendingUserMessages.value.push({
+  const charId = char.id
+  if (!pendingUserMessagesMap[charId]) {
+    pendingUserMessagesMap[charId] = []
+  }
+  pendingUserMessagesMap[charId].push({
     content: userMsg,
     imageBase64: imageBase64 || undefined
   })
 
   // 4. 重置并刷新 3 秒延时聚合防抖定时器
-  if (messageMergeTimer) {
-    clearTimeout(messageMergeTimer)
+  if (messageMergeTimersMap[charId]) {
+    clearTimeout(messageMergeTimersMap[charId])
   }
   
-  messageMergeTimer = setTimeout(async () => {
+  messageMergeTimersMap[charId] = setTimeout(async () => {
     await triggerMergedAiResponse(char)
   }, 3000)
 }
 
 // 聚合期满，向 AI 发起真正的回复请求
 async function triggerMergedAiResponse(char: any, overrideText?: string) {
-  if (!overrideText && pendingUserMessages.value.length === 0) return
+  const charId = char.id
+  const pendingQueue = pendingUserMessagesMap[charId] || []
+  if (!overrideText && pendingQueue.length === 0) return
 
   // 1. 合并 3 秒内的所有用户短消息（换行符拼接）
-  const mergedText = overrideText || pendingUserMessages.value.map(m => m.content).filter(Boolean).join('\n')
-  const lastImage = overrideText ? undefined : pendingUserMessages.value.find(m => m.imageBase64)?.imageBase64
+  // 特殊：如果是发红包消息，要把文字和红包做微信级合流拼接
+  const rpPayload = pendingQueue.find(m => m.redPacketPayload)?.redPacketPayload
+  
+  // 过滤剔除红包本身系统占位词 content，只提取用户发送的文字消息
+  const textLines = pendingQueue
+    .filter(m => !m.redPacketPayload)
+    .map(m => m.content)
+    .filter(Boolean)
+  const chatInputTextMerged = textLines.join('\n')
 
-  // 2. 清空缓存队列与合并定时器
+  let finalUserMessage = overrideText || chatInputTextMerged
+  let finalDbMessage = overrideText || chatInputTextMerged
+  let finalUserMsgId = overrideText 
+    ? `msg_override_${Date.now()}` 
+    : (lastUserMsgId.value || 'msg_merged_' + Date.now())
+
+  if (!overrideText && rpPayload) {
+    const greetings = finalUserMessage ? `在给你发红包的同时，用户对你说道：“${finalUserMessage}”\n` : ''
+    
+    finalUserMessage = `${greetings}[USER_RED_ENVELOPE: ${rpPayload.amount}元, 祝福语: "${rpPayload.title}"] 用户给你发了 ${rpPayload.amount} 元的红包，附言：“${rpPayload.title}”。
+
+请以你当前的 AI 角色性格和设定，独立决定是否“领取”或“退回”这个红包：
+- 如果你根据性格和设定决定【领取红包】：请你务必在你的回复的【最开始】加入一行控制符：[RECEIVE_RED_PACKET] ，并以角色的性格热情或符合人设地感谢用户！
+- 如果你根据性格和设定决定【退回红包】（拒收）：请你务必在你的回复的【最开始】加入一行控制符：[RETURN_RED_PACKET] ，以你的性格傲娇、委婉或符合设定地拒绝红包并说明缘由。
+
+请直接开始你符合人设的自然对话回复，不要向用户暴露控制符的存在。`
+
+    finalDbMessage = `[wechat_red_packet]:${JSON.stringify({ amount: rpPayload.amount, title: rpPayload.title, status: 'waiting' })}`
+    finalUserMsgId = rpPayload.userMsgId
+  }
+
+  const lastImage = overrideText ? undefined : pendingQueue.find(m => m.imageBase64)?.imageBase64
+
+  // 2. 清空该角色的缓存队列与合并定时器
   if (!overrideText) {
-    pendingUserMessages.value = []
-    if (messageMergeTimer) {
-      clearTimeout(messageMergeTimer)
-      messageMergeTimer = null
+    pendingUserMessagesMap[charId] = []
+    if (messageMergeTimersMap[charId]) {
+      clearTimeout(messageMergeTimersMap[charId])
+      messageMergeTimersMap[charId] = null
     }
   }
 
   // 不再提前推送助理空白气泡，仅通过 isStreaming.value 激活顶部“对方正在输入...”状态
   isStreaming.value = true
+  streamingCharacterId.value = char.id
   scrubber.reset()
   typingQueue.value = []
   nextTick(() => scrollToBottom())
@@ -8028,11 +8798,11 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
     const res = await window.api.invoke('chat-stream', {
       characterId: char.id,
       folderName: char.folder_name,
-      userMessage: mergedText || '（用户发来了一张图片）',
+      userMessage: finalUserMessage || '（用户发来了一张图片）',
       chatMode: chatMode.value,
       imageBase64: lastImage || undefined,
-      userMsgId: overrideText ? `msg_override_${Date.now()}` : (lastUserMsgId.value || 'msg_merged_' + Date.now()),
-      dbMessage: mergedText
+      userMsgId: finalUserMsgId,
+      dbMessage: finalDbMessage
     })
 
     if (!res.success) throw new Error(res.error || '连接断开')
@@ -8044,10 +8814,52 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
       return
     }
 
-    // 5. 仅当 IPC 返回了实际内容时（普通角色非流式模式）才调用渲染播放器
-    // Creator Bot 走的是 event.sender.send 流式推送，res.content 为 undefined，无需在此渲染
-    if (res.content) {
-      await handleAssistantResponse(char, res.content, res.redPacketAction)
+    // 5. 仅当 IPC 返回了实际内容且非动作描写流式模式下才调用渲染播放器
+    // 动作描写模式与 Creator Bot 走的是 event.sender.send 流式推送，无需在此处重复渲染
+    if (res.content && chatMode.value !== 'descriptive') {
+      await handleAssistantResponse(
+        char,
+        res.content,
+        res.redPacketAction,
+        res.prompt_tokens,
+        res.completion_tokens,
+        res.cached_tokens
+      )
+    }
+
+    // 🚀 双向红包神级同步：如果大模型主动发送了红包，在其文字气泡播放/接收完毕后，自动在聊天队列追加红包卡片气泡
+    if (res.redPacketSend && char.id === selectedCharacterId.value) {
+      const msgs = allMessages[char.id] || []
+      
+      // 倒序寻找前一个文字气泡，若存在则抹去其 token 统计（使其只展现在最后一个红包卡片上）
+      let lastTextMsg = null
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'assistant' && !msgs[i].redPacket) {
+          lastTextMsg = msgs[i]
+          break
+        }
+      }
+      if (lastTextMsg) {
+        lastTextMsg.prompt_tokens = undefined
+        lastTextMsg.completion_tokens = undefined
+        lastTextMsg.cached_tokens = undefined
+      }
+
+      msgs.push({
+        id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+        role: 'assistant',
+        redPacket: {
+          amount: res.redPacketSend.amount,
+          title: res.redPacketSend.title,
+          status: 'waiting'
+        },
+        created_at: new Date().toISOString(),
+        timestamp: Date.now(),
+        prompt_tokens: res.prompt_tokens,
+        completion_tokens: res.completion_tokens,
+        cached_tokens: res.cached_tokens
+      })
+      nextTick(() => scrollToBottom())
     }
 
   } catch (err: any) {
@@ -8066,7 +8878,14 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
 }
 
 // 微信级分段打字仿真播放器
-async function handleAssistantResponse(char: any, content: string, redPacketAction: string | null) {
+async function handleAssistantResponse(
+  char: any,
+  content: string,
+  redPacketAction: string | null,
+  promptTokens?: number,
+  completionTokens?: number,
+  cachedTokens?: number
+) {
   const sessionKey = char.id + '_' + content.slice(0, 15)
   activeTypingSessions.add(sessionKey)
 
@@ -8074,54 +8893,57 @@ async function handleAssistantResponse(char: any, content: string, redPacketActi
     // A. 处理红包决策状态更新与返款
     if (redPacketAction && char.id === selectedCharacterId.value) {
       const msgs = allMessages[char.id] || []
-    const isReceive = redPacketAction === 'receive'
-    const isReturn = redPacketAction === 'return'
-    
-    // 逆序寻找最近一封等待处理的红包消息进行物理状态更新与退款提示
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const msg = msgs[i]
-      if (msg.role === 'user' && msg.redPacket && (!msg.redPacket.status || msg.redPacket.status === 'waiting')) {
-        if (isReceive) {
-          msg.redPacket.status = 'received'
-        } else if (isReturn) {
-          msg.redPacket.status = 'returned'
-          const amount = parseFloat(msg.redPacket.amount)
-          if (!isNaN(amount) && amount > 0) {
-            userProfile.walletBalance += amount
-            saveUserProfileLocal()
-            showCustomAlert('红包被退回', `角色退回了你的红包，金额 ${amount.toFixed(2)} 元已全额退回您的虚拟钱包！`, 'info')
+      const isReceive = redPacketAction === 'receive'
+      const isReturn = redPacketAction === 'return'
+      
+      // 逆序寻找最近一封等待处理的红包消息进行物理状态更新与退款提示
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const msg = msgs[i]
+        if (msg.role === 'user' && msg.redPacket && (!msg.redPacket.status || msg.redPacket.status === 'waiting')) {
+          if (isReceive) {
+            msg.redPacket.status = 'received'
+          } else if (isReturn) {
+            msg.redPacket.status = 'returned'
+            const amount = parseFloat(msg.redPacket.amount)
+            if (!isNaN(amount) && amount > 0) {
+              userProfile.walletBalance += amount
+              saveUserProfileLocal()
+              showCustomAlert('红包被退回', `角色退回了你的红包，金额 ${amount.toFixed(2)} 元已全额退回您的虚拟钱包！`, 'info')
+            }
           }
+          
+          // 物理保存红包的最新状态到 SQLite
+          if (msg.id) {
+            const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
+              amount: msg.redPacket.amount,
+              title: msg.redPacket.title,
+              status: msg.redPacket.status
+            })}`
+            window.api.invoke('update-message-content', {
+              messageId: msg.id,
+              content: updatedDbMessage
+            })
+          }
+          break
         }
-        
-        // 物理保存红包的最新状态到 SQLite
-        if (msg.id) {
-          const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
-            amount: msg.redPacket.amount,
-            title: msg.redPacket.title,
-            status: msg.redPacket.status
-          })}`
-          window.api.invoke('update-message-content', {
-            messageId: msg.id,
-            content: updatedDbMessage
-          })
-        }
-        break
       }
     }
-  }
 
-  // B. 根据当前聊天模式分发渲染
-  const msgs = allMessages[char.id] || []
-  
-  if (chatMode.value === 'descriptive') {
-    // B.1 包含描写模式：直接向会话追加一条完整的助理回复气泡，瞬间呈现
-    msgs.push({
-      role: 'assistant',
-      content: content,
-      created_at: new Date().toISOString()
-    })
-    isStreaming.value = false
-    nextTick(() => scrollToBottom())
+    // B. 根据当前聊天模式分发渲染
+    const msgs = allMessages[char.id] || []
+    
+    if (chatMode.value === 'descriptive') {
+      // B.1 包含描写模式：直接向会话追加一条完整的助理回复气泡，瞬间呈现
+      msgs.push({
+        role: 'assistant',
+        content: content,
+        created_at: new Date().toISOString(),
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        cached_tokens: cachedTokens
+      })
+      isStreaming.value = false
+      nextTick(() => scrollToBottom())
 
     // 检查是否不在当前活跃会话或活跃窗口中
     if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
@@ -8183,10 +9005,14 @@ async function handleAssistantResponse(char: any, content: string, redPacketActi
       await new Promise(resolve => setTimeout(resolve, typeDelay))
 
       // 延迟结束，该句段瞬间作为独立的微信助理气泡弹射展示出来！
+      const isLast = (idx === paragraphs.length - 1)
       msgs.push({
         role: 'assistant',
         content: text,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        prompt_tokens: isLast ? promptTokens : undefined,
+        completion_tokens: isLast ? completionTokens : undefined,
+        cached_tokens: isLast ? cachedTokens : undefined
       })
       nextTick(() => scrollToBottom())
 
@@ -8223,6 +9049,10 @@ async function handleAssistantResponse(char: any, content: string, redPacketActi
 
 function handleKeyDown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
+    if (isMobile.value) {
+      // 手机端回车仅作换行，不发送消息
+      return
+    }
     e.preventDefault()
     sendChatMessage()
   }
@@ -8297,6 +9127,75 @@ function scrollToBottom(behavior: 'auto' | 'smooth' = 'smooth') {
   }
 }
 
+// ===================== 滚动触顶分页拉取历史消息 =====================
+async function handleChatScroll(e: Event) {
+  const container = e.target as HTMLElement
+  if (!container || !selectedCharacterId.value) return
+
+  // 实时检测滚动条当前是否不在最底部以控制回底悬浮按钮的显隐
+  // 容差值设为 120px：只要距离底部超出 120px，就算“不在最底部”
+  const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 120
+  showScrollToBottomBtn.value = !isAtBottom
+
+  const charId = selectedCharacterId.value
+  
+  // 仅在滚动触顶（留出 5px 物理容差）、未处于流式加载、且该会话还有更早历史时触发
+  if (container.scrollTop <= 5 && !isLoadingMore.value && hasMoreHistoryMap[charId] !== false) {
+    const currentMsgs = allMessages[charId] || []
+    if (currentMsgs.length === 0) return
+
+    // 提取当前对话列表最前端（时间戳最老）且具有有效时间戳的消息作为游标
+    const validMsgs = currentMsgs.filter(m => m.timestamp !== undefined && m.timestamp !== null)
+    if (validMsgs.length === 0) return
+    const beforeTimestamp = validMsgs[0].timestamp
+
+    console.log(`[handleChatScroll] 准备加载更早历史。当前队列长度: ${currentMsgs.length}, 最老游标 beforeTimestamp: ${beforeTimestamp}, 消息片断: "${validMsgs[0].content?.slice(0, 15)}"`)
+
+    isLoadingMore.value = true
+
+    try {
+      // 记录追加消息前容器的 scrollHeight 物理高度，用于锁定滚动视野
+      const prevScrollHeight = container.scrollHeight
+
+      // 向主进程请求在此时间戳之前的 100 条消息（50 轮）
+      const res = await window.api.invoke('get-chat-history', { 
+        characterId: charId, 
+        limit: 100, 
+        beforeTimestamp 
+      })
+
+      if (res.success && res.history && res.history.length > 0) {
+        console.log(`[handleChatScroll] 成功拉取到历史。条数: ${res.history.length}, 返回消息最老一条时间戳: ${res.history[0].timestamp}, 最新一条时间戳: ${res.history[res.history.length - 1].timestamp}`)
+        
+        const olderMsgs = res.history.map((m: any) => restoreMessageProps(m))
+        
+        // 物理拼接至当前会话的历史队列最头部
+        currentMsgs.unshift(...olderMsgs)
+
+        // 如果拉取的历史条数不足 100 条，说明已达数据库消息起点，标记为无更多
+        if (res.history.length < 100) {
+          hasMoreHistoryMap[charId] = false
+          console.log(`[handleChatScroll] 历史消息已全部加载完毕，触及数据库起点。`)
+        }
+
+        // 极其惊艳的物理滚动补偿对齐，保证视野内消息纹丝不动，彻底免除画面抖动
+        nextTick(() => {
+          container.scrollTop = container.scrollHeight - prevScrollHeight
+          isLoadingMore.value = false
+        })
+      } else {
+        // 无数据，则标记已加载到尽头
+        console.log(`[handleChatScroll] 未拉取到更早消息，标记为无更多历史。`)
+        hasMoreHistoryMap[charId] = false
+        isLoadingMore.value = false
+      }
+    } catch (err) {
+      console.error('拉取分页聊天历史异常:', err)
+      isLoadingMore.value = false
+    }
+  }
+}
+
 // ===================== 底部输入区高度拖拽 =====================
 function startInputResize(e: MouseEvent) {
   e.preventDefault()
@@ -8342,20 +9241,26 @@ function startTypingEffect() {
 function scrubRedPacketFromQueue() {
   const queueText = typingQueue.value.join('')
   
+  // 🚀 前端 done 兜底：强力抹杀 typingQueue 里面残存的任何主动发红包控制符 [SEND_RED_PACKET: ...]
+  const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/g
+  let updatedText = queueText.replace(sendReg, '').trim()
+
   let isReceive = false
   let isReturn = false
   
-  if (queueText.includes('[RECEIVE_RED_PACKET]')) {
+  if (updatedText.includes('[RECEIVE_RED_PACKET]')) {
     isReceive = true
-  } else if (queueText.includes('[RETURN_RED_PACKET]')) {
+  } else if (updatedText.includes('[RETURN_RED_PACKET]')) {
     isReturn = true
   }
   
-  if (!isReceive && !isReturn) return
-  
   const targetTag = isReceive ? '[RECEIVE_RED_PACKET]' : '[RETURN_RED_PACKET]'
-  let updatedText = queueText.replace(targetTag, '').trim()
+  updatedText = updatedText.replace(targetTag, '').trim()
   
+  // 🚀 进一步清除未闭合的小说动作半截括号残余（如：“(红”）
+  const halfBracketReg = /[（(][^）)]*$/g
+  updatedText = updatedText.replace(halfBracketReg, '').trim()
+
   typingQueue.value = updatedText.split('')
   
   const charId = selectedCharacterId.value
@@ -8560,6 +9465,7 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
   })
   
   isStreaming.value = true
+  streamingCharacterId.value = char.id
   scrubber.reset()
   typingQueue.value = []
   nextTick(() => scrollToBottom())
@@ -8586,67 +9492,59 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
 }
 
 // ===================== 红包 =====================
+const showReceiveRedPacketModal = ref(false)
+const activeReceivingRedPacketMsg = ref<any>(null)
+const isOpeningRedPacket = ref(false)
+
 function openRedPacket() { showRedPacketModal.value = true; showPlusMenu.value = false }
 
-async function sendRedPacket() {
-  const char = activeCharacter.value
-  if (!char || redPacketAmount.value <= 0) return
-  if (userProfile.walletBalance < redPacketAmount.value) {
-    showCustomAlert('余额不足', '当前虚拟钱包余额不足，请先充值！', 'error')
-    return
-  }
-  userProfile.walletBalance -= redPacketAmount.value
-  showRedPacketModal.value = false
 
-  const amount = redPacketAmount.value
-  const title = redPacketTitle.value.trim() || '恭喜发财，大吉大利'
-  if (!allMessages[char.id]) allMessages[char.id] = []
+
+function handleReceiveCharacterRedPacket(msg: any) {
+  if (!msg.redPacket || msg.redPacket.status === 'received') return
+  activeReceivingRedPacketMsg.value = msg
+  showReceiveRedPacketModal.value = true
+  isOpeningRedPacket.value = false
+}
+
+async function openCharacterRedPacket() {
+  const msg = activeReceivingRedPacketMsg.value
+  if (!msg || isOpeningRedPacket.value) return
   
-  // 生成唯一的 userMsgId，用于物理保存与定位消息
-  const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
-
-  const timestamp = Date.now()
-  conversationActiveTimes[char.id] = timestamp
-  allMessages[char.id].push({
-    id: userMsgId,
-    role: 'user',
-    content: `[发送红包: ${amount} 元, 附言: ${title}]`,
-    redPacket: { amount, title, status: 'waiting' },
-    created_at: new Date().toISOString(),
-    timestamp: timestamp
-  })
-  isStreaming.value = true
-  scrubber.reset()
-  typingQueue.value = []
-  nextTick(() => scrollToBottom())
-
+  isOpeningRedPacket.value = true
+  
+  // 微信级极高拟真度 1 秒金币旋转缓冲延迟
+  await new Promise(resolve => setTimeout(resolve, 1000))
+  
   try {
-    const res = await window.api.invoke('chat-stream', {
-      characterId: char.id,
-      folderName: char.folder_name,
-      userMessage: `[USER_RED_ENVELOPE: ${amount}元, 祝福语: "${title}"] 用户给你发了 ${amount} 元的红包，附言：“${title}”。
-
-请以你当前的 AI 角色性格和设定，独立决定是否“领取”或“退回”这个红包：
-- 如果你根据性格和设定决定【领取红包】：请你务必在你的回复的【最开始】加入一行控制符：[RECEIVE_RED_PACKET] ，并以角色的性格热情或符合人设地感谢用户！
-- 如果你根据性格和设定决定【退回红包】（拒收）：请你务必在你的回复的【最开始】加入一行控制符：[RETURN_RED_PACKET] ，以你的性格傲娇、委婉或符合设定地拒绝红包并说明缘由。
-
-请直接开始你符合人设的自然对话回复，不要向用户暴露控制符的存在。`,
-      chatMode: chatMode.value,
-      userMsgId: userMsgId,
-      dbMessage: `[wechat_red_packet]:${JSON.stringify({ amount, title, status: 'waiting' })}`
-    })
-    if (!res.success) throw new Error(res.error || '连接断开')
-    await handleAssistantResponse(char, res.content, res.redPacketAction)
-  } catch (err: any) {
-    isStreaming.value = false
-    const msgs = allMessages[char.id] || []
-    if (msgs.length > 0) {
-      const last = msgs[msgs.length - 1]
-      if (last.role === 'assistant') last.content += `\n[系统异常]: ${err.message || err}`
+    const amount = parseFloat(msg.redPacket.amount)
+    if (!isNaN(amount) && amount > 0) {
+      userProfile.walletBalance += amount
+      saveUserProfileLocal()
+      
+      // 更新本条红包卡片的物理状态并物理同步更新 SQLite
+      msg.redPacket.status = 'received'
+      if (msg.id) {
+        const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
+          amount: msg.redPacket.amount,
+          title: msg.redPacket.title,
+          status: 'received'
+        })}`
+        await window.api.invoke('update-message-content', {
+          messageId: msg.id,
+          content: updatedDbMessage
+        })
+      }
+      
+      showCustomAlert('领受成功', `成功领受了角色发给你的回音红包，金额 ${amount.toFixed(2)} 元已实时存入您的钱包！`, 'success')
     }
+  } catch (err: any) {
+    showCustomAlert('领取失败', `发生异常：${err.message || err}`, 'error')
+  } finally {
+    showReceiveRedPacketModal.value = false
+    isOpeningRedPacket.value = false
+    activeReceivingRedPacketMsg.value = null
   }
-
-  saveUserProfileLocal()
 }
 
 // ===================== 用户设置 =====================
@@ -8780,6 +9678,86 @@ async function saveBrainFiles() {
     showCustomAlert('保存成功', '角色设定、世界设定与记忆文件已成功保存并实时生效！', 'success')
   } else {
     showCustomAlert('保存失败', '部分或全部配置文件保存失败，请确保应用具有写入文件的权限后重试。', 'error')
+  }
+}
+
+async function tidyCharacterMemory(source: 'brain' | 'contact') {
+  if (isTidyingMemory.value) return
+  
+  let charId = ''
+  let folderName = ''
+  let charName = ''
+  
+  if (source === 'brain') {
+    if (!activeCharacter.value) return
+    charId = activeCharacter.value.id
+    folderName = activeCharacter.value.folder_name
+    charName = activeCharacter.value.name
+  } else {
+    // 通讯录模式
+    const char = characterList.value.find(c => c.id === selectedContactId.value)
+    if (!char) return
+    charId = char.id
+    folderName = char.folder_name
+    charName = char.name
+  }
+  
+  isTidyingMemory.value = true
+  try {
+    const res = await window.api.invoke('consolidate-character-memory', {
+      characterId: charId,
+      folderName: folderName
+    })
+    
+    if (res.success) {
+      // 暂存到临时状态，不直接物理落盘
+      tidyCharId.value = charId
+      tidyFolderName.value = folderName
+      tidyCharName.value = charName
+      tidiedMemoryTempContent.value = res.content
+      showMemoryTidyModal.value = true
+      
+      showCustomAlert('整理完成', `✨ 角色【${charName}】的记忆整理已完成提炼！请在确认弹窗中核对或修润后保存。🐾`, 'success')
+    } else {
+      showCustomAlert('整理失败', `❌ ${res.error || '整理记忆失败，请重试'}`, 'error')
+    }
+  } catch (err: any) {
+    console.error('[Memory Tidy] 整理失败:', err)
+    showCustomAlert('整理发生异常', `❌ ${err.message || err}`, 'error')
+  } finally {
+    isTidyingMemory.value = false
+  }
+}
+
+async function saveTidiedMemory() {
+  if (!tidyFolderName.value) return
+  
+  try {
+    const memRes = await window.api.invoke('save-memory-file', {
+      folderName: tidyFolderName.value,
+      content: tidiedMemoryTempContent.value
+    })
+    
+    if (memRes.success) {
+      // 1. 同步更新通讯录中展示的变量
+      if (selectedContactId.value === tidyCharId.value) {
+        contactMemoryContent.value = tidiedMemoryTempContent.value
+        contactMemoryRawContent.value = tidiedMemoryTempContent.value
+      }
+      
+      // 2. 如果整理的正是当前聊天框角色，同步更新大脑 Tab 中的变量
+      if (activeCharacter.value && activeCharacter.value.id === tidyCharId.value) {
+        brainMemoryContent.value = tidiedMemoryTempContent.value
+      }
+      
+      showMemoryTidyModal.value = false
+      showCustomAlert('保存成功', `✨ 角色【${tidyCharName.value}】的记忆已成功保存并实时生效！`, 'success')
+    } else {
+      showCustomAlert('保存失败', `❌ 保存失败，请确保应用具有写入文件的权限。`, 'error')
+    }
+  } catch (err: any) {
+    console.error('[Memory Save] 保存失败:', err)
+    showCustomAlert('保存发生异常', `❌ ${err.message || err}`, 'error')
   }
 }
 
@@ -8920,18 +9898,39 @@ function getBarHeightPercent(value: number, list: any[], key: 'calls' | 'tokens'
 }
 
 // ===================== 右键菜单 =====================
+// 🚀 核心优化：高保真右键菜单视口碰撞检测与自适应边界定位函数（防溢出被屏幕边缘截断）
+function adjustContextMenuPosition(e: MouseEvent, menuType: 'chat' | 'contact' | 'message') {
+  // 根据不同右键菜单的规格，动态估算其大致宽高以进行完美边界贴合
+  const menuWidth = 150
+  const menuHeight = menuType === 'message' ? 220 : (menuType === 'chat' ? 170 : 100)
+
+  // 1. 水平方向防溢出
+  const x = e.clientX + menuWidth > window.innerWidth
+    ? Math.max(10, e.clientX - menuWidth)
+    : e.clientX
+
+  // 2. 垂直方向防溢出
+  const y = e.clientY + menuHeight > window.innerHeight
+    ? Math.max(10, e.clientY - menuHeight)
+    : e.clientY
+
+  return { x, y }
+}
+
 function openContextMenu(e: MouseEvent, char: any) {
   contextMenu.visible = true
-  contextMenu.x = e.clientX
-  contextMenu.y = e.clientY
+  const pos = adjustContextMenuPosition(e, 'chat')
+  contextMenu.x = pos.x
+  contextMenu.y = pos.y
   contextMenu.char = char
   contextMenu.type = 'chat'
 }
 
 function openContactContextMenu(e: MouseEvent, char: any) {
   contextMenu.visible = true
-  contextMenu.x = e.clientX
-  contextMenu.y = e.clientY
+  const pos = adjustContextMenuPosition(e, 'contact')
+  contextMenu.x = pos.x
+  contextMenu.y = pos.y
   contextMenu.char = char
   contextMenu.type = 'contact'
 }
@@ -9711,22 +10710,8 @@ onMounted(async () => {
     updateViewportHeight()
   }
 
-  // 同步桌面歌词自定义底色和文字颜色
-  try {
-    await window.api.invoke('lyric-window-update-theme', {
-      bgColor: lyricBgColor.value,
-      textColor: lyricTextColor.value
-    })
-  } catch (_) {}
-
-  // 同步加载所有导入的自定义音源到主进程沙箱中
-  await syncCustomSources()
-
-  // 加载音乐模块数据
-  loadRecommendPlaylists()
-  loadLeaderboardList(activeBangId.value)
   fetchStatePresets()
-  // 加载通用常规设置
+  // 提前加载通用常规设置，以获取音乐模块的启用状态
   try {
     const genRes = await window.api.invoke('get-general-settings')
     if (genRes.success && genRes.config) {
@@ -9740,9 +10725,30 @@ onMounted(async () => {
       if (generalConfig.value.lan_mapping_port === undefined) {
         generalConfig.value.lan_mapping_port = 6868
       }
+      if (generalConfig.value.enable_token_stats === undefined) {
+        generalConfig.value.enable_token_stats = true
+      }
     }
   } catch (e) {
     console.error('加载通用设置异常:', e)
+  }
+
+  // 仅在开启了音乐功能时，才执行音乐相关初始化操作
+  if (generalConfig.value.enable_music) {
+    // 同步桌面歌词自定义底色和文字颜色
+    try {
+      await window.api.invoke('lyric-window-update-theme', {
+        bgColor: lyricBgColor.value,
+        textColor: lyricTextColor.value
+      })
+    } catch (_) {}
+
+    // 同步加载所有导入的自定义音源到主进程沙箱中
+    await syncCustomSources()
+
+    // 加载音乐模块数据
+    loadRecommendPlaylists()
+    loadLeaderboardList(activeBangId.value)
   }
 
   // 加载社媒朋友圈与论坛列表
@@ -9855,13 +10861,16 @@ onMounted(async () => {
   })
 
   // 监听流式 chunk
-  window.api.receive('chat-chunk', (data: { content: string; done: boolean; isSystem?: boolean }) => {
+  window.api.receive('chat-chunk', (data: { characterId: string; content: string; done: boolean; isSystem?: boolean }) => {
+    const chunkCharId = data.characterId || streamingCharacterId.value || selectedCharacterId.value || ''
+
     if (data.content && data.content.includes('[SUCCESS_CREATION_JUMP]:')) {
       const parts = data.content.split('[SUCCESS_CREATION_JUMP]:')
       const folderName = parts[1].trim()
       
       // 立即重置流式标志，确保新创建出来的角色对话框发送按钮立即可用，避免卡死
       isStreaming.value = false
+      streamingCharacterId.value = null
       
       // 延迟 3.5 秒跳转，让用户看清成功提示
       setTimeout(async () => {
@@ -9878,51 +10887,121 @@ onMounted(async () => {
     }
 
     if (data.done) {
-      isStreaming.value = false
-      // 快速处理并清洗 typingQueue 中的红包控制符并更新卡片状态
-      scrubRedPacketFromQueue()
+      if (chunkCharId === selectedCharacterId.value) {
+        isStreaming.value = false
+        streamingCharacterId.value = null
+        // 快速处理并清洗 typingQueue 中的红包控制符并更新卡片状态
+        scrubRedPacketFromQueue()
+      } else {
+        isStreaming.value = false
+        if (streamingCharacterId.value === chunkCharId) {
+          streamingCharacterId.value = null
+        }
+      }
 
-      // 🚀 局域网自愈桥接防线：在手机移动端上，由于大模型生成加存盘耗时长达十秒以上，
+      // 🚀 核心自愈优化：大模型流式打字输出完毕后，仅在动作描写模式下将最后一条 assistant 消息内容一次性覆盖为包含完美换行符的权威全文
+      if (data.content && chatMode.value === 'descriptive') {
+        const charId = chunkCharId
+        if (charId && allMessages[charId]) {
+          const msgs = allMessages[charId]
+          if (msgs.length > 0) {
+            const last = msgs[msgs.length - 1]
+            if (last.role === 'assistant') {
+              const sendReg = /\[SEND_RED_PACKET:\s*(\d+(\.\d+)?)\s*,\s*([\s\S]+?)\]/g
+              const halfBracketReg = /[（(][^）)]*$/g
+              let cleanedContent = data.content
+                .replace(/\[RECEIVE_RED_PACKET\]/g, '')
+                .replace(/\[RETURN_RED_PACKET\]/g, '')
+                .replace(sendReg, '')
+                .replace(halfBracketReg, '')
+                .trim()
+                
+              last.content = cleanedContent
+            }
+          }
+        }
+      }
+
+      // 无论什么聊天模式，都将最新的 Token 使用及缓存命中率实时更新到最后一个气泡
+      const charId = chunkCharId
+      if (charId && allMessages[charId]) {
+        const msgs = allMessages[charId]
+        if (msgs.length > 0) {
+          const last = msgs[msgs.length - 1]
+          if (last.role === 'assistant') {
+            last.prompt_tokens = (data as any).prompt_tokens
+            last.completion_tokens = (data as any).completion_tokens
+            last.cached_tokens = (data as any).cached_tokens
+          }
+        }
+      }
+
+      // 非当前活跃会话，在流式完毕时自动加未读数
+      if (chunkCharId !== selectedCharacterId.value || !isChattingActive.value) {
+        if (!conversationMeta[chunkCharId]) {
+          conversationMeta[chunkCharId] = { pinned: false, unread: 0, muted: false, hidden: false }
+        }
+        conversationMeta[chunkCharId].unread = (conversationMeta[chunkCharId].unread || 0) + 1
+        window.api.invoke('save-conversation-meta', { characterId: chunkCharId, ...conversationMeta[chunkCharId] })
+      }
+
+      // 🚀 局局网自愈桥接防线：在手机移动端上，由于大模型生成加存盘耗时长达十秒以上，
       // fetch 的长轮询 POST 请求在手机浏览器中极易被静默断开或丢弃。
       // 我们在此处利用长驻、绝对不会断线超时的 SSE 信道接收到的全量 done 信号进行自愈补偿！
       if (isMobile.value && data.content) {
-        const char = activeCharacter.value
-        if (char) {
-          const msgs = allMessages[char.id] || []
-          // 全量内容的头部 15 个字作为检索防重标识，查验是否已经渲染过
+        if (chunkCharId === selectedCharacterId.value) {
+          const char = activeCharacter.value
+          if (char) {
+            const msgs = allMessages[char.id] || []
+            // 全量内容的头部 15 个字作为检索防重标识，查验是否已经渲染过
+            const lookup = data.content.slice(0, 15)
+            const hasReceived = msgs.some(m => m.role === 'assistant' && m.content && m.content.includes(lookup))
+            const lockKey = char.id + '_' + lookup
+            if (activeTypingSessions.has(lockKey)) {
+              // 说明当前打字机已经成功被唤起且正在后台吐字播放中，自愈静默退出，100% 排除重复渲染 BUG
+              return
+            }
+            if (!hasReceived) {
+              // 自愈补偿成功！接管并调起微信级仿真分段播放器将回复弹射发出来，圆满解除输入转圈
+              handleAssistantResponse(char, data.content, null)
+            }
+          }
+        } else {
+          const msgs = allMessages[chunkCharId] || []
           const lookup = data.content.slice(0, 15)
           const hasReceived = msgs.some(m => m.role === 'assistant' && m.content && m.content.includes(lookup))
-          const lockKey = char.id + '_' + lookup
-          if (activeTypingSessions.has(lockKey)) {
-            // 说明当前打字机已经成功被唤起且正在后台吐字播放中，自愈静默退出，100% 排除重复渲染 BUG
-            return
-          }
           if (!hasReceived) {
-            // 自愈补偿成功！接管并调起微信级仿真分段播放器将回复弹射发出来，圆满解除输入转圈
-            handleAssistantResponse(char, data.content, null)
+            const last = msgs[msgs.length - 1]
+            if (last && last.role === 'assistant') {
+              last.content = data.content
+            } else {
+              msgs.push({ role: 'assistant', content: data.content, created_at: new Date().toISOString() })
+            }
           }
         }
       }
 
       // 重新读取角色文件以刷新记忆/日记展示
       setTimeout(async () => {
-        const char = activeCharacter.value
+        const char = characterList.value.find(c => c.id === chunkCharId)
         if (char) {
           const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
-          if (memRes.success) activeMemory.value = memRes.content
+          if (memRes.success && chunkCharId === selectedCharacterId.value) activeMemory.value = memRes.content
           const diaryRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Diary.md' })
-          if (diaryRes.success) activeDiary.value = diaryRes.content
+          if (diaryRes.success && chunkCharId === selectedCharacterId.value) activeDiary.value = diaryRes.content
         }
       }, 1500)
       return
     }
 
     if (data.isSystem) {
-      const msgs = allMessages[selectedCharacterId.value || '']
+      const msgs = allMessages[chunkCharId]
       if (msgs) {
         msgs.push({ role: 'system', content: data.content, isSystem: true })
         msgs.push({ role: 'assistant', content: '' })
-        nextTick(() => scrollToBottom())
+        if (chunkCharId === selectedCharacterId.value) {
+          nextTick(() => scrollToBottom())
+        }
       }
       return
     }
@@ -9931,14 +11010,26 @@ onMounted(async () => {
     if (cleanContent) {
       // 确保消息列表末尾有 assistant 气泡容器，Creator Bot 流式推送时不会预先 push 空气泡
       // 若最后一条不是 assistant，则自动插入一条，供 startTypingEffect 逐字追加
-      const charId = selectedCharacterId.value || ''
-      conversationActiveTimes[charId] = Date.now()
-      const msgs = allMessages[charId]
+      conversationActiveTimes[chunkCharId] = Date.now()
+      const msgs = allMessages[chunkCharId]
       if (msgs && (msgs.length === 0 || msgs[msgs.length - 1].role !== 'assistant')) {
         msgs.push({ role: 'assistant', content: '', created_at: new Date().toISOString() })
-        nextTick(() => scrollToBottom())
+        if (chunkCharId === selectedCharacterId.value) {
+          nextTick(() => scrollToBottom())
+        }
       }
-      pushToTypingQueue(cleanContent)
+      
+      if (chunkCharId === selectedCharacterId.value) {
+        pushToTypingQueue(cleanContent)
+      } else {
+        // 如果是后台角色，直接将内容追加到最后一条 assistant 消息的 content 中，不做打字动画，避免污染全局 typingQueue
+        if (msgs && msgs.length > 0) {
+          const last = msgs[msgs.length - 1]
+          if (last.role === 'assistant') {
+            last.content += cleanContent
+          }
+        }
+      }
     }
   })
 
@@ -10584,11 +11675,11 @@ async function selectFavoriteType(type: string) {
 async function deleteFavoriteItem(fav: any) {
   showCustomConfirm(
     '确认取消收藏',
-    '您确定要将此项从我的微型书签中取消收藏吗？',
+    '您确定要将此项从收藏夹中取消收藏吗？',
     async () => {
       const res = await window.api.invoke('remove-favorite', { type: fav.type, targetId: fav.target_id })
       if (res.success) {
-        showToast('已取消收藏书签 🐾')
+        showToast('已取消收藏 🐾')
         // 重载列表
         await loadFavoritesList()
       } else {
@@ -10603,8 +11694,9 @@ function openMessageContextMenu(e: MouseEvent, msg: any) {
   if (msg.redPacket) return // 红包消息无法右键
   
   contextMenu.visible = true
-  contextMenu.x = e.clientX
-  contextMenu.y = e.clientY
+  const pos = adjustContextMenuPosition(e, 'message')
+  contextMenu.x = pos.x
+  contextMenu.y = pos.y
   contextMenu.char = activeCharacter.value
   contextMenu.message = msg
   contextMenu.type = 'message'
@@ -10639,6 +11731,39 @@ async function ctxFavoriteMessage() {
     showToast(`收藏失败: ${res.error}`)
   }
   contextMenu.visible = false
+}
+
+function ctxDeleteMessage() {
+  const msg = contextMenu.message
+  const char = contextMenu.char
+  if (!msg || !char) return
+  
+  if (isStreaming.value) {
+    showToast('AI 正在回复中，暂时无法删除消息！ ⏳')
+    return
+  }
+  
+  contextMenu.visible = false
+  
+  showCustomConfirm(
+    '确认删除消息',
+    '您确定要彻底物理删除此条聊天记录吗？\n\n注意：此操作将永久从本地数据库与上下文记忆中抹去，无法撤销。',
+    async () => {
+      const res = await window.api.invoke('delete-message', { messageId: msg.id })
+      if (res.success) {
+        const msgs = allMessages[char.id]
+        if (msgs) {
+          const idx = msgs.findIndex(m => m.id === msg.id)
+          if (idx !== -1) {
+            msgs.splice(idx, 1)
+          }
+        }
+        showToast('消息记录已成功物理擦除！🗑️')
+      } else {
+        showToast(`删除失败: ${res.error}`)
+      }
+    }
+  )
 }
 
 async function ctxRegenerateMessage() {
@@ -10748,7 +11873,8 @@ async function saveGeneralSettings() {
     cron_frequency: generalConfig.value.cron_frequency,
     enable_music: generalConfig.value.enable_music,
     lan_mapping_enabled: generalConfig.value.lan_mapping_enabled,
-    lan_mapping_port: port
+    lan_mapping_port: port,
+    enable_token_stats: generalConfig.value.enable_token_stats
   })
   if (!res.success) {
     showToast(`保存失败: ${res.error}`)

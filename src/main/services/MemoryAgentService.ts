@@ -195,7 +195,7 @@ Target JSON 格式：
           } else {
             memory.ltm = cleanedLtm;
             MemoryReaderWriter.writeMemory(memoryPath, memory.stm, memory.ltm);
-            console.log('[MemoryAgentService] 物理长期记忆合并精炼落盘 LTM:', cleanedLtm);
+            // 🚀 用户优化：控制台日志清爽化，移除超长精炼 LTM 数据输出，保留写盘动作
           }
         }
 
@@ -211,7 +211,7 @@ Target JSON 格式：
             console.warn('[MemoryAgentService] 大模型返回专属画像 Facts 为空，但历史存在事实，跳过更新以物理保全画像。');
           } else {
             UserProfileReaderWriter.writeCharacterProfile(charUserPath, cleanedFacts);
-            console.log('[MemoryAgentService] 物理专属画像合并精炼落盘 Facts:', cleanedFacts);
+            // 🚀 用户优化：控制台日志清爽化，移除超长 Facts 列表数据输出，保留写盘动作
           }
         }
 

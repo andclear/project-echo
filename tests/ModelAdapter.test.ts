@@ -491,5 +491,72 @@ describe('ModelAdapter & Providers 深度重构测试', () => {
       expect(call[0]).toBe('http://localhost:11434/api/chat')
       expect(result.content).toBe('我是 Ollama 辅助服务')
     })
+
+    it('应当在聊天时运行时拦截并成功替换 {{char}} 和 <char> 为真实角色姓名', async () => {
+      const mockResponse = {
+        choices: [{ message: { content: '我是被测试的回复。' } }],
+        usage: { total_tokens: 15 }
+      }
+
+      global.fetch = vi.fn().mockImplementation(() => {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(mockResponse)
+        } as Response)
+      })
+
+      // 测试从 options.characterName 直接传入的情况
+      const adapter = new ModelAdapter(primaryConfig)
+      await adapter.chat(
+        [
+          { role: 'system', content: 'You are {{char}}' },
+          { role: 'user', content: '你好 <char>' }
+        ],
+        { usePrimary: true, characterName: '芙宁娜', skipSystemInjection: false }
+      )
+
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+      const call = vi.mocked(global.fetch).mock.calls[0]
+      const body = JSON.parse(call[1]?.body as string)
+      
+      const systemMsg = body.messages.find((m: any) => m.role === 'system')
+      const userMsg = body.messages.find((m: any) => m.role === 'user')
+      expect(systemMsg.content).toContain('You are 芙宁娜')
+      expect(userMsg.content).toContain('你好 芙宁娜')
+    })
+
+    it('若 options 中未传入角色名，应当能够通过 System Prompt 中的 SOUL 头部智能正则推导并成功替换占位符', async () => {
+      const mockResponse = {
+        choices: [{ message: { content: '我是被测试的回复。' } }],
+        usage: { total_tokens: 15 }
+      }
+
+      global.fetch = vi.fn().mockImplementation(() => {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(mockResponse)
+        } as Response)
+      })
+
+      const adapter = new ModelAdapter(primaryConfig)
+      await adapter.chat(
+        [
+          { role: 'system', content: '## SOUL.md - Personality & Human-nature Core\n# 芙宁娜\nYou are {{char}}' },
+          { role: 'user', content: '你好 <char>' }
+        ],
+        { usePrimary: true, skipSystemInjection: false }
+      )
+
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+      const call = vi.mocked(global.fetch).mock.calls[0]
+      const body = JSON.parse(call[1]?.body as string)
+      
+      const systemMsg = body.messages.find((m: any) => m.role === 'system')
+      const userMsg = body.messages.find((m: any) => m.role === 'user')
+      expect(systemMsg.content).toContain('You are 芙宁娜')
+      expect(userMsg.content).toContain('你好 芙宁娜')
+    })
   })
 })

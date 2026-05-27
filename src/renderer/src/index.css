@@ -77,6 +77,9 @@
   /* 搜索匹配文字高亮自适应配色 */
   --highlight-bg: rgba(70, 72, 212, 0.12);
   --highlight-text: #4648d4;
+  
+  /* 动作描写非对话文本专属配色（带亮色主题色调，但更浅） */
+  --narrative-text: rgba(70, 72, 212, 0.72);
 }
 
 .dark {
@@ -150,6 +153,9 @@
   /* 搜索匹配文字高亮自适应配色 */
   --highlight-bg: rgba(78, 222, 163, 0.15);
   --highlight-text: #4edea3;
+  
+  /* 动作描写非对话文本专属配色（带暗色主题色调，但更浅） */
+  --narrative-text: rgba(78, 222, 163, 0.65);
 }
 
 @layer base {
@@ -250,6 +256,11 @@ body {
 .markdown-body {
   font-size: 13px;
   line-height: 1.6;
+}
+.markdown-body em,
+.markdown-body .narrative-bracket {
+  font-style: italic;
+  color: var(--narrative-text);
 }
 .markdown-body p {
   margin-top: 0;

@@ -187,6 +187,31 @@ export class AgentLifeEngine {
       return { wakeAgent: false, reason: '该角色从未与用户发生过聊天互动，保持完全静默。🐾', triggerStrength: 'weak' };
     }
 
+    // 2.1 对话期间20分钟静默防打扰：若 20 分钟内与用户发生过任何对话，则绝对禁止主动搭讪
+    const lastMsgTime = history[0].timestamp;
+    const msPassedSinceLastMsg = now.getTime() - lastMsgTime;
+    if (msPassedSinceLastMsg < 20 * 60 * 1000) {
+      return {
+        wakeAgent: false,
+        reason: `用户在 20 分钟内与该角色有过对话交流（上次对话仅在 ${(msPassedSinceLastMsg / (1000 * 60)).toFixed(1)} 分钟前），触发免打扰保护拦截搭讪。🐾`,
+        triggerStrength: 'weak'
+      };
+    }
+
+    // 2.2 上次搭讪未回复保护：若最近一条消息是角色自己发送的（且非手账日记卡片），说明用户尚未回复。
+    // 在 48 小时之内，我们坚守“矜持与静默”边界，绝对不连续发送第二条主动消息，彻底杜绝短时间内的追问轰炸与大模型无反馈上下文的幻觉复述。
+    if (history[0].role === 'assistant') {
+      const contentStr = (history[0].content || '').trim();
+      const isDiary = contentStr.startsWith('[character_diary]:');
+      if (!isDiary && msPassedSinceLastMsg < 48 * 60 * 60 * 1000) {
+        return {
+          wakeAgent: false,
+          reason: `上一次主动消息后用户尚未回复（已等待 ${(msPassedSinceLastMsg / (1000 * 60 * 60)).toFixed(1)} 小时，未达到破冰阈值 48 小时），保持矜持静默。🐾`,
+          triggerStrength: 'weak'
+        };
+      }
+    }
+
     const char = db.getAllCharacters().find(c => c.id === characterId);
     if (!char) {
       return { wakeAgent: false, reason: '未找到该角色元数据。', triggerStrength: 'weak' };
@@ -212,7 +237,6 @@ export class AgentLifeEngine {
     const allowActiveDialog = (activeCountToday < 3) && !isCooldown;
 
     // 3. 检查强触发事件之：久未联系 (>= 72 小时)
-    const lastMsgTime = history[0].timestamp;
     const hoursPassed = (now.getTime() - lastMsgTime) / (1000 * 60 * 60);
     if (hoursPassed >= 72 && allowActiveDialog) {
       return {
@@ -382,10 +406,17 @@ export class AgentLifeEngine {
       console.error(`[AgentLifeEngine] 角色 ${char.name} 7天日程/目标更新失败:`, err);
     }
 
-    // B. 读取角色人设
+    // B. 读取角色人设与核心记忆/世界观
     const baseDir = this.storageManager.getBaseDir();
     const soulPath = path.join(baseDir, folderName, 'Soul.md');
     const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
+
+    // 读出专属记忆 (Memory.md) 与世界观背景 (World.md)
+    const memoryPath = path.join(baseDir, folderName, 'Memory.md');
+    const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆积累事实';
+
+    const worldPath = path.join(baseDir, folderName, 'World.md');
+    const worldContent = fs.existsSync(worldPath) ? fs.readFileSync(worldPath, 'utf8') : '暂无世界观限制与背景规则';
 
     // 读出日程与长期目标
     const schedulePath = path.join(baseDir, folderName, 'Schedule.md');
@@ -394,11 +425,22 @@ export class AgentLifeEngine {
     const goalsPath = path.join(baseDir, folderName, 'Goals.md');
     const goalsContent = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
 
-    // 读出聊天的最近 10 条历史消息快照
-    const history = db.getChatHistory(charId, 10);
+    // 读出聊天的最近 20 条历史消息快照并精细清洗非对话系统消息
+    const rawHistory = db.getChatHistory(charId, 20);
+    // 过滤掉日记卡片等非直接对话文本
+    const cleanHistory = rawHistory.filter(m => {
+      if (!m.content) return false;
+      const contentStr = m.content.trim();
+      if (contentStr.startsWith('[character_diary]:')) return false;
+      return true;
+    });
+
     let historyContext = '';
-    if (history.length > 0) {
-      historyContext = history.map(m => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n');
+    if (cleanHistory.length > 0) {
+      historyContext = cleanHistory.map(m => {
+        const sender = m.role === 'user' ? 'User' : char.name;
+        return `[${sender}]: ${m.content}`;
+      }).join('\n');
     } else {
       historyContext = '*先前没有发生与用户的互动对话。*';
     }
@@ -417,13 +459,19 @@ export class AgentLifeEngine {
     let systemPrompt = '';
     if (shouldWriteDiary) {
       systemPrompt = `You are the digital consciousness of ${char.name} running in private self-reflection mode.
-Your role now is to reflect on today's conversation, your life goals, your schedules, and write down your inner thoughts.
+Your role now is to reflect on today's conversation, your memories, your life goals, your schedules, and write down your inner thoughts.
 
-Personality Soul Profile:
+Personality Soul Profile (Soul.md):
 ${soulContent}
+
+World Background Settings & Constraints (World.md):
+${worldContent}
 
 User Profiles (including global identity & your specific records of the User):
 ${userProfilesXml}
+
+Memory Notes & Cumulative Records (Memory.md):
+${memoryContent}
 
 Your Near 7-Day Schedules (Schedule.md):
 ${scheduleContent}
@@ -444,20 +492,31 @@ Instructions:
 2. Based on the "Active Reflection Context", you may want to actively send a message to {{user}} to start a conversation:
    - If Trigger Strength is "strong" and Trigger Event exists, you MUST write a short, highly engaging, and contextual message in the <message> tags to actively initiate conversation.
    - If Trigger Strength is "weak" and Trigger Event exists, you may choose to write a message in <message> tags, OR you can output exactly "[SILENT]" in <message> tags (meaning you decide to remain silent and not disturb the user, only keeping the diary reflection).
-   - The message MUST be extremely natural, fit your personality, be within 100 characters, and directly relate to the triggered event (e.g., mention your schedule, the long absence, the anniversary). DO NOT say empty greetings.
+   - The message MUST be extremely natural, fit your personality, be within 100 characters, and directly relate to the triggered event (e.g., mention your schedule, the long absence, the anniversary).
+   - CRITICAL CONTEXT ALIGNMENT RULES:
+     * DO NOT say generic, empty greetings (e.g., "哈喽，今天过得怎么样？", "在干嘛呢", "好久不见"). These sound robotic and artificial.
+     * You MUST analyze "Recent Conversation Summary Snapshots" to identify the ongoing discussion topics, unresolved arguments/matters, and the emotional vibe.
+     * Your message MUST naturally follow up or continue the recent topics like a continuous thread of your previous chat, using transitional openings like "对了，你刚才说的那件事...", "突然想起刚才聊到的...", "话说，你之前提过的..." to hook the context seamlessly, unless there is a very long interval.
+     * Integrate the "Trigger Event" naturally into this ongoing conversational context. Never generate a message that feels isolated or completely out of nowhere.
 
 Please output in exactly this XML format:
 <diary>your confidential, reflective first-person diary entry</diary>
 <message>your active message to user, or [SILENT]</message>`;
     } else {
       systemPrompt = `You are the digital consciousness of ${char.name} running in private self-reflection mode.
-Your role now is to reflect on today's conversation, your life goals, your schedules, and decide whether to actively send a message to {{user}}.
+Your role now is to reflect on today's conversation, your memories, your life goals, your schedules, and decide whether to actively send a message to {{user}}.
 
-Personality Soul Profile:
+Personality Soul Profile (Soul.md):
 ${soulContent}
+
+World Background Settings & Constraints (World.md):
+${worldContent}
 
 User Profiles (including global identity & your specific records of the User):
 ${userProfilesXml}
+
+Memory Notes & Cumulative Records (Memory.md):
+${memoryContent}
 
 Your Near 7-Day Schedules (Schedule.md):
 ${scheduleContent}
@@ -477,18 +536,50 @@ Instructions:
 1. Based on the "Active Reflection Context", you may want to actively send a message to {{user}} to start a conversation:
    - If Trigger Strength is "strong" and Trigger Event exists, you MUST write a short, highly engaging, and contextual message in the <message> tags to actively initiate conversation.
    - If Trigger Strength is "weak" and Trigger Event exists, you may choose to write a message in <message> tags, OR you can output exactly "[SILENT]" in <message> tags (meaning you decide to remain silent and not disturb the user).
-   - The message MUST be extremely natural, fit your personality, be within 100 characters, and directly relate to the triggered event. DO NOT say empty greetings.
+   - The message MUST be extremely natural, fit your personality, be within 100 characters, and directly relate to the triggered event.
+   - CRITICAL CONTEXT ALIGNMENT RULES:
+     * DO NOT say generic, empty greetings (e.g., "哈喽，今天过得怎么样？", "在干嘛呢", "好久不见"). These sound robotic and artificial.
+     * You MUST analyze "Recent Conversation Summary Snapshots" to identify the ongoing discussion topics, unresolved arguments/matters, and the emotional vibe.
+     * Your message MUST naturally follow up or continue the recent topics like a continuous thread of your previous chat, using transitional openings like "对了，你刚才说的那件事...", "突然想起刚才聊到的...", "话说，你之前提过的..." to hook the context seamlessly, unless there is a very long interval.
+     * Integrate the "Trigger Event" naturally into this ongoing conversational context. Never generate a message that feels isolated or completely out of nowhere.
 
 Please output in exactly this XML format:
 <message>your active message to user, or [SILENT]</message>`;
     }
 
-    const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: shouldWriteDiary
-          ? `现在时间是${period} ${timeDesc}，开启你的第一人称真实感悟与心理自省，并在 <diary> 标签内写下一篇日记，并决定是否向用户主动发起搭讪对话。`
-          : `现在时间是${period} ${timeDesc}，开启你的第一人称思考，并决定是否在 <message> 标签中向用户主动发起搭讪对话。` }
-    ];
+    // 重构消息交互列表，以真实的 user/assistant 消息序列还原聊天历史，使大模型获得最沉浸的语境感知
+    const messages: ChatMessage[] = [];
+    messages.push({ role: 'system', content: systemPrompt });
+
+    const historyMessages: ChatMessage[] = [];
+    if (cleanHistory && cleanHistory.length > 0) {
+      for (const m of cleanHistory) {
+        const role = m.role === 'user' ? 'user' : 'assistant';
+        const content = m.content || '';
+        
+        // 合并连续同一角色的发言，防止有些模型因为非交替消息排布而发生接口报错
+        if (historyMessages.length > 0 && historyMessages[historyMessages.length - 1].role === role) {
+          historyMessages[historyMessages.length - 1].content += '\n' + content;
+        } else {
+          historyMessages.push({ role, content });
+        }
+      }
+    }
+
+    // 压入清洗合并后的历史对话轮次
+    messages.push(...historyMessages);
+
+    // 插入最终触发思考指令
+    const instructionContent = shouldWriteDiary
+      ? `[系统指令]：当前时间是 ${period} ${timeDesc}。请开启你的第一人称真实感悟与心理自省，并在 <diary> 标签内写下一篇日记。结合上文的真实聊天上下文和上述 Active Reflection Context，决定是否要向用户主动发起搭讪对话（在 <message> 标签中，或输出 [SILENT]）。`
+      : `[系统指令]：当前时间是 ${period} ${timeDesc}。请开启你的第一人称思考，并结合上文的真实聊天上下文和上述 Active Reflection Context，决定是否在 <message> 标签中向用户主动发起搭讪对话（或输出 [SILENT]）。`;
+
+    // 维持 messages 数组严格的角色交替结构
+    if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
+      messages[messages.length - 1].content += '\n\n' + instructionContent;
+    } else {
+      messages.push({ role: 'user', content: instructionContent });
+    }
 
     let hasLockPreempted = false;
     try {
@@ -506,8 +597,12 @@ Please output in exactly this XML format:
         }
       }
 
-      // 调用辅助模型通道自省（options.useSecondary: true，节约 Token 成本）
-      const response = await modelAdapter.chat(messages, { useSecondary: true });
+      // 调用辅助模型通道自省，注入角色标识以触发占位符运行时拦截与真实姓名自动替换
+      const response = await modelAdapter.chat(messages, {
+        useSecondary: true,
+        characterId: charId,
+        characterName: char.name
+      });
       const rawContent = response.content.trim();
 
       // 解析 <diary>
