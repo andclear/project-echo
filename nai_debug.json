@@ -1,0 +1,57 @@
+{
+  "priority": {
+    "maxPriorityActions": 1000,
+    "nextRefillAt": 1780503247,
+    "taskPriority": 10
+  },
+  "subscription": {
+    "tier": 3,
+    "active": true,
+    "paymentProcessor": 3,
+    "expiresAt": 1782576837,
+    "perks": {
+      "maxPriorityActions": 1000,
+      "startPriority": 10,
+      "moduleTrainingSteps": 10000,
+      "unlimitedMaxPriority": true,
+      "voiceGeneration": true,
+      "imageGeneration": true,
+      "unlimitedImageGeneration": true,
+      "unlimitedImageGenerationLimits": [
+        {
+          "resolution": 4194304,
+          "maxPrompts": 0
+        },
+        {
+          "resolution": 1048576,
+          "maxPrompts": 1
+        }
+      ],
+      "contextTokens": 8192
+    },
+    "paymentProcessorData": null,
+    "trainingStepsLeft": {
+      "fixedTrainingStepsLeft": 10000,
+      "purchasedTrainingSteps": 0
+    },
+    "accountType": 0,
+    "isGracePeriod": false
+  },
+  "keystore": null,
+  "settings": null,
+  "information": {
+    "emailVerified": true,
+    "emailVerificationLetterSent": false,
+    "hasPlaintextEmail": true,
+    "plainTextEmail": null,
+    "allowMarketingEmails": false,
+    "trialActivated": true,
+    "trialActionsLeft": 50,
+    "trialImagesLeft": 30,
+    "accountCreatedAt": 1779700225,
+    "banStatus": "not_banned",
+    "banMessage": null,
+    "needsAddressChange": false,
+    "loginMethod": "sso"
+  }
+}

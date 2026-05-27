@@ -156,6 +156,15 @@ export class NovelAiService {
     }
 
     const data = await response.json()
+    console.log('[NovelAiService] /user/data 完整响应数据:', JSON.stringify(data))
+    
+    try {
+      const fs = require('fs')
+      fs.writeFileSync('/Users/lillian/github/project-echo/nai_debug.json', JSON.stringify(data, null, 2))
+      fs.writeFileSync('/Users/lillian/Library/Application Support/project-echo/nai_debug.json', JSON.stringify(data, null, 2))
+    } catch (fsErr) {
+      console.error('[NovelAiService] 写入诊断文件失败:', fsErr)
+    }
     
     // 官方设计：
     // - data.anlas：代表额外单独付费购买的 Paid Anlas 余额
