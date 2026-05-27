@@ -1,5 +1,5 @@
 import './utils/AppUserDataLock'
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage } from 'electron'
 import { join, extname } from 'path'
 import fs from 'fs'
 import * as http from 'http'
@@ -30,6 +30,8 @@ app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess')
 app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox')
 
 let globalLifeEngine: AgentLifeEngine | null = null
+let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
 
 // SSE 局域网推送客户端集合
 export const sseClients = new Set<any>()
@@ -48,7 +50,7 @@ export function broadcastToSse(channel: string, data: any) {
 
 function createWindow(): void {
   // 创建浏览器窗口
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     show: false,
@@ -62,29 +64,43 @@ function createWindow(): void {
     }
   })
 
+  const win = mainWindow!
+
   // 劫持 webContents.send 用于 SSE 局域网桥接主动推送
-  const originalSend = mainWindow.webContents.send.bind(mainWindow.webContents)
-  mainWindow.webContents.send = (channel: string, ...args: any[]) => {
+  const originalSend = win.webContents.send.bind(win.webContents)
+  win.webContents.send = (channel: string, ...args: any[]) => {
     originalSend(channel, ...args)
     broadcastToSse(channel, args[0])
   }
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  win.on('ready-to-show', () => {
+    win.show()
   })
 
   // 处理外部链接跳转
-  mainWindow.webContents.setWindowOpenHandler((details) => {
+  win.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
   // 根据环境加载页面
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // 拦截主窗口 close 事件，实现点击“X”关闭不退出，而是隐藏在托盘后台运行
+  win.on('close', (event) => {
+    // 只有当用户没有点击托盘中的“退出”时，我们才拦截关闭并转为隐藏
+    if (!(app as any).isQuiting) {
+      event.preventDefault(); // 阻断物理关闭退出
+      win.hide();       // 隐式退至后台运行
+    }
+  });
+
+  // 实例化并创建系统状态栏/系统托盘常驻图标，开启跨端关闭不退出常驻功能
+  createSystemTray(win);
 }
 
 interface CreatorSession {
@@ -3437,7 +3453,12 @@ app.whenReady().then(() => {
   createWindow()
 
   app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+    } else if (mainWindow) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
   })
 })
 
@@ -3447,3 +3468,59 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
+
+// 自适应获取开发环境与生产环境下的 resources 物理资源目录，100% 绝对精确
+function getResourcesPath(): string {
+  if (app.isPackaged) {
+    return process.resourcesPath; // 打包后的 Contents/Resources
+  }
+  return join(__dirname, '../../resources'); // 开发环境下的 resources
+}
+
+// 物理实例化并创建系统状态栏/系统托盘常驻图标，打通跨端关闭不退出常驻功能
+export function createSystemTray(targetWindow: BrowserWindow) {
+  if (tray) return;
+
+  const resPath = getResourcesPath();
+  const iconName = process.platform === 'darwin' 
+    ? 'trayTemplate.png' 
+    : 'tray.png';
+
+  const iconPath = join(resPath, iconName);
+  const trayImage = nativeImage.createFromPath(iconPath);
+
+  if (process.platform === 'darwin') {
+    trayImage.setTemplateImage(true);
+  }
+
+  tray = new Tray(trayImage);
+
+  const contextMenu = Menu.buildFromTemplate([
+    { 
+      label: '打开 Echo', 
+      click: () => { 
+        targetWindow.show();
+        targetWindow.focus();
+      } 
+    },
+    { type: 'separator' },
+    { 
+      label: '退出 Echo', 
+      click: () => { 
+        (app as any).isQuiting = true;
+        app.quit();
+      } 
+    }
+  ]);
+
+  tray.setToolTip('Echo - 回音');
+  tray.setContextMenu(contextMenu);
+
+  // Windows / Linux 特有交互：左键单击或双击图标直接打开软件主界面
+  if (process.platform !== 'darwin') {
+    tray.on('click', () => {
+      targetWindow.show();
+      targetWindow.focus();
+    });
+  }
+}
