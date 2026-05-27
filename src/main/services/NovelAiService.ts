@@ -90,7 +90,7 @@ export class NovelAiService {
         scale: 5.0,
         sampler: 'euler_ancestral',
         steps: 28,
-        seed: -1,
+        seed: Math.floor(Math.random() * 4294967295),
         n_samples: 1,
         ucPreset: 0,
         uc: negativePrompt,
