@@ -3,6 +3,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join, extname } from 'path'
 import fs from 'fs'
 import * as http from 'http'
+import * as os from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { getDatabaseService } from './db/database'
 import { ModelAdapter, ModelConfig, ChatMessage } from './models/ModelAdapter'
@@ -3019,7 +3020,7 @@ ${soulContent}
   })
 
   // 9. 保存通用常规设置
-  ipcMain.handle('save-general-settings', async (_, payload: { show_schedule: boolean; show_goals: boolean; cron_frequency: string; enable_music?: boolean }) => {
+  ipcMain.handle('save-general-settings', async (_, payload: { show_schedule: boolean; show_goals: boolean; cron_frequency: string; enable_music?: boolean; lan_mapping_enabled?: boolean; lan_mapping_port?: number }) => {
     try {
       const db = getDatabaseService()
       db.setSetting('general_config', JSON.stringify(payload))
@@ -3034,6 +3035,15 @@ ${soulContent}
         }
         globalLifeEngine.restart(cronExpr)
       }
+
+      // 实时热插拔开启/关闭局域网映射静态 Web 服务，打通打包独立客户端后的局域网联机
+      if (payload.lan_mapping_enabled) {
+        const port = Number(payload.lan_mapping_port) || 6868
+        startLanMappingServer(port)
+      } else {
+        stopLanMappingServer()
+      }
+
       return { success: true }
     } catch (e: any) {
       console.error('[IPC] 保存通用配置失败:', e)
@@ -3056,7 +3066,9 @@ ${soulContent}
           show_schedule: true,
           show_goals: true,
           cron_frequency: 'active',
-          enable_music: false
+          enable_music: false,
+          lan_mapping_enabled: false,
+          lan_mapping_port: 6868
         }
       }
     } catch (e: any) {
@@ -3064,6 +3076,173 @@ ${soulContent}
       return { success: false, error: e.message || e }
     }
   })
+}
+
+// 极快获取本机局域网 IP 地址的辅助函数，零外部库依赖，绝对健壮
+function getLocalIpAddress(): string {
+  const interfaces = os.networkInterfaces();
+  for (const devName in interfaces) {
+    const iface = interfaces[devName];
+    if (iface) {
+      for (let i = 0; i < iface.length; i++) {
+        const alias = iface[i];
+        if (alias.family === 'IPv4' && alias.address !== '127.0.0.1' && !alias.internal) {
+          return alias.address;
+        }
+      }
+    }
+  }
+  return 'localhost';
+}
+
+// 极简高性能静态文件 Content-Type 映射器，零依赖，防范打包路径依赖崩溃
+function getContentType(filePath: string): string {
+  const ext = extname(filePath).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.mjs': 'application/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.wav': 'audio/wav',
+    '.mp3': 'audio/mpeg',
+    '.mp4': 'video/mp4',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.otf': 'font/otf'
+  };
+  return mimeTypes[ext] || 'application/octet-stream';
+}
+
+// 局域网静态文件自托管 Web 服务器全局实例
+let lanMappingServerInstance: http.Server | null = null;
+let currentLanMappingPort: number | null = null;
+
+// 实时开启/重启局域网映射静态服务器
+export function startLanMappingServer(port: number) {
+  // 如果端口相同且已经在运行，直接返回
+  if (lanMappingServerInstance && currentLanMappingPort === port) {
+    return;
+  }
+
+  // 优雅停用老实例
+  stopLanMappingServer();
+
+  try {
+    const server = http.createServer((req, res) => {
+      // 允许跨域 CORS
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      // 🚀 核心自适应：开发环境下（npm run dev）Vite 编译在内存中，磁盘无 out/renderer，
+      // 我们在开发模式下收到 6868 端口请求时，智能获取本机局域网 IP，直接 302 重定向到局域网可访问的 Vite 真实端口！
+      // 这能 100% 避免 Host Header 校验及 Websocket 热更新（HMR）断连引起的浏览器白屏，体验行云流水！
+      if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+        const viteUrl = process.env['ELECTRON_RENDERER_URL'];
+        try {
+          const u = new URL(viteUrl);
+          const localIp = getLocalIpAddress();
+          const targetRedirectUrl = `http://${localIp}:${u.port}${req.url || '/'}`;
+          
+          res.writeHead(302, {
+            'Location': targetRedirectUrl
+          });
+          res.end();
+          return;
+        } catch (e) {
+          console.error('[LanMappingServer] 开发重定向异常:', e);
+        }
+      }
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      if (req.method !== 'GET') {
+        res.writeHead(405);
+        res.end('Method Not Allowed');
+        return;
+      }
+
+      // 处理文件路径安全规范，规避路径穿越漏洞
+      let reqUrl = req.url || '/';
+      // 抹去 URL query 参数
+      const qIdx = reqUrl.indexOf('?');
+      if (qIdx !== -1) {
+        reqUrl = reqUrl.slice(0, qIdx);
+      }
+
+      // 默认索引 index.html
+      if (reqUrl === '/' || reqUrl.endsWith('/')) {
+        reqUrl = '/index.html';
+      }
+
+      // 定位前端静态资源打包目录 out/renderer (Electron 标准生产路径)
+      const baseDir = join(__dirname, '../renderer');
+      let targetPath = join(baseDir, reqUrl);
+
+      // 安全预检：确保请求路径始终局限在 baseDir 目录树内，防止 ../ 等高危路径逃逸
+      if (!targetPath.startsWith(baseDir)) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
+
+      // 如果目标文件物理上不存在，对于 Vue 单页应用（SPA）进行 History 路由兜底，重定向返回 index.html
+      if (!fs.existsSync(targetPath)) {
+        targetPath = join(baseDir, 'index.html');
+      }
+
+      try {
+        const fileBuffer = fs.readFileSync(targetPath);
+        const contentType = getContentType(targetPath);
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Content-Length': fileBuffer.length,
+          'Cache-Control': 'no-cache'
+        });
+        res.end(fileBuffer);
+      } catch (err: any) {
+        res.writeHead(500);
+        res.end(`Internal Server Error: ${err.message}`);
+      }
+    });
+
+    server.listen(port, '0.0.0.0', () => {
+      console.log(`[LanMappingServer] 局域网静态文件托管 Web 服务器已在 0.0.0.0:${port} 顺畅起飞！🚀`);
+    });
+
+    server.on('error', (err: any) => {
+      console.error(`[LanMappingServer] 服务器遭遇网络异常:`, err);
+    });
+
+    lanMappingServerInstance = server;
+    currentLanMappingPort = port;
+  } catch (e) {
+    console.error(`[LanMappingServer] 启动静态服务器致命异常:`, e);
+  }
+}
+
+// 优雅停用局域网映射静态服务器
+export function stopLanMappingServer() {
+  if (lanMappingServerInstance) {
+    try {
+      lanMappingServerInstance.close();
+      console.log('[LanMappingServer] 局域网静态文件托管 Web 服务器已成功安全退役。🐾');
+    } catch (_) {}
+    lanMappingServerInstance = null;
+    currentLanMappingPort = null;
+  }
 }
 
 // 启动局域网极简 IPC 桥接服务器 (Node 纯内置 http 模块，0 NPM 依赖)
@@ -3233,6 +3412,21 @@ app.whenReady().then(() => {
     globalLifeEngine.start(cronExpr)
   } catch (err) {
     console.error('[Main] 常驻生命引擎启动异常:', err)
+  }
+
+  // 启动局域网静态文件托管 Web 服务器（由常规设置中的局域网映射设定启动）
+  try {
+    const db = getDatabaseService()
+    const genConfigStr = db.getSetting('general_config')
+    if (genConfigStr) {
+      const config = JSON.parse(genConfigStr)
+      if (config.lan_mapping_enabled) {
+        const port = Number(config.lan_mapping_port) || 6868
+        startLanMappingServer(port)
+      }
+    }
+  } catch (err) {
+    console.error('[Main] 局域网静态服务器启动异常:', err)
   }
 
   // 开发环境下 F12 调试以及快捷键优化

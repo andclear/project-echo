@@ -1627,6 +1627,40 @@
                         <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.enable_music ? 'left-5.5' : 'left-0.5'"></span>
                       </button>
                     </div>
+
+                    <!-- 开启局域网映射 -->
+                    <div class="py-3 flex flex-col space-y-2.5 last:pb-0">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-start space-x-3.5">
+                          <div class="p-1.5 rounded-xl bg-surface border border-outline-variant/40 text-on-surface-variant flex-shrink-0">
+                            <GlobeIcon class="w-3.5 h-3.5 text-primary" />
+                          </div>
+                          <div>
+                            <h4 class="text-xs font-bold text-on-surface">开启局域网映射 (LAN Mapping)</h4>
+                            <p class="text-[9px] text-on-surface-variant mt-0.5">开启后允许在打包的独立客户端中，通过局域网其他设备访问本项目，实现完全的数据互通。</p>
+                          </div>
+                        </div>
+                        <button @click="generalConfig.lan_mapping_enabled = !generalConfig.lan_mapping_enabled; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.lan_mapping_enabled ? 'bg-primary' : 'bg-outline-variant'">
+                          <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.lan_mapping_enabled ? 'left-5.5' : 'left-0.5'"></span>
+                        </button>
+                      </div>
+                      
+                      <!-- 端口输入项 (仅在开启时展示，动画平滑展开) -->
+                      <div v-if="generalConfig.lan_mapping_enabled" class="pl-11 pr-2 py-1 flex items-center justify-between text-xs animate-in slide-in-from-top-2 duration-200">
+                        <span class="text-[10px] text-on-surface-variant font-medium">局域网访问端口 (LAN Port)</span>
+                        <div class="relative w-28">
+                          <input
+                            v-model.number="generalConfig.lan_mapping_port"
+                            type="number"
+                            placeholder="6868"
+                            @blur="saveGeneralSettings()"
+                            @keyup.enter="saveGeneralSettings()"
+                            class="w-full text-right pr-6 pl-2 py-1 rounded-lg bg-surface border border-outline-variant text-on-surface focus:outline-none focus:border-primary text-xs shadow-inner"
+                          />
+                          <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-on-surface-variant font-bold">端口</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -6252,7 +6286,9 @@ const generalConfig = ref({
   show_schedule: true,
   show_goals: true,
   cron_frequency: 'active', // active, standard, quiet
-  enable_music: false
+  enable_music: false,
+  lan_mapping_enabled: false,
+  lan_mapping_port: 6868
 })
 
 // 监听音乐功能的开启/关闭联动
@@ -9698,6 +9734,12 @@ onMounted(async () => {
       if (generalConfig.value.enable_music === undefined) {
         generalConfig.value.enable_music = false
       }
+      if (generalConfig.value.lan_mapping_enabled === undefined) {
+        generalConfig.value.lan_mapping_enabled = false
+      }
+      if (generalConfig.value.lan_mapping_port === undefined) {
+        generalConfig.value.lan_mapping_port = 6868
+      }
     }
   } catch (e) {
     console.error('加载通用设置异常:', e)
@@ -10690,7 +10732,9 @@ async function saveGeneralSettings() {
     show_schedule: generalConfig.value.show_schedule,
     show_goals: generalConfig.value.show_goals,
     cron_frequency: generalConfig.value.cron_frequency,
-    enable_music: generalConfig.value.enable_music
+    enable_music: generalConfig.value.enable_music,
+    lan_mapping_enabled: generalConfig.value.lan_mapping_enabled,
+    lan_mapping_port: Number(generalConfig.value.lan_mapping_port) || 6868
   })
   if (!res.success) {
     showToast(`保存失败: ${res.error}`)
