@@ -10875,11 +10875,11 @@ async function triggerChatImageGeneration() {
 
   isAnalyzingPrompt.value = true
   const charId = activeCharacter.value.id
-  const recentMsgs = (allMessages.value[charId] || []).slice(-20)
-
-  showToast('AI 正在深度领悟上下文气氛中... 🔮')
 
   try {
+    const recentMsgs = (allMessages[charId] || []).slice(-20)
+    showToast('AI 正在深度领悟上下文气氛中... 🔮')
+
     const res = await window.api.invoke('analyze-chat-image-prompt', {
       characterId: charId,
       folderName: activeCharacter.value.folder_name,
