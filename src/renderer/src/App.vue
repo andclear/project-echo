@@ -10883,7 +10883,7 @@ async function triggerChatImageGeneration() {
     const res = await window.api.invoke('analyze-chat-image-prompt', {
       characterId: charId,
       folderName: activeCharacter.value.folder_name,
-      recentMessages: recentMsgs
+      recentMessages: JSON.parse(JSON.stringify(recentMsgs))
     })
 
     if (res.success) {
