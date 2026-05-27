@@ -4366,7 +4366,7 @@
                 title="AI 绘图"
               >
                 <Loader2Icon v-if="isAnalyzingPrompt || isDrawingImage" class="w-5 h-5 animate-spin" />
-                <SparklesIcon v-else class="w-5 h-5 text-secondary hover:text-primary transition-all duration-300" />
+                <ApertureIcon v-else class="w-5 h-5 transition-all duration-300" />
               </button>
             </div>
 
@@ -6768,6 +6768,7 @@ import {
   Eye as EyeIcon,
   EyeOff as EyeOffIcon,
   Activity as ActivityIcon,
+  Aperture as ApertureIcon,
   CheckCircle as CheckCircleIcon,
   XCircle as XCircleIcon,
   Pin as PinIcon,
@@ -7155,6 +7156,7 @@ const showEvolutionModal = ref(false)
 const contactTabs = computed(() => {
   const base = [
     { id: 'soul', name: '性格设定 (SOUL)' },
+    { id: 'appearance', name: '外貌设定 (APPEARANCE)' },
     { id: 'memory', name: '双轨记忆 (MEMORY)' },
     { id: 'user', name: '专属画像 (USER)' }
   ]
@@ -7164,6 +7166,7 @@ const contactTabs = computed(() => {
   if (generalConfig.value.show_goals) {
     base.push({ id: 'goals', name: '长期目标 (GOALS)' })
   }
+  base.push({ id: 'gallery', name: '专属图库 (GALLERY)' })
   return base
 })
 
