@@ -156,15 +156,6 @@ export class NovelAiService {
     }
 
     const data = await response.json()
-    console.log('[NovelAiService] /user/data 完整响应数据:', JSON.stringify(data))
-    
-    try {
-      const fs = require('fs')
-      fs.writeFileSync('/Users/lillian/github/project-echo/nai_debug.json', JSON.stringify(data, null, 2))
-      fs.writeFileSync('/Users/lillian/Library/Application Support/project-echo/nai_debug.json', JSON.stringify(data, null, 2))
-    } catch (fsErr) {
-      console.error('[NovelAiService] 写入诊断文件失败:', fsErr)
-    }
     
     // 1. 读取付费单独购买点数 (Paid Anlas)
     const paidAnlas = typeof data.anlas === 'number' ? data.anlas : 0
