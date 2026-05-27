@@ -30,6 +30,20 @@ app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox')
 
 let globalLifeEngine: AgentLifeEngine | null = null
 
+// SSE 局域网推送客户端集合
+export const sseClients = new Set<any>()
+
+// SSE 广播函数
+export function broadcastToSse(channel: string, data: any) {
+  const payload = JSON.stringify({ channel, data })
+  for (const client of sseClients) {
+    try {
+      client.write(`data: ${payload}\n\n`)
+    } catch (e) {
+      sseClients.delete(client)
+    }
+  }
+}
 
 function createWindow(): void {
   // 创建浏览器窗口
@@ -46,6 +60,13 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+
+  // 劫持 webContents.send 用于 SSE 局域网桥接主动推送
+  const originalSend = mainWindow.webContents.send.bind(mainWindow.webContents)
+  mainWindow.webContents.send = (channel: string, ...args: any[]) => {
+    originalSend(channel, ...args)
+    broadcastToSse(channel, args[0])
+  }
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
@@ -3060,6 +3081,23 @@ export function startIpcBridgeServer(port: number = 3000) {
       return;
     }
 
+    // 新增：GET /api/events 作为 SSE 持久推送通道
+    if (req.method === 'GET' && req.url === '/api/events') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.write(': sse-connected\n\n');
+      sseClients.add(res);
+
+      req.on('close', () => {
+        sseClients.delete(res);
+      });
+      return;
+    }
+
     // 3. 处理 /api/ipc POST 路由
     if (req.method === 'POST' && req.url === '/api/ipc') {
       let body = '';
@@ -3073,7 +3111,15 @@ export function startIpcBridgeServer(port: number = 3000) {
           // 从 Electron 的 ipcMain 内部 handlers Map 中寻找对应的 Channel 处理器
           const handler = (ipcMain as any)._invokeHandlers?.get(channel);
           if (handler) {
-            const result = await handler(null, payload);
+            const mockEvent = {
+              sender: {
+                send: (ch: string, data: any) => {
+                  console.log(`[IPC Bridge Proxy send] channel: ${ch}`);
+                  broadcastToSse(ch, data);
+                }
+              }
+            };
+            const result = await handler(mockEvent, payload);
             res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify(result));
           } else {
@@ -3101,6 +3147,18 @@ export function startIpcBridgeServer(port: number = 3000) {
 
   server.listen(port, '0.0.0.0', () => {
     console.log(`[IPC Bridge Server] 局域网桥接服务器已在 0.0.0.0:${port} 成功启动！🐾`);
+    
+    // 定时向所有连入的客户端发送心跳维持连接
+    setInterval(() => {
+      for (const client of sseClients) {
+        try {
+          client.write(': keepalive\n\n');
+        } catch (_) {
+          sseClients.delete(client);
+        }
+      }
+    }, 15000);
+
     try {
       console.log(`[IPC Bridge Server] ipcMain 自身属性:`, Object.getOwnPropertyNames(ipcMain));
       const proto = Object.getPrototypeOf(ipcMain);

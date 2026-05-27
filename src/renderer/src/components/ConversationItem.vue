@@ -1,7 +1,7 @@
 <template>
   <!-- 会话列表条目：显示角色头像、名称、最后消息、时间、未读数、免打扰图标 -->
   <div
-    class="px-3 py-2.5 flex items-center space-x-2.5 cursor-pointer transition-colors relative select-none"
+    class="px-3 h-[60px] flex-shrink-0 flex items-center space-x-2.5 cursor-pointer transition-colors relative select-none"
     :class="[
       isSelected ? 'bg-conversation-selected' : 'hover:bg-conversation-hover',
       isMuted ? 'opacity-70' : ''

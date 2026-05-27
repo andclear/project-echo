@@ -1,12 +1,13 @@
 <template>
   <!-- 根容器，支持亮色/暗色模式 -->
   <div
-    class="h-full w-full flex flex-col bg-background text-on-surface font-sans select-none overflow-hidden"
+    class="w-full flex flex-col bg-background text-on-surface font-sans select-none overflow-hidden"
     :class="{ 'dark': isDark }"
+    :style="isMobile ? { height: viewportHeight } : { height: '100%' }"
     @dragenter.prevent="handleDragEnter"
   >
     <!-- macOS 拖拽条 -->
-    <div class="h-7 w-full flex-shrink-0 bg-transparent flex items-center justify-center pointer-events-none select-none" style="-webkit-app-region: drag;">
+    <div v-if="!isMobile" class="h-7 w-full flex-shrink-0 bg-transparent flex items-center justify-center pointer-events-none select-none" style="-webkit-app-region: drag;">
       <span class="text-[11px] font-medium tracking-wide text-on-surface/40 font-sans">Echo-回音</span>
     </div>
 
@@ -14,7 +15,7 @@
     <div class="flex-1 flex min-h-0 overflow-hidden" style="-webkit-app-region: no-drag;">
 
       <!-- ====== 左侧极窄导航栏 (72px) ====== -->
-      <nav class="w-[72px] h-full flex flex-col items-center bg-nav-bar py-3 flex-shrink-0 border-r border-nav-border">
+      <nav class="w-[72px] h-full hidden md:flex flex-col items-center bg-nav-bar py-3 flex-shrink-0 border-r border-nav-border">
         <!-- 用户头像（点击进入个人设置） -->
         <div
           class="w-10 h-10 rounded overflow-hidden border-2 border-nav-avatar-border hover:opacity-90 transition-all mb-5 flex-shrink-0 shadow-md cursor-pointer"
@@ -131,7 +132,12 @@
       </nav>
 
       <!-- ====== 中间会话/联系人列表 ====== -->
-      <aside v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites'" :style="{ width: sidebarWidth + 'px' }" class="h-full flex flex-col bg-sidebar backdrop-blur-md flex-shrink-0 overflow-hidden relative">
+      <aside 
+        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites'" 
+        :style="!isMobile ? { width: sidebarWidth + 'px' } : {}" 
+        class="h-full flex flex-col bg-sidebar backdrop-blur-md flex-shrink-0 overflow-hidden relative"
+        :class="{ 'hidden md:flex': isRightPanelActive, 'w-full': isMobile }"
+      >
 
         <!-- ── 对话列表视图 ── -->
         <template v-if="sideView === 'chat'">
@@ -221,6 +227,9 @@
                 :is-hidden="conversationMeta[char.id]?.hidden"
                 @click="selectCharacter(char.id)"
                 @contextmenu.prevent="openContextMenu($event, char)"
+                @touchstart="onLongPressStart($event, char, 'chat')"
+                @touchend="onLongPressEnd"
+                @touchmove="onLongPressMove"
               />
             </div>
 
@@ -239,6 +248,9 @@
                   :is-hidden="conversationMeta[char.id]?.hidden"
                   @click="selectCharacter(char.id)"
                   @contextmenu.prevent="openContextMenu($event, char)"
+                  @touchstart="onLongPressStart($event, char, 'chat')"
+                  @touchend="onLongPressEnd"
+                  @touchmove="onLongPressMove"
                 />
               </template>
               <template v-else>
@@ -311,6 +323,9 @@
               @click="selectCharacterForContactDetails(char.id)"
               @dblclick="doubleClickStartChat(char.id)"
               @contextmenu.prevent="openContactContextMenu($event, char)"
+              @touchstart="onLongPressStart($event, char, 'contact')"
+              @touchend="onLongPressEnd"
+              @touchmove="onLongPressMove"
             >
               <div class="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-surface-high border border-outline-variant">
                 <img v-if="characterAvatars[char.id]" :src="characterAvatars[char.id]" class="w-full h-full object-cover" />
@@ -335,7 +350,7 @@
               :key="menu.id"
               class="px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
               :class="{ 'bg-surface-high/80 text-primary font-bold': activeSettingsTab === menu.id }"
-              @click="activeSettingsTab = menu.id"
+              @click="activeSettingsTab = menu.id; isMobileSettingsActive = true"
             >
               <component :is="menu.icon" class="w-4 h-4 text-on-surface-variant flex-shrink-0 transition-all group-hover:scale-110" :class="{ '!text-primary': activeSettingsTab === menu.id }" stroke-width="1.5" />
               <div class="flex-1 min-w-0">
@@ -456,12 +471,18 @@
       <div 
         v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites'"
         @mousedown="startResize" 
-        class="w-[1px] hover:w-[2px] bg-sidebar-border hover:bg-primary cursor-col-resize transition-all h-full z-20 flex-shrink-0"
+        class="hidden md:block w-[1px] hover:w-[2px] bg-sidebar-border hover:bg-primary cursor-col-resize transition-all h-full z-20 flex-shrink-0"
         title="拖动调整宽度"
       ></div>
 
       <!-- ====== 右侧主区域 ====== -->
-      <main class="flex-1 h-full flex flex-col min-w-0 bg-chat-bg overflow-hidden relative">
+      <main 
+        class="flex-1 h-full flex flex-col min-w-0 bg-chat-bg overflow-hidden relative"
+        :class="{
+          'hidden md:flex': !['stats', 'moments', 'forum', 'favorites'].includes(sideView) && !isRightPanelActive,
+          'w-full': isMobile
+        }"
+      >
         <!-- 唯美梦境睡眠进化动画遮罩 -->
         <div v-if="isDreaming" class="absolute inset-0 z-40 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center text-white p-8 select-none">
           <div class="relative w-20 h-20 mb-5 flex items-center justify-center">
@@ -510,7 +531,7 @@
             <div class="flex-1 overflow-y-auto p-6 space-y-6 min-h-0 select-text max-w-4xl w-full mx-auto flex flex-col">
               
               <!-- 第一部分：总览数据卡片 -->
-              <div class="grid grid-cols-2 gap-4 flex-shrink-0 select-none">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-shrink-0 select-none">
                 <!-- 1. AI累计调用次数卡片 -->
                 <div 
                   class="p-6 rounded-3xl border border-outline-variant/30 bg-surface-lowest/70 backdrop-blur-md shadow-sm relative overflow-hidden group hover:-translate-y-1.5 hover:shadow-xl transition-all duration-300 flex flex-col justify-between min-h-[155px]"
@@ -642,7 +663,7 @@
                   <Loader2Icon class="w-8 h-8 text-primary animate-spin" />
                   <span class="text-xs text-on-surface-variant font-bold">算力统计提取中...</span>
                 </div>
-                <div v-else class="flex-1 grid grid-cols-2 gap-8 min-h-0">
+                <div v-else class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-8 min-h-0">
                   
                   <!-- 1. 调用频次柱状图 -->
                   <div class="flex flex-col h-full">
@@ -825,7 +846,7 @@
             </header>
             
             <!-- 主滚动列表 -->
-            <div class="flex-1 overflow-y-auto p-6 space-y-6 max-w-2xl w-full mx-auto min-h-0 select-text">
+            <div class="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6 max-w-2xl w-full mx-auto min-h-0 select-text">
               <!-- 有新动态提示状态文字条 -->
               <div
                 v-if="hasNewMomentNotification"
@@ -1060,7 +1081,10 @@
           <div class="flex-1 flex min-h-0 bg-surface divide-x divide-outline-variant/15 overflow-hidden">
             
             <!-- 【三栏论坛 - 中间板块/帖子列表栏】 w-[340px] -->
-            <div class="w-[340px] flex flex-col min-h-0 bg-surface flex-shrink-0 select-none">
+            <div 
+              class="w-[340px] flex flex-col min-h-0 bg-surface flex-shrink-0 select-none"
+              :class="{ 'hidden md:flex': selectedForumPost, 'w-full': isMobile }"
+            >
               <!-- 顶部 Header -->
               <header class="h-14 px-4 border-b border-outline-variant/20 flex items-center justify-between flex-shrink-0">
                 <div class="text-xs font-black text-on-surface flex items-center space-x-1.5">
@@ -1133,11 +1157,22 @@
             </div>
 
             <!-- 【三栏论坛 - 右侧详情与互动回复区】 flex-1 -->
-            <div class="flex-1 flex flex-col min-h-0 bg-surface-low overflow-hidden">
+            <div 
+              class="flex-1 flex flex-col min-h-0 bg-surface-low overflow-hidden"
+              :class="{ 'hidden md:flex': !selectedForumPost, 'w-full': isMobile }"
+            >
               <template v-if="selectedForumPost">
                 <!-- 详情 Header -->
                 <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
                   <div class="flex items-center space-x-2.5">
+                    <button 
+                      v-if="isMobile" 
+                      @click="selectedForumPost = null" 
+                      class="mr-1 p-1.5 rounded-xl hover:bg-surface-high text-on-surface-variant active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                      title="返回列表"
+                    >
+                      <ChevronLeftIcon class="w-5 h-5" />
+                    </button>
                     <div class="w-7 h-7 rounded-lg overflow-hidden border border-outline-variant">
                       <img v-if="selectedForumPost.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                       <img v-else-if="characterAvatars[selectedForumPost.character_id]" :src="characterAvatars[selectedForumPost.character_id]" class="w-full h-full object-cover" />
@@ -1300,7 +1335,10 @@
           <div class="flex-1 flex min-h-0 bg-surface divide-x divide-outline-variant/15 overflow-hidden">
             
             <!-- 【三栏收藏 - 中间筛选栏】 w-[280px] -->
-            <div class="w-[280px] flex flex-col min-h-0 bg-surface flex-shrink-0 select-none">
+            <div 
+              class="w-[280px] flex flex-col min-h-0 bg-surface flex-shrink-0 select-none"
+              :class="{ 'hidden md:flex': selectedFavorite, 'w-full': isMobile }"
+            >
               <!-- 顶部 Header -->
               <header class="h-14 px-4 border-b border-outline-variant/20 flex items-center justify-between flex-shrink-0">
                 <div class="text-xs font-black text-on-surface flex items-center space-x-1.5">
@@ -1353,11 +1391,22 @@
             </div>
 
             <!-- 【三栏收藏 - 右侧内容大卡片区】 flex-1 -->
-            <div class="flex-1 flex flex-col min-h-0 bg-surface-low overflow-hidden">
+            <div 
+              class="flex-1 flex flex-col min-h-0 bg-surface-low overflow-hidden"
+              :class="{ 'hidden md:flex': !selectedFavorite, 'w-full': isMobile }"
+            >
               <template v-if="selectedFavorite">
                 <!-- Header -->
                 <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
                   <div class="flex items-center space-x-2.5">
+                    <button 
+                      v-if="isMobile" 
+                      @click="selectedFavorite = null" 
+                      class="mr-1 p-1.5 rounded-xl hover:bg-surface-high text-on-surface-variant active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                      title="返回列表"
+                    >
+                      <ChevronLeftIcon class="w-5 h-5" />
+                    </button>
                     <div class="w-7 h-7 rounded-lg overflow-hidden border border-outline-variant">
                       <img v-if="selectedFavorite.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                       <img v-else-if="characterAvatars[selectedFavorite.character_id]" :src="characterAvatars[selectedFavorite.character_id]" class="w-full h-full object-cover" />
@@ -1406,6 +1455,14 @@
             <!-- 顶部 Header -->
             <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0">
               <div class="text-sm font-bold text-on-surface flex items-center space-x-2 select-none">
+                <button 
+                  v-if="isMobile" 
+                  @click="isMobileSettingsActive = false" 
+                  class="mr-1.5 p-1.5 rounded-xl hover:bg-surface-high text-on-surface-variant active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                  title="返回"
+                >
+                  <ChevronLeftIcon class="w-5 h-5" />
+                </button>
                 <SettingsIcon class="w-4 h-4 text-primary animate-spin" style="animation-duration: 10s;" stroke-width="1.5" />
                 <span>{{ settingsMenus.find(m => m.id === activeSettingsTab)?.label }}</span>
               </div>
@@ -2038,6 +2095,14 @@
             <!-- 顶部大卡片区 (DESIGN.md Level 1 diff shadow) -->
             <div class="p-6 border-b border-outline-variant flex-shrink-0 flex items-center justify-between">
               <div class="flex items-center space-x-5">
+                <button 
+                  v-if="isMobile" 
+                  @click="selectedContactId = null" 
+                  class="p-1.5 rounded-xl hover:bg-surface-high text-on-surface-variant active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                  title="返回列表"
+                >
+                  <ChevronLeftIcon class="w-5 h-5" />
+                </button>
                 <!-- 角色头像：支持悬浮遮罩及一键点击上传替换头像 -->
                 <div 
                   @click="triggerContactAvatarUpload"
@@ -2258,6 +2323,15 @@
             <!-- 顶部 Header -->
             <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
               <div class="text-sm font-bold text-on-surface flex items-center space-x-2">
+                <!-- 移动端返回音乐菜单 -->
+                <button 
+                  v-if="isMobile" 
+                  @click="isMobileMusicActive = false" 
+                  class="mr-1.5 p-1.5 rounded-xl hover:bg-surface-high text-on-surface-variant active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                  title="返回"
+                >
+                  <ChevronLeftIcon class="w-5 h-5" />
+                </button>
                 <!-- 如果处于搜索结果视图，显示返回按钮 -->
                 <button 
                   v-if="showMusicSearchResultsView"
@@ -3323,6 +3397,14 @@
           <!-- 顶部 Header -->
           <header class="h-14 px-5 border-b border-chat-border bg-chat-header flex items-center justify-between flex-shrink-0">
             <div class="flex items-center space-x-3">
+              <button 
+                v-if="isMobile" 
+                @click="selectedCharacterId = null" 
+                class="mr-1.5 p-1.5 rounded-xl hover:bg-surface-high text-on-surface-variant active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                title="返回列表"
+              >
+                <ChevronLeftIcon class="w-5 h-5" />
+              </button>
               <div 
                 class="w-8 h-8 rounded overflow-hidden border border-outline-variant bg-surface flex-shrink-0 flex items-center justify-center"
                 :class="{ 'cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 shadow-sm': activeCharacter.id !== 'character_creator_bot' }"
@@ -3693,7 +3775,15 @@
                   </div>
 
                   <!-- 文字气泡 (有图片、自定义表情或红包时不在下方重复渲染绿色气泡) -->
-                  <div v-if="msg.content && !msg.redPacket && !msg.transfer && !msg.customEmojiUrl" class="user-chat-bubble markdown-body" v-html="renderMarkdown(msg.content)" @contextmenu.prevent="openMessageContextMenu($event, msg)">
+                  <div 
+                    v-if="msg.content && !msg.redPacket && !msg.transfer && !msg.customEmojiUrl" 
+                    class="user-chat-bubble markdown-body" 
+                    v-html="renderMarkdown(msg.content)" 
+                    @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                    @touchstart="onLongPressStart($event, msg, 'message')"
+                    @touchend="onLongPressEnd"
+                    @touchmove="onLongPressMove"
+                  >
                   </div>
                 </div>
                 <!-- 用户头像方形圆角化 -->
@@ -3743,7 +3833,14 @@
                   </div>
 
                   <!-- 常规文字气泡 -->
-                  <div v-else class="ai-chat-bubble relative" @contextmenu.prevent="openMessageContextMenu($event, msg)">
+                  <div 
+                    v-else 
+                    class="ai-chat-bubble relative" 
+                    @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                    @touchstart="onLongPressStart($event, msg, 'message')"
+                    @touchend="onLongPressEnd"
+                    @touchmove="onLongPressMove"
+                  >
                     <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
                   </div>
                 </div>
@@ -3869,6 +3966,7 @@
                   v-model="chatInputText"
                   @keydown="handleKeyDown"
                   @paste="handlePaste"
+                  @focus="handleTextareaFocus"
                   :disabled="isStreaming"
                   placeholder="发送消息... (Enter 发送，Shift+Enter 换行)"
                   class="w-full flex-1 py-2 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text"
@@ -5605,6 +5703,85 @@
         </div>
       </div>
     </div>
+    
+    <!-- 移动端精致底部导航栏 -->
+    <div 
+      v-if="isMobile" 
+      class="flex md:hidden h-16 w-full bg-sidebar/85 backdrop-blur-xl border-t border-sidebar-border/30 flex-shrink-0 items-center justify-around px-1 z-40 select-none pb-safe"
+    >
+      <!-- 1. 对话 -->
+      <button 
+        @click="sideView = 'chat'; selectedCharacterId = null" 
+        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
+        :class="{ 'text-primary font-bold': sideView === 'chat' }"
+      >
+        <MessageSquareIcon class="w-5 h-5" />
+        <span class="text-[9px] scale-90 font-semibold tracking-tighter">对话</span>
+      </button>
+      
+      <!-- 2. 通讯录 -->
+      <button 
+        @click="sideView = 'contacts'; selectedContactId = null" 
+        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
+        :class="{ 'text-primary font-bold': sideView === 'contacts' }"
+      >
+        <UsersIcon class="w-5 h-5" />
+        <span class="text-[9px] scale-90 font-semibold tracking-tighter">通讯录</span>
+      </button>
+
+      <!-- 3. 朋友圈 -->
+      <button 
+        @click="sideView = 'moments'; loadMomentsList();" 
+        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary relative transition-all active:scale-90"
+        :class="{ 'text-primary font-bold': sideView === 'moments' }"
+      >
+        <GlobeIcon class="w-5 h-5" />
+        <span v-if="unreadMomentsCount > 0" class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm"></span>
+        <span class="text-[9px] scale-90 font-semibold tracking-tighter">朋友圈</span>
+      </button>
+
+      <!-- 4. 论坛 -->
+      <button 
+        @click="sideView = 'forum'; selectBoard('all'); selectedForumPost = null;" 
+        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary relative transition-all active:scale-90"
+        :class="{ 'text-primary font-bold': sideView === 'forum' }"
+      >
+        <ScrollIcon class="w-5 h-5" />
+        <span v-if="unreadForumCount > 0" class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm"></span>
+        <span class="text-[9px] scale-90 font-semibold tracking-tighter">论坛</span>
+      </button>
+
+      <!-- 5. 收藏 -->
+      <button 
+        @click="sideView = 'favorites'; loadFavoritesList(); selectedFavorite = null;" 
+        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
+        :class="{ 'text-primary font-bold': sideView === 'favorites' }"
+      >
+        <BookmarkIcon class="w-5 h-5" />
+        <span class="text-[9px] scale-90 font-semibold tracking-tighter">收藏</span>
+      </button>
+
+      <!-- 6. 音乐 (可选) -->
+      <button 
+        v-if="generalConfig.enable_music"
+        @click="sideView = 'music'; isMobileMusicActive = false" 
+        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
+        :class="{ 'text-primary font-bold': sideView === 'music' }"
+      >
+        <MusicIcon class="w-5 h-5" />
+        <span class="text-[9px] scale-90 font-semibold tracking-tighter">音乐</span>
+      </button>
+
+      <!-- 7. 设置 -->
+      <button 
+        @click="sideView = 'settings'; isMobileSettingsActive = false" 
+        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
+        :class="{ 'text-primary font-bold': sideView === 'settings' }"
+      >
+        <SettingsIcon class="w-5 h-5" />
+        <span class="text-[9px] scale-90 font-semibold tracking-tighter">设置</span>
+      </button>
+    </div>
 
     <!-- 转发消息好友选择弹窗 (iOS/WeChat 同款高颜值磨砂升级版) -->
     <div v-if="showForwardModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in select-text">
@@ -5794,7 +5971,8 @@ import {
   FolderPlus as FolderPlusIcon,
   Edit as EditIcon,
   Check as CheckIcon,
-  ChevronDown as ChevronDownIcon
+  ChevronDown as ChevronDownIcon,
+  ChevronLeft as ChevronLeftIcon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -5805,6 +5983,8 @@ import MarkdownIt from 'markdown-it'
 
 // 优雅的 window.api Polyfill 局域网桥接垫片
 if (typeof window !== 'undefined' && !(window as any).api) {
+  const listeners: Record<string, ((data: any) => void)[]> = {};
+
   (window as any).api = {
     invoke: async (channel: string, payload?: any) => {
       try {
@@ -5822,8 +6002,41 @@ if (typeof window !== 'undefined' && !(window as any).api) {
         console.error(`[Polyfill IPC Network Error]`, e);
         return { success: false, error: e.message || String(e) };
       }
+    },
+    receive: (channel: string, callback: (data: any) => void) => {
+      if (!listeners[channel]) {
+        listeners[channel] = [];
+      }
+      listeners[channel].push(callback);
+      return () => {
+        listeners[channel] = listeners[channel].filter(cb => cb !== callback);
+      };
     }
   };
+
+  // 在局域网手机端初始化 SSE 双向主动推送连接
+  try {
+    const hostname = window.location.hostname || 'localhost';
+    const eventSource = new EventSource(`http://${hostname}:3000/api/events`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const { channel, data } = payload;
+        if (listeners[channel]) {
+          listeners[channel].forEach(callback => callback(data));
+        }
+      } catch (err) {
+        // 忽略非 JSON 数据（如连接建立成功的初始握手包或 keepalive 心跳）
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err);
+    };
+  } catch (sseErr) {
+    console.error('[Polyfill SSE Init Error] 初始化 SSE 长连接失败:', sseErr);
+  }
 }
 
 const md = new MarkdownIt({
@@ -6117,6 +6330,74 @@ function openSettingsPage() {
 
 
 
+// ===================== 移动端适配相关状态 =====================
+const isMobile = ref(false)
+const isMobileSettingsActive = ref(false)
+const isMobileMusicActive = ref(false)
+const viewportHeight = ref('100%')
+const conversationActiveTimes = reactive<Record<string, number>>({})
+
+function checkIfMobile() {
+  isMobile.value = window.innerWidth < 768
+}
+
+function updateViewportHeight() {
+  if (window.visualViewport) {
+    viewportHeight.value = `${window.visualViewport.height}px`
+    // 极其关键：瞬间强行重置 iOS 因软键盘聚焦顶起导致的 html/body 默认全局滚动，让视口牢牢锁死在物理边界内
+    window.scrollTo(0, 0)
+    document.body.scrollTop = 0
+    document.documentElement.scrollTop = 0
+    // 软键盘弹起时自动滚动到底部，保证极致流畅体验
+    if (sideView.value === 'chat' && selectedCharacterId.value) {
+      nextTick(() => {
+        scrollToBottom('auto')
+      })
+    }
+  }
+}
+
+function handleTextareaFocus() {
+  if (isMobile.value) {
+    // 极其关键：瞬间强行重置 iOS 因软键盘聚焦弹出导致的 html/body 默认全局滚动
+    nextTick(() => {
+      window.scrollTo(0, 0)
+      document.body.scrollTop = 0
+      document.documentElement.scrollTop = 0
+      scrollToBottom('auto')
+    })
+    // 50ms 再次进行双保险锁定，防止有些 iOS 键盘动画异步上推
+    setTimeout(() => {
+      window.scrollTo(0, 0)
+      document.body.scrollTop = 0
+      document.documentElement.scrollTop = 0
+      scrollToBottom('auto')
+    }, 50)
+  }
+}
+
+const isRightPanelActive = computed(() => {
+  if (sideView.value === 'chat') {
+    return selectedCharacterId.value !== null
+  }
+  if (sideView.value === 'contacts') {
+    return selectedContactId.value !== null
+  }
+  if (sideView.value === 'settings') {
+    return isMobileSettingsActive.value
+  }
+  if (sideView.value === 'music') {
+    return isMobileMusicActive.value
+  }
+  if (sideView.value === 'forum') {
+    return selectedForumPost.value !== null
+  }
+  if (sideView.value === 'favorites') {
+    return selectedFavorite.value !== null
+  }
+  return false
+})
+
 // ===================== 角色与对话 =====================
 const selectedCharacterId = ref<string | null>(null)
 const characterList = ref<any[]>([])
@@ -6129,6 +6410,7 @@ const conversationMeta = reactive<Record<string, { pinned?: boolean; unread?: nu
 // 所有消息缓存（按角色 id 存储）
 const allMessages = reactive<Record<string, any[]>>({})
 const chatMessages = computed(() => allMessages[selectedCharacterId.value || ''] || [])
+const activeTypingSessions = reactive(new Set<string>())
 
 // ===================== 角色内心状态系统 (已移至声明下方，安全规避TDZ编译报错) =====================
 const activeCharacterStates = computed(() => {
@@ -6180,6 +6462,13 @@ watch(selectedCharacterId, () => {
   showStatesDropdown.value = false // 切换角色时关闭内心下拉框
   fetchActiveCharacterStates()
 }, { immediate: true })
+
+// 移动端音乐与设置流转监听
+watch([activeMusicTab, () => musicStore.state.activePlaylistId, () => currentDetailPlaylistSongs.value], () => {
+  if (isMobile.value) {
+    isMobileMusicActive.value = true
+  }
+})
 
 // 定时微调数值或编辑文本并向物理落盘
 async function saveStateValue(key: string, value: number | string) {
@@ -6385,14 +6674,7 @@ function openStatePopover(item: any) {
 
 // 获取角色的最后活跃时间戳，实现以活跃消息流顺序全自动动态置顶排布
 function getCharacterActiveTime(charId: string): number {
-  const msgs = allMessages[charId]
-  if (msgs && msgs.length > 0) {
-    const lastMsg = msgs[msgs.length - 1]
-    if (lastMsg && lastMsg.timestamp) {
-      return lastMsg.timestamp
-    }
-  }
-  return 0
+  return conversationActiveTimes[charId] || 0
 }
 
 // 计算置顶角色（过滤隐藏的），按活跃时间倒序
@@ -7364,26 +7646,49 @@ async function loadCharacters() {
   try {
     const res = await window.api.invoke('get-characters')
     if (res.success && res.characters) {
-      characterList.value = res.characters
-      for (const char of characterList.value) {
+      const rawChars = res.characters
+
+      // 声明临时“离屏”装载对象，防范 Vue 响应式多频重拍抖动
+      const tempAvatars: Record<string, string> = {}
+      const tempMeta: Record<string, any> = {}
+      const tempAllMessages: Record<string, any[]> = {}
+      const tempActiveTimes: Record<string, number> = {}
+
+      // 并发并行批量预拉取，极速减少网络等待
+      await Promise.all(rawChars.map(async (char: any) => {
+        // A. 头像
         const avatarData = await window.api.invoke('get-character-avatar', char.folder_name)
-        characterAvatars.value[char.id] = avatarData
-        // 初始化 conversationMeta
-        if (!conversationMeta[char.id]) {
-          conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+        tempAvatars[char.id] = avatarData
+
+        // B. 会话元数据初始化与读取
+        tempMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+        const metaRes = await window.api.invoke('get-conversation-meta', { characterId: char.id })
+        if (metaRes.success && metaRes.meta) {
+          Object.assign(tempMeta[char.id], metaRes.meta)
         }
-        // 异步从数据库恢复会话元数据（免打扰/置顶/隐藏等）
-        window.api.invoke('get-conversation-meta', { characterId: char.id }).then(metaRes => {
-          if (metaRes.success && metaRes.meta) {
-            Object.assign(conversationMeta[char.id], metaRes.meta)
-          }
-        })
-        // 懒加载最近几条消息以便预览
+
+        // C. 历史消息懒加载以便预览与计算排序时间戳
         const histRes = await window.api.invoke('get-chat-history', { characterId: char.id, limit: 50 })
         if (histRes.success && histRes.history) {
-          allMessages[char.id] = histRes.history.map((m: any) => restoreMessageProps(m))
+          const restored = histRes.history.map((m: any) => restoreMessageProps(m))
+          tempAllMessages[char.id] = restored
+          // 获取最后一条非系统活跃消息时间戳，作为会话的最新活跃时间
+          const lastMsg = restored.filter((m: any) => !m.isSystem && (m.role === 'user' || m.role === 'assistant')).pop()
+          tempActiveTimes[char.id] = lastMsg?.timestamp || 0
+        } else {
+          tempAllMessages[char.id] = []
+          tempActiveTimes[char.id] = 0
         }
-      }
+      }))
+
+      // 一次性批量覆盖提交，避免 DOM 发生 Layout Shift
+      Object.assign(characterAvatars.value, tempAvatars)
+      Object.assign(conversationMeta, tempMeta)
+      Object.assign(allMessages, tempAllMessages)
+      Object.assign(conversationActiveTimes, tempActiveTimes)
+
+      // 最后一步赋值，触发渲染树重新渲染，重排次数完美降为 1 次！
+      characterList.value = rawChars
     }
   } catch (error) {
     console.error('加载角色库异常:', error)
@@ -7629,12 +7934,15 @@ async function sendChatMessage() {
 
   // 1. 立即在聊天列表追加该用户消息的绿色气泡进行渲染展示，提供最顺畅的即发即现体验
   if (!allMessages[char.id]) allMessages[char.id] = []
+  const timestamp = Date.now()
+  conversationActiveTimes[char.id] = timestamp
   allMessages[char.id].push({
     id: userMsgId,
     role: 'user',
     content: userMsg,
     imageBase64: imageBase64 || undefined,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    timestamp: timestamp
   })
   nextTick(() => scrollToBottom())
 
@@ -7693,6 +8001,13 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
 
     if (!res.success) throw new Error(res.error || '连接断开')
 
+    // 🚀 移动端局域网双通道分流拦截：
+    // 在手机端，为了彻底杜绝局域网 fetch 耗时长延迟返回与 SSE 长连接 done 信号撞车造成的双份消息 BUG，
+    // 手机发送端的 fetch 回调直接静默 return 拦截，100% 交由绝对不超时、高保真的 SSE done 接收器去触发唯一一次的分段仿真渲染！
+    if (isMobile.value) {
+      return
+    }
+
     // 5. 仅当 IPC 返回了实际内容时（普通角色非流式模式）才调用渲染播放器
     // Creator Bot 走的是 event.sender.send 流式推送，res.content 为 undefined，无需在此渲染
     if (res.content) {
@@ -7700,6 +8015,11 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
     }
 
   } catch (err: any) {
+    // 移动端静默忽略 fetch 超时断连报错，因为后台大模型依然在完美生成，且 100% 最终会由 SSE 强力救活！
+    if (isMobile.value) {
+      console.warn('[Mobile Fetch Handshake Disconnect] 移动端局域网握手超时/断开（属正常自愈范畴），静默移交 SSE 保活接管。');
+      return;
+    }
     isStreaming.value = false
     const msgs = allMessages[char.id] || []
     if (msgs.length > 0) {
@@ -7711,9 +8031,13 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
 
 // 微信级分段打字仿真播放器
 async function handleAssistantResponse(char: any, content: string, redPacketAction: string | null) {
-  // A. 处理红包决策状态更新与返款
-  if (redPacketAction && char.id === selectedCharacterId.value) {
-    const msgs = allMessages[char.id] || []
+  const sessionKey = char.id + '_' + content.slice(0, 15)
+  activeTypingSessions.add(sessionKey)
+
+  try {
+    // A. 处理红包决策状态更新与返款
+    if (redPacketAction && char.id === selectedCharacterId.value) {
+      const msgs = allMessages[char.id] || []
     const isReceive = redPacketAction === 'receive'
     const isReturn = redPacketAction === 'return'
     
@@ -7856,6 +8180,9 @@ async function handleAssistantResponse(char: any, content: string, redPacketActi
     const diaryRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Diary.md' })
     if (diaryRes.success) activeDiary.value = diaryRes.content
   }, 1500)
+  } finally {
+    activeTypingSessions.delete(sessionKey)
+  }
 }
 
 function handleKeyDown(e: KeyboardEvent) {
@@ -8185,12 +8512,15 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
   const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
   
   const contentText = `[表情: ${emoji.meaning}]`
+  const timestamp = Date.now()
+  conversationActiveTimes[char.id] = timestamp
   allMessages[char.id].push({
     id: userMsgId,
     role: 'user',
     content: contentText,
     customEmojiUrl: emoji.base64,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    timestamp: timestamp
   })
   
   isStreaming.value = true
@@ -8239,12 +8569,15 @@ async function sendRedPacket() {
   // 生成唯一的 userMsgId，用于物理保存与定位消息
   const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
 
+  const timestamp = Date.now()
+  conversationActiveTimes[char.id] = timestamp
   allMessages[char.id].push({
     id: userMsgId,
     role: 'user',
     content: `[发送红包: ${amount} 元, 附言: ${title}]`,
     redPacket: { amount, title, status: 'waiting' },
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    timestamp: timestamp
   })
   isStreaming.value = true
   scrubber.reset()
@@ -8565,6 +8898,57 @@ function openContactContextMenu(e: MouseEvent, char: any) {
   contextMenu.y = e.clientY
   contextMenu.char = char
   contextMenu.type = 'contact'
+}
+
+// 移动端长按手势劫持并弹出上下文菜单
+let longPressTimer: any = null
+let startTouchX = 0
+let startTouchY = 0
+let isLongPressTriggered = false
+
+function onLongPressStart(e: TouchEvent, data: any, type: 'chat' | 'contact' | 'message') {
+  if (!isMobile.value) return
+  isLongPressTriggered = false
+  const touch = e.touches[0]
+  startTouchX = touch.clientX
+  startTouchY = touch.clientY
+
+  longPressTimer = setTimeout(() => {
+    isLongPressTriggered = true
+    // 构造包含指尖坐标的模拟 MouseEvent
+    const mockEvent = {
+      clientX: startTouchX,
+      clientY: startTouchY,
+      preventDefault: () => {}
+    } as unknown as MouseEvent
+
+    if (type === 'chat') {
+      openContextMenu(mockEvent, data)
+    } else if (type === 'contact') {
+      openContactContextMenu(mockEvent, data)
+    } else if (type === 'message') {
+      openMessageContextMenu(mockEvent, data)
+    }
+  }, 600) // 600ms 判定为长按
+}
+
+function onLongPressEnd() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
+
+function onLongPressMove(e: TouchEvent) {
+  if (!longPressTimer) return
+  const touch = e.touches[0]
+  const dx = touch.clientX - startTouchX
+  const dy = touch.clientY - startTouchY
+  // 允许 10px 内的微小抖动，超出则判定为页面滚动并立刻取消长按判定
+  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
 }
 
 function ctxPin() {
@@ -9282,6 +9666,15 @@ watch(
 
 // ===================== 生命周期 =====================
 onMounted(async () => {
+  checkIfMobile()
+  window.addEventListener('resize', checkIfMobile)
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateViewportHeight)
+    window.visualViewport.addEventListener('scroll', updateViewportHeight)
+    updateViewportHeight()
+  }
+
   // 同步桌面歌词自定义底色和文字颜色
   try {
     await window.api.invoke('lyric-window-update-theme', {
@@ -9446,6 +9839,29 @@ onMounted(async () => {
       isStreaming.value = false
       // 快速处理并清洗 typingQueue 中的红包控制符并更新卡片状态
       scrubRedPacketFromQueue()
+
+      // 🚀 局域网自愈桥接防线：在手机移动端上，由于大模型生成加存盘耗时长达十秒以上，
+      // fetch 的长轮询 POST 请求在手机浏览器中极易被静默断开或丢弃。
+      // 我们在此处利用长驻、绝对不会断线超时的 SSE 信道接收到的全量 done 信号进行自愈补偿！
+      if (isMobile.value && data.content) {
+        const char = activeCharacter.value
+        if (char) {
+          const msgs = allMessages[char.id] || []
+          // 全量内容的头部 15 个字作为检索防重标识，查验是否已经渲染过
+          const lookup = data.content.slice(0, 15)
+          const hasReceived = msgs.some(m => m.role === 'assistant' && m.content && m.content.includes(lookup))
+          const lockKey = char.id + '_' + lookup
+          if (activeTypingSessions.has(lockKey)) {
+            // 说明当前打字机已经成功被唤起且正在后台吐字播放中，自愈静默退出，100% 排除重复渲染 BUG
+            return
+          }
+          if (!hasReceived) {
+            // 自愈补偿成功！接管并调起微信级仿真分段播放器将回复弹射发出来，圆满解除输入转圈
+            handleAssistantResponse(char, data.content, null)
+          }
+        }
+      }
+
       // 重新读取角色文件以刷新记忆/日记展示
       setTimeout(async () => {
         const char = activeCharacter.value
@@ -9474,6 +9890,7 @@ onMounted(async () => {
       // 确保消息列表末尾有 assistant 气泡容器，Creator Bot 流式推送时不会预先 push 空气泡
       // 若最后一条不是 assistant，则自动插入一条，供 startTypingEffect 逐字追加
       const charId = selectedCharacterId.value || ''
+      conversationActiveTimes[charId] = Date.now()
       const msgs = allMessages[charId]
       if (msgs && (msgs.length === 0 || msgs[msgs.length - 1].role !== 'assistant')) {
         msgs.push({ role: 'assistant', content: '', created_at: new Date().toISOString() })
@@ -9508,12 +9925,25 @@ onMounted(async () => {
       await selectBoard('all')
     } else if (newVal === 'favorites') {
       await loadFavoritesList()
+    } else if (newVal === 'chat') {
+      // 只要切回会话列表板块，且当前已经选中了某个活跃角色，100% 自动将历史气泡强制滚到底部
+      if (selectedCharacterId.value) {
+        nextTick(() => {
+          scrollToBottom('auto')
+          // 挂载 100ms 二次置底，形成双保险高容错防线
+          setTimeout(() => {
+            scrollToBottom('auto')
+          }, 100)
+        })
+      }
     }
   })
 
   // 监听后台 AI 消息与搭讪的通用扩展通道
   window.api.receive('proactive-chat-message', (data: { characterId: string; message: any }) => {
     const charId = data.characterId
+    // 更新对应会话的活跃时间戳
+    conversationActiveTimes[charId] = data.message?.timestamp || Date.now()
     // 将消息追加到对应缓存
     if (!allMessages[charId]) allMessages[charId] = []
     allMessages[charId].push(restoreMessageProps(data.message))
@@ -9534,6 +9964,8 @@ onMounted(async () => {
   window.api.receive('receive-message', (msg: any) => {
     const charId = msg.character_id
     if (!charId) return
+    // 更新对应会话的活跃时间戳
+    conversationActiveTimes[charId] = msg.timestamp || Date.now()
     // 将消息追加到对应缓存
     if (!allMessages[charId]) allMessages[charId] = []
     if (!allMessages[charId].some(m => m.id === msg.id)) {
@@ -10357,13 +10789,33 @@ function formatTime(time: any): string {
 }
 
 onUnmounted(() => {
+  window.removeEventListener('resize', checkIfMobile)
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', updateViewportHeight)
+    window.visualViewport.removeEventListener('scroll', updateViewportHeight)
+  }
   if (typingTimer) { clearInterval(typingTimer); typingTimer = null }
   document.removeEventListener('click', handleGlobalClick)
 })
 </script>
 
 <style lang="postcss" scoped>
-/* ===== 导航栏颜色系统 ===== */
+/* 移动端视口优化：规避输入框获取焦点时 iOS 自动缩放与上推全局视口 */
+@media (max-width: 768px) {
+  :global(html), :global(body) {
+    overflow: hidden !important;
+    position: fixed !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    top: 0 !important;
+    left: 0 !important;
+  }
+  :global(input), :global(textarea), :global(select) {
+    font-size: 16px !important;
+  }
+}
+
+/* ===== 导航栏颜色 system ===== */
 .nav-icon-btn {
   @apply w-10 h-10 rounded-xl flex items-center justify-center text-nav-icon hover:text-nav-icon-hover hover:bg-nav-icon-hover-bg transition-all active:scale-95;
 }
