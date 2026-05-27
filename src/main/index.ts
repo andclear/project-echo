@@ -29,6 +29,21 @@ app.commandLine.appendSwitch('proxy-bypass-list', '127.0.0.1;localhost;<local>;1
 app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess')
 app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox')
 
+// 🚀 至尊级多开防撞车金刚盾：获取单一实例锁 (Single Instance Lock)
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  // 如果后台已经有实例在运行，新拉起的实例直接静默退役，100% 杜绝多开冲突和 EADDRINUSE 端口占用抛错
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+}
+
 let globalLifeEngine: AgentLifeEngine | null = null
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
