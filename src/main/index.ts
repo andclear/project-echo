@@ -56,6 +56,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden', // 配合现代毛玻璃设计
+    icon: join(getResourcesPath(), 'tray.png'), // 开发模式下强行覆盖默认原子图标展示自定义精美图标
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -3487,7 +3488,15 @@ export function createSystemTray(targetWindow: BrowserWindow) {
     : 'tray.png';
 
   const iconPath = join(resPath, iconName);
-  const trayImage = nativeImage.createFromPath(iconPath);
+  let trayImage = nativeImage.createFromPath(iconPath);
+
+  // 🚀 高保真自适应强制重采样：在主进程加载托盘图后，强制将其重采样缩放到 18x18 物理尺寸。
+  // 这能完美让撑满画布的爱心图在菜单栏中留出优雅的安全气隙，瞬间获得极度精致、高级的视觉效果，与系统原生图标完美对齐！
+  trayImage = trayImage.resize({
+    width: 18,
+    height: 18,
+    quality: 'best'
+  });
 
   if (process.platform === 'darwin') {
     trayImage.setTemplateImage(true);
