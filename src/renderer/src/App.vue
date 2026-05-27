@@ -10728,13 +10728,27 @@ async function forwardMessageToCharacter(targetChar: any) {
 
 // 6. 保存通用常规设置
 async function saveGeneralSettings() {
+  // 🚀 至尊级局域网受限端口防呆校验与自愈重置过滤器
+  let port = Number(generalConfig.value.lan_mapping_port) || 6868;
+  const restrictedPorts = [
+    1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 77, 79, 87, 95, 
+    101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 179, 
+    389, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 556, 563, 587, 601, 636, 
+    993, 995, 2049, 3659, 4045, 6000, 6665, 6666, 6667, 6668, 6669, 6697
+  ];
+  if (restrictedPorts.includes(port)) {
+    showToast(`为了您的访问安全，浏览器默认禁用了 ${port} 等受限端口。系统已自动为您重置为安全的 6868 端口！🐾`);
+    generalConfig.value.lan_mapping_port = 6868;
+    port = 6868;
+  }
+
   const res = await window.api.invoke('save-general-settings', {
     show_schedule: generalConfig.value.show_schedule,
     show_goals: generalConfig.value.show_goals,
     cron_frequency: generalConfig.value.cron_frequency,
     enable_music: generalConfig.value.enable_music,
     lan_mapping_enabled: generalConfig.value.lan_mapping_enabled,
-    lan_mapping_port: Number(generalConfig.value.lan_mapping_port) || 6868
+    lan_mapping_port: port
   })
   if (!res.success) {
     showToast(`保存失败: ${res.error}`)
