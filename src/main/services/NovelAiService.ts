@@ -6,6 +6,10 @@ export interface NovelAiConfig {
   model?: string
   negativePrompt?: string
   confirmMode?: boolean // true: 二次确认模式, false: 静默模式
+  artistString?: string
+  qualityPrompt?: string
+  sampler?: string
+  defaultDimensions?: 'portrait' | 'landscape' | 'square'
 }
 
 export class NovelAiService {
@@ -17,7 +21,6 @@ export class NovelAiService {
     const signature = Buffer.from([0x50, 0x4b, 0x03, 0x04])
     const headerIndex = zipBuffer.indexOf(signature)
     if (headerIndex === -1) {
-      // 兼容性降级：如果返回的已经是 PNG 文件流，直接返回
       const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47])
       if (zipBuffer.subarray(0, 4).equals(pngSignature)) {
         return zipBuffer
@@ -27,18 +30,43 @@ export class NovelAiService {
 
     try {
       const compressionMethod = zipBuffer.readUInt16LE(headerIndex + 8)
-      const compressedSize = zipBuffer.readUInt32LE(headerIndex + 18)
       const fileNameLength = zipBuffer.readUInt16LE(headerIndex + 26)
       const extraFieldLength = zipBuffer.readUInt16LE(headerIndex + 28)
 
       const dataOffset = headerIndex + 30 + fileNameLength + extraFieldLength
-      const fileData = zipBuffer.subarray(dataOffset, dataOffset + compressedSize)
+
+      // 1. 读取 LFH 头部声明的压缩尺寸
+      let compressedSize = zipBuffer.readUInt32LE(headerIndex + 18)
+      let fileData: Buffer
+
+      // 2. 如果 compressedSize 为 0 或不正确，通过定位 Data Descriptor 或 Central Directory 来精准截取
+      if (compressedSize === 0) {
+        // Data Descriptor 签名: 50 4b 07 08
+        const descriptorSignature = Buffer.from([0x50, 0x4b, 0x07, 0x08])
+        const descriptorIndex = zipBuffer.indexOf(descriptorSignature, dataOffset)
+
+        if (descriptorIndex !== -1) {
+          // 精准切片到 Data Descriptor 签名之前，去除所有尾部干扰
+          fileData = zipBuffer.subarray(dataOffset, descriptorIndex)
+        } else {
+          // 尝试 Central Directory 签名 (50 4b 01 02) 作为边界
+          const centralSignature = Buffer.from([0x50, 0x4b, 0x01, 0x02])
+          const centralIndex = zipBuffer.indexOf(centralSignature, dataOffset)
+          if (centralIndex !== -1) {
+            fileData = zipBuffer.subarray(dataOffset, centralIndex)
+          } else {
+            fileData = zipBuffer.subarray(dataOffset)
+          }
+        }
+      } else {
+        // 如果 compressedSize 大于 0，直接切片
+        fileData = zipBuffer.subarray(dataOffset, dataOffset + compressedSize)
+      }
 
       if (compressionMethod === 0) {
-        // STORED 存储模式
-        return fileData
+        const uncompressedSize = zipBuffer.readUInt32LE(headerIndex + 22)
+        return fileData.subarray(0, uncompressedSize)
       } else if (compressionMethod === 8) {
-        // DEFLATED 压缩模式
         return zlib.inflateRawSync(fileData)
       } else {
         throw new Error(`不支持的 ZIP 压缩格式: ${compressionMethod}`)
@@ -64,13 +92,14 @@ export class NovelAiService {
     const baseUrl = (config.baseUrl || 'https://image.novelai.net').replace(/\/$/, '')
     const url = `${baseUrl}/ai/generate-image`
 
-    // 默认尺寸匹配
+    // 默认尺寸匹配（优先使用传入的 dimensions，其次使用全局默认生图尺寸，最底线以 portrait 兜底）
+    const activeDimensions = dimensions || config.defaultDimensions || 'portrait'
     let width = 832
     let height = 1216
-    if (dimensions === 'landscape') {
+    if (activeDimensions === 'landscape') {
       width = 1216
       height = 832
-    } else if (dimensions === 'square') {
+    } else if (activeDimensions === 'square') {
       width = 1024
       height = 1024
     }
@@ -80,30 +109,80 @@ export class NovelAiService {
       config.negativePrompt ||
       'low quality, bad anatomy, worst quality, 3d, monochrome, sketch'
 
+    const modelName = config.model || 'nai-diffusion-4-5-full'
+    const isV4 = modelName.includes('-4')
+
+    let finalSampler = config.sampler || 'k_euler_ancestral'
+    if (!isV4 && finalSampler === 'k_euler_ancestral') {
+      finalSampler = 'euler_ancestral'
+    }
+
+    const baseParams: any = {
+      width,
+      height,
+      scale: isV4 ? 6.0 : 5.0,
+      sampler: finalSampler,
+      steps: 28,
+      seed: Math.floor(Math.random() * 9999999999),
+      n_samples: 1,
+      ucPreset: 0,
+      uc: negativePrompt
+    }
+
+    if (isV4) {
+      baseParams.params_version = 3
+      baseParams.prefer_brownian = true
+      baseParams.negative_prompt = negativePrompt
+      baseParams.noise_schedule = 'karras'
+      baseParams.qualityToggle = true
+      baseParams.add_original_image = false
+      baseParams.controlnet_strength = 1.0
+      baseParams.deliberate_euler_ancestral_bug = false
+      baseParams.dynamic_thresholding = false
+      baseParams.legacy = false
+      baseParams.legacy_v3_extend = false
+      baseParams.sm = false
+      baseParams.sm_dyn = false
+      baseParams.uncond_scale = 1.0
+      baseParams.use_coords = false
+      baseParams.characterPrompts = []
+      baseParams.reference_image_multiple = []
+      baseParams.reference_information_extracted_multiple = []
+      baseParams.reference_strength_multiple = []
+
+      // V4/V4.5 正负面核心 Prompt 嵌套包（解决后端 Go 微服务 unmarshal 空指针 500 报错的关键）
+      baseParams.v4_negative_prompt = {
+        caption: {
+          base_caption: negativePrompt,
+          char_captions: []
+        }
+      }
+
+      baseParams.v4_prompt = {
+        caption: {
+          base_caption: prompt,
+          char_captions: []
+        },
+        use_coords: false,
+        use_order: true
+      }
+    } else {
+      baseParams.sm = false
+      baseParams.sm_dyn = false
+      baseParams.dynamic_thresholding = false
+      baseParams.controlnet_strength = 1.0
+      baseParams.legacy = false
+      baseParams.add_original_image = true
+      baseParams.cfg_rescale = 0.0
+      baseParams.noise = 0.2
+      baseParams.strength = 0.7
+    }
+
     const payload = {
       input: prompt,
-      model: config.model || 'nai-diffusion-4-5-full',
+      model: modelName,
       action: 'generate',
-      parameters: {
-        width,
-        height,
-        scale: 5.0,
-        sampler: 'euler_ancestral',
-        steps: 28,
-        seed: Math.floor(Math.random() * 4294967295),
-        n_samples: 1,
-        ucPreset: 0,
-        uc: negativePrompt,
-        sm: false,
-        sm_dyn: false,
-        dynamic_thresholding: false,
-        controlnet_strength: 1.0,
-        legacy: false,
-        add_original_image: true,
-        cfg_rescale: 0.0,
-        noise: 0.2,
-        strength: 0.7
-      }
+      parameters: baseParams
     }
 
     console.log(`[NovelAiService] 正在向 NAI 发起生图请求，尺寸: ${width}x${height}, 模型: ${payload.model}`)
@@ -121,6 +200,17 @@ export class NovelAiService {
     if (!response.ok) {
       const errText = await response.text()
       console.error(`[NovelAiService] API 绘图响应失败 (${response.status}):`, errText)
+      try {
+        const fs = require('fs')
+        fs.writeFileSync('/Users/lillian/github/project-echo/nai_error.log', JSON.stringify({
+          url,
+          payload,
+          status: response.status,
+          error: errText
+        }, null, 2))
+      } catch (logErr) {
+        console.error('[NovelAiService] 写入错误日志失败:', logErr)
+      }
       throw new Error(`NovelAI 绘图接口报错 (${response.status}): ${errText}`)
     }
 
@@ -156,13 +246,13 @@ export class NovelAiService {
     }
 
     const data = await response.json()
-    
+
     // 1. 读取付费单独购买点数 (Paid Anlas)
     const paidAnlas = typeof data.anlas === 'number' ? data.anlas : 0
-    
+
     // 2. 读取月度订阅赠送点数 (Subscription Anlas)
     let subAnlas = typeof data.subscription?.anlas === 'number' ? data.subscription.anlas : 0
-    
+
     // 🚀 核心智能兜底：
     // 对于 Opus 顶级订阅（tier: 3），NovelAI 官方在接口中不再显式列出 anlas 字段（因为享受无限免点生图特权）。
     // 其月度包含的这 10000+ 点数额度会被以 fixedTrainingStepsLeft (固定训练步数额度) 展现。
@@ -172,7 +262,7 @@ export class NovelAiService {
         subAnlas = trainingAnlas
       }
     }
-    
+
     return paidAnlas + subAnlas
   }
 }

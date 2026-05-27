@@ -2092,8 +2092,44 @@
                     </div>
 
                     <div class="form-group md:col-span-2">
-                      <label class="form-label font-bold text-xs">默认负面提示词 (Undesired Content)</label>
+                      <label class="form-label font-bold text-xs">画师串</label>
+                      <textarea v-model="novelai.artistString" rows="3" placeholder="例如: artist:asakura, artist:shinkai" class="form-input font-mono text-xs resize-none"></textarea>
+                      <p class="text-[9px] text-on-surface-variant/70 mt-1">末尾不需要加","，生图时拼接在正向提示词的最前面，用于锁定画风</p>
+                    </div>
+
+                    <div class="form-group md:col-span-2">
+                      <label class="form-label font-bold text-xs">质量提示词</label>
+                      <textarea v-model="novelai.qualityPrompt" rows="3" placeholder="例如: masterpiece, best quality, highly detailed" class="form-input font-mono text-xs resize-none"></textarea>
+                      <p class="text-[9px] text-on-surface-variant/70 mt-1">开头不需要加","，生图时拼接在正向提示词的最后面，用于增强细节</p>
+                    </div>
+
+                    <div class="form-group md:col-span-2">
+                      <label class="form-label font-bold text-xs">默认负面提示词</label>
                       <textarea v-model="novelai.negativePrompt" rows="3" placeholder="输入默认排除的 Tags" class="form-input font-mono text-xs resize-none"></textarea>
+                    </div>
+
+                    <div class="form-group md:col-span-2">
+                      <label class="form-label font-bold text-xs">默认采样器</label>
+                      <select v-model="novelai.sampler" class="form-input text-xs">
+                        <option value="k_euler_ancestral">k_euler_ancestral (Euler Ancestral)</option>
+                        <option value="k_euler">k_euler (Euler)</option>
+                        <option value="k_dpmpp_2m">k_dpmpp_2m (DPM++ 2M)</option>
+                        <option value="k_dpmpp_sde">k_dpmpp_sde (DPM++ SDE)</option>
+                        <option value="k_dpmpp_2s_ancestral">k_dpmpp_2s_ancestral (DPM++ 2S Ancestral)</option>
+                        <option value="k_dpm_fast">k_dpm_fast (DPM Fast)</option>
+                        <option value="ddim">ddim (DDIM)</option>
+                      </select>
+                      <p class="text-[9px] text-on-surface-variant/70 mt-1">默认推荐使用 Euler Ancestral 采样器，能呈现最生动的二次元细节</p>
+                    </div>
+
+                    <div class="form-group md:col-span-2 border-t border-outline-variant/20 pt-4 mt-2">
+                      <label class="form-label font-bold text-xs">默认生图尺寸 (Default Dimensions)</label>
+                      <select v-model="novelai.defaultDimensions" class="form-input text-xs bg-surface-high/30">
+                        <option value="portrait">竖图 (832 x 1216) — 适合手机壁纸与人物全身立绘</option>
+                        <option value="landscape">横图 (1216 x 832) — 适合桌面壁纸与宏大风景叙事</option>
+                        <option value="square">方图 (1024 x 1024) — 适合社交头像与局部细节特特写</option>
+                      </select>
+                      <p class="text-[9px] text-on-surface-variant/70 mt-1">设置后，之后所有的生图内容（包括私聊生图、随拍及朋友圈帖子）都将默认以此尺寸进行绘制。</p>
                     </div>
 
                     <div class="md:col-span-2 flex items-center justify-between bg-surface-high/20 p-4 rounded-xl border border-outline-variant/10">
@@ -2415,12 +2451,12 @@
             </div>
             <!-- 下方详情 Tab 切换区 -->
             <div class="flex-1 flex flex-col min-h-0 bg-surface-low overflow-hidden">
-              <div class="px-6 bg-surface border-b border-outline-variant/60 flex space-x-6 flex-shrink-0">
+              <div class="px-6 bg-surface border-b border-outline-variant/60 flex space-x-6 flex-shrink-0 overflow-x-auto scrollbar-none">
                 <button
                   v-for="tab in contactTabs"
                   :key="tab.id"
                   @click="contactActiveTab = tab.id"
-                  class="py-3 font-bold text-xs tracking-wider border-b-2 transition-all relative"
+                  class="py-3 font-bold text-xs tracking-wider border-b-2 transition-all relative flex-shrink-0 whitespace-nowrap"
                   :class="contactActiveTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
                 >
                   {{ tab.name }}
@@ -2639,6 +2675,15 @@
                             <Loader2Icon class="w-5 h-5 text-on-surface-variant/20 animate-spin" />
                           </div>
                         </div>
+
+                        <!-- 物理删除按钮 -->
+                        <button 
+                          @click.stop="triggerDeleteGalleryImage(img)"
+                          class="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-all duration-200 select-none z-10 cursor-pointer shadow-sm"
+                          title="从本地磁盘中物理硬删除此影像"
+                        >
+                          <TrashIcon class="w-3.5 h-3.5" />
+                        </button>
 
                         <!-- 渐变阴影底色 & 文字 -->
                         <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-end p-3 text-white">
@@ -4071,7 +4116,20 @@
               <div v-else-if="msg.role === 'user'" class="flex justify-end items-start space-x-2">
                 <div class="max-w-[68%] flex flex-col items-end">
                   <!-- 图片气泡 -->
-                  <div v-if="msg.imageBase64" class="mb-1 rounded-xl overflow-hidden border border-primary/20 shadow-sm">
+                  <div 
+                    v-if="msg.imageBase64" 
+                    class="mb-1 rounded-xl overflow-hidden border border-primary/20 shadow-sm cursor-pointer hover:opacity-95 transition-opacity"
+                    @click="openImagePreview({
+                      base64: msg.imageBase64,
+                      filename: msg.imageMeta?.filename || 'user_drawing.png',
+                      relativePath: msg.imageMeta?.relativePath || '',
+                      prompt: msg.imageMeta?.prompt || '',
+                      negativePrompt: msg.imageMeta?.negativePrompt || '',
+                      createdAt: msg.imageMeta?.createdAt || msg.timestamp || Date.now(),
+                      dimensions: msg.imageMeta?.dimensions || 'portrait',
+                      prefixType: msg.imageMeta?.prefixType || 'chat'
+                    })"
+                  >
                     <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" />
                   </div>
                   
@@ -4195,6 +4253,28 @@
                   </template>
                 </div>
                 <div class="max-w-[68%]">
+                  <!-- 图片气泡 -->
+                  <div 
+                    v-if="msg.imageBase64" 
+                    class="mb-1 rounded-xl overflow-hidden border border-primary/20 shadow-sm cursor-pointer hover:opacity-95 transition-opacity"
+                    @click="openImagePreview({
+                      base64: msg.imageBase64,
+                      filename: msg.imageMeta?.filename || 'ai_drawing.png',
+                      relativePath: msg.imageMeta?.relativePath || '',
+                      prompt: msg.imageMeta?.prompt || '',
+                      negativePrompt: msg.imageMeta?.negativePrompt || '',
+                      createdAt: msg.imageMeta?.createdAt || msg.timestamp || Date.now(),
+                      dimensions: msg.imageMeta?.dimensions || 'portrait',
+                      prefixType: msg.imageMeta?.prefixType || 'chat'
+                    })"
+                    @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                    @touchstart="onLongPressStart($event, msg, 'message')"
+                    @touchend="onLongPressEnd"
+                    @touchmove="onLongPressMove"
+                  >
+                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" />
+                  </div>
+
                   <!-- 典雅日记手账本消息卡片 -->
                   <div v-if="msg.diary" class="diary-card-bubble p-4 rounded-2xl bg-gradient-to-br from-[#f8f5eb] to-[#f0ebde] border border-[#d6cdb4] shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[240px] text-stone-800" @click="openDiaryForCharacter(msg.character_id || activeCharacter.id)">
                     <div class="flex items-center space-x-2.5 mb-2.5 pb-2 border-b border-[#e6deca]/60">
@@ -4219,7 +4299,7 @@
                       </span>
                     </div>
                   </div>
-
+ 
                   <!-- 高颜值回音红包卡片 (角色发给用户) -->
                   <div 
                     v-else-if="msg.redPacket" 
@@ -4252,7 +4332,7 @@
                         </span>
                       </div>
                     </template>
-
+ 
                     <!-- B. 已拆开 / 已领取状态 (received) -->
                     <template v-else>
                       <!-- 上半部分：淡红橙半透明 -->
@@ -4273,10 +4353,10 @@
                       </div>
                     </template>
                   </div>
-
+ 
                   <!-- 常规文字气泡 -->
                   <div 
-                    v-else 
+                    v-else-if="msg.content" 
                     class="ai-chat-bubble relative" 
                     @contextmenu.prevent="openMessageContextMenu($event, msg)"
                     @touchstart="onLongPressStart($event, msg, 'message')"
@@ -6715,15 +6795,36 @@
               复制 Prompt Tags
             </button>
           </div>
+
+          <div class="space-y-1.5 mt-3">
+            <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">负面提示词 (Negative Prompt)</label>
+            <div class="bg-surface-high font-mono text-[9px] text-on-surface p-3 rounded-xl border border-outline-variant/20 leading-relaxed overflow-y-auto max-h-[100px] select-text">
+              {{ bigImageInfo?.negativePrompt || novelai.negativePrompt || '暂无负面提示词数据' }}
+            </div>
+            <button 
+              v-if="bigImageInfo?.negativePrompt || novelai.negativePrompt"
+              @click="copyText(bigImageInfo.negativePrompt || novelai.negativePrompt)" 
+              class="px-2 py-0.5 rounded border border-outline-variant/60 text-[9px] text-on-surface-variant hover:text-on-surface bg-surface hover:bg-surface-high transition-all"
+            >
+              复制负面词
+            </button>
+          </div>
         </div>
 
-        <div class="mt-5 border-t border-outline-variant/20 pt-4 flex select-none">
+        <div class="mt-5 border-t border-outline-variant/20 pt-4 flex space-x-2 select-none">
           <button 
             @click="downloadImage(bigImageUrl, bigImageInfo?.filename)" 
-            class="btn-primary flex-1 text-xs py-2 rounded-xl flex items-center justify-center space-x-1.5 active:scale-95 transition-all"
+            class="btn-primary flex-grow text-xs py-2 rounded-xl flex items-center justify-center space-x-1.5 active:scale-95 transition-all"
           >
             <DownloadIcon class="w-4 h-4" />
             <span>保存/下载图片</span>
+          </button>
+          <button 
+            @click="triggerDeleteGalleryImage(bigImageInfo, true)" 
+            class="px-3 rounded-xl border border-red-200/60 hover:border-red-500 bg-red-500/5 hover:bg-red-500 text-red-500 hover:text-white transition-all duration-200 flex items-center justify-center cursor-pointer active:scale-95"
+            title="从本地磁盘中物理硬删除此影像"
+          >
+            <TrashIcon class="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -7155,18 +7256,18 @@ const showEvolutionModal = ref(false)
 // 计算属性：动态控制通讯录详情 Tab 的展示
 const contactTabs = computed(() => {
   const base = [
-    { id: 'soul', name: '性格设定 (SOUL)' },
-    { id: 'appearance', name: '外貌设定 (APPEARANCE)' },
-    { id: 'memory', name: '双轨记忆 (MEMORY)' },
-    { id: 'user', name: '专属画像 (USER)' }
+    { id: 'soul', name: '性格设定' },
+    { id: 'appearance', name: '外貌设定' },
+    { id: 'memory', name: '双轨记忆' },
+    { id: 'user', name: '专属画像' }
   ]
   if (generalConfig.value.show_schedule) {
-    base.push({ id: 'schedule', name: '近7天日程 (SCHEDULE)' })
+    base.push({ id: 'schedule', name: '近7天日程' })
   }
   if (generalConfig.value.show_goals) {
-    base.push({ id: 'goals', name: '长期目标 (GOALS)' })
+    base.push({ id: 'goals', name: '长期目标' })
   }
-  base.push({ id: 'gallery', name: '专属图库 (GALLERY)' })
+  base.push({ id: 'gallery', name: '专属图库' })
   return base
 })
 
@@ -7205,7 +7306,11 @@ const novelai = reactive({
   baseUrl: 'https://image.novelai.net',
   model: 'nai-diffusion-4-5-full',
   negativePrompt: 'low quality, bad anatomy, worst quality, 3d, monochrome, sketch',
-  confirmMode: true
+  confirmMode: true,
+  artistString: '',
+  qualityPrompt: '',
+  sampler: 'k_euler_ancestral',
+  defaultDimensions: 'portrait'
 })
 const anlasPoints = ref(0)
 const isLoadingAnlas = ref(false)
@@ -8681,7 +8786,7 @@ function getLastMessage(charId: string) {
 }
 
 function restoreMessageProps(m: any) {
-  const result: any = {
+  const result: any = reactive({
     id: m.id,
     role: m.role,
     content: m.content,
@@ -8690,8 +8795,10 @@ function restoreMessageProps(m: any) {
     timestamp: (m.timestamp !== undefined && m.timestamp !== null) ? m.timestamp : Date.now(),
     prompt_tokens: m.prompt_tokens,
     completion_tokens: m.completion_tokens,
-    cached_tokens: m.cached_tokens
-  }
+    cached_tokens: m.cached_tokens,
+    imageBase64: m.imageBase64 || '',
+    imageMeta: m.imageMeta || null
+  })
   
   if (m.content) {
     // 自动清洗历史记录中可能残存的红包控制字符，确保绝不显露代码
@@ -8730,11 +8837,16 @@ function restoreMessageProps(m: any) {
       const mediaPath = m.content.replace('[wechat_image_media]:', '')
       result.content = ''
       result.imageBase64 = '' // 初始占位，待异步读取填充
+      result.imageMeta = null // 元数据初始占位
+      result.isImage = true // 同步标记为图片消息，便于会话中栏列表即时显示为 [图片消息]
       const char = characterList.value.find(c => c.id === m.character_id)
       if (char) {
         window.api.invoke('read-image-media', { folderName: char.folder_name, mediaPath }).then(res => {
           if (res.success) {
             result.imageBase64 = res.base64
+            if (res.meta) {
+              result.imageMeta = res.meta
+            }
           }
         })
       }
@@ -8750,6 +8862,9 @@ async function loadCharacters() {
     const res = await window.api.invoke('get-characters')
     if (res.success && res.characters) {
       const rawChars = res.characters
+
+      // 先将基础角色列表提早赋值，这极度关键！它保证了并发并发消息拉取/解析 (restoreMessageProps) 时能够查到 folder_name 以加载本地资源
+      characterList.value = rawChars
 
       // 声明临时“离屏”装载对象，防范 Vue 响应式多频重拍抖动
       const tempAvatars: Record<string, string> = {}
@@ -8789,9 +8904,6 @@ async function loadCharacters() {
       Object.assign(conversationMeta, tempMeta)
       Object.assign(allMessages, tempAllMessages)
       Object.assign(conversationActiveTimes, tempActiveTimes)
-
-      // 最后一步赋值，触发渲染树重新渲染，重排次数完美降为 1 次！
-      characterList.value = rawChars
     }
   } catch (error) {
     console.error('加载角色库异常:', error)
@@ -10846,6 +10958,42 @@ function downloadImage(base64Data: string, filename: string) {
   showToast('图片下载已触发 🌊')
 }
 
+async function triggerDeleteGalleryImage(img: any, fromModal: boolean = false) {
+  if (!img || !selectedContactId.value) return
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+
+  showCustomConfirm(
+    '物理硬删除确认',
+    '您确定要从本地磁盘物理硬删除这张图片吗？\n警告：此操作为物理硬抹除，彻底且不可恢复！',
+    async () => {
+      try {
+        const res = await window.api.invoke('delete-gallery-image', {
+          folderName: char.folder_name,
+          filename: img.filename
+        })
+
+        if (res.success) {
+          showToast('影像已从本地磁盘中硬删除 🗑️')
+          
+          const idx = contactGalleryImages.value.findIndex(item => item.filename === img.filename)
+          if (idx !== -1) {
+            contactGalleryImages.value.splice(idx, 1)
+          }
+          
+          if (fromModal) {
+            showBigImageModal.value = false
+          }
+        } else {
+          showCustomAlert('删除失败', `硬删除失败: ${res.error}`, 'error')
+        }
+      } catch (err: any) {
+        showCustomAlert('删除异常', `${err.message || String(err)}`, 'error')
+      }
+    }
+  )
+}
+
 function formatGalleryTime(timestamp: number) {
   if (!timestamp) return ''
   const date = new Date(timestamp)
@@ -10889,7 +11037,7 @@ async function triggerChatImageGeneration() {
     if (res.success) {
       confirmedPrompt.value = res.prompt
       confirmedDescription.value = res.description
-      confirmedDimensions.value = 'portrait' // 默认 portrait 纵向
+      confirmedDimensions.value = (novelai.defaultDimensions as 'portrait' | 'landscape' | 'square') || 'portrait'
 
       if (novelai.confirmMode) {
         showPromptConfirmModal.value = true
@@ -10936,16 +11084,20 @@ async function executeNovelAiImageGeneration() {
         token_usage: 0
       }
       
-      const saveRes = await window.api.invoke('save-character-message', {
-        characterId: charId,
-        message: newImgMsg
+      const saveRes = await window.api.invoke('save-message', {
+        id: newImgMsg.id,
+        character_id: newImgMsg.character_id,
+        role: newImgMsg.role,
+        content: newImgMsg.content,
+        timestamp: newImgMsg.timestamp,
+        token_usage: newImgMsg.token_usage || 0
       })
 
       if (saveRes.success) {
-        if (!allMessages.value[charId]) {
-          allMessages.value[charId] = []
+        if (!allMessages[charId]) {
+          allMessages[charId] = []
         }
-        allMessages.value[charId].push(newImgMsg)
+        allMessages[charId].push(restoreMessageProps(newImgMsg))
         
         nextTick(() => {
           scrollToBottom('smooth')

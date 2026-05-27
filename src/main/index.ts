@@ -1,6 +1,6 @@
 import './utils/AppUserDataLock'
 import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage } from 'electron'
-import { join, extname } from 'path'
+import { join, extname, basename } from 'path'
 import fs from 'fs'
 import * as http from 'http'
 import * as os from 'os'
@@ -366,11 +366,40 @@ function registerIpcHandlers(): void {
     try {
       console.log('[IPC] 收到物理删除消息请求，ID:', payload.messageId)
       const db = getDatabaseService()
+      
+      // 1. 先查出此条消息的内容
+      const stmt = db.db.prepare('SELECT * FROM Messages WHERE id = ?')
+      const msg = stmt.get(payload.messageId) as { character_id: string; content: string } | undefined
+      
+      // 2. 如果存在且是图片消息，物理硬删除它
+      if (msg && msg.content && msg.content.startsWith('[wechat_image_media]:')) {
+        const relativePath = msg.content.substring('[wechat_image_media]:'.length) // e.g. "media/drawing_xxxx.png"
+        
+        // 3. 查出对应角色的 folder_name
+        const charStmt = db.db.prepare('SELECT folder_name FROM Characters WHERE id = ?')
+        const charRow = charStmt.get(msg.character_id) as { folder_name: string } | undefined
+        
+        if (charRow) {
+          const storageManager = new CharacterStorageManager()
+          const charDir = join(storageManager.getBaseDir(), charRow.folder_name)
+          const pngPath = join(charDir, relativePath)
+          const jsonPath = pngPath.replace('.png', '.json')
+          
+          console.log('[IPC] 正在物理硬删除消息对应的图片:', pngPath)
+          if (fs.existsSync(pngPath)) {
+            try { fs.unlinkSync(pngPath) } catch (err) {}
+          }
+          if (fs.existsSync(jsonPath)) {
+            try { fs.unlinkSync(jsonPath) } catch (err) {}
+          }
+        }
+      }
+
       db.deleteMessage(payload.messageId)
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 物理删除消息失败:', error)
-      return { success: false, error: error.message || error }
+      return { success: false, error: error.message || String(error) }
     }
   })
 
@@ -550,10 +579,17 @@ function registerIpcHandlers(): void {
         }
       }
 
-      // 组装最终提示词：外貌特征 + 当前动作场景
-      const finalPrompt = appearancePrompt 
+      // 组装最终提示词：画师串 + 外貌特征 + 当前动作场景 + 质量提示词
+      let finalPrompt = appearancePrompt 
         ? `${appearancePrompt}, ${payload.prompt}`
         : payload.prompt
+
+      if (naiConfig.artistString?.trim()) {
+        finalPrompt = `${naiConfig.artistString.trim()}, ${finalPrompt}`
+      }
+      if (naiConfig.qualityPrompt?.trim()) {
+        finalPrompt = `${finalPrompt}, ${naiConfig.qualityPrompt.trim()}`
+      }
 
       // 调用 NovelAI 绘图
       const imageBuffer = await NovelAiService.generateImage(naiConfig, finalPrompt, payload.dimensions)
@@ -576,6 +612,7 @@ function registerIpcHandlers(): void {
       const metaFullPath = join(mediaDir, metaFilename)
       const metadata = {
         prompt: finalPrompt,
+        negativePrompt: naiConfig.negativePrompt || '',
         dimensions: payload.dimensions,
         timestamp,
         prefixType: prefix
@@ -636,6 +673,7 @@ function registerIpcHandlers(): void {
             relativePath: `media/${file}`,
             createdAt: stat.mtimeMs,
             prompt: meta.prompt || '',
+            negativePrompt: meta.negativePrompt || '',
             dimensions: meta.dimensions || 'portrait',
             prefixType: meta.prefixType || (file.startsWith('social_') ? 'social' : file.startsWith('proactive_') ? 'proactive' : 'chat')
           })
@@ -652,7 +690,29 @@ function registerIpcHandlers(): void {
     }
   })
 
-  // 4.9 分析聊天上下文自动生成绘图 Prompt IPC 通道
+  // 4.8.5 物理删除专属图库图片 IPC 通道
+  ipcMain.handle('delete-gallery-image', async (_, payload: { folderName: string; filename: string }) => {
+    try {
+      console.log(`[IPC] 收到专属图库图片删除请求，目录: ${payload.folderName}, 文件: ${payload.filename}`)
+      const storageManager = new CharacterStorageManager()
+      const charDir = join(storageManager.getBaseDir(), payload.folderName)
+      const mediaDir = join(charDir, 'media')
+
+      const pngPath = join(mediaDir, payload.filename)
+      const jsonPath = pngPath.replace('.png', '.json')
+
+      if (fs.existsSync(pngPath)) {
+        try { fs.unlinkSync(pngPath) } catch (err) {}
+      }
+      if (fs.existsSync(jsonPath)) {
+        try { fs.unlinkSync(jsonPath) } catch (err) {}
+      }
+      return { success: true }
+    } catch (error: any) {
+      console.error('[IPC] 物理删除图库图片失败:', error)
+      return { success: false, error: error.message || String(error) }
+    }
+  })
   ipcMain.handle('analyze-chat-image-prompt', async (_, payload: { 
     characterId: string; 
     folderName: string;
@@ -675,22 +735,32 @@ function registerIpcHandlers(): void {
       const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
 
       // C. 组装提示词系统指令
-      const systemPrompt = `你是一个非常专业且具有艺术审美的 NovelAI 绘图提示词生成大师。
+      const systemPrompt = `你是一个非常专业且具有极高艺术审美的 NovelAI 4.5 Full 绘图提示词生成大师。
 请你仔细阅读并深度结合 AI 角色的性格设定 (Soul.md)、记忆系统 (Memory.md) 以及他们之间最近的聊天上下文对话内容，为当前场景构思并生成一副精美的文生图（T2I）提示词。
 
-你的核心目标是生成一个能反映【当前聊天气氛、角色动作、神情动作、周围环境以及画面细节】的 NovelAI 绘图 Prompt。
+你的核心目标是生成一个能反映【当前聊天气氛、角色动作、神情、周围环境以及画面细节】的 NovelAI 绘图 Prompt。
 
-【极其重要的约束规则】：
+【🔴 极其重要的 NovelAI 4.5 黄金生图规范】：
 1. 你的返回必须包含两个部分：
    - 英文生图 Tags (英文逗号分隔的 NovelAI Danbooru 风格 Tag 提示词)。
    - 中文画面内容描述 (一两句话简述画面中发生了什么，包括角色和 NPC 的互动细节)。
-2. 【NPC 说明】：如果当前场景中存在其他 NPC 或者是多人场景，你必须在生成的 Tags 和中文描述中，【明确说明 NPC 的人数及外观特征】（例如: 1girl 与另一个金发青年站在一起 -> 1girl, 1boy, blonde hair boy standing next to her）。
-3. 你的输出必须严格按照以下格式排版，不要写任何 \`\`\` 块包裹：
+2. 【Danbooru 标签层级】：提示词必须是以英文逗号分隔的 Danbooru Tag，单词权重从左到右递减。请严格遵循以下结构排列：
+   [主体数量 (Subject Count)], [角色特征/动作], [环境背景], [天气/时间], [光效/氛围], [画面视角/构图], [艺术画质 Tag]
+   - 主体数量必须作为第一个 Tag！例如："1girl"（单人）、"1boy, 1girl"（情侣）、"no humans"（风景/纯景物，此时必须在最前面加入 "background dataset" 标签，以及 "no humans" 开头）。
+3. 🔴【多角色 Pipe 分隔符 "|" 黄金语法】：当画面中出现 2 个及以上角色（例如你与用户、或与NPC）时，你必须使用 Pipe 分隔符 "|" 进行角色与其属性的物理强隔离！语法结构如下：
+   基础提示词（人数/环境/构图/氛围/画质标签） | 角色1类型, 角色名称/特征, 角色1表情服装, source#/[action] 动作 | 角色2类型, 特征, 角色2表情服装, target#/[action] 动作
+   - 【互动动作前缀】：多角色互动时，必须使用 source# (动作发起者)、target# (动作接受者) 或 mutual# (共同发生动作) 进行肢体姿态锚定，彻底解决肢体黏连和特征乱串问题！
+     - 拥抱：source#embrace 与 target#embrace
+     - 摸头：source#headpat 与 target#headpat
+     - 牵手：双方均使用 mutual#handholding
+     - 互相注视：source#looking at another 与 target#being looked at
+4. 【NovelAI 4.5 必加画质 Tag】：提示词尾部必须全量附加官方高画质标签："very aesthetic, masterpiece, best quality, highres, no text, no watermark"。
+5. 你的输出必须严格按照以下格式排版，请勿将输出内容包裹在任何 markdown 代码块中，直接以纯文本形式输出：
 ### Image Prompt
-(在这里只输出当前场景的生图 Tag，不需要把角色的固定外貌 Tag 包含进来，因为后续系统会自动拼接入外貌 Tag。例如: sitting in a cafe, sipping coffee, smiling, window view, depth of field, sunset lighting)
+(在这里输出当前场景的生图 Tag。例如单人：1girl, bedroom, upper body, long black hair, white nightgown, smiling, morning sunlight, soft shadows, very aesthetic, masterpiece, best quality, highres, no text, no watermark。例如双人：1boy, 1girl, living room, close-up, very aesthetic, masterpiece, best quality, highres, no text, no watermark | girl, emilia (re:zero), long silver hair, white dress, flushed cheeks, source#embrace, arms around neck, smiling | boy, short black hair, casual shirt, target#embrace, hands on waist, looking down at her)
 
 ### Image Description
-(在这里用中文对画面做一个简述。例如: 少女正坐在温馨的咖啡厅窗边，手端着热咖啡，对着镜头微微甜笑，身后是落日余晖洒在街景上。)`
+(在这里用中文对画面做一个简述。例如：少女正坐在温馨的咖啡厅窗边，手端着热咖啡，对着镜头微微甜笑，身后是落日余晖洒在街景上。)`
 
       const contextText = payload.recentMessages.map(m => `${m.role === 'user' ? '用户' : '角色'}: ${m.content}`).join('\n')
       
@@ -2247,7 +2317,7 @@ ${soulContent}
     }
   })
 
-  // 14. 异步读取本地 media 图片资源并转为 Base64
+  // 14. 异步读取本地 media 图片资源并转为 Base64（含元数据自动读取）
   ipcMain.handle('read-image-media', async (_, payload: { folderName: string; mediaPath: string }) => {
     try {
       const storageManager = new CharacterStorageManager()
@@ -2257,7 +2327,29 @@ ${soulContent}
         const fileBuffer = fs.readFileSync(fullPath)
         const ext = extname(fullPath).toLowerCase()
         const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
-        return { success: true, base64: `data:${mimeType};base64,${fileBuffer.toString('base64')}` }
+        
+        let meta: any = null
+        const jsonPath = fullPath.replace(ext, '.json')
+        if (fs.existsSync(jsonPath)) {
+          try {
+            const rawMeta = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
+            meta = {
+              filename: basename(fullPath),
+              relativePath: payload.mediaPath,
+              prompt: rawMeta.prompt || '',
+              negativePrompt: rawMeta.negativePrompt || '',
+              dimensions: rawMeta.dimensions || 'portrait',
+              createdAt: rawMeta.createdAt || fs.statSync(fullPath).mtimeMs,
+              prefixType: rawMeta.prefixType || (payload.mediaPath.includes('social_') ? 'social' : payload.mediaPath.includes('proactive_') ? 'proactive' : 'chat')
+            }
+          } catch (_) {}
+        }
+
+        return { 
+          success: true, 
+          base64: `data:${mimeType};base64,${fileBuffer.toString('base64')}`,
+          meta 
+        }
       }
       return { success: false, error: '文件不存在' }
     } catch (e: any) {

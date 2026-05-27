@@ -55,7 +55,12 @@
       <div class="text-xs text-on-surface-variant/60 truncate">
         <template v-if="lastMessage">
           <span v-if="lastMessage.role === 'user'" class="text-on-surface-variant/40">我：</span>
-          {{ lastMessage.content || '...' }}
+          <template v-if="lastMessage.isImage || lastMessage.imageBase64 || (typeof lastMessage.content === 'string' && lastMessage.content.includes('[wechat_image_media]:'))">
+            [图片消息]
+          </template>
+          <template v-else>
+            {{ lastMessage.content || '...' }}
+          </template>
         </template>
         <span v-else class="text-on-surface-variant/30 italic">暂无消息</span>
       </div>

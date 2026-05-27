@@ -156,7 +156,7 @@ Instructions:
 4. Output ONLY the post content. Do not wrap in markdown or JSON.
 5. 【重要】你可以自决是否为这条朋友圈附加一张配图：
    - 如果决定配图，你必须在朋友圈正文最末尾，以特定标签追加配图英文提示词及中文画面简述：
-     <image_prompt>极其详细的英文画作提示词（Danbooru 标签，不要包含衣服，用于文生图）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>
+     <image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>
    - 如果决定不附加配图，则绝不输出上述标签。`;
 
     const response = await modelAdapter.chat([
@@ -203,8 +203,9 @@ Instructions:
                 ? `${appearancePrompt}, ${imagePrompt}`
                 : imagePrompt;
 
-              // 生成社交大图 (portrait/纵向)
-              const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, 'portrait');
+              const dims = config.defaultDimensions || 'portrait';
+              // 生成社交大图 (完全遵照全局配置的默认生图尺寸)
+              const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, dims);
 
               const charDir = path.join(baseDir, folderName);
               const mediaDir = path.join(charDir, 'media');
@@ -219,7 +220,8 @@ Instructions:
               const metaFilename = filename.replace('.png', '.json');
               const metadata = {
                 prompt: finalPrompt,
-                dimensions: 'portrait',
+                negativePrompt: config.negativePrompt || '',
+                dimensions: dims,
                 timestamp: Date.now(),
                 prefixType: 'social'
               };
@@ -381,7 +383,7 @@ Body: [Your post rich text content]
 4. Do not output anything else.
 5. 【重要】你可以自决是否为这条论坛帖子附加一张配图：
    - 如果决定配图，你必须在帖子的 Body 内容最末尾，以特定标签追加配图英文提示词及中文画面简述：
-     <image_prompt>极其详细的英文画作提示词（Danbooru 标签，不要包含衣服，用于文生图）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>
+     <image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>
    - 如果决定不附加配图，则绝不输出上述标签。`;
 
     const response = await modelAdapter.chat([
@@ -433,8 +435,9 @@ Body: [Your post rich text content]
                 ? `${appearancePrompt}, ${imagePrompt}`
                 : imagePrompt;
 
-              // 生成社交大图 (portrait/纵向)
-              const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, 'portrait');
+              const dims = config.defaultDimensions || 'portrait';
+              // 生成社交大图 (完全遵照全局配置的默认生图尺寸)
+              const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, dims);
 
               const charDir = path.join(baseDir, folderName);
               const mediaDir = path.join(charDir, 'media');
@@ -449,7 +452,8 @@ Body: [Your post rich text content]
               const metaFilename = filename.replace('.png', '.json');
               const metadata = {
                 prompt: finalPrompt,
-                dimensions: 'portrait',
+                negativePrompt: config.negativePrompt || '',
+                dimensions: dims,
                 timestamp: Date.now(),
                 prefixType: 'social'
               };

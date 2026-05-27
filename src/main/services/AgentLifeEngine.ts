@@ -578,7 +578,7 @@ Please output in exactly this XML format:
       : `[系统指令]：当前时间是 ${period} ${timeDesc}。请开启你的第一人称思考，并结合上文的真实聊天上下文和上述 Active Reflection Context，决定是否在 <message> 标签中向用户主动发起搭讪对话（或输出 [SILENT]）。`;
 
     if (shouldDraw) {
-      instructionContent += `\n\n[系统特别指令]：本轮触发 55% 共享自拍/美图概率，你当前决定随搭讪附带发送一张符合你当前日程或自省情景的自拍或身边景物配图给用户。请你务必在输出的 <message> 标签内容最末尾，以特定标签形式追加配图英文提示词及中文画面简述：\n<image_prompt>极其详细的英文画作提示词（Danbooru 标签，不要包含衣服，用于文生图）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>\n注意：图片内容应与你发送的搭讪文本高度契合，例如自拍照、正在做的事情、身边的咖啡等。如果不发送搭讪，则无需此配图输出。`;
+      instructionContent += `\n\n[系统特别指令]：本轮触发 55% 共享自拍/美图概率，你当前决定随搭讪附带发送一张符合你当前日程或自省情景的自拍或身边景物配图给用户。请你务必在输出的 <message> 标签内容最末尾，以特定标签形式追加配图英文提示词及中文画面简述：\n<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>\n注意：图片内容应与你发送的搭讪文本高度契合，例如自拍照、正在做的事情、身边的咖啡等。如果不发送搭讪，则无需此配图输出。`;
     }
 
     // 维持 messages 数组严格的角色交替结构
@@ -725,8 +725,9 @@ Please output in exactly this XML format:
                   ? `${appearancePrompt}, ${imagePrompt}`
                   : imagePrompt;
 
-                // 生成自拍/随拍美图 (portrait/纵向)
-                const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, 'portrait');
+                const dims = config.defaultDimensions || 'portrait';
+                // 生成自拍/随拍美图 (完全遵照全局配置的默认生图尺寸)
+                const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, dims);
 
                 const charDir = path.join(baseDir, folderName);
                 const mediaDir = path.join(charDir, 'media');
@@ -741,7 +742,8 @@ Please output in exactly this XML format:
                 const metaFilename = filename.replace('.png', '.json');
                 const metadata = {
                   prompt: finalPrompt,
-                  dimensions: 'portrait',
+                  negativePrompt: config.negativePrompt || '',
+                  dimensions: dims,
                   timestamp: Date.now(),
                   prefixType: 'proactive'
                 };
