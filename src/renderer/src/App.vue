@@ -8117,7 +8117,7 @@ function startReplyTimeout(charId: string) {
   clearReplyTimeout()
   replyTimeoutTimer = setTimeout(() => {
     handleReplyTimeout(charId)
-  }, 30000) // 30秒超时
+  }, 600000) // 600秒(10分钟)超时自愈防线
 }
 
 function handleReplyTimeout(charId: string) {

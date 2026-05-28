@@ -23,7 +23,16 @@ export class StreamingContextScrubber {
   private hasSeenContentEnd: boolean = false;
 
   // 需要完全隐式丢弃其“内部所有内容”的标签集合
-  private readonly discardSpanTags = new Set(['memory-context', 'system-note', 'thought', 'image_prompt', 'image_desc']);
+  private readonly discardSpanTags = new Set([
+    'memory-context',
+    'system-note',
+    'thought',
+    'image_prompt',
+    'image_desc',
+    'cot',
+    'think',
+    'thinking'
+  ]);
 
   /**
    * 接收增量流式 Chunk，经过状态机过滤后，返回安全无标签外泄的干净内容
