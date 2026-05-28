@@ -138,10 +138,33 @@ export class UserProfileReaderWriter {
       fs.mkdirSync(dir, { recursive: true });
     }
 
+    // 🚀 大师级高容错全量增量更新策略：
+    // 如果原文件存在且含有自定义大量 Markdown 内容，我们进行精密行替换，绝不覆写擦除未捕获的其它 Markdown 文字！
+    if (fs.existsSync(filePath)) {
+      let content = fs.readFileSync(filePath, 'utf-8');
+      
+      const replaceOrAppend = (label: string, value: string) => {
+        if (value === undefined) return;
+        const regex = new RegExp(`(^|\\n)([-\\s*]*(?:\\*\\*|)?${label}(?:\\*\\*)?\\s*[：:]\\s*)([^\n\r]*)`);
+        if (content.match(regex)) {
+          // 如果原文件有这行，直接局部精确替换为新值
+          content = content.replace(regex, `$1$2${value.trim()}`);
+        } else if (value.trim() !== '') {
+          // 如果原文件没有这行且新值不为空，我们在头部追加
+          content = `- **${label}**：${value.trim()}\n${content}`;
+        }
+      };
+
+      replaceOrAppend('姓名', profile.name);
+      replaceOrAppend('年龄', profile.age);
+      replaceOrAppend('职业', profile.occupation);
+
+      fs.writeFileSync(filePath, content.trim() + '\n', 'utf-8');
+      return;
+    }
+
+    // 如果原文件不存在，使用最简洁的格式初始化写入
     let markdown = '';
-    
-    // 按照最简洁、无占位的原则生成
-    // 如果只有姓名，只写姓名；如果都有，就写对应的行；全部为空则为完全空文件
     const lines: string[] = [];
     if (profile.name && profile.name.trim() !== '') {
       lines.push(`- **姓名**：${profile.name.trim()}`);
@@ -169,7 +192,7 @@ export class UserProfileReaderWriter {
       });
     }
 
-    fs.writeFileSync(filePath, markdown.trim(), 'utf-8');
+    fs.writeFileSync(filePath, markdown.trim() + '\n', 'utf-8');
   }
 
   /**

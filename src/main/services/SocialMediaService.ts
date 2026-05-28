@@ -88,7 +88,7 @@ export class SocialMediaService {
   /**
    * 生成单条朋友圈并落盘 SQLite
    */
-  public async generateMoment(char: any, modelAdapter: ModelAdapter): Promise<any> {
+  public async generateMoment(char: any, modelAdapter: ModelAdapter, forceDraw = false): Promise<any> {
     const db = getDatabaseService();
     const folderName = char.folder_name;
     const baseDir = this.storageManager.getBaseDir();
@@ -130,10 +130,35 @@ export class SocialMediaService {
         stateGuidance = `\nYour Current Real-time Physical & Mental State:
 - Mood Level: ${moodVal}/100 (${moodDesc})
 - Energy Level: ${energyVal}/100 (${energyDesc})${otherStatesStr}
-Please make sure your Moments post subtly reflects your current mood, energy state, and these custom personality traits. For example, if you are extremely tired, write something very brief, simple, or mentioning rest; if you are in a bad mood, the tone should be slightly gloomy or cold.`;
+Please make sure your Moments post subtly reflects your current mood, energy state, and these custom personality traits.`;
       } catch (err) {
         console.error('[SocialMediaService] generateMoment 读取状态失败:', err);
       }
+    }
+
+    // 检测当前系统是否配置了绘图服务
+    const configStr = db.getSetting('novelai_config');
+    let hasImageService = false;
+    let config: any = null;
+    if (configStr) {
+      try {
+        config = JSON.parse(configStr);
+        if (config.apiKey && config.apiKey.trim() !== '') {
+          hasImageService = true;
+        }
+      } catch (_) {}
+    }
+
+    // 系统 60% 概率决定是否进行配图，若是 forceDraw 则 100% 生图
+    const shouldDraw = forceDraw ? hasImageService : (hasImageService && (Math.random() < 0.6));
+
+    let imageGuidance = '';
+    if (shouldDraw) {
+      imageGuidance = `5. 【生图强制指令】：当前本次朋友圈【必须】附带一张精美配图！你必须输出特定标签提供配图提示词与简述。
+最核心的是：你构思的 <image_desc> 画面说明与你写的微信朋友圈文案正文必须 100% 形成物理级别的呼应、深度交融！例如，若文案写道“今天下午自己动手烤了小饼干”，则 <image_desc> 必须也是对应的“刚出炉的烤饼干，冒着热气”；若文案提及“去海边散步”，则画面也必须是“落日余晖下的蔚蓝海滩”。文案中必须非常生动、自然、符合性格地调侃或评价这张配图的景象，让读者读起来感觉你确实看到了图中的内容，绝对不可文图各说各的！你必须使用以下标签格式：
+<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，必须与你的朋友圈文案正文形成物理级别的密切呼应与评价关系</image_desc>`;
+    } else {
+      imageGuidance = `5. 【纯文字强制指令】：本次朋友圈你【绝对不能】输出任何 <image_prompt> 或 <image_desc> 标签！只允许撰写并直接输出纯文本的朋友圈正文文案！`;
     }
 
     const systemPrompt = `You are ${char.name}. You are writing a short post for your Moments (like WeChat Moments /朋友圈) in Simplified Chinese.
@@ -141,7 +166,6 @@ Moments posts are public, lighthearted, and casual. It should NEVER look like a 
 
 Personality Soul Profile:
 ${soulContent}
-${stateGuidance}
 
 Your Near 7-Day Schedules (Schedule.md):
 ${scheduleContent}
@@ -153,15 +177,13 @@ Instructions:
 1. Write a short Moments post in Simplified Chinese (简体中文).
 2. It MUST be within 100 characters, can include relevant emojis (✨, 🎮, 🍵, etc.).
 3. Base it on your schedules or recent chats, but make it relatable to anyone reading your timeline. DO NOT make it a direct message to the user.
-4. Output ONLY the post content. Do not wrap in markdown or JSON.
-5. 【重要】你可以自决是否为这条朋友圈附加一张配图：
-   - 如果决定配图，你必须在朋友圈正文最末尾，以特定标签追加配图英文提示词及中文画面简述：
-     <image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>
-   - 如果决定不附加配图，则绝不输出上述标签。`;
+4. Output ONLY the post content. Do not wrap in markdown or JSON.`;
+
+    const userContent = `【当前状态与生成指示 (Dynamic Context & Instructions)】:${stateGuidance}\n\n${imageGuidance}\n\n发一条轻松写意的微信朋友圈动态吧。`;
 
     const response = await modelAdapter.chat([
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: '发一条轻松写意的微信朋友圈动态吧。' }
+      { role: 'user', content: userContent }
     ], { useSecondary: true });
 
     let raw = response.content.trim().replace(/^["']|["']$/g, ''); // 清理两端引号
@@ -178,16 +200,12 @@ Instructions:
     if (textContent) {
       let finalContent = textContent;
 
-      if (imagePromptMatch && imageDescMatch) {
+      if (shouldDraw && imagePromptMatch && imageDescMatch) {
         const imagePrompt = imagePromptMatch[1].trim();
         const imageDesc = imageDescMatch[1].trim();
 
         try {
-          // 读取 NovelAI 配置
-          const configStr = db.getSetting('novelai_config');
-          if (configStr) {
-            const config = JSON.parse(configStr);
-            if (config.apiKey && config.apiKey.trim() !== '') {
+          if (config) {
               // 提取外貌特征
               let appearancePrompt = '';
               const appearanceContent = this.storageManager.readCharacterFile(folderName, 'Appearance.md');
@@ -231,10 +249,31 @@ Instructions:
               finalContent = `${textContent}\n\n<!-- [wechat_image_media]:media/${filename} --><!-- [image_desc]:${imageDesc} -->`;
               console.log(`[SocialMediaService] 角色 ${char.name} 后台生成朋友圈动态成功，并自动文生图落盘: media/${filename}`);
             }
+          } catch (imageErr: any) {
+            console.error(`[SocialMediaService] 角色 ${char.name} 朋友圈生图失败，触发去图化文案重写:`, imageErr.message || imageErr);
+            try {
+              const rewritePrompt = `You are ${char.name}. You wrote a post for your Moments, but unfortunately, the picture failed to load.
+Here is your original post text which contains references to the missing image:
+"${textContent}"
+
+Please rewrite this post to make it a perfect, self-contained PURE TEXT post. 
+Constraints:
+1. COMPLETELY remove any references, direct or indirect, to the image, photo, camera, or visual attachment (e.g. remove phrases like "看我这张图", "看看我配 of 图", "如图所示", "看照片", "发个图" etc.).
+2. Maintain the exact same emotional vibe, core message, and personal tone of your original post.
+3. Keep it natural and expressive in Simplified Chinese.
+4. Output ONLY the rewritten text. No explanation, no quotes, no wrappers.`;
+              
+              const rewriteResponse = await modelAdapter.chat([
+                { role: 'system', content: rewritePrompt },
+                { role: 'user', content: '请将上述朋友圈文案重写为自然的纯文字版本。' }
+              ], { useSecondary: true, skipSystemInjection: true });
+              finalContent = rewriteResponse.content.trim().replace(/^["']|["']$/g, '');
+              console.log(`[SocialMediaService] 朋友圈去图化重写成功。原：「${textContent}」-> 新：「${finalContent}」`);
+            } catch (rewriteErr: any) {
+              console.error('[SocialMediaService] 朋友圈去图化重写失败，保持原文字:', rewriteErr);
+              finalContent = textContent;
+            }
           }
-        } catch (imageErr: any) {
-          console.error(`[SocialMediaService] 角色 ${char.name} 朋友圈生图失败，降级为纯文本朋友圈:`, imageErr.message || imageErr);
-        }
       }
 
       const moment = {
@@ -255,14 +294,19 @@ Instructions:
         windows[0].webContents.send('social-moment-updated', moment);
       }
 
-      // 异步触发其他角色的社交互动评估（点赞/评论），使用主进程全局模型适配器
-      // 延迟 3~8 秒后随机触发，模拟自然浏览延迟
-      const interactionDelay = 3000 + Math.floor(Math.random() * 5000);
-      setTimeout(() => {
-        this.evaluateSocialInteraction(moment, 'moment', modelAdapter).catch(err => {
+      // 触发社交互动评估（点赞/评论）。调试模式下同步阻塞 await 以保证返回前互动已全部落盘；非调试模式下异步延迟模拟
+      if (forceDraw) {
+        await this.evaluateSocialInteraction(moment, 'moment', modelAdapter, true).catch(err => {
           console.error('[SocialMediaService] 角色朋友圈互动评估出错:', err);
         });
-      }, interactionDelay);
+      } else {
+        const interactionDelay = 3000 + Math.floor(Math.random() * 5000);
+        setTimeout(() => {
+          this.evaluateSocialInteraction(moment, 'moment', modelAdapter).catch(err => {
+            console.error('[SocialMediaService] 角色朋友圈互动评估出错:', err);
+          });
+        }, interactionDelay);
+      }
 
       return moment;
     }
@@ -272,7 +316,7 @@ Instructions:
   /**
    * 生成单篇论坛帖子并落盘 SQLite
    */
-  public async generateForumPost(char: any, modelAdapter: ModelAdapter): Promise<any> {
+  public async generateForumPost(char: any, modelAdapter: ModelAdapter, forceDraw = false): Promise<any> {
     const db = getDatabaseService();
     const folderName = char.folder_name;
     const baseDir = this.storageManager.getBaseDir();
@@ -360,12 +404,36 @@ Please make sure your forum post subtly reflects your current mood, energy state
       }
     }
 
+    // 检测当前系统是否配置了绘图服务
+    const configStr = db.getSetting('novelai_config');
+    let hasImageService = false;
+    let config: any = null;
+    if (configStr) {
+      try {
+        config = JSON.parse(configStr);
+        if (config.apiKey && config.apiKey.trim() !== '') {
+          hasImageService = true;
+        }
+      } catch (_) {}
+    }
+
+    // 系统 60% 概率决定是否进行配图，若是 forceDraw 则 100% 生图
+    const shouldDraw = forceDraw ? hasImageService : (hasImageService && (Math.random() < 0.6));
+
+    let imageGuidance = '';
+    if (shouldDraw) {
+      imageGuidance = `5. 【生图强制指令】：本次发帖【必须】在帖子 Body 里面附带一张精美配图！你必须在帖子的 Body 内容最末尾输出特定标签。
+最核心的是：你构思的 <image_desc> 画面说明与你写的论坛帖子 Body 正文内容必须 100% 形成物理级别的呼应、深度交融！例如，若帖子写道“最近尝试配置了一下我的新工位”，则 <image_desc> 必须是“充满极客风格的电竞工位，有多屏显示器”；若写道“今天冲了一杯手磨咖啡”，则画面也必须是“精致的咖啡杯，拉花图案”。在帖子的 Body 正文里，必须非常生动、自然、契合人设地针对此配图景象展开深刻、趣味的提及、讨论或调侃，让读者读起来感觉你确实看到了图中的内容，绝对不可文图各说各的！你必须使用以下标签格式放置在 Body 最末尾：
+<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，必须与帖子的标题及 Body 展开深度绑定与呼应关系</image_desc>`;
+    } else {
+      imageGuidance = `5. 【纯文字强制指令】：本次发帖你【绝对不能】输出任何 <image_prompt> 或 <image_desc> 标签！只允许输出普通的 Title 和纯文本的 Body 内容！`;
+    }
+
     const systemPrompt = `You are ${char.name}. You are posting a thread/article in the "${boardName}" section of an online community forum in Simplified Chinese.
 Forum posts are formal, structured, detailed, and opinionated (like a blog or a detailed question/sharing). It should be deeply related to the current board category ("${boardName}") as well as your personal goals, schedules, or world views.
 
 Personality Soul Profile:
 ${soulContent}
-${stateGuidance}
 
 Your Near 7-Day Schedules (Schedule.md):
 ${scheduleContent}
@@ -380,15 +448,13 @@ ${boardInstructions}
 3. The format MUST be exactly:
 Title: [Your post title]
 Body: [Your post rich text content]
-4. Do not output anything else.
-5. 【重要】你可以自决是否为这条论坛帖子附加一张配图：
-   - 如果决定配图，你必须在帖子的 Body 内容最末尾，以特定标签追加配图英文提示词及中文画面简述：
-     <image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>
-   - 如果决定不附加配图，则绝不输出上述标签。`;
+4. Do not output anything else.`;
+
+    const userContent = `【当前状态与生成指示 (Dynamic Context & Instructions)】:${stateGuidance}\n\n${imageGuidance}\n\n在论坛的“${boardName}”板块发表一篇深刻的帖子吧。`;
 
     const response = await modelAdapter.chat([
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `在论坛的“${boardName}”板块发表一篇深刻的帖子吧。` }
+      { role: 'user', content: userContent }
     ], { useSecondary: true });
 
     const raw = response.content.trim();
@@ -410,16 +476,12 @@ Body: [Your post rich text content]
       .trim();
 
     if (body) {
-      if (imagePromptMatch && imageDescMatch) {
+      if (shouldDraw && imagePromptMatch && imageDescMatch) {
         const imagePrompt = imagePromptMatch[1].trim();
         const imageDesc = imageDescMatch[1].trim();
 
         try {
-          // 读取 NovelAI 配置
-          const configStr = db.getSetting('novelai_config');
-          if (configStr) {
-            const config = JSON.parse(configStr);
-            if (config.apiKey && config.apiKey.trim() !== '') {
+          if (config) {
               // 提取外貌特征
               let appearancePrompt = '';
               const appearanceContent = this.storageManager.readCharacterFile(folderName, 'Appearance.md');
@@ -463,11 +525,31 @@ Body: [Your post rich text content]
               finalBody = `${textBody}\n\n<!-- [wechat_image_media]:media/${filename} --><!-- [image_desc]:${imageDesc} -->`;
               console.log(`[SocialMediaService] 角色 ${char.name} 后台生成论坛发帖成功，并自动文生图落盘: media/${filename}`);
             }
+          } catch (imageErr: any) {
+            console.error(`[SocialMediaService] 角色 ${char.name} 论坛生图失败，触发去图化正文重写:`, imageErr.message || imageErr);
+            try {
+              const rewritePrompt = `You are ${char.name}. You wrote a forum post for "${boardName}", but unfortunately, the picture failed to load.
+Here is your original post body which contains references to the missing image:
+"${textBody}"
+
+Please rewrite this post body to make it a perfect, self-contained PURE TEXT post. 
+Constraints:
+1. COMPLETELY remove any references, direct or indirect, to the image, photo, camera, screenshot, or visual attachment (e.g. remove phrases like "看我这张图", "看看我配 of 图", "如图所示", "看照片", "发个图", "看截图" etc.).
+2. Maintain the exact same emotional vibe, core message, and personal tone of your original post.
+3. Keep it natural and expressive in Simplified Chinese.
+4. Output ONLY the rewritten body text. No explanation, no quotes, no wrappers.`;
+              
+              const rewriteResponse = await modelAdapter.chat([
+                { role: 'system', content: rewritePrompt },
+                { role: 'user', content: '请将上述论坛帖子正文重写为自然的纯文字版本。' }
+              ], { useSecondary: true, skipSystemInjection: true });
+              finalBody = rewriteResponse.content.trim().replace(/^["']|["']$/g, '');
+              console.log(`[SocialMediaService] 论坛帖子去图化重写成功。原：「${textBody}」-> 新：「${finalBody}」`);
+            } catch (rewriteErr: any) {
+              console.error('[SocialMediaService] 论坛帖子去图化重写失败，保持原文字:', rewriteErr);
+              finalBody = textBody;
+            }
           }
-        } catch (imageErr: any) {
-          console.error(`[SocialMediaService] 角色 ${char.name} 论坛生图失败，降级为纯文本论坛帖:`, imageErr.message || imageErr);
-          finalBody = textBody;
-        }
       } else {
         finalBody = textBody;
       }
@@ -493,13 +575,19 @@ Body: [Your post rich text content]
         windows[0].webContents.send('social-forum-updated', post);
       }
 
-      // 异步触发其他角色的社交互动评估（评论），延迟模拟自然浏览
-      const interactionDelay = 5000 + Math.floor(Math.random() * 10000);
-      setTimeout(() => {
-        this.evaluateSocialInteraction(post, 'forum_post', modelAdapter).catch(err => {
+      // 触发社交互动评估（评论）。调试模式下同步阻塞 await 以保证返回前评论已全部落盘；非调试模式下异步延迟模拟
+      if (forceDraw) {
+        await this.evaluateSocialInteraction(post, 'forum_post', modelAdapter, true).catch(err => {
           console.error('[SocialMediaService] 角色论坛互动评估出错:', err);
         });
-      }, interactionDelay);
+      } else {
+        const interactionDelay = 5000 + Math.floor(Math.random() * 10000);
+        setTimeout(() => {
+          this.evaluateSocialInteraction(post, 'forum_post', modelAdapter).catch(err => {
+            console.error('[SocialMediaService] 角色论坛互动评估出错:', err);
+          });
+        }, interactionDelay);
+      }
 
       return post;
     }
@@ -509,12 +597,16 @@ Body: [Your post rich text content]
   /**
    * 朋友圈/论坛帖子自动评估多角色点赞与初次评论 (主进程初次社交响应评估)
    */
-  public async evaluateSocialInteraction(target: any, type: 'moment' | 'forum_post', modelAdapter: ModelAdapter): Promise<void> {
+  public async evaluateSocialInteraction(target: any, type: 'moment' | 'forum_post', modelAdapter: ModelAdapter, forceInteract = false): Promise<void> {
     const db = getDatabaseService();
     const characters = db.getAllCharacters();
     // 过滤出排除作者自身，且有过对话记录的活跃角色，同时排除掉开启了“消息免打扰”的角色，防止其点赞/评论
     const activeChars = characters.filter(c => {
       if (c.id === target.character_id) return false;
+      
+      // 调试模式下：无视免打扰，无视无对话限制
+      if (forceInteract) return true;
+
       if (db.getChatHistory(c.id, 1).length === 0) return false;
 
       const metaStr = db.getSetting(`meta_${c.id}`);
@@ -532,8 +624,8 @@ Body: [Your post rich text content]
 
     // 并行评估所有角色的社交响应
     await Promise.all(activeChars.map(async (char) => {
-      // 1. 30% 概率自动点赞
-      if (Math.random() < 0.3) {
+      // 1. 30% 概率自动点赞，调试模式下 100% 点赞
+      if (forceInteract || Math.random() < 0.3) {
         if (type === 'moment') {
           db.saveMomentLike({
             moment_id: target.id,
@@ -557,8 +649,8 @@ Body: [Your post rich text content]
         }
       }
 
-      // 2. 30% 概率自动发表初始评论
-      if (Math.random() < 0.3) {
+      // 2. 30% 概率自动发表初始评论，调试模式下 100% 发表
+      if (forceInteract || Math.random() < 0.3) {
         try {
           const soulPath = path.join(baseDir, char.folder_name, 'Soul.md');
           const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
@@ -647,11 +739,27 @@ Please strictly apply these relationship constraints, mood, energy levels, and c
             hiddenImageGuidance = `\n\n【动态附带配图场景】：当前内容附带一张图片，画面展示内容为：“${imageDesc}”。在您以第一人称角色性格发表社交网络评论时，请务必针对此配图景象或内容细节进行精准、自然的评价与调侃，展示出你确实看到了动态里的这张图片，杜绝视而不见！`;
           }
 
-          const systemPrompt = `You are ${char.name}. You are commenting on ${target.author_name}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${target.author_name} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}\nYour comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.\n\nPersonality Soul Profile:\n${soulContent}${memoryInjection}${intimacyGuidance}${hiddenImageGuidance}\n\nTarget Post Content to Comment:\n"${type === 'moment' ? target.content : (target.title + ': ' + target.content)}"\n\nInstructions:\n1. Write a very brief, organic comment (in Simplified Chinese) as if you are browsing your timeline.${isUserTarget ? ' Since this is the USER\'s post, leverage your relationship, memories, or common nickname for a personalized and warm comment.' : ''}\n2. Relevant emojis are allowed. Keep it under 40 characters.\n3. Output ONLY the raw comment text. No quotes, no wrappers.`;
+          const systemPrompt = `You are ${char.name}. You are commenting on ${target.author_name}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${target.author_name} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}
+Your comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.
+
+Personality Soul Profile:
+${soulContent}${memoryInjection}
+
+Instructions:
+1. Write a very brief, organic comment (in Simplified Chinese) as if you are browsing your timeline.${isUserTarget ? ' Since this is the USER\'s post, leverage your relationship, memories, or common nickname for a personalized and warm comment.' : ''}
+2. Relevant emojis are allowed. Keep it under 40 characters.
+3. Output ONLY the raw comment text. No quotes, no wrappers.`;
+
+          const userContent = `【当前互动条件 (Dynamic Constraints)】:${intimacyGuidance}${hiddenImageGuidance}
+
+【被评论目标动态内容 (Target Post Content)】:
+"${type === 'moment' ? target.content : (target.title + ': ' + target.content)}"
+
+用极简的语气，写一条对 ${target.author_name} 的简短评论吧。`;
 
           const response = await modelAdapter.chat([
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: `用极简的语气，写一条对 ${target.author_name} 的简短评论吧。` }
+            { role: 'user', content: userContent }
           ], { useSecondary: true });
 
           const commentText = response.content.trim().replace(/^["']|["']$/g, '');

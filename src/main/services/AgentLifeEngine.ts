@@ -483,14 +483,9 @@ ${goalsContent}
 Recent Conversation Summary Snapshots:
 ${historyContext}
 
-Active Reflection Context:
-- Trigger Reason: ${wakeResult.reason}
-${triggerEvent ? `- Trigger Event: ${triggerEvent.detail}` : ''}
-- Trigger Strength: ${wakeResult.triggerStrength}
-
 Instructions:
 1. You MUST write a deeply reflective, intimate, and authentic first-person diary entry (in Simplified Chinese) in the <diary> tags. Expose your true inner emotions, psychological depth, and reflections.
-2. Based on the "Active Reflection Context", you may want to actively send a message to {{user}} to start a conversation:
+2. Based on the "Active Reflection Context" (which will be provided in the user message), you may want to actively send a message to {{user}} to start a conversation:
    - If Trigger Strength is "strong" and Trigger Event exists, you MUST write a short, highly engaging, and contextual message in the <message> tags to actively initiate conversation.
    - If Trigger Strength is "weak" and Trigger Event exists, you may choose to write a message in <message> tags, OR you can output exactly "[SILENT]" in <message> tags (meaning you decide to remain silent and not disturb the user, only keeping the diary reflection).
    - The message MUST be extremely natural, fit your personality, be within 100 characters, and directly relate to the triggered event (e.g., mention your schedule, the long absence, the anniversary).
@@ -528,13 +523,8 @@ ${goalsContent}
 Recent Conversation Summary Snapshots:
 ${historyContext}
 
-Active Reflection Context:
-- Trigger Reason: ${wakeResult.reason}
-${triggerEvent ? `- Trigger Event: ${triggerEvent.detail}` : ''}
-- Trigger Strength: ${wakeResult.triggerStrength}
-
 Instructions:
-1. Based on the "Active Reflection Context", you may want to actively send a message to {{user}} to start a conversation:
+1. Based on the "Active Reflection Context" (which will be provided in the user message), you may want to actively send a message to {{user}} to start a conversation:
    - If Trigger Strength is "strong" and Trigger Event exists, you MUST write a short, highly engaging, and contextual message in the <message> tags to actively initiate conversation.
    - If Trigger Strength is "weak" and Trigger Event exists, you may choose to write a message in <message> tags, OR you can output exactly "[SILENT]" in <message> tags (meaning you decide to remain silent and not disturb the user).
    - The message MUST be extremely natural, fit your personality, be within 100 characters, and directly relate to the triggered event.
@@ -573,9 +563,10 @@ Please output in exactly this XML format:
     // 插入最终触发思考指令
     // 系统随机判定搭讪是否生图，生图几率为 55%
     const shouldDraw = Math.random() < 0.55;
-    let instructionContent = shouldWriteDiary
-      ? `[系统指令]：当前时间是 ${period} ${timeDesc}。请开启你的第一人称真实感悟与心理自省，并在 <diary> 标签内写下一篇日记。结合上文的真实聊天上下文和上述 Active Reflection Context，决定是否要向用户主动发起搭讪对话（在 <message> 标签中，或输出 [SILENT]）。`
-      : `[系统指令]：当前时间是 ${period} ${timeDesc}。请开启你的第一人称思考，并结合上文的真实聊天上下文和上述 Active Reflection Context，决定是否在 <message> 标签中向用户主动发起搭讪对话（或输出 [SILENT]）。`;
+    const timeDescStatic = `${now.getHours()}时`;
+    let instructionContent = `【当前自省触发条件 (Active Reflection Context)】:\n- 触发原因: ${wakeResult.reason}\n${triggerEvent ? `- 触发事件: ${triggerEvent.detail}` : ''}\n- 触发强度: ${wakeResult.triggerStrength}\n\n` + (shouldWriteDiary
+      ? `[系统指令]：当前时间是 ${period} ${timeDescStatic}。请开启你的第一人称真实感悟与心理自省，并在 <diary> 标签内写下一篇日记。结合上文的真实聊天上下文和上述自省触发条件，决定是否要向用户主动发起搭讪对话（在 <message> 标签中，或输出 [SILENT]）。`
+      : `[系统指令]：当前时间是 ${period} ${timeDescStatic}。请开启你的第一人称思考，并结合上文的真实聊天上下文和上述自省触发条件，决定是否在 <message> 标签中向用户主动发起搭讪对话（或输出 [SILENT]）。`);
 
     if (shouldDraw) {
       instructionContent += `\n\n[系统特别指令]：本轮触发 55% 共享自拍/美图概率，你当前决定随搭讪附带发送一张符合你当前日程或自省情景的自拍或身边景物配图给用户。请你务必在输出的 <message> 标签内容最末尾，以特定标签形式追加配图英文提示词及中文画面简述：\n<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>\n注意：图片内容应与你发送的搭讪文本高度契合，例如自拍照、正在做的事情、身边的咖啡等。如果不发送搭讪，则无需此配图输出。`;

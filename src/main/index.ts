@@ -52,6 +52,9 @@ let tray: Tray | null = null
 // SSE 局域网推送客户端集合
 export const sseClients = new Set<any>()
 
+// 🚀 极致缓存前缀保温还原全局内存字典：以角色ID为键值，缓存最近一次大模型吐出的 100% 原始未清洗的 assistant 消息内容
+export const LastAssistantRawResponse: Record<string, string> = {}
+
 // SSE 广播函数
 export function broadcastToSse(channel: string, data: any) {
   const payload = JSON.stringify({ channel, data })
@@ -209,6 +212,64 @@ function cleanMarkdownBlock(text: string): string {
 
 // 注册主进程 IPC 监听器
 function registerIpcHandlers(): void {
+
+  // 0.0.1 获取用户个人配置 (包含钱包余额、昵称等)
+  ipcMain.handle('get-user-profile', async () => {
+    try {
+      const db = getDatabaseService()
+      const profileStr = db.getSetting('echo_user_profile')
+      if (profileStr) {
+        return { success: true, profile: JSON.parse(profileStr) }
+      }
+      return { success: true, profile: null }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 0.0.2 保存用户个人配置，并广播通知其他局域网客户端
+  ipcMain.handle('save-user-profile', async (_, payload: any) => {
+    try {
+      const db = getDatabaseService()
+      db.setSetting('echo_user_profile', JSON.stringify(payload))
+      
+      // 广播通知其他局域网客户端
+      mainWindow?.webContents.send('user-profile-updated', payload)
+      
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 0.0.3 获取自定义表情包列表
+  ipcMain.handle('get-custom-emojis', async () => {
+    try {
+      const db = getDatabaseService()
+      const emojisStr = db.getSetting('echo_custom_emojis')
+      if (emojisStr) {
+        return { success: true, emojis: JSON.parse(emojisStr) }
+      }
+      return { success: true, emojis: [] }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 0.0.4 保存自定义表情包列表，并广播通知其他局域网客户端
+  ipcMain.handle('save-custom-emojis', async (_, payload: any[]) => {
+    try {
+      const db = getDatabaseService()
+      db.setSetting('echo_custom_emojis', JSON.stringify(payload))
+      
+      // 广播通知其他局域网客户端
+      mainWindow?.webContents.send('custom-emojis-updated', payload)
+      
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
 
   // 0. 重置角色创建会话 IPC 通道
   ipcMain.handle('reset-creator-bot', async () => {
@@ -1445,8 +1506,31 @@ ${soulContent}
       fs.writeFileSync(charUserPath, '[]', 'utf8')
     }
 
-    // 提取最近 20 条消息历史记录作为上下文
-    const history = db.getChatHistory(characterId, 20)
+    // 读取逻辑时间戳门控，只拉取上一次压缩以后的增量历史消息作为大模型上下文
+    const lastCompressionKey = `last_compression_ts_${characterId}`
+    const lastCompressionTsStr = db.getSetting(lastCompressionKey)
+    const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0
+
+    // 提取最近 50 条消息历史记录作为上下文
+    let history = db.getChatHistory(characterId, 50)
+
+    // 增量逻辑物理截断：只保留上一次压缩之后的新消息，大模型侧的历史条数重回 0~50 条滚动，完美对齐缓存哈希！
+    if (lastCompressionTs > 0) {
+      history = history.filter((m: any) => m.timestamp > lastCompressionTs)
+    }
+
+    // 🚀 极致缓存前缀保温还原：大模型底层完美对齐上一轮吐出的原始动作和控制符，彻底打通滚雪球缓存哈希
+    if (history.length > 0) {
+      const lastAssistantIndex = [...history].reverse().findIndex(m => m.role === 'assistant')
+      if (lastAssistantIndex !== -1) {
+        const idx = history.length - 1 - lastAssistantIndex
+        const rawContent = LastAssistantRawResponse[characterId]
+        if (rawContent && rawContent.trim()) {
+          console.log(`[Cache Heat] 成功将上一轮清洗后的助理消息内容还原为原始序列以锁死前缀缓存: "${rawContent.substring(0, 40).replace(/\n/g, ' ')}..."`)
+          history[idx].content = rawContent
+        }
+      }
+    }
 
     // 组装 System Prompt (至尊三层前缀保温排布)
     // 支持 chatMode 参数：含描写模式 vs 纯对话模式
@@ -1464,15 +1548,38 @@ ${soulContent}
       globalPrompt
     )
 
+    // 组装动态记忆、内心世界状态与高频时间环境信息，拼接在最后一个 user 消息最前端，保证 systemPrompt 绝对静止以最大化缓存命中率
+    const liveEnvInfo = ContextAssembler.assembleLiveEnvInfo(new Date())
+    const memoryStr = ContextAssembler.assembleMemory(memoryPath)
+    const stateGuidance = ContextAssembler.assembleStateGuidance(soulPath)
+
+    let dynamicContext = ''
+    if (liveEnvInfo) {
+      dynamicContext += `${liveEnvInfo}\n\n`
+    }
+    if (memoryStr) {
+      dynamicContext += `### DYNAMIC MEMORY (STM & LTM Facts)\n${memoryStr}\n\n`
+    }
+    if (stateGuidance) {
+      dynamicContext += `### Character Current Internal State & Subjective Attitude\n${stateGuidance}\n\n`
+    }
+
+    let finalUserContent = ''
+    if (dynamicContext) {
+      finalUserContent += `[System Dynamic Context Update]\n${dynamicContext}---\n\n`
+    }
+
     // 如果有粘贴图片，在用户消息中追加图片描述提示
     const userMessageFinal = payload.imageBase64
       ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
       : userMessage
 
+    finalUserContent += userMessageFinal
+
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
       ...history.map(m => ({ role: m.role as any, content: m.content })),
-      { role: 'user', content: userMessageFinal }
+      { role: 'user', content: finalUserContent }
     ]
 
     // 开启前台流式聊天，获取并发锁，阻塞后台任务
@@ -1484,7 +1591,7 @@ ${soulContent}
 
     let lastUsage: any = undefined
     try {
-      const chatStreamGen = modelAdapter.chatStream(messages, { usePrimary: true })
+      const chatStreamGen = modelAdapter.chatStream(messages, { usePrimary: true, skipSystemInjection: true })
 
       for await (const chunk of chatStreamGen) {
         accumulatedResponse += chunk.content
@@ -1595,7 +1702,7 @@ ${soulContent}
           { role: 'user', content: `[ACTION OBSERVATION RESULT]\n${lastObservation}\n请基于该观察结果以性格化语气告知用户播放情况。` }
         ]
 
-        const followUpStream = modelAdapter.chatStream(followUpMessages, { usePrimary: true })
+        const followUpStream = modelAdapter.chatStream(followUpMessages, { usePrimary: true, skipSystemInjection: true })
         let followUpAccumulated = ''
         const followUpSplit = new StreamSplitController()
 
@@ -1834,7 +1941,7 @@ ${soulContent}
     }
 
     // 如果有粘贴/拖拽大图，物理保存至磁盘角色 media 目录中，实现索引化极速落盘
-    let dbContent = payload.dbMessage || userMessageFinal
+    let dbContent = payload.dbMessage || finalUserContent
     if (payload.imageBase64 && characterId !== CREATOR_BOT_ID) {
       try {
         const charDir = join(storageManager.getBaseDir(), folderName)
@@ -1971,6 +2078,9 @@ ${soulContent}
       })
     }
 
+    // 🚀 极致缓存前缀保温：把 100% 原始的大模型流式输出写入内存字典以供下一轮无缝还原
+    LastAssistantRawResponse[characterId] = accumulatedResponse
+
     // 触发静默记忆提炼与睡眠反思进化
     const memoryService = new MemoryAgentService(modelAdapter)
     memoryService.extractMemoryAndProfile(
@@ -1980,6 +2090,8 @@ ${soulContent}
       finalResponse
     ).then(async () => {
       console.log('[MemoryService] 记忆与画像提取成功！')
+      // 后台静默自省双通道归并压缩（V3 终极白金版）
+      await memoryService.compressActiveHistoryAndConsolidate(characterId, memoryPath)
     }).catch(err => {
       console.error('[MemoryService] 提取异常:', err)
     })
@@ -2095,9 +2207,30 @@ ${soulContent}
       const charUserPath = join(storageManager.getBaseDir(), folderName, 'USER.md')
       UserProfileReaderWriter.writeCharacterProfile(charUserPath, [])
 
-      // E. 重置专属 State.md 为出厂初始状态
+      // E. 重置专属 State.md 为出厂初始状态，但特意保留原有的钱包余额数值，防止物理清空历史时资产丢失
       const statePath = join(storageManager.getBaseDir(), folderName, 'State.md')
-      StateReaderWriter.writeState(statePath, StateReaderWriter.getInitialState())
+      let preservedBalance = 5200.0
+      if (fs.existsSync(statePath)) {
+        try {
+          const currentState = StateReaderWriter.readState(statePath)
+          const balanceItem = currentState.items.find(i => i.key === 'balance')
+          if (balanceItem && (typeof balanceItem.value === 'number' || typeof balanceItem.value === 'string')) {
+            const val = Number(balanceItem.value)
+            if (!isNaN(val)) {
+              preservedBalance = val
+            }
+          }
+        } catch (e) {
+          console.error('[Clear History] 读取原有钱包余额失败，降级为出厂默认值:', e)
+        }
+      }
+
+      const newState = StateReaderWriter.getInitialState()
+      const newBalanceItem = newState.items.find(i => i.key === 'balance')
+      if (newBalanceItem) {
+        newBalanceItem.value = preservedBalance
+      }
+      StateReaderWriter.writeState(statePath, newState)
 
       // F. 清除 SQLite 中跟此角色关联的所有 Settings 属性（如时间戳、朋友圈计数器、日记时间戳等）
       db.clearCharacterSettings(characterId)
@@ -2872,6 +3005,61 @@ Please output in exactly this XML format:
 
     } catch (e: any) {
       console.error('[IPC] 刷新论坛帖子异常:', e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 生图调试接口 (100% 触发文图朋友圈/论坛，零活跃角色自动 Fallback 兜底)
+  ipcMain.handle('trigger-image-debug', async (_, payload: { type: 'moment' | 'forum' }) => {
+    try {
+      const db = getDatabaseService()
+      
+      // 获取大模型配置
+      const configStr = db.getSetting('model_config')
+      if (!configStr) throw new Error('未配置全局大模型')
+      const modelConfig = JSON.parse(configStr)
+      const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary)
+
+      // 优先从活跃角色里随机选取最多 3 个，若无则自动兜底从全量角色里挑
+      const characters = db.getAllCharacters()
+      let activeChars = characters.filter(c => db.getChatHistory(c.id, 1).length > 0)
+      if (activeChars.length === 0) {
+        activeChars = characters
+      }
+      
+      if (activeChars.length === 0) {
+        return { success: true, moments: [], posts: [], error: '系统暂无任何角色数据' }
+      }
+
+      activeChars.sort(() => Math.random() - 0.5)
+      const targetChars = activeChars.slice(0, 3)
+
+      const socialMedia = new SocialMediaService()
+      
+      if (payload.type === 'moment') {
+        const newMoments: any[] = []
+        for (const char of targetChars) {
+          const m = await socialMedia.generateMoment(char, modelAdapter, true) // forceDraw = true
+          if (m) newMoments.push(m)
+        }
+        const moments = db.getAllMoments(50)
+        for (const m of moments) {
+          m.comments = db.getMomentComments(m.id)
+          m.likes_list = db.getMomentLikes(m.id)
+          m.isFavorited = db.isFavoriteExist('moment', m.id)
+        }
+        return { success: true, moments, newCount: newMoments.length }
+      } else {
+        const newPosts: any[] = []
+        for (const char of targetChars) {
+          const p = await socialMedia.generateForumPost(char, modelAdapter, true) // forceDraw = true
+          if (p) newPosts.push(p)
+        }
+        const posts = db.getAllForumPosts(50)
+        return { success: true, posts, newCount: newPosts.length }
+      }
+    } catch (e: any) {
+      console.error('[IPC] 生图调试异常:', e)
       return { success: false, error: e.message || e }
     }
   })

@@ -90,8 +90,8 @@ Target JSON format:
     ];
 
     try {
-      // 3. 调用辅助模型进行静默推理 (useSecondary: true)
-      const response = await modelAdapter.chat(messages, { useSecondary: true });
+      // 3. 调用辅助模型进行静默推理 (useSecondary: true, skipSystemInjection: true)
+      const response = await modelAdapter.chat(messages, { useSecondary: true, skipSystemInjection: true });
       const rawContent = response.content.trim();
 
       // 正则截获 JSON

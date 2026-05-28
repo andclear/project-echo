@@ -7,6 +7,7 @@ import { MemoryReaderWriter } from '../utils/MemoryReaderWriter';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { StateReaderWriter } from '../utils/StateReaderWriter';
 import { getDatabaseService } from '../db/database';
+import { SummaryReaderWriter } from '../utils/SummaryReaderWriter';
 
 /**
  * MemoryAgentService
@@ -160,7 +161,7 @@ Target JSON 格式：
           stm_updates?: string[];
           state_updates?: { key: string; delta?: number; value?: any }[];
         };
-
+        
         // 4. 调用高精度物理写盘引擎，将合并与精炼后的数据安全落盘
         // A. 短期记忆 (STM) 增量更新
         if (Array.isArray(parsed.stm_updates) && parsed.stm_updates.length > 0) {
@@ -210,8 +211,48 @@ Target JSON 格式：
           if (cleanedFacts.length === 0 && currentCharFacts.length > 0) {
             console.warn('[MemoryAgentService] 大模型返回专属画像 Facts 为空，但历史存在事实，跳过更新以物理保全画像。');
           } else {
-            UserProfileReaderWriter.writeCharacterProfile(charUserPath, cleanedFacts);
-            // 🚀 用户优化：控制台日志清爽化，移除超长 Facts 列表数据输出，保留写盘动作
+            // 🚀 大师级高精度 Facts 相似度防微调去抖比对引擎，防止因大模型用词、助词、顺序微调导致的前缀缓存频繁失效
+            const purify = (str: string) => {
+              return str
+                .replace(/\{\{user\}\}/g, '用户')
+                .replace(/\{\{char\}\}/g, '角色')
+                .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '')
+                .trim();
+            };
+
+            const getOverlapRatio = (s1: string, s2: string): number => {
+              const p1 = purify(s1);
+              const p2 = purify(s2);
+              if (p1 === p2) return 1.0;
+              if (!p1 || !p2) return 0.0;
+              const chars1 = Array.from(p1);
+              const set2 = new Set(Array.from(p2));
+              const intersection = chars1.filter(c => set2.has(c)).length;
+              return intersection / Math.max(chars1.length, p2.length);
+            };
+
+            const isSimilar = (f1: string, f2: string): boolean => {
+              return getOverlapRatio(f1, f2) >= 0.70;
+            };
+
+            // 检查是否有真正的全新增 facts
+            const hasNewDryGoods = cleanedFacts.some(newFact => 
+              !currentCharFacts.some(oldFact => isSimilar(newFact, oldFact))
+            );
+
+            // 检查是否有被主动彻底删除的 facts
+            const hasDeletedFacts = currentCharFacts.some(oldFact =>
+              !cleanedFacts.some(newFact => isSimilar(newFact, oldFact))
+            );
+
+            const isIdentical = !hasNewDryGoods && !hasDeletedFacts;
+            
+            if (isIdentical) {
+              console.log('[MemoryAgentService] 专属画像 Facts 仅有同义词润色/字词微调，跳过物理写盘以完美保持前缀缓存。');
+            } else {
+              UserProfileReaderWriter.writeCharacterProfile(charUserPath, cleanedFacts);
+              console.log('[MemoryAgentService] 专属画像 Facts 发生实质性变更（发现新增/删除事实），物理更新 USER.md。');
+            }
           }
         }
 
@@ -229,8 +270,6 @@ Target JSON 格式：
             });
           }
         }
-      } else {
-        console.warn('[MemoryAgentService] 无法从大模型响应中截获合法的 JSON 数据块:', rawContent);
       }
 
       // 后台对话触发的 Schedule/Goals 规划推进 (首次/为空强力补齐，常规7天定期演进)
@@ -391,5 +430,168 @@ ${diaryContent}
 
     // 更新最后自省时间戳
     db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
+  }
+
+  /**
+   * 核心后台双通道自省归并压缩引擎（V3 终极白金版）
+   * 检查活跃历史消息是否达到 50 条。如果达到，启动后台辅助大模型进行大事记与长期记忆双通道归并压缩，并推进 last_compression_ts。
+   * @param characterId 角色唯一 ID
+   * @param memoryPath 专属 Memory.md 绝对物理路径
+   */
+  public async compressActiveHistoryAndConsolidate(
+    characterId: string,
+    memoryPath: string
+  ): Promise<void> {
+    const db = getDatabaseService();
+    const lastCompressionKey = `last_compression_ts_${characterId}`;
+    const lastCompressionTsStr = db.getSetting(lastCompressionKey);
+    const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
+
+    // 拉取最近 100 条历史（大模型需要的 activeHistory 最多 50 条，但我们为了安全拉取 100 条并在内存中按时间戳过滤）
+    let activeHistory = db.getChatHistory(characterId, 100);
+    if (lastCompressionTs > 0) {
+      activeHistory = activeHistory.filter((m: any) => m.timestamp > lastCompressionTs);
+    }
+
+    // 只有当活跃历史消息大于等于 50 条时，才确定性触发一次后台自省归并（重置频次为 1/50）
+    if (activeHistory.length < 50) {
+      console.log(`[MemoryAgentService] 活跃历史条数为 ${activeHistory.length}，未达 50 条阈值，暂不触发归并压缩。`);
+      return;
+    }
+
+    console.log(`[MemoryAgentService] 活跃历史已达 ${activeHistory.length} 条！正式确定性触发双通道自省归并压缩...`);
+
+    // 1. 获取非阻塞并发互斥锁
+    await InferenceMutex.lock();
+
+    try {
+      // 2. 读取已有的大事记 SUMMARY.md
+      const summaryPath = path.join(path.dirname(memoryPath), 'SUMMARY.md');
+      const currentSummary = SummaryReaderWriter.readSummary(summaryPath);
+      const oldSummaryText = currentSummary.summary.trim();
+
+      // 3. 读取已有的 Memory.md (长期记忆 LTM)
+      const currentMemory = MemoryReaderWriter.readMemory(memoryPath);
+      const currentLtm = currentMemory.ltm;
+
+      // 4. 格式化已有大事记与记忆上下文
+      const currentSummaryContext = oldSummaryText ? oldSummaryText : '（暂无对话大事记）';
+      const currentLtmContext = Object.keys(currentLtm).length === 0 
+        ? '（暂无长期记忆）' 
+        : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n');
+
+      // 5. 格式化待归并的 50 条历史对话文本，用于大模型反思提炼
+      const chatTranscript = activeHistory.map((m: any) => {
+        const roleName = m.role === 'user' ? 'User' : 'Character';
+        return `[${roleName}]: ${m.content}`;
+      }).join('\n');
+
+      // 6. 组装双通道归并 System Prompt
+      const systemPrompt = `你是一个 Echo 平台的后台“自省与大事记记忆归并”智能体。
+你的任务是将角色（{{char}}）与用户（{{user}}）之间最近 50 条的聊天历史对话，进行“双通道记忆提取与分段归并压缩”。
+
+这是我们本次反思的大事记和长期记忆沉淀的机制：
+1. 通道一：LTM 长期记忆沉淀（冰山事实底座）
+   提取关于用户的客观、结构化偏好事实（如："职业": "程序员", "饮品偏好": "椰椰拿铁"），以键值对形式存储在 "ltm" 中。
+   请结合【已有的长期记忆】和【最新的聊天历史对话】，更新或新增最新的长期记忆。如果偏好发生改变，请更新或删去失效的键值对。
+2. 通道二：Conversation Summary Book（大事记情感叙事）
+   提取富含主观情感色调、两人共同经历的叙事性简报（如：“{{user}}在相处中向我表达了支持，那一刻我感到心中充满了温暖...”）。
+   你需要将最近这 50 条对话中发生的“高光或深刻时刻”融合进已有的【旧大事记】中，递归融合成一段全新的、不超过 800 字的“对话大事记”。
+
+【大事记情感叙事（SUMMARY）撰写红线】
+- 必须富含 {{char}} 视角的主观情感色调和第一人称“我”（代指角色）的心路历程（例如：“虽然我感到无比羞涩但内心其实极其甜蜜...”）。
+- 必须是流动叙事性的，将两人之间发生的重要名场面、重要谈话内容、情感增进或波动记录下来。
+- 字数必须【严格限制在 800 字以内】，如果字数过长，请以高超的文字提炼功力进行合并与缩写，保留最刻骨铭心的回忆，舍弃琐碎的过渡句。
+- 必须且只能在 “summary” 字段中返回合并后的文本。
+- 必须强制且统一使用占位符：\`{{user}}\` 来代指用户，\`{{char}}\` 来代指当前的角色本身。禁止出现真实姓名！
+
+【长期记忆（LTM）提取红线】
+- 客观偏好以 Key-Value 形式更新和补充。
+- 必须严格仅基于 {{user}} 的亲口表述提取偏好，严禁把 {{char}} 的臆测当作事实。
+- 强制统一使用占位符 \`{{user}}\` 与 \`{{char}}\`。
+
+【已有的旧大事记 (SUMMARY.md)】
+${currentSummaryContext}
+
+【已有的长期记忆 (Memory.md - LTM)】
+${currentLtmContext}
+
+【最新待归并的 50 条历史对话记录】
+${chatTranscript}
+
+【输出格式要求】
+你必须且只能返回一个符合以下格式要求的 JSON 对象，不要用 \`\`\`markdown 等任何多余文字包裹，不要有任何前言或后记。
+
+Target JSON 格式：
+{
+  "summary": "这是你递归融合后、不超过 800 字的最新对话大事记内容",
+  "ltm": {
+    // 整合合并后的完整长期记忆（LTM）键值对
+  }
+}`;
+
+      const messages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: '请对以上 50 条对话历史进行双通道归并压缩自省。' }
+      ];
+
+      // 7. 调用辅助大模型进行高表现力提炼
+      const response = await this.modelAdapter.chat(messages, { useSecondary: true });
+      const rawContent = response.content.trim();
+
+      // 8. 解析并落盘
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const jsonStr = jsonMatch[0];
+        const parsed = JSON.parse(jsonStr) as {
+          summary?: string;
+          ltm?: Record<string, string>;
+        };
+
+        // A. 物理覆写 SUMMARY.md 大事记
+        if (typeof parsed.summary === 'string') {
+          const newSummary = parsed.summary.trim();
+          if (newSummary) {
+            SummaryReaderWriter.writeSummary(summaryPath, newSummary);
+            console.log(`[MemoryAgentService] 物理覆写大事记 SUMMARY.md 成功，最新大事记字数: ${newSummary.length}`);
+          }
+        }
+
+        // B. 物理覆写 Memory.md 中的 LTM 长期记忆
+        if (parsed.ltm && typeof parsed.ltm === 'object') {
+          const memory = MemoryReaderWriter.readMemory(memoryPath);
+          const cleanedLtm: Record<string, string> = {};
+          
+          for (const key of Object.keys(parsed.ltm)) {
+            const val = parsed.ltm[key];
+            if (typeof val === 'string' && val.trim() !== '') {
+              cleanedLtm[key.trim()] = val.trim();
+            }
+          }
+
+          // 防呆保护：避免大模型吐空覆盖旧的 LTM
+          if (Object.keys(cleanedLtm).length === 0 && Object.keys(currentLtm).length > 0) {
+            console.warn('[MemoryAgentService] 归并大模型返回空 LTM，跳过物理覆盖以保护旧 LTM。');
+          } else {
+            memory.ltm = cleanedLtm;
+            MemoryReaderWriter.writeMemory(memoryPath, memory.stm, memory.ltm);
+            console.log('[MemoryAgentService] 物理归并更新长期记忆 Memory.md LTM 成功。');
+          }
+        }
+
+        // C. 核心逻辑重置：将 activeHistory 中最新一条消息的时间戳存为 last_compression_ts_[charId]
+        const latestMsg = activeHistory[activeHistory.length - 1];
+        if (latestMsg && latestMsg.timestamp) {
+          db.setSetting(lastCompressionKey, String(latestMsg.timestamp));
+          console.log(`[MemoryAgentService] 成功推进 last_compression_ts 为: ${latestMsg.timestamp}，增量历史无感逻辑清零完成！`);
+        }
+      }
+    } catch (err) {
+      console.error('[MemoryAgentService] 后台双通道归并压缩异常:', err);
+    } finally {
+      // 9. 释放 InferenceMutex 锁
+      InferenceMutex.unlock();
+      console.log('[MemoryAgentService] 后台归并压缩自省完毕，互斥锁已安全释放。');
+    }
   }
 }

@@ -780,8 +780,6 @@ export class ModelAdapter {
       const year = date.getFullYear()
       
       const hours = String(date.getHours()).padStart(2, '0')
-      const minutes = String(date.getMinutes()).padStart(2, '0')
-      const seconds = String(date.getSeconds()).padStart(2, '0')
       
       // 精准的中文时段感知
       const hourNum = date.getHours()
@@ -794,13 +792,13 @@ export class ModelAdapter {
       else if (hourNum >= 21 && hourNum < 24) timeOfDay = '晚上'
       else timeOfDay = '深夜'
       
-      const dateStrEN = `${dayNameEN}, ${monthName} ${day}, ${year}`
-      const dateStrCN = `${year}年${date.getMonth() + 1}月${day}日 ${dayNameCN} ${timeOfDay} ${hours}:${minutes}:${seconds}`
+      const dateStrEN = `${dayNameEN}, ${monthName} ${day}, ${year} ${hours}:00 (Hour-level accuracy)`
+      const dateStrCN = `${year}年${date.getMonth() + 1}月${day}日 ${dayNameCN} 【时段：${timeOfDay}】 ${hours}时`
       
       const timePrompt = `\n\n【现实世界精准时间感知系统 (Current Real-world Timestamp)】
 * 提示：当前用户身处的物理现实世界时间是：
   - 中文时间：${dateStrCN}
-  - 英文时间：${dateStrEN} ${hours}:${minutes}:${seconds}
+  - 英文时间：${dateStrEN}
   - 时段属性：【${timeOfDay}】
 * 绝对准则：请你必须以这个当前时间为最高权威，极其智能、精准地去理解用户说的话（如“下午好”、“今晚吃什么”、“现在几点了”、“昨天那件事”等）。在与他交流时，务必展现出完全真实的时空感，千万不要发生下午说成晚上等时间混乱的 AI 紊乱 Bug！`
 

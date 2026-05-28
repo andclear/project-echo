@@ -151,6 +151,26 @@
           <div class="px-4 pt-4 pb-2 flex-shrink-0">
             <!-- 搜索框与加号下拉按钮 -->
             <div class="flex items-center space-x-2">
+              <!-- 🚀 移动端专属用户头像：高圆角与搜索框完全平齐 (28px)，点击即可修改个人侧写画像 -->
+              <div
+                v-if="isMobile"
+                class="w-[28px] h-[28px] rounded-md overflow-hidden border border-outline-variant bg-surface flex-shrink-0 cursor-pointer shadow-sm active:scale-95 transition-all"
+                @click="showUserProfileModal = true; userProfileActiveTab = 'profile'; userMdEditing = false"
+                title="点击修改个人信息"
+              >
+                <img
+                  v-if="userProfile.avatarUrl"
+                  :src="userProfile.avatarUrl"
+                  class="w-full h-full object-cover"
+                  @error="userProfile.avatarUrl = ''"
+                />
+                <img
+                  v-else
+                  :src="defaultAvatarSrc"
+                  class="w-full h-full object-cover"
+                />
+              </div>
+
               <div class="relative flex-1">
                 <SearchIcon class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/50" />
                 <input
@@ -942,6 +962,10 @@
                 
                 <!-- 朋友圈文案正文 -->
                 <p class="text-[11.5px] text-on-surface leading-relaxed whitespace-pre-wrap pl-1 pr-2 font-medium select-text" v-html="renderTextWithStickers(moment.content)"></p>
+                <!-- 朋友圈配图异步加载渲染 [NEW] -->
+                <div v-if="moment.imageBase64" class="mt-2.5 max-w-xs md:max-w-sm w-fit rounded-2xl overflow-hidden border border-outline-variant/30 active:scale-[0.99] transition-all cursor-zoom-in" @click="openSocialImagePreview(moment)">
+                  <img :src="moment.imageBase64" class="max-w-full h-auto max-h-[500px] block hover:scale-[1.01] transition-transform duration-300 rounded-2xl" />
+                </div>
                 
                 <!-- 动作条：点赞、评论展开、收藏 -->
                 <div class="flex items-center justify-between border-t border-outline-variant/10 pt-2.5 select-none flex-shrink-0">
@@ -1237,8 +1261,14 @@
                   <!-- 帖子标题与内容 -->
                   <div class="p-5 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-4">
                     <h2 class="text-sm font-black text-on-surface leading-snug">{{ selectedForumPost.title }}</h2>
+                    
+                    <!-- 论坛贴子配图异步加载渲染 [NEW] -->
+                    <div v-if="selectedForumPost.imageBase64" class="my-3 max-w-xl w-fit rounded-2xl overflow-hidden border border-outline-variant/30 active:scale-[0.99] transition-all cursor-zoom-in" @click="openForumImagePreview(selectedForumPost)">
+                      <img :src="selectedForumPost.imageBase64" class="max-w-full h-auto max-h-[600px] block hover:scale-[1.01] transition-transform duration-300 rounded-2xl" />
+                    </div>
+
                     <div class="text-[11.5px] leading-relaxed text-on-surface pl-0.5 font-medium select-text font-sans markdown-body" v-html="replaceStickersOnly(renderMarkdown(selectedForumPost.content))">
-                      </div>
+                    </div>
                   </div>
 
                   <!-- 楼中楼互动回复列表 -->
@@ -4002,60 +4032,115 @@
 
             <!-- 右侧工具按钮 -->
             <div class="flex items-center space-x-1">
-              <!-- 梦境图标：手动触发角色睡眠反思进化 -->
-              <button
-                v-if="activeCharacter.id !== 'character_creator_bot'"
-                @click="triggerDreamReflection"
-                class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-indigo-500 transition-all"
-                :class="{ 'animate-pulse text-indigo-500 bg-indigo-500/10': isDreaming }"
-                title="手动唤醒做梦进化（睡眠自省）"
-              >
-                <MoonIcon class="w-4 h-4" stroke-width="1.5" />
-              </button>
+              <!-- 移动端：收纳为极其精致的“三点更多”操作浮窗 -->
+              <template v-if="isMobile">
+                <div class="relative">
+                  <button
+                    @click.stop="showTopMoreMenu = !showTopMoreMenu"
+                    class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all active:scale-95 flex items-center justify-center cursor-pointer"
+                    title="更多操作"
+                  >
+                    <MoreHorizontalIcon class="w-5 h-5" />
+                  </button>
 
-              <!-- 大脑图标：查看/编辑角色记忆文件 -->
-              <button
-                v-if="activeCharacter.id !== 'character_creator_bot'"
-                @click="openBrainPanel"
-                class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
-                title="查看并编辑角色记忆"
-              >
-                <BrainIcon class="w-4 h-4" stroke-width="1.5" />
-              </button>
+                  <!-- 顶栏 Action 更多操作浮窗 (绝对定位) -->
+                  <div
+                    v-if="showTopMoreMenu"
+                    @click.stop
+                    class="absolute top-full right-0 mt-2 w-48 rounded-2xl border border-outline-variant bg-surface shadow-2xl p-2 flex flex-col space-y-1.5 z-30 animate-in fade-in slide-in-from-top-2 duration-150"
+                  >
+                    <button
+                      v-if="activeCharacter.id !== 'character_creator_bot'"
+                      @click="triggerDreamReflection(); showTopMoreMenu = false"
+                      class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-indigo-500 hover:bg-indigo-500/10 transition-all select-none w-full text-left"
+                    >
+                      <MoonIcon class="w-4 h-4 text-indigo-500" />
+                      <span>睡眠自省进化</span>
+                    </button>
+                    <button
+                      v-if="activeCharacter.id !== 'character_creator_bot'"
+                      @click="openBrainPanel(); showTopMoreMenu = false"
+                      class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-on-surface/5 transition-all select-none w-full text-left"
+                    >
+                      <BrainIcon class="w-4 h-4 text-primary" />
+                      <span>查看并编辑记忆</span>
+                    </button>
+                    <button
+                      v-if="activeCharacter.id !== 'character_creator_bot'"
+                      @click="openDiaryPanel(); showTopMoreMenu = false"
+                      class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-on-surface/5 transition-all select-none w-full text-left"
+                    >
+                      <BookOpenIcon class="w-4 h-4 text-green-500" />
+                      <span>查看角色日记</span>
+                    </button>
+                    <button
+                      @click="triggerCleanChoice(); showTopMoreMenu = false"
+                      class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-500 hover:bg-red-500/10 transition-all select-none w-full text-left"
+                    >
+                      <TrashIcon class="w-4 h-4 text-red-500" />
+                      <span>清除会话与记忆</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
 
-              <!-- 日记图标：查看角色日记 -->
-              <button
-                v-if="activeCharacter.id !== 'character_creator_bot'"
-                @click="openDiaryPanel"
-                class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
-                title="查看角色日记"
-              >
-                <BookOpenIcon class="w-4 h-4" stroke-width="1.5" />
-              </button>
-
-              <!-- 扫帚图标：清除会话与记忆 / 创角Bot重置 -->
-              <button
-                id="brush-cleaning"
-                @click="triggerCleanChoice"
-                class="brush-cleaning p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-red-500 transition-all active:scale-95 flex items-center justify-center"
-                :title="activeCharacter.id === 'character_creator_bot' ? '重置并重新创角' : '清除会话与记忆'"
-              >
-                <svg
-                  class="brush-cleaning w-4 h-4"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
+              <!-- PC 端：维持原本平铺的一排精美小图标，高容错 -->
+              <template v-else>
+                <!-- 梦境图标：手动触发角色睡眠反思进化 -->
+                <button
+                  v-if="activeCharacter.id !== 'character_creator_bot'"
+                  @click="triggerDreamReflection"
+                  class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-indigo-500 transition-all"
+                  :class="{ 'animate-pulse text-indigo-500 bg-indigo-500/10': isDreaming }"
+                  title="手动唤醒做梦进化（睡眠自省）"
                 >
-                  <path d="m16 22-1-4" />
-                  <path d="M19 14a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2h-3a1 1 0 0 1-1-1V4a2 2 0 0 0-4 0v5a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2v1a1 1 0 0 0 1 1" />
-                  <path d="M19 14H5l-1.973 6.767A1 1 0 0 0 4 22h16a1 1 0 0 0 .973-1.233z" />
-                  <path d="m8 22 1-4" />
-                </svg>
-              </button>
+                  <MoonIcon class="w-4 h-4" stroke-width="1.5" />
+                </button>
+
+                <!-- 大脑图标：查看/编辑角色记忆文件 -->
+                <button
+                  v-if="activeCharacter.id !== 'character_creator_bot'"
+                  @click="openBrainPanel"
+                  class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
+                  title="查看并编辑角色记忆"
+                >
+                  <BrainIcon class="w-4 h-4" stroke-width="1.5" />
+                </button>
+
+                <!-- 日记图标：查看角色日记 -->
+                <button
+                  v-if="activeCharacter.id !== 'character_creator_bot'"
+                  @click="openDiaryPanel"
+                  class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
+                  title="查看角色日记"
+                >
+                  <BookOpenIcon class="w-4 h-4" stroke-width="1.5" />
+                </button>
+
+                <!-- 扫帚图标：清除会话与记忆 / 创角Bot重置 -->
+                <button
+                  id="brush-cleaning"
+                  @click="triggerCleanChoice"
+                  class="brush-cleaning p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-red-500 transition-all active:scale-95 flex items-center justify-center"
+                  :title="activeCharacter.id === 'character_creator_bot' ? '重置并重新创角' : '清除会话与记忆'"
+                >
+                  <svg
+                    class="brush-cleaning w-4 h-4"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="m16 22-1-4" />
+                    <path d="M19 14a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2h-3a1 1 0 0 1-1-1V4a2 2 0 0 0-4 0v5a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2v1a1 1 0 0 0 1 1" />
+                    <path d="M19 14H5l-1.973 6.767A1 1 0 0 0 4 22h16a1 1 0 0 0 .973-1.233z" />
+                    <path d="m8 22 1-4" />
+                  </svg>
+                </button>
+              </template>
             </div>
           </header>
 
@@ -4118,7 +4203,7 @@
                   <!-- 图片气泡 -->
                   <div 
                     v-if="msg.imageBase64" 
-                    class="mb-1 rounded-xl overflow-hidden border border-primary/20 shadow-sm cursor-pointer hover:opacity-95 transition-opacity"
+                    class="mb-1 w-fit rounded-xl overflow-hidden border border-primary/20 shadow-sm cursor-pointer hover:opacity-95 transition-opacity"
                     @click="openImagePreview({
                       base64: msg.imageBase64,
                       filename: msg.imageMeta?.filename || 'user_drawing.png',
@@ -4127,7 +4212,8 @@
                       negativePrompt: msg.imageMeta?.negativePrompt || '',
                       createdAt: msg.imageMeta?.createdAt || msg.timestamp || Date.now(),
                       dimensions: msg.imageMeta?.dimensions || 'portrait',
-                      prefixType: msg.imageMeta?.prefixType || 'chat'
+                      prefixType: msg.imageMeta?.prefixType || 'chat',
+                      characterId: selectedCharacterId
                     })"
                   >
                     <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" />
@@ -4224,7 +4310,7 @@
                   <div 
                     v-if="msg.content && !msg.redPacket && !msg.transfer && !msg.customEmojiUrl" 
                     class="user-chat-bubble markdown-body" 
-                    v-html="renderMarkdown(msg.content)" 
+                    v-html="renderMarkdown(cleanUserContentForUI(msg.content))" 
                     @contextmenu.prevent="openMessageContextMenu($event, msg)"
                     @touchstart="onLongPressStart($event, msg, 'message')"
                     @touchend="onLongPressEnd"
@@ -4256,7 +4342,7 @@
                   <!-- 图片气泡 -->
                   <div 
                     v-if="msg.imageBase64" 
-                    class="mb-1 rounded-xl overflow-hidden border border-primary/20 shadow-sm cursor-pointer hover:opacity-95 transition-opacity"
+                    class="mb-1 w-fit rounded-xl overflow-hidden border border-primary/20 shadow-sm cursor-pointer hover:opacity-95 transition-opacity"
                     @click="openImagePreview({
                       base64: msg.imageBase64,
                       filename: msg.imageMeta?.filename || 'ai_drawing.png',
@@ -4265,7 +4351,8 @@
                       negativePrompt: msg.imageMeta?.negativePrompt || '',
                       createdAt: msg.imageMeta?.createdAt || msg.timestamp || Date.now(),
                       dimensions: msg.imageMeta?.dimensions || 'portrait',
-                      prefixType: msg.imageMeta?.prefixType || 'chat'
+                      prefixType: msg.imageMeta?.prefixType || 'chat',
+                      characterId: selectedCharacterId
                     })"
                     @contextmenu.prevent="openMessageContextMenu($event, msg)"
                     @touchstart="onLongPressStart($event, msg, 'message')"
@@ -4388,7 +4475,7 @@
           <transition name="fade">
             <button
               v-if="showScrollToBottomBtn"
-              @click="scrollToBottom('smooth')"
+              @click="scrollToBottom('smooth', true)"
               class="absolute bottom-4 right-6 w-9 h-9 rounded-full bg-surface/90 hover:bg-surface-high/90 border border-outline-variant/60 flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 active:scale-95 text-primary backdrop-blur cursor-pointer z-20"
               title="返回最新消息"
             >
@@ -4398,168 +4485,309 @@
         </div>
 
           <!-- 底部输入区 -->
-          <div :style="{ height: inputHeight + 'px' }" class="border-t border-chat-border bg-chat-input-bg flex-shrink-0 flex flex-col relative select-none">
-            <!-- 拖拽高度 handle -->
+          <div 
+            :style="!isMobile ? { height: inputHeight + 'px' } : { height: 'auto' }" 
+            class="border-t border-chat-border bg-chat-input-bg flex-shrink-0 flex flex-col relative select-none w-full animate-fade-in"
+            :class="isMobile ? 'px-3.5 py-2.5' : ''"
+          >
+            <!-- 拖拽高度 handle (仅PC端可用) -->
             <div
+              v-if="!isMobile"
               @mousedown="startInputResize"
               class="absolute top-0 left-0 right-0 h-[4px] hover:bg-primary cursor-row-resize transition-all z-30"
               title="拖动更改区域大小"
             ></div>
 
-            <!-- 工具栏 (flex-shrink-0) -->
-            <div class="px-4 pt-2.5 pb-1 flex items-center space-x-1 flex-shrink-0">
-              <!-- 表情 -->
-              <button
-                @click.stop="toggleEmojiPanel"
-                class="input-tool-btn"
-                :class="{ 'text-primary bg-surface-high': showEmojiPanel }"
-                title="表情"
-              >
-                <SmileIcon class="w-5 h-5" />
-              </button>
+            <!-- 🚀 移动端：精简单行输入框 (同一行整合) -->
+            <template v-if="isMobile">
+              <div class="flex items-end space-x-2 w-full relative">
+                <!-- 最左侧：自适应 textarea 输入框 -->
+                <div class="relative flex-1 min-w-0">
+                  <textarea
+                    ref="chatTextarea"
+                    v-model="chatInputText"
+                    @keydown="handleKeyDown"
+                    @paste="handlePaste"
+                    @input="adjustTextareaHeight"
+                    placeholder="发送消息..."
+                    rows="1"
+                    class="w-full py-2 px-3 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text max-h-[40vh] shadow-inner"
+                  ></textarea>
 
-              <!-- 加号/更多功能 -->
-              <button
-                @click.stop="togglePlusMenu"
-                class="input-tool-btn"
-                :class="{ 'text-primary bg-surface-high': showPlusMenu }"
-                title="更多功能"
-              >
-                <PlusCircleIcon class="w-5 h-5" />
-              </button>
+                  <!-- 粘贴图片预览 (绝对定位在输入框上方) -->
+                  <div v-if="pastedImageBase64" class="absolute bottom-full left-0 mb-2.5 w-14 h-14 rounded-lg overflow-hidden border border-primary/30 shadow-md bg-surface z-10 animate-fade-in">
+                    <img :src="pastedImageBase64" class="w-full h-full object-cover" />
+                    <button @click="pastedImageBase64 = ''" class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-error text-white text-[10px] flex items-center justify-center hover:scale-110 transition-all">×</button>
+                  </div>
+                </div>
 
-              <!-- 会话历史 -->
-              <button
-                @click.stop="openChatHistoryModal"
-                class="input-tool-btn"
-                :class="{ 'text-primary bg-surface-high': showChatHistoryModal }"
-                title="会话历史"
-              >
-                <HistoryIcon class="w-5 h-5" />
-              </button>
-
-              <!-- AI 绘图 -->
-              <button
-                @click="triggerChatImageGeneration"
-                :disabled="isAnalyzingPrompt || isDrawingImage"
-                class="input-tool-btn disabled:opacity-50"
-                title="AI 绘图"
-              >
-                <Loader2Icon v-if="isAnalyzingPrompt || isDrawingImage" class="w-5 h-5 animate-spin" />
-                <ApertureIcon v-else class="w-5 h-5 transition-all duration-300" />
-              </button>
-            </div>
-
-            <!-- Emoji 面板 (绝对定位浮窗) -->
-            <div v-if="showEmojiPanel" @click.stop class="absolute bottom-full left-4 right-4 mb-2.5 z-40 p-4 flex flex-col h-[280px] justify-between animate-fade-in select-none glass-panel shadow-2xl rounded-2xl">
-              <input ref="emojiFileInput" type="file" accept="image/*" class="hidden" @change="handleEmojiFileSelect" />
-              
-              <!-- A. 默认表情 -->
-              <div v-if="emojiActiveTab === 'default'" class="flex flex-wrap gap-2 overflow-y-auto flex-1 select-none pr-1 py-1">
-                <button
-                  v-for="emoji in emojiList"
-                  :key="emoji"
-                  class="w-7 h-7 flex items-center justify-center text-xl hover:scale-125 hover:bg-surface-high/60 rounded transition-all cursor-pointer"
-                  @click="insertEmoji(emoji)"
-                >{{ emoji }}</button>
-              </div>
-              
-              <!-- B. 自定义表情 -->
-              <div v-else class="grid grid-cols-8 gap-2 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
-                <!-- + 添加表情大卡片 -->
-                <button
-                  @click="triggerEmojiUpload"
-                  class="aspect-square rounded-lg border border-dashed border-outline-variant/60 hover:border-primary/50 flex items-center justify-center bg-surface hover:bg-primary/5 cursor-pointer active:scale-95 transition-all shadow-sm group"
-                  title="添加自定义表情"
-                >
-                  <PlusIcon class="w-5 h-5 text-on-surface-variant/50 group-hover:text-primary transition-colors" />
-                </button>
-                
-                <!-- 已有表情列表 -->
-                <div
-                  v-for="emoji in customEmojiList"
-                  :key="emoji.id"
-                  @click="sendCustomEmoji(emoji)"
-                  class="aspect-square rounded-lg overflow-hidden border border-outline-variant/60 hover:border-primary bg-surface flex items-center justify-center p-1 cursor-pointer hover:scale-105 active:scale-95 transition-all group relative shadow-sm"
-                  :title="emoji.meaning"
-                >
-                  <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
-                  <!-- 悬浮删除小按钮 -->
+                <!-- 🚀 右侧三大按钮紧凑组合区：恢复正常 w-9 尺寸，但保持 space-x-1 紧凑间距以节省空间 -->
+                <div class="flex items-center space-x-1 flex-shrink-0 mb-0.5">
+                  <!-- 表情按钮 -->
                   <button
-                    @click.stop="deleteCustomEmoji(emoji.id)"
-                    class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 hover:bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow active:scale-90"
-                    title="删除表情"
-                  >×</button>
+                    @click.stop="toggleEmojiPanel"
+                    class="flex items-center justify-center w-9 h-9 rounded-xl hover:bg-surface-high/60 text-on-surface-variant hover:text-primary transition-all active:scale-95 cursor-pointer"
+                    :class="{ 'text-primary bg-surface-high': showEmojiPanel }"
+                    title="表情"
+                  >
+                    <SmileIcon class="w-5.5 h-5.5" />
+                  </button>
+
+                  <!-- 加号按钮 -->
+                  <div class="relative">
+                    <button
+                      @click.stop="showMobilePlusMenu = !showMobilePlusMenu"
+                      class="flex items-center justify-center w-9 h-9 rounded-xl hover:bg-surface-high/60 text-on-surface-variant hover:text-primary transition-all active:scale-95 cursor-pointer"
+                      :class="{ 'text-primary bg-surface-high shadow-inner': showMobilePlusMenu }"
+                      title="更多功能"
+                    >
+                      <PlusIcon class="w-5.5 h-5.5" />
+                    </button>
+
+                    <!-- 移动端加号功能浮窗 (绝对定位，点击红包、会话历史、生图) -->
+                    <div
+                      v-if="showMobilePlusMenu"
+                      @click.stop
+                      class="absolute bottom-full right-0 mb-3.5 w-40 rounded-2xl border border-outline-variant bg-surface shadow-2xl p-2.5 flex flex-col space-y-1.5 z-50 animate-in fade-in slide-in-from-bottom-2 duration-150"
+                    >
+                      <!-- 红包 -->
+                      <button
+                        @click="openRedPacket(); showMobilePlusMenu = false"
+                        class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-red-500 hover:bg-red-500/10 transition-all w-full text-left"
+                      >
+                        <GiftIcon class="w-4 h-4 text-red-500" />
+                        <span>发红包</span>
+                      </button>
+                      
+                      <!-- 会话历史 -->
+                      <button
+                        @click="openChatHistoryModal(); showMobilePlusMenu = false"
+                        class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-all w-full text-left"
+                      >
+                        <HistoryIcon class="w-4 h-4 text-primary" />
+                        <span>会话历史</span>
+                      </button>
+
+                      <!-- AI 绘图 -->
+                      <button
+                        @click="triggerChatImageGeneration(); showMobilePlusMenu = false"
+                        :disabled="isAnalyzingPrompt || isDrawingImage"
+                        class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-indigo-500 hover:bg-indigo-500/10 transition-all w-full text-left disabled:opacity-50"
+                      >
+                        <Loader2Icon v-if="isAnalyzingPrompt || isDrawingImage" class="w-4 h-4 animate-spin text-indigo-500" />
+                        <ApertureIcon v-else class="w-4 h-4 text-indigo-500" />
+                        <span>AI 绘图</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- 最右侧：发送按钮 -->
+                  <button
+                    @click="sendChatMessage"
+                    :disabled="isStreaming || (!chatInputText.trim() && !pastedImageBase64)"
+                    class="flex items-center justify-center w-9 h-9 rounded-xl bg-primary text-on-primary disabled:opacity-40 transition-all active:scale-95 cursor-pointer shadow-sm"
+                    title="发送"
+                  >
+                    <Loader2Icon v-if="isStreaming" class="w-4 h-4 animate-spin" />
+                    <SendIcon v-else class="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              
-              <!-- 底部切换 Tab 页签 -->
-              <div class="flex items-center space-x-3.5 pt-2.5 pb-1 border-t border-outline-variant/20 mt-2 flex-shrink-0 select-none">
-                <button
-                  @click="emojiActiveTab = 'default'"
-                  class="w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer border shadow-sm"
-                  :class="emojiActiveTab === 'default' ? 'bg-surface text-primary border-primary/20 scale-105 font-bold shadow' : 'bg-surface-high/40 text-on-surface-variant hover:text-on-surface hover:bg-surface-high border-outline-variant/30'"
-                  title="默认表情"
-                >
-                  <SmileIcon class="w-4 h-4" />
-                </button>
+
+              <!-- 移动端 Emoji 悬浮面板 (绝对定位) -->
+              <div v-if="showEmojiPanel" @click.stop class="absolute bottom-full left-2 right-2 mb-3.5 z-40 p-3.5 flex flex-col h-[260px] justify-between animate-fade-in select-none glass-panel shadow-2xl rounded-2xl">
+                <input ref="emojiFileInput" type="file" accept="image/*" class="hidden" @change="handleEmojiFileSelect" />
                 
+                <!-- 默认表情 -->
+                <div v-if="emojiActiveTab === 'default'" class="flex flex-wrap gap-1.5 overflow-y-auto flex-1 select-none pr-1 py-1">
+                  <button
+                    v-for="emoji in emojiList"
+                    :key="emoji"
+                    class="w-7.5 h-7.5 flex items-center justify-center text-lg hover:scale-125 hover:bg-surface-high/60 rounded transition-all cursor-pointer"
+                    @click="insertEmoji(emoji)"
+                  >{{ emoji }}</button>
+                </div>
+                
+                <!-- 自定义表情 -->
+                <div v-else class="grid grid-cols-6 gap-2 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
+                  <button
+                    @click="triggerEmojiUpload"
+                    class="aspect-square rounded-lg border border-dashed border-outline-variant/60 hover:border-primary/50 flex items-center justify-center bg-surface hover:bg-primary/5 cursor-pointer active:scale-95 transition-all shadow-sm group"
+                  >
+                    <PlusIcon class="w-4 h-4 text-on-surface-variant/50 group-hover:text-primary transition-colors" />
+                  </button>
+                  <div
+                    v-for="emoji in customEmojiList"
+                    :key="emoji.id"
+                    @click="sendCustomEmoji(emoji)"
+                    class="aspect-square rounded-lg overflow-hidden border border-outline-variant/60 hover:border-primary bg-surface flex items-center justify-center p-1 cursor-pointer hover:scale-105 active:scale-95 transition-all group relative shadow-sm"
+                  >
+                    <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
+                    <button
+                      @click.stop="deleteCustomEmoji(emoji.id)"
+                      class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 hover:bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow active:scale-90"
+                    >×</button>
+                  </div>
+                </div>
+                
+                <!-- 切换页签 -->
+                <div class="flex items-center space-x-3 pt-2 border-t border-outline-variant/20 mt-1.5 flex-shrink-0 select-none">
+                  <button
+                    @click="emojiActiveTab = 'default'"
+                    class="w-7.5 h-7.5 rounded-lg flex items-center justify-center transition-all cursor-pointer border shadow-sm"
+                    :class="emojiActiveTab === 'default' ? 'bg-surface text-primary border-primary/20 scale-105 font-bold shadow' : 'bg-surface-high/40 text-on-surface-variant hover:text-on-surface hover:bg-surface-high border-outline-variant/30'"
+                  >
+                    <SmileIcon class="w-4 h-4" />
+                  </button>
+                  <button
+                    @click="emojiActiveTab = 'favorites'"
+                    class="w-7.5 h-7.5 rounded-lg flex items-center justify-center transition-all cursor-pointer border shadow-sm"
+                    :class="emojiActiveTab === 'favorites' ? 'bg-surface text-[#ff4b72] border-[#ff4b72]/20 scale-105 font-bold shadow' : 'bg-surface-high/40 text-on-surface-variant hover:text-on-surface hover:bg-surface-high border-outline-variant/30'"
+                  >
+                    <HeartIcon class="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <!-- 💻 PC 端：原有的拖拽式双排工具栏输入区 -->
+            <template v-else>
+              <!-- 工具栏 (flex-shrink-0) -->
+              <div class="px-4 pt-2.5 pb-1 flex items-center space-x-1 flex-shrink-0">
+                <!-- 表情 -->
                 <button
-                  @click="emojiActiveTab = 'favorites'"
-                  class="w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer border shadow-sm"
-                  :class="emojiActiveTab === 'favorites' ? 'bg-surface text-[#ff4b72] border-[#ff4b72]/20 scale-105 font-bold shadow' : 'bg-surface-high/40 text-on-surface-variant hover:text-on-surface hover:bg-surface-high border-outline-variant/30'"
-                  title="自定义表情"
+                  @click.stop="toggleEmojiPanel"
+                  class="input-tool-btn"
+                  :class="{ 'text-primary bg-surface-high': showEmojiPanel }"
+                  title="表情"
                 >
-                  <HeartIcon class="w-4 h-4" />
+                  <SmileIcon class="w-5 h-5" />
+                </button>
+
+                <!-- 红包 -->
+                <button
+                  @click.stop="openRedPacket"
+                  class="input-tool-btn hover:text-red-500 hover:scale-110 active:scale-95 transition-all duration-200"
+                  title="发红包"
+                >
+                  <GiftIcon class="w-5 h-5" />
+                </button>
+
+                <!-- 会话历史 -->
+                <button
+                  @click.stop="openChatHistoryModal"
+                  class="input-tool-btn"
+                  :class="{ 'text-primary bg-surface-high': showChatHistoryModal }"
+                  title="会话历史"
+                >
+                  <HistoryIcon class="w-5 h-5" />
+                </button>
+
+                <!-- AI 绘图 -->
+                <button
+                  @click="triggerChatImageGeneration"
+                  :disabled="isAnalyzingPrompt || isDrawingImage"
+                  class="input-tool-btn disabled:opacity-50"
+                  title="AI 绘图"
+                >
+                  <Loader2Icon v-if="isAnalyzingPrompt || isDrawingImage" class="w-5 h-5 animate-spin" />
+                  <ApertureIcon v-else class="w-5 h-5 transition-all duration-300" />
                 </button>
               </div>
-            </div>
 
-            <!-- 加号菜单 (绝对定位浮窗) -->
-            <div v-if="showPlusMenu" @click.stop class="absolute bottom-full left-4 mb-2.5 z-40 p-4 flex items-center space-x-4 animate-fade-in select-none glass-panel shadow-2xl rounded-2xl">
-              <button
-                @click="openRedPacket"
-                class="flex flex-col items-center space-y-1 p-1 rounded-xl hover:bg-surface-high/60 transition-all animate-pulse"
-              >
-                <div class="w-9 h-9 rounded-xl bg-red-500 flex items-center justify-center shadow-sm">
-                  <GiftIcon class="w-4 h-4 text-white" />
+              <!-- Emoji 面板 (PC绝对定位浮窗) -->
+              <div v-if="showEmojiPanel" @click.stop class="absolute bottom-full left-4 right-4 mb-2.5 z-40 p-4 flex flex-col h-[280px] justify-between animate-fade-in select-none glass-panel shadow-2xl rounded-2xl">
+                <input ref="emojiFileInput" type="file" accept="image/*" class="hidden" @change="handleEmojiFileSelect" />
+                
+                <!-- A. 默认表情 -->
+                <div v-if="emojiActiveTab === 'default'" class="flex flex-wrap gap-2 overflow-y-auto flex-1 select-none pr-1 py-1">
+                  <button
+                    v-for="emoji in emojiList"
+                    :key="emoji"
+                    class="w-7 h-7 flex items-center justify-center text-xl hover:scale-125 hover:bg-surface-high/60 rounded transition-all cursor-pointer"
+                    @click="insertEmoji(emoji)"
+                  >{{ emoji }}</button>
                 </div>
-                <span class="text-[9px] font-bold text-on-surface-variant">红包</span>
-              </button>
-            </div>
-
-            <!-- 文本输入框 (flex-grow) -->
-            <div class="px-4 pt-1.5 pb-2.5 flex-1 flex flex-col min-h-0">
-              <div class="relative flex-1 flex flex-col min-h-0">
-                <textarea
-                  ref="chatTextarea"
-                  v-model="chatInputText"
-                  @keydown="handleKeyDown"
-                  @paste="handlePaste"
-                  @focus="handleTextareaFocus"
-                  placeholder="发送消息... (Enter 发送，Shift+Enter 换行)"
-                  class="w-full flex-1 py-2 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text"
-                  :class="pastedImageBase64 ? 'pl-20 pr-3' : 'px-3'"
-                ></textarea>
-                <!-- 粘贴图片预览 (居左) -->
-                <div v-if="pastedImageBase64" class="absolute top-2 left-2 w-16 h-16 rounded-lg overflow-hidden border border-primary/30 shadow-sm bg-surface z-10">
-                  <img :src="pastedImageBase64" class="w-full h-full object-cover" />
-                  <button @click="pastedImageBase64 = ''" class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-error text-white text-[10px] flex items-center justify-center hover:scale-110 transition-all">×</button>
+                
+                <!-- B. 自定义表情 -->
+                <div v-else class="grid grid-cols-8 gap-2 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
+                  <button
+                    @click="triggerEmojiUpload"
+                    class="aspect-square rounded-lg border border-dashed border-outline-variant/60 hover:border-primary/50 flex items-center justify-center bg-surface hover:bg-primary/5 cursor-pointer active:scale-95 transition-all shadow-sm group"
+                    title="添加自定义表情"
+                  >
+                    <PlusIcon class="w-5 h-5 text-on-surface-variant/50 group-hover:text-primary transition-colors" />
+                  </button>
+                  <div
+                    v-for="emoji in customEmojiList"
+                    :key="emoji.id"
+                    @click="sendCustomEmoji(emoji)"
+                    class="aspect-square rounded-lg overflow-hidden border border-outline-variant/60 hover:border-primary bg-surface flex items-center justify-center p-1 cursor-pointer hover:scale-105 active:scale-95 transition-all group relative shadow-sm"
+                    :title="emoji.meaning"
+                  >
+                    <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
+                    <button
+                      @click.stop="deleteCustomEmoji(emoji.id)"
+                      class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 hover:bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow active:scale-90"
+                      title="删除表情"
+                    >×</button>
+                  </div>
+                </div>
+                
+                <!-- 底部切换 Tab 页签 -->
+                <div class="flex items-center space-x-3.5 pt-2.5 pb-1 border-t border-outline-variant/20 mt-2 flex-shrink-0 select-none">
+                  <button
+                    @click="emojiActiveTab = 'default'"
+                    class="w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer border shadow-sm"
+                    :class="emojiActiveTab === 'default' ? 'bg-surface text-primary border-primary/20 scale-105 font-bold shadow' : 'bg-surface-high/40 text-on-surface-variant hover:text-on-surface hover:bg-surface-high border-outline-variant/30'"
+                    title="默认表情"
+                  >
+                    <SmileIcon class="w-4 h-4" />
+                  </button>
+                  <button
+                    @click="emojiActiveTab = 'favorites'"
+                    class="w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer border shadow-sm"
+                    :class="emojiActiveTab === 'favorites' ? 'bg-surface text-[#ff4b72] border-[#ff4b72]/20 scale-105 font-bold shadow' : 'bg-surface-high/40 text-on-surface-variant hover:text-on-surface hover:bg-surface-high border-outline-variant/30'"
+                    title="自定义表情"
+                  >
+                    <HeartIcon class="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <div class="flex justify-between items-center mt-1.5 flex-shrink-0">
-                <span class="text-[9px] text-on-surface-variant/35 font-medium tracking-wide">Enter 发送，Shift+Enter 换行</span>
-                <button
-                  @click="sendChatMessage"
-                  :disabled="isStreaming || (!chatInputText.trim() && !pastedImageBase64)"
-                  class="px-3.5 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-bold disabled:opacity-40 hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-sm active:scale-95"
-                >
-                  <Loader2Icon v-if="isStreaming" class="w-3.5 h-3.5 animate-spin" />
-                  <SendIcon v-else class="w-3.5 h-3.5" />
-                  <span>{{ isStreaming ? '接收中...' : '发送' }}</span>
-                </button>
+
+              <!-- 文本输入框 (PC flex-grow) -->
+              <div class="px-4 pt-1.5 pb-2.5 flex-1 flex flex-col min-h-0">
+                <div class="relative flex-1 flex flex-col min-h-0">
+                  <textarea
+                    ref="chatTextarea"
+                    v-model="chatInputText"
+                    @keydown="handleKeyDown"
+                    @paste="handlePaste"
+                    @focus="handleTextareaFocus"
+                    placeholder="发送消息... (Enter 发送，Shift+Enter 换行)"
+                    class="w-full flex-1 py-2 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text"
+                    :class="pastedImageBase64 ? 'pl-20 pr-3' : 'px-3'"
+                  ></textarea>
+                  <!-- 粘贴图片预览 (居左) -->
+                  <div v-if="pastedImageBase64" class="absolute top-2 left-2 w-16 h-16 rounded-lg overflow-hidden border border-primary/30 shadow-sm bg-surface z-10">
+                    <img :src="pastedImageBase64" class="w-full h-full object-cover" />
+                    <button @click="pastedImageBase64 = ''" class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-error text-white text-[10px] flex items-center justify-center hover:scale-110 transition-all">×</button>
+                  </div>
+                </div>
+                <div class="flex justify-between items-center mt-1.5 flex-shrink-0">
+                  <span class="text-[9px] text-on-surface-variant/35 font-medium tracking-wide">Enter 发送，Shift+Enter 换行</span>
+                  <button
+                    @click="sendChatMessage"
+                    :disabled="isStreaming || (!chatInputText.trim() && !pastedImageBase64)"
+                    class="px-3.5 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-bold disabled:opacity-40 hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-sm active:scale-95"
+                  >
+                    <Loader2Icon v-if="isStreaming" class="w-3.5 h-3.5 animate-spin" />
+                    <SendIcon v-else class="w-3.5 h-3.5" />
+                    <span>{{ isStreaming ? '接收中...' : '发送' }}</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            </template>
           </div>
         </template>
       </template>
@@ -4997,8 +5225,8 @@
                     : 'bg-surface border border-outline-variant/50 text-on-surface rounded-tl-sm'"
                 >
                   <!-- 高亮搜索词 -->
-                  <span v-if="chatHistorySearchQuery" v-html="highlightSearchTerm(msg.content, chatHistorySearchQuery)"></span>
-                  <span v-else>{{ msg.content }}</span>
+                  <span v-if="chatHistorySearchQuery" v-html="highlightSearchTerm(cleanUserContentForUI(msg.content), chatHistorySearchQuery)"></span>
+                  <span v-else>{{ cleanUserContentForUI(msg.content) }}</span>
                 </div>
               </div>
             </div>
@@ -6908,7 +7136,8 @@ import {
   Check as CheckIcon,
   ChevronDown as ChevronDownIcon,
   ChevronLeft as ChevronLeftIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  MoreHorizontal as MoreHorizontalIcon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -6916,6 +7145,12 @@ import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
 import ConversationItem from './components/ConversationItem.vue'
 import { StreamingContextScrubber } from './utils/StreamingContextScrubber'
 import MarkdownIt from 'markdown-it'
+
+// 物理清洗大模型前缀缓存时注入的动态状态/记忆，防止在 UI 和列表渲染时残留系统提示词
+function cleanUserContentForUI(content: string): string {
+  if (typeof content !== 'string') return content || ''
+  return content.replace(/^\[System Dynamic Context Update\][\s\S]*?---\n\n/, '')
+}
 
 // 优雅的 window.api Polyfill 局域网桥接垫片
 if (typeof window !== 'undefined' && !(window as any).api) {
@@ -7006,7 +7241,13 @@ function renderMarkdown(content: string) {
 
 function renderTextWithStickers(text: string) {
   if (!text) return ''
-  let escaped = text
+  // 物理剔除隐藏的配图与描述注释，防止其在 HTML 转义时溢出在正文可见
+  const cleanText = text
+    .replace(/<!--\s*\[wechat_image_media\]:[\s\S]*?\s*-->/gi, '')
+    .replace(/<!--\s*\[image_desc\]:[\s\S]*?\s*-->/gi, '')
+    .trim();
+
+  let escaped = cleanText
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -7150,6 +7391,23 @@ const lyricContainerRef = ref<HTMLElement | null>(null)
 const searchQuery = ref('')
 const showAddMenu = ref(false)
 const showAddCharacterMenu = ref(false)
+const showTopMoreMenu = ref(false)
+const showMobilePlusMenu = ref(false)
+const textareaHeight = ref('36px')
+
+function adjustTextareaHeight() {
+  const el = chatTextarea.value
+  if (el) {
+    el.style.height = '36px' // 重设为单行高度，以便字数减少时能随之收缩
+    const scrollHeight = el.scrollHeight
+    const maxHeight = window.innerHeight * 0.4
+    if (scrollHeight > maxHeight) {
+      el.style.height = `${maxHeight}px`
+    } else {
+      el.style.height = `${scrollHeight}px`
+    }
+  }
+}
 
 // ===================== 朋友圈 & 论坛 & 状态 & 成长线相关响应式数据 =====================
 const unreadMomentsCount = ref(0)
@@ -7163,6 +7421,7 @@ const momentsCooldownText = ref('')
 const forumPostsList = ref<any[]>([])
 const isRefreshingForum = ref(false)
 const forumCooldownText = ref('')
+const isDebuggingImage = ref(false)
 const selectedForumPost = ref<any>(null)
 
 // ── 朋友圈与论坛补充响应式 ──
@@ -7793,6 +8052,7 @@ watch(chatInputText, (newVal) => {
 const scrubber = new StreamingContextScrubber()
 const typingQueue = ref<string[]>([])
 let typingTimer: any = null
+const pendingCleanedContentMap = reactive<Record<string, string>>({})
 
 // ===================== 角色文件内容 =====================
 const activeDiary = ref('')
@@ -8460,7 +8720,6 @@ function shouldShowTime(msg: any, prevMsg: any): boolean {
 
 // ===================== Emoji & 自定义表情 =====================
 const showEmojiPanel = ref(false)
-const showPlusMenu = ref(false)
 const emojiActiveTab = ref<'default' | 'favorites'>('default')
 const showAddEmojiModal = ref(false)
 const emojiFileInput = ref<HTMLInputElement | null>(null)
@@ -8912,6 +9171,18 @@ async function loadCharacters() {
 
 // ===================== 选中角色 =====================
 async function selectCharacter(charId: string) {
+  const oldCharId = selectedCharacterId.value
+  if (oldCharId && pendingCleanedContentMap[oldCharId]) {
+    const msgs = allMessages[oldCharId] || []
+    if (msgs.length > 0) {
+      const last = msgs[msgs.length - 1]
+      if (last.role === 'assistant') {
+        last.content = pendingCleanedContentMap[oldCharId]
+      }
+    }
+    delete pendingCleanedContentMap[oldCharId]
+  }
+
   selectedCharacterId.value = charId
   activeView.value = 'chat'
   sideView.value = 'chat'
@@ -9199,8 +9470,8 @@ async function sendChatMessage() {
 
   chatInputText.value = ''
   pastedImageBase64.value = ''
+  if (chatTextarea.value) chatTextarea.value.style.height = '36px'
   showEmojiPanel.value = false
-  showPlusMenu.value = false
 
   // 生成唯一的消息ID，用于在 SQLite 数据库中独立持久化该条消息气泡
   const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
@@ -9218,7 +9489,7 @@ async function sendChatMessage() {
     created_at: new Date().toISOString(),
     timestamp: timestamp
   })
-  nextTick(() => scrollToBottom())
+  nextTick(() => scrollToBottom('smooth', true))
 
   // 2. 物理落盘已完全移交给后台 3 秒合并时唯一落盘，从而解除重复产生的双条消息 Bug
 
@@ -9626,9 +9897,17 @@ function handleDrop(e: DragEvent) {
 
 
 // ===================== 滚动到底部 =====================
-function scrollToBottom(behavior: 'auto' | 'smooth' = 'smooth') {
+function scrollToBottom(behavior: 'auto' | 'smooth' = 'smooth', force = false) {
   if (chatContainer.value) {
-    chatContainer.value.scrollTo({ top: chatContainer.value.scrollHeight, behavior })
+    const container = chatContainer.value
+    const diff = container.scrollHeight - container.scrollTop - container.clientHeight
+    
+    // 如果不是强制置底，且用户明显大幅上滑（距离底部超过 200px），则不要自动滚到底部以防剥夺用户阅读主动权
+    // 200px 容差完美给流式换行、大图片和动作气泡动态变高留出充足反应区间，防范置底自锁
+    if (!force && showScrollToBottomBtn.value && diff > 200) {
+      return
+    }
+    container.scrollTo({ top: container.scrollHeight, behavior })
   }
 }
 
@@ -9738,6 +10017,20 @@ function startTypingEffect() {
     } else if (!isStreaming.value) {
       clearInterval(typingTimer)
       typingTimer = null
+
+      // 当打字机动画播放完成，且流式已结束时，应用保留的完美换行权威全文
+      const charId = selectedCharacterId.value
+      if (charId && pendingCleanedContentMap[charId]) {
+        const msgs = allMessages[charId] || []
+        if (msgs.length > 0) {
+          const last = msgs[msgs.length - 1]
+          if (last.role === 'assistant') {
+            last.content = pendingCleanedContentMap[charId]
+          }
+        }
+        delete pendingCleanedContentMap[charId]
+      }
+
       handleRedPacketStatusOnDone()
     }
   }, 30)
@@ -9869,14 +10162,16 @@ function pushToTypingQueue(text: string) {
   startTypingEffect()
 }
 
-// ===================== Emoji & 自定义表情 =====================
-function toggleEmojiPanel() { showEmojiPanel.value = !showEmojiPanel.value; showPlusMenu.value = false }
-function togglePlusMenu() { showPlusMenu.value = !showPlusMenu.value; showEmojiPanel.value = false }
+function toggleEmojiPanel() { showEmojiPanel.value = !showEmojiPanel.value }
 function insertEmoji(emoji: string) { chatInputText.value += emoji; chatTextarea.value?.focus() }
 
-function saveCustomEmojis() {
+function saveCustomEmojis(syncToBackend = true) {
   try {
-    localStorage.setItem('echo_custom_emojis', JSON.stringify(customEmojiList.value))
+    const emojis = toRaw(customEmojiList.value)
+    localStorage.setItem('echo_custom_emojis', JSON.stringify(emojis))
+    if (syncToBackend) {
+      window.api.invoke('save-custom-emojis', emojis)
+    }
   } catch (_) {}
 }
 
@@ -10005,7 +10300,7 @@ const showReceiveRedPacketModal = ref(false)
 const activeReceivingRedPacketMsg = ref<any>(null)
 const isOpeningRedPacket = ref(false)
 
-function openRedPacket() { showRedPacketModal.value = true; showPlusMenu.value = false }
+function openRedPacket() { showRedPacketModal.value = true }
 
 
 
@@ -10122,15 +10417,19 @@ async function saveUserProfile() {
   showUserProfileModal.value = false
 }
 
-function saveUserProfileLocal() {
+function saveUserProfileLocal(syncToBackend = true) {
   try {
-    localStorage.setItem('echo_user_profile', JSON.stringify({
+    const profileData = {
       avatarUrl: userProfile.avatarUrl,
       nickname: userProfile.nickname,
       signature: userProfile.signature,
       location: userProfile.location,
       walletBalance: userProfile.walletBalance
-    }))
+    }
+    localStorage.setItem('echo_user_profile', JSON.stringify(profileData))
+    if (syncToBackend) {
+      window.api.invoke('save-user-profile', profileData)
+    }
   } catch (_) {}
 }
 
@@ -10580,9 +10879,10 @@ function handleGlobalClick(e?: MouseEvent) {
   contextMenu.visible = false
   showEmojiPanel.value = false
   showGlobalEmojiPanel.value = false // 隐藏多端通用的全局表情面板
-  showPlusMenu.value = false
   showAddMenu.value = false
   showAddCharacterMenu.value = false
+  showTopMoreMenu.value = false
+  showMobilePlusMenu.value = false
 
   // 处理播放队列抽屉点击外部自动隐藏
   if (showQueueDrawer.value && e) {
@@ -10948,6 +11248,38 @@ function openImagePreview(img: any) {
   showBigImageModal.value = true
 }
 
+function openSocialImagePreview(moment: any) {
+  const imgPath = getMomentImage(moment.content)
+  if (!imgPath) return
+  const filename = imgPath.split('/').pop() || 'social_drawing.png'
+  
+  openImagePreview({
+    base64: moment.imageBase64,
+    filename: filename,
+    prompt: moment.imageMeta?.prompt || '',
+    negativePrompt: moment.imageMeta?.negativePrompt || '',
+    dimensions: moment.imageMeta?.dimensions || 'portrait',
+    timestamp: moment.imageMeta?.timestamp || moment.timestamp
+  })
+}
+
+function openForumImagePreview(post: any) {
+  const imgPath = getMomentImage(post.content)
+  if (!imgPath) return
+  const filename = imgPath.split('/').pop() || 'forum_drawing.png'
+  
+  openImagePreview({
+    base64: post.imageBase64,
+    filename: filename,
+    prompt: post.imageMeta?.prompt || '',
+    negativePrompt: post.imageMeta?.negativePrompt || '',
+    dimensions: post.imageMeta?.dimensions || 'portrait',
+    prefixType: 'social',
+    characterId: post.character_id,
+    createdAt: post.timestamp
+  })
+}
+
 function downloadImage(base64Data: string, filename: string) {
   const link = document.createElement('a')
   link.href = base64Data
@@ -10959,8 +11291,10 @@ function downloadImage(base64Data: string, filename: string) {
 }
 
 async function triggerDeleteGalleryImage(img: any, fromModal: boolean = false) {
-  if (!img || !selectedContactId.value) return
-  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!img) return
+  const charId = img.characterId || selectedCharacterId.value || selectedContactId.value
+  if (!charId) return
+  const char = characterList.value.find(c => c.id === charId)
   if (!char) return
 
   showCustomConfirm(
@@ -11566,22 +11900,26 @@ onMounted(async () => {
 
   // 加载用户个人信息并通过 IPC 向主进程同步画像权威数据
   loadUserProfileLocal()
-  window.api.invoke('read-global-user-md').then((res: any) => {
-    if (res.success) {
-      globalUserMdContent.value = res.content
-      // 只有当物理文件中能解析出非空姓名时，才同步覆盖前端缓存
-      // 避免空白 USER.md 导致 localStorage 中的姓名被抹空
-      if (res.nickname !== undefined && res.nickname.trim() !== '') {
-        userProfile.nickname = res.nickname
-        saveUserProfileLocal()
+  window.api.invoke('get-user-profile').then((pRes: any) => {
+    if (pRes.success && pRes.profile) {
+      Object.assign(userProfile, pRes.profile)
+      saveUserProfileLocal(false) // 仅更新本地，防循环写入
+    }
+    // 异步加载大模型自省解析的 USER.md 以保持姓名覆盖和预检
+    window.api.invoke('read-global-user-md').then((res: any) => {
+      if (res.success) {
+        globalUserMdContent.value = res.content
+        if (res.nickname !== undefined && res.nickname.trim() !== '') {
+          userProfile.nickname = res.nickname
+          saveUserProfileLocal(true) // 姓名权威解析可以物理回写同步
+        }
       }
-    }
-    // 检测是否最终设置了姓名，如果没有设置，弹出个人中心的弹出框，并提示用户必须完成设置
-    if (!userProfile.nickname || userProfile.nickname.trim() === '') {
-      showUserProfileModal.value = true
-      userProfileActiveTab.value = 'profile'
-      showCustomAlert('设置姓名', '检测到您尚未设置姓名，请先完成基础资料中的姓名设置以开启数字生命旅程！', 'info')
-    }
+      if (!userProfile.nickname || userProfile.nickname.trim() === '') {
+        showUserProfileModal.value = true
+        userProfileActiveTab.value = 'profile'
+        showCustomAlert('设置姓名', '检测到您尚未设置姓名，请先完成基础资料中的姓名设置以开启数字生命旅程！', 'info')
+      }
+    })
   })
 
   // 加载自定义表情
@@ -11591,6 +11929,12 @@ onMounted(async () => {
       customEmojiList.value = JSON.parse(stored)
     }
   } catch (_) {}
+  window.api.invoke('get-custom-emojis').then((eRes: any) => {
+    if (eRes.success && eRes.emojis) {
+      customEmojiList.value = eRes.emojis
+      saveCustomEmojis(false) // 仅更新本地，防循环写入
+    }
+  })
 
   // 加载角色列表
   await loadCharacters()
@@ -11677,6 +12021,21 @@ onMounted(async () => {
     }
   })
 
+  // 监听局域网多端同步实时广播
+  window.api.receive('user-profile-updated', (profile: any) => {
+    if (profile) {
+      Object.assign(userProfile, profile)
+      saveUserProfileLocal(false) // 仅写入本地，防止循环广播
+    }
+  })
+
+  window.api.receive('custom-emojis-updated', (emojis: any[]) => {
+    if (emojis) {
+      customEmojiList.value = emojis
+      saveCustomEmojis(false) // 仅写入本地，防止循环广播
+    }
+  })
+
   // 监听流式 chunk
   window.api.receive('chat-chunk', (data: { characterId: string; content: string; done: boolean; isSystem?: boolean }) => {
     const chunkCharId = data.characterId || streamingCharacterId.value || selectedCharacterId.value || ''
@@ -11735,7 +12094,12 @@ onMounted(async () => {
                 .replace(halfBracketReg, '')
                 .trim()
                 
-              last.content = cleanedContent
+              // 如果是当前选中的活跃角色，且打字队列中仍有残留字符，则等待打字机全部吐字完后再应用权威全文，防止文字出现重复
+              if (charId === selectedCharacterId.value && typingQueue.value.length > 0) {
+                pendingCleanedContentMap[charId] = cleanedContent
+              } else {
+                last.content = cleanedContent
+              }
             }
           }
         }
@@ -12108,11 +12472,41 @@ function scrollToNewMoment() {
   })
 }
 
+function getMomentImage(content: string) {
+  if (!content) return null
+  const match = content.match(/<!--\s*\[wechat_image_media\]:(.*?)\s*-->/)
+  return match ? match[1].trim() : null
+}
+
 // 1. 加载朋友圈和论坛
 async function loadMomentsList() {
   const res = await window.api.invoke('fetch-moments', { limit: 50 })
   if (res.success) {
-    momentsList.value = res.moments
+    momentsList.value = res.moments.map((m: any) => reactive({ ...m, imageBase64: '', imageMeta: null }))
+    
+    // 异步拉取朋友圈配图及元数据
+    momentsList.value.forEach(async (moment: any) => {
+      const imgPath = getMomentImage(moment.content)
+      if (imgPath) {
+        const char = characterList.value.find(c => c.id === moment.character_id)
+        if (char) {
+          try {
+            const readRes = await window.api.invoke('read-image-media', {
+              folderName: char.folder_name,
+              mediaPath: imgPath
+            })
+            if (readRes.success) {
+              moment.imageBase64 = readRes.base64
+              if (readRes.meta) {
+                moment.imageMeta = readRes.meta
+              }
+            }
+          } catch (e) {
+            console.error('加载朋友圈图片失败:', e)
+          }
+        }
+      }
+    })
   }
 }
 
@@ -12237,6 +12631,28 @@ function startForumCooldown() {
   forumCooldownTimer = setTimeout(() => {
     forumCooldownText.value = ''
   }, 5000)
+}
+
+// 生图调试触发方法 (100% 触发 3 个随机角色发图文)
+async function triggerImageDebug(type: 'moment' | 'forum') {
+  if (isDebuggingImage.value) return
+  isDebuggingImage.value = true
+  showToast(`正在调试强制生图... 请耐心等待绘图与排版 🎨`)
+
+  const res = await window.api.invoke('trigger-image-debug', { type })
+  isDebuggingImage.value = false
+
+  if (res.success) {
+    if (type === 'moment') {
+      momentsList.value = res.moments
+      showToast(`调试成功！3 个角色已 100% 发布图文朋友圈 ✨`)
+    } else {
+      forumPostsList.value = res.posts
+      showToast(`调试成功！3 个角色已 100% 发布图文帖子 💡`)
+    }
+  } else {
+    showToast(`生图调试失败: ${res.error}`)
+  }
 }
 
 // 5. 朋友圈动态补充逻辑
@@ -12378,6 +12794,27 @@ async function selectForumPostDetail(post: any) {
     const favRes = await window.api.invoke('check-favorite-status', { type: 'forum', targetId: post.id })
     if (favRes.success) {
       post.isFavorited = favRes.exist
+    }
+  }
+
+  // 3. 异步探测并加载该论坛帖子的配图大图 Base64 媒体与元数据 JSON
+  const imgPath = getMomentImage(post.content)
+  if (imgPath && !post.imageBase64) {
+    const char = characterList.value.find(c => c.id === post.character_id)
+    if (char) {
+      window.api.invoke('read-image-media', {
+        folderName: char.folder_name,
+        mediaPath: imgPath
+      }).then(readRes => {
+        if (readRes.success) {
+          post.imageBase64 = readRes.base64
+          if (readRes.meta) {
+            post.imageMeta = readRes.meta
+          }
+        }
+      }).catch(err => {
+        console.error('加载论坛配图失败:', err)
+      })
     }
   }
 }

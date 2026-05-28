@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { MemoryReaderWriter } from '../src/main/utils/MemoryReaderWriter';
 import { UserProfileReaderWriter } from '../src/main/utils/UserProfileReaderWriter';
+import { SummaryReaderWriter } from '../src/main/utils/SummaryReaderWriter';
 import { ContextAssembler, HistoryMessage } from '../src/main/utils/ContextAssembler';
 
 describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () => {
@@ -10,6 +11,7 @@ describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () =
   const soulFile = path.join(testDir, 'Soul.md');
   const worldFile = path.join(testDir, 'World.md');
   const memoryFile = path.join(testDir, 'Memory.md');
+  const summaryFile = path.join(testDir, 'SUMMARY.md');
   const globalUserFile = path.join(testDir, 'global_USER.md');
   const charUserFile = path.join(testDir, 'char_USER.md');
 
@@ -32,11 +34,14 @@ describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () =
       global_preferences: { '主题色': '极光绿' }
     });
     UserProfileReaderWriter.writeCharacterProfile(charUserFile, ['用户对本智能体很有礼貌']);
+
+    // 写入大事记
+    SummaryReaderWriter.writeSummary(summaryFile, '魏淑珍与用户在编程之余聊到了双通道记忆的设计。');
   });
 
   afterEach(() => {
     // 递归清理物理文件
-    [soulFile, worldFile, memoryFile, globalUserFile, charUserFile].forEach((f) => {
+    [soulFile, worldFile, memoryFile, summaryFile, globalUserFile, charUserFile].forEach((f) => {
       if (fs.existsSync(f)) {
         fs.unlinkSync(f);
       }
@@ -69,24 +74,31 @@ describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () =
     expect(prompt.startsWith('# SYSTEM IDENTITY & WORLD RULES (Stable Tier)')).toBe(true);
     expect(prompt).toContain('我是一个温和、专业的 AI 编程助手。');
     expect(prompt).toContain('回音平台是一个本地化桌面角色扮演系统。');
+    expect(prompt).toContain('## 魏淑珍与用户的对话大事记');
+    expect(prompt).toContain('魏淑珍与用户在编程之余聊到了双通道记忆的设计。');
 
     // B. 验证 Context Tier 处于中间
     expect(prompt).toContain('# DYNAMIC CONTEXT & MEMORY (Context Tier)');
     expect(prompt).toContain('<global-user-profile>');
-    expect(prompt).toContain('- 姓名：杨越');
+    expect(prompt).toContain('- **姓名**：杨越');
     expect(prompt).toContain('<character-specific-user-profile>');
     expect(prompt).toContain('- 用户对本智能体很有礼貌');
-    expect(prompt).toContain('短期记忆一');
-    expect(prompt).toContain('- **用户的生日**：9月10日');
+
+    // 验证独立 Memory Notes
+    const memoryStr = ContextAssembler.assembleMemory(memoryFile);
+    expect(memoryStr).toContain('短期记忆一');
+    expect(memoryStr).toContain('- **用户的生日**：9月10日');
 
     // C. 验证 Volatile Tier 处于最底部
     expect(prompt).toContain('# VOLATILE TRANSACTION & TIME (Volatile Tier)');
-    expect(prompt).toContain('[User]: 你好，杨宁宁');
-    expect(prompt).toContain('[Character]: 你好呀，很高兴见到你。');
     
-    // D. 验证高精自省现实时间与天级保温时段感知注入
-    expect(prompt).toContain('Live Environment Info');
-    expect(prompt).toContain('Saturday, May 23, 2026');
+    // D. 验证时间戳已成功剥离出 System Prompt (极致保温)
+    expect(prompt).not.toContain('Live Environment Info');
+    
+    // E. 验证独立时间感知组装方法功能完好
+    const liveEnvInfo = ContextAssembler.assembleLiveEnvInfo(testDate);
+    expect(liveEnvInfo).toContain('Live Environment Info');
+    expect(liveEnvInfo).toContain('Saturday, May 23, 2026');
   });
 
   it('2. 验证前置缓存保温效果：当对话发生变动时，Stable 层的头部字节完全静止一致', () => {

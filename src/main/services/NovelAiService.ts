@@ -202,7 +202,10 @@ export class NovelAiService {
       console.error(`[NovelAiService] API 绘图响应失败 (${response.status}):`, errText)
       try {
         const fs = require('fs')
-        fs.writeFileSync('/Users/lillian/github/project-echo/nai_error.log', JSON.stringify({
+        const path = require('path')
+        const { app } = require('electron')
+        const logPath = path.join(app.getPath('userData'), 'nai_error.log')
+        fs.writeFileSync(logPath, JSON.stringify({
           url,
           payload,
           status: response.status,

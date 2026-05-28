@@ -59,7 +59,7 @@
             [图片消息]
           </template>
           <template v-else>
-            {{ lastMessage.content || '...' }}
+            {{ typeof lastMessage.content === 'string' ? lastMessage.content.replace(/^\[System Dynamic Context Update\][\s\S]*?---\n\n/, '') : (lastMessage.content || '...') }}
           </template>
         </template>
         <span v-else class="text-on-surface-variant/30 italic">暂无消息</span>

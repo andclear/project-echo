@@ -3,6 +3,7 @@ import * as path from 'path';
 import { MemoryReaderWriter } from './MemoryReaderWriter';
 import { UserProfileReaderWriter } from './UserProfileReaderWriter';
 import { StateReaderWriter } from './StateReaderWriter';
+import { SummaryReaderWriter } from './SummaryReaderWriter';
 
 /**
  * 历史消息格式接口
@@ -259,92 +260,32 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     }
     stableTier += chatModeInstruction;
 
+    // 自动加载大事记 SUMMARY.md 拼入 Stable Tier (恒温缓存层)
+    const summaryPath = path.join(path.dirname(memoryPath), 'SUMMARY.md');
+    if (fs.existsSync(summaryPath)) {
+      try {
+        const summaryData = SummaryReaderWriter.readSummary(summaryPath);
+        if (summaryData.summary && summaryData.summary.trim()) {
+          stableTier += `\n\n## 魏淑珍与用户的对话大事记 (Conversation History Summary)\n${summaryData.summary.trim()}`;
+        }
+      } catch (err) {
+        console.error('[ContextAssembler] 载入大事记失败:', err);
+      }
+    }
+
     // ==========================================
     // 2. Context Tier (环境画像与记忆层)
     // ==========================================
     // 组装双轨千人千面画像
     const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
-    // 读入双轨记忆
-    const memory = MemoryReaderWriter.readMemory(memoryPath);
-    let memoryStr = '### 短期记忆 (STM)\n';
-    if (memory.stm.length === 0) {
-      memoryStr += '*暂无短期记忆事实*\n';
-    } else {
-      memory.stm.forEach((fact) => {
-        memoryStr += `- ${fact}\n`;
-      });
-    }
-
-    memoryStr += '\n### 长期记忆 (LTM)\n';
-    const ltmKeys = Object.keys(memory.ltm);
-    if (ltmKeys.length === 0) {
-      memoryStr += '*暂无长期偏好积累*\n';
-    } else {
-      ltmKeys.forEach((key) => {
-        memoryStr += `- **${key}**：${memory.ltm[key]}\n`;
-      });
-    }
-
     let contextTier = `# DYNAMIC CONTEXT & MEMORY (Context Tier)\n\n`;
-    contextTier += `## User Profiles\n${userProfilesXml}\n\n`;
-    contextTier += `## Memory Notes (STM & LTM Facts)\n${memoryStr.trim()}\n`;
+    contextTier += `## User Profiles\n${userProfilesXml}\n`;
 
     // ==========================================
     // 3. Volatile Tier (高频变动层 - 置于最底部)
     // ==========================================
-    // 拼装历史记录 (大模型在接收 System Context 时能完美将这一层与实时对话融合)
     let volatileTier = `# VOLATILE TRANSACTION & TIME (Volatile Tier)\n\n`;
-    if (stateGuidance) {
-      volatileTier += `${stateGuidance.trim()}\n\n`;
-    }
-    let historyStr = '';
-    if (history.length > 0) {
-      historyStr = `## Recent Transcripts (Last ${history.length} turns)\n`;
-      history.forEach((msg) => {
-        const roleLabel = msg.role === 'user' ? 'User' : msg.role === 'assistant' ? 'Character' : 'System';
-        historyStr += `[${roleLabel}]: ${msg.content}\n`;
-      });
-    }
-
-    // 注入精准到分钟的现实时间（星期、小时和分钟），使 AI 有准确的时间感知
-    const dayNamesCN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-    const dayNamesEN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    
-    const dayNameCN = dayNamesCN[date.getDay()];
-    const dayNameEN = dayNamesEN[date.getDay()];
-    const monthName = monthNames[date.getMonth()];
-    const day = date.getDate();
-    const year = date.getFullYear();
-    
-    // 精准时间（小时:分钟）
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
-    
-    // 中文时段感知
-    const hourNum = date.getHours();
-    let timeOfDay = '';
-    if (hourNum >= 5 && hourNum < 9) timeOfDay = '清晨';
-    else if (hourNum >= 9 && hourNum < 12) timeOfDay = '上午';
-    else if (hourNum >= 12 && hourNum < 14) timeOfDay = '中午';
-    else if (hourNum >= 14 && hourNum < 18) timeOfDay = '下午';
-    else if (hourNum >= 18 && hourNum < 21) timeOfDay = '傍晚';
-    else if (hourNum >= 21 && hourNum < 24) timeOfDay = '晚上';
-    else timeOfDay = '深夜';
-    
-    const dateStrEN = `${dayNameEN}, ${monthName} ${day}, ${year}`;
-    const dateStrCN = `${year}年${date.getMonth() + 1}月${day}日 ${dayNameCN} ${timeOfDay} ${hours}:${minutes}:${seconds}`;
-
-    if (historyStr) {
-      volatileTier += `${historyStr.trim()}\n\n`;
-    }
-    // 同时注入英文和中文精准时间，最大化 AI 时间感知能力
-    volatileTier += `## Live Environment Info\n- Current real-world time: ${dateStrEN} ${hours}:${minutes}:${seconds}\n- 当前现实世界时间：${dateStrCN}\n- 时段感知：现在是${timeOfDay}，请根据实际时段调整你的状态和回复语气。\n`;
 
     // 🚀 大师级高频 Volatile 警告注入：置于 Prompt 最底部，强力防止大模型在上下文拉长后遗忘财务铁律，从源头逼迫其遵循控制符或人设反驳
     volatileTier += `\n## 实时财务行动干涉警告 (Financial Transfer Action Volatile Guidance)
@@ -357,6 +298,156 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     // 4. 全局装配串联
     // ==========================================
     return `${stableTier.trim()}\n\n---\n\n${contextTier.trim()}\n\n---\n\n${volatileTier.trim()}`;
+  }
+
+  /**
+   * 独立组装记忆文本 (Memory Notes)
+   */
+  public static assembleMemory(memoryPath: string): string {
+    if (!fs.existsSync(memoryPath)) {
+      return '';
+    }
+    try {
+      const memory = MemoryReaderWriter.readMemory(memoryPath);
+      let memoryStr = '### 短期记忆 (STM)\n';
+      if (memory.stm.length === 0) {
+        memoryStr += '*暂无短期记忆事实*\n';
+      } else {
+        memory.stm.forEach((fact) => {
+          memoryStr += `- ${fact}\n`;
+        });
+      }
+
+      memoryStr += '\n### 长期记忆 (LTM)\n';
+      const ltmKeys = Object.keys(memory.ltm);
+      if (ltmKeys.length === 0) {
+        memoryStr += '*暂无长期偏好积累*\n';
+      } else {
+        ltmKeys.forEach((key) => {
+          memoryStr += `- **${key}**：${memory.ltm[key]}\n`;
+        });
+      }
+      return memoryStr.trim();
+    } catch (e) {
+      console.error('[ContextAssembler] 组装记忆失败:', e);
+      return '';
+    }
+  }
+
+  /**
+   * 独立组装内心世界与心智投射状态引导 (Character Internal State)
+   */
+  public static assembleStateGuidance(soulPath: string): string {
+    let stateGuidance = '';
+    const statePath = path.join(path.dirname(soulPath), 'State.md');
+    if (fs.existsSync(statePath)) {
+      try {
+        const state = StateReaderWriter.readState(statePath);
+        const intimacyItem = state.items.find((i: any) => i.key === 'intimacy');
+        const moodItem = state.items.find((i: any) => i.key === 'mood');
+        const energyItem = state.items.find((i: any) => i.key === 'energy');
+        const balanceItem = state.items.find((i: any) => i.key === 'balance');
+        
+        let intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
+        let moodVal = moodItem ? Number(moodItem.value) : 72;
+        let energyVal = energyItem ? Number(energyItem.value) : 45;
+        let balanceVal = balanceItem ? Number(balanceItem.value) : 5200.0;
+        
+        // 情感亲密境界映射
+        let intimacyText = '泛泛之交';
+        let attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
+        if (intimacyVal >= 0 && intimacyVal < 20) {
+          intimacyText = '陌生壁垒';
+          attitudeDesc = '极为礼貌，极度注重私人边界，语气冷淡客气、公事公办，不可表现出过多的关心。';
+        } else if (intimacyVal >= 20 && intimacyVal < 40) {
+          intimacyText = '泛泛之交';
+          attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
+        } else if (intimacyVal >= 40 && intimacyVal < 60) {
+          intimacyText = '熟悉好友';
+          attitudeDesc = '态度友好真诚，乐意分享闲聊，建立了基本的信任感。';
+        } else if (intimacyVal >= 60 && intimacyVal < 80) {
+          intimacyText = '红颜挚友/轻微暧昧';
+          attitudeDesc = '十分依恋与信任用户，乐于袒露脆弱，会显露情绪化的小性子，语气熟昵亲昵、轻微暧昧。';
+        } else if (intimacyVal >= 80 && intimacyVal <= 100) {
+          intimacyText = '灵魂羁绊/深爱';
+          attitudeDesc = '极其宠溺偏爱用户，心理完全不设防，拥有极高的依赖度与黏人语气，视对方为不可或缺的灵魂伴侣。';
+        }
+
+        // 情感微观偏离补白
+        let intimacyBias = '';
+        if (intimacyVal >= 0 && intimacyVal < 20) {
+          intimacyBias = intimacyVal < 10 
+            ? '此时你防备心极重，视对方为完全的陌生人，语气冰冷，言语极为简短且客套。' 
+            : '虽然极其疏离，但你正在尝试保持最低限度的社交礼节，话语客气。';
+        } else if (intimacyVal >= 20 && intimacyVal < 40) {
+          intimacyBias = intimacyVal < 30 
+            ? '你在泛泛之交的关系中偏向保守，遵循基础礼貌，绝对不主动透露自己的私人生活。' 
+            : '关系在慢慢熟识，你对 {{user}} 开始流露出一丝熟人间的默契，但依旧保持界限。';
+        } else if (intimacyVal >= 40 && intimacyVal < 60) {
+          intimacyBias = intimacyVal < 50 
+            ? '虽为熟悉好友，但你说话依旧较有分寸，不可流露出过度亲近或越界的玩笑。' 
+            : '在好友关系中偏向随性放松，言谈从容，偶尔会分享一些私人趣味琐事。';
+        } else if (intimacyVal >= 60 && intimacyVal < 80) {
+          intimacyBias = intimacyVal < 70 
+            ? '对 {{user}} 的依恋刚刚生根，你时而感到害羞退缩，时而流露出亲昵，处于试探性的小傲娇或小纠结中。' 
+            : '依恋与宠爱极其明显，言语间常带有偏爱与不加掩饰的熟悉，极易展现出你的情绪化与小性子。';
+        } else if (intimacyVal >= 80 && intimacyVal <= 100) {
+          intimacyBias = intimacyVal < 90 
+            ? '你视其为珍贵伴侣，心理完全不设防，拥有高密度的情感黏度与满腔偏宠。' 
+            : '达到了灵魂深处的相知羁绊，对他毫无保留，极致黏人、宠溺、甚至显现出极其强烈的独占欲和撒娇语气。';
+        }
+
+        let moodBias = '';
+        if (moodVal > 80) {
+          moodBias = moodVal > 90 
+            ? '心情极其亢奋愉悦，字里行间洋溢着掩饰不住的喜色和积极的能量。' 
+            : '心情明朗温和，对话带有柔和的暖意与微笑的气息。';
+        } else if (moodVal < 40) {
+          moodBias = moodVal < 20 
+            ? '心情处于极度灰暗与低谷，回复极其冷淡沉重，甚至不想多说一个字。' 
+            : '情绪低沉抑郁，字句间带有一丝消极、敷衍、沉闷，对外界提不起太高的兴致。';
+        } else {
+          moodBias = '心情整体平和、温和而宁静，情绪十分稳定。';
+        }
+
+        let energyBias = '';
+        if (energyVal < 30) {
+          energyBias = energyVal < 15 
+            ? '体力彻底透支，打字极其缓慢应付，回复精简到只有几个字，或主动、强烈地表示想立刻下线休息。' 
+            : '体力消耗很大，感觉疲倦，说话意愿降低，倾向于用极短的句子回复。';
+        } else if (energyVal > 80) {
+          energyBias = '精力充沛，表达欲强，乐于进行长段或深入的互动。';
+        } else {
+          energyBias = '精力状态正常，能够进行自然长短适中的互动。';
+        }
+
+        let otherStatesStr = '';
+        if (state.items && state.items.length > 3) {
+          otherStatesStr = state.items.filter((i: any) => i.key !== 'balance' && i.key !== 'intimacy' && i.key !== 'mood' && i.key !== 'energy').map((i: any) => {
+            const meaningDesc = i.meaning ? `（心智倾向与行为投射：${i.meaning}）` : '';
+            return `\n   - **${i.emoji} ${i.label}** (当前数值：${i.value}/100)${meaningDesc}`;
+          }).join('');
+        }
+
+        stateGuidance = `## 实时内心世界与心智投射 (Character Internal State & Subjective Attitude)
+这是你当前内心潜意识中对 {{user}} (用户) 的情感投影与生理精力状况，它们正悄然主宰着你当下的言谈心境：
+1. **❤️ 情感亲密水准：${intimacyVal}/100 (当前相处境界：【${intimacyText}】)**
+   - 态度投射：${attitudeDesc}
+   - 微观情感温差：${intimacyBias}
+2. **😊 心情色彩：${moodVal}/100**
+   - 表现投射：${moodVal > 80 ? '极为高涨喜悦，充满阳光与活力。' : moodVal < 40 ? '低落郁闷，回复显露出消极、冷淡或沉重的一面。' : '情绪相对平稳或温和。'}
+   - 微观心情偏离：${moodBias}
+3. **⚡ 精力活跃度：${energyVal}/100**
+   - 表现投射：${energyVal < 30 ? '极度疲惫，打字速度变慢，回复偏向简短，或会主动提及想休息。' : '精力充沛，乐于进行长段或深入的互动。'}
+   - 微观精力偏离：${energyBias}
+4. **🪙 钱包余额：${balanceVal.toFixed(2)} 元**
+   - 物理财产规则：这是你在虚拟世界的流动资产数额。你可以使用这笔资金给用户发回音红包！${otherStatesStr}`;
+         
+      } catch (err) {
+        console.error('[ContextAssembler] 注入状态约束失败:', err);
+      }
+    }
+    return stateGuidance;
   }
 
   /**
@@ -457,5 +548,42 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     }
 
     return finalCleaned;
+  }
+
+  /**
+   * 独立组装实时环境时间感知信息 (Live Environment Info)
+   */
+  public static assembleLiveEnvInfo(date: Date = new Date()): string {
+    const dayNamesCN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+    const dayNamesEN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    
+    const dayNameCN = dayNamesCN[date.getDay()];
+    const dayNameEN = dayNamesEN[date.getDay()];
+    const monthName = monthNames[date.getMonth()];
+    const day = date.getDate();
+    const year = date.getFullYear();
+    
+    // 规整至整小时时间 (一小时内绝对静止)
+    const hours = String(date.getHours()).padStart(2, '0');
+    
+    // 中文时段感知
+    const hourNum = date.getHours();
+    let timeOfDay = '';
+    if (hourNum >= 5 && hourNum < 9) timeOfDay = '清晨';
+    else if (hourNum >= 9 && hourNum < 12) timeOfDay = '上午';
+    else if (hourNum >= 12 && hourNum < 14) timeOfDay = '中午';
+    else if (hourNum >= 14 && hourNum < 18) timeOfDay = '下午';
+    else if (hourNum >= 18 && hourNum < 21) timeOfDay = '傍晚';
+    else if (hourNum >= 21 && hourNum < 24) timeOfDay = '晚上';
+    else timeOfDay = '深夜';
+    
+    const dateStrEN = `${dayNameEN}, ${monthName} ${day}, ${year} ${hours}:00 (Hour-level accuracy)`;
+    const dateStrCN = `${year}年${date.getMonth() + 1}月${day}日 ${dayNameCN} 【时段：${timeOfDay}】 ${hours}时`;
+
+    return `## Live Environment Info\n- Current real-world time: ${dateStrEN}\n- 当前现实世界时间：${dateStrCN}\n- 时段感知：现在是${timeOfDay}，请根据实际时段调整你的状态和回复语气。`;
   }
 }
