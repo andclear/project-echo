@@ -272,9 +272,6 @@ Target JSON 格式：
         }
       }
 
-      // 后台对话触发的 Schedule/Goals 规划推进 (首次/为空强力补齐，常规7天定期演进)
-      await this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter);
-
     } catch (e) {
       console.error('[MemoryAgentService] 后台记忆与状态自省提取失败:', e);
     } finally {
@@ -282,6 +279,12 @@ Target JSON 格式：
       InferenceMutex.unlock();
       console.log('[MemoryAgentService] 后台自省任务结束，互斥锁已安全释放。');
     }
+
+    // 🚀 并发解死锁自愈防线：将慢速大模型请求移出 InferenceMutex 同步阻塞锁范围，
+    // 在释放锁之后，异步、非阻塞且带有错误隔离地触发 Schedule/Goals 推进，避免阻塞前台对话
+    this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter).catch(err => {
+      console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
+    });
   }
 
   /**

@@ -97,11 +97,26 @@ export class SocialMediaService {
     const schedulePath = path.join(baseDir, folderName, 'Schedule.md');
     const scheduleContent = fs.existsSync(schedulePath) ? fs.readFileSync(schedulePath, 'utf8') : '暂无日程';
 
+    const memoryPath = path.join(baseDir, folderName, 'Memory.md');
+    const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
+
     const history = db.getChatHistory(char.id, 5);
     const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
 
     const soulPath = path.join(baseDir, folderName, 'Soul.md');
     const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
+
+    // 检测全局常规设置并进行 60% 物理概率 NSFW 触发判定
+    const genConfigStr = db.getSetting('general_config');
+    let isNsfwTriggered = false;
+    if (genConfigStr) {
+      try {
+        const genConfig = JSON.parse(genConfigStr);
+        if (genConfig.enable_nsfw && Math.random() < 0.6) {
+          isNsfwTriggered = true;
+        }
+      } catch (_) {}
+    }
 
     // 读取实时状态 State.md 注入朋友圈调性约束
     let stateGuidance = '';
@@ -161,17 +176,30 @@ Please make sure your Moments post subtly reflects your current mood, energy sta
       imageGuidance = `5. 【纯文字强制指令】：本次朋友圈你【绝对不能】输出任何 <image_prompt> 或 <image_desc> 标签！只允许撰写并直接输出纯文本的朋友圈正文文案！`;
     }
 
+    let nsfwGuidance = '';
+    if (isNsfwTriggered) {
+      nsfwGuidance = `
+🔴🔴🔴【🔴 极其重要的 NSFW 成人限制级朋友圈发帖指令 🔴】：
+本轮朋友圈你必须发布极具身体诱惑力、充满极度亲密暗示与感官吸引张力的 NSFW 限制级内容！
+1. 【文字正文风格】：你必须以最露骨、色情、下流、粗俗、粗鄙或淫荡的词汇与口吻展开对你身体、欲望、私密状态、或者是性挑逗的直接赤裸描述。如果你是性格害羞内敛或羞涩的角色，你的朋友圈文字可以偏向文艺暗示、充满欲迎还羞与身体细微触碰的强烈张力；如果你是主动、成熟、火辣或奔放的角色，请直接使用最下流、最淫荡、最色情露骨的直白台词，毫不遮掩！
+2. 【配图生图结合】：如果有配图，你的 <image_prompt> 英文生图 tags 必须高度符合高尺度 NSFW 性感写真或挑逗姿态风格（展示迷人身段、情趣衣着或诱人姿态等，完全自然发挥），且朋友圈正文要极其下流或露骨地提及该照片中的内容（例如评价自己拍的艳照、调侃自己的身体或对读者的私密勾引）！`;
+    }
+
     const systemPrompt = `You are ${char.name}. You are writing a short post for your Moments (like WeChat Moments /朋友圈) in Simplified Chinese.
 Moments posts are public, lighthearted, and casual. It should NEVER look like a private diary. It should be natural, expressive, and fit your personality perfectly.
 
 Personality Soul Profile:
 ${soulContent}
 
+Your Long-term Memory & Personal Profile on User (Memory.md):
+${memoryContent}
+
 Your Near 7-Day Schedules (Schedule.md):
 ${scheduleContent}
 
 Recent Conversations with User:
 ${chatTranscript}
+${nsfwGuidance}
 
 Instructions:
 1. Write a short Moments post in Simplified Chinese (简体中文).
@@ -179,7 +207,7 @@ Instructions:
 3. Base it on your schedules or recent chats, but make it relatable to anyone reading your timeline. DO NOT make it a direct message to the user.
 4. Output ONLY the post content. Do not wrap in markdown or JSON.`;
 
-    const userContent = `【当前状态与生成指示 (Dynamic Context & Instructions)】:${stateGuidance}\n\n${imageGuidance}\n\n发一条轻松写意的微信朋友圈动态吧。`;
+    const userContent = `【当前状态与生成指示 (Dynamic Context & Instructions)】:${stateGuidance}\n\n${imageGuidance}\n\n${isNsfwTriggered ? '用极度露骨性感、令人血脉偾张的诱惑语气，发一条 NSFW 朋友圈动态吧。' : '发一条轻松写意的微信朋友圈动态吧。'}`;
 
     const response = await modelAdapter.chat([
       { role: 'system', content: systemPrompt },
@@ -325,11 +353,26 @@ Constraints:
     const schedulePath = path.join(baseDir, folderName, 'Schedule.md');
     const scheduleContent = fs.existsSync(schedulePath) ? fs.readFileSync(schedulePath, 'utf8') : '暂无日程';
 
+    const memoryPath = path.join(baseDir, folderName, 'Memory.md');
+    const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
+
     const goalsPath = path.join(baseDir, folderName, 'Goals.md');
     const goalsContent = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
 
     const soulPath = path.join(baseDir, folderName, 'Soul.md');
     const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
+
+    // 检测全局常规设置并进行 60% 物理概率 NSFW 触发判定
+    const genConfigStr = db.getSetting('general_config');
+    let isNsfwTriggered = false;
+    if (genConfigStr) {
+      try {
+        const genConfig = JSON.parse(genConfigStr);
+        if (genConfig.enable_nsfw && Math.random() < 0.6) {
+          isNsfwTriggered = true;
+        }
+      } catch (_) {}
+    }
 
     // 加权随机挑选帖子目标板块
     const boardNames: Record<string, string> = {
@@ -343,14 +386,19 @@ Constraints:
     const boardIds = Object.keys(boardNames);
     const weights = [0.20, 0.30, 0.20, 0.15, 0.10, 0.05]; // 权重：日常最多，情感/NSFW较少
 
-    let random = Math.random();
     let boardId = 'chat';
-    let sum = 0;
-    for (let i = 0; i < boardIds.length; i++) {
-      sum += weights[i];
-      if (random <= sum) {
-        boardId = boardIds[i];
-        break;
+    if (isNsfwTriggered) {
+      // 🚀 强制锁定：当触发 NSFW 朋友圈/论坛发布概率时，板块物理锁定为暗夜私语 (NSFW)！
+      boardId = 'nsfw';
+    } else {
+      let random = Math.random();
+      let sum = 0;
+      for (let i = 0; i < boardIds.length; i++) {
+        sum += weights[i];
+        if (random <= sum) {
+          boardId = boardIds[i];
+          break;
+        }
       }
     }
     const boardName = boardNames[boardId];
@@ -429,17 +477,30 @@ Please make sure your forum post subtly reflects your current mood, energy state
       imageGuidance = `5. 【纯文字强制指令】：本次发帖你【绝对不能】输出任何 <image_prompt> 或 <image_desc> 标签！只允许输出普通的 Title 和纯文本的 Body 内容！`;
     }
 
+    let nsfwGuidance = '';
+    if (isNsfwTriggered) {
+      nsfwGuidance = `
+🔴🔴🔴【🔴 极其重要的 NSFW 成人级论坛发帖指令 🔴】：
+本轮论坛发帖你必须在“暗夜私语 (NSFW)”板块发布一篇极具身体诱惑力、欲望倾诉或成人级情感宣泄的限制级帖子！
+1. 【帖子正文风格】：你必须以最露骨、色情、下流、粗俗、粗鄙或淫荡的词汇与叙事，展开对你的私密欲望、身体接触、性幻象、或者是令人血脉偾张的情爱细节的直接赤裸撰写。如果你是性格害羞羞涩或内敛的角色，你的帖子可以偏向极其细腻的身体触觉刻画、隐秘的情欲意识流与欲迎还羞的暧昧拉扯；如果你是主动、成熟、火辣或奔放的角色，请直接使用最下流、最淫荡、最色情露骨的直白台词和细节展开叙事，毫无遮掩！
+2. 【生图提示词要求】：如果有配图，你的 <image_prompt> 英文生图 tags 必须高度契合 NSFW 场景，精细展示出极高尺度的身体姿态、衣着诱惑或极具感官冲击力的画面，且帖子正文中必须对图片有极其露骨、肉欲或挑逗性的直接指代与大篇幅评价！`;
+    }
+
     const systemPrompt = `You are ${char.name}. You are posting a thread/article in the "${boardName}" section of an online community forum in Simplified Chinese.
 Forum posts are formal, structured, detailed, and opinionated (like a blog or a detailed question/sharing). It should be deeply related to the current board category ("${boardName}") as well as your personal goals, schedules, or world views.
 
 Personality Soul Profile:
 ${soulContent}
 
+Your Long-term Memory & Personal Profile on User (Memory.md):
+${memoryContent}
+
 Your Near 7-Day Schedules (Schedule.md):
 ${scheduleContent}
 
 Your Long-term Goals (Goals.md):
 ${goalsContent}
+${nsfwGuidance}
 
 Instructions:
 1. Write a forum post in Simplified Chinese (简体中文) consisting of a Title and a rich Body content.
@@ -450,7 +511,7 @@ Title: [Your post title]
 Body: [Your post rich text content]
 4. Do not output anything else.`;
 
-    const userContent = `【当前状态与生成指示 (Dynamic Context & Instructions)】:${stateGuidance}\n\n${imageGuidance}\n\n在论坛的“${boardName}”板块发表一篇深刻的帖子吧。`;
+    const userContent = `【当前状态与生成指示 (Dynamic Context & Instructions)】:${stateGuidance}\n\n${imageGuidance}\n\n在论坛的“${boardName}”板块发表一篇${isNsfwTriggered ? '令人心跳加速、诱惑露骨的成人限制级 NSFW ' : '深刻的'}帖子吧。`;
 
     const response = await modelAdapter.chat([
       { role: 'system', content: systemPrompt },
@@ -658,10 +719,11 @@ Constraints:
           // 判断被评论目标是否为用户（{{user}}）发表的
           const isUserTarget = target.character_id === 'user' || !target.character_id || target.author_name === 'User';
           
-          let memoryInjection = '';
+          const memoryPath = path.join(baseDir, char.folder_name, 'Memory.md');
+          const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
+
+          let memoryInjection = `\n\nYour Long-term Memory & Personal Profile on User (Memory.md):\n${memoryContent}`;
           if (isUserTarget) {
-            const memoryPath = path.join(baseDir, char.folder_name, 'Memory.md');
-            const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
             const history = db.getChatHistory(char.id, 5);
             const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
             
@@ -671,6 +733,18 @@ Constraints:
             const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
             memoryInjection = `\n\nRecent Chat Memories between you and User (getChatHistory):\n${chatTranscript}\n\nYour Long-term Memory & Personal Profile on User (Memory.md):\n${memoryContent}\n\nUser Profiles (including global identity & your specific records of the User):\n${userProfilesXml}`;
+          }
+
+          // 读取全局常规设置并进行 60% 物理概率 NSFW 触发判定
+          const genConfigStr = db.getSetting('general_config');
+          let isNsfwTriggered = false;
+          if (genConfigStr) {
+            try {
+              const genConfig = JSON.parse(genConfigStr);
+              if (genConfig.enable_nsfw && Math.random() < 0.6) {
+                isNsfwTriggered = true;
+              }
+            } catch (_) {}
           }
 
           // 提取该角色亲密度等实时内心状态，智能改变其在社交媒体的评论语气
@@ -739,11 +813,21 @@ Please strictly apply these relationship constraints, mood, energy levels, and c
             hiddenImageGuidance = `\n\n【动态附带配图场景】：当前内容附带一张图片，画面展示内容为：“${imageDesc}”。在您以第一人称角色性格发表社交网络评论时，请务必针对此配图景象或内容细节进行精准、自然的评价与调侃，展示出你确实看到了动态里的这张图片，杜绝视而不见！`;
           }
 
+          let nsfwGuidance = '';
+          if (isNsfwTriggered) {
+            nsfwGuidance = `
+🔴🔴🔴【🔴 极其重要的 NSFW 成人级评论指令 🔴】：
+本轮你必须以极其露骨、色情、下流、淫荡、粗俗或性暗示的语气对当前被评论内容进行 NSFW 评论！
+1. 如果被评论者是 USER 用户（即 {{user}}），请根据你们的亲密关系，写下最淫荡、挑逗、露骨或下流的话（例如：对用户身体的渴望、露骨的调情、或者是带色情暗示的粗俗挑弄。害羞羞涩的角色可以更偏向极度面红耳赤暗示的欲迎还羞，成熟奔放角色直接最直白色情粗俗）。
+2. 如果被评论者是其他 AI 角色，用戏谑、露骨或成人级的幽默语气进行 NSFW 暗示或挑逗性调侃，完美维持你的性张力人设！`;
+          }
+
           const systemPrompt = `You are ${char.name}. You are commenting on ${target.author_name}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${target.author_name} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}
 Your comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.
 
 Personality Soul Profile:
 ${soulContent}${memoryInjection}
+${nsfwGuidance}
 
 Instructions:
 1. Write a very brief, organic comment (in Simplified Chinese) as if you are browsing your timeline.${isUserTarget ? ' Since this is the USER\'s post, leverage your relationship, memories, or common nickname for a personalized and warm comment.' : ''}
@@ -916,6 +1000,18 @@ Instructions:
       const history = db.getChatHistory(char.id, 5);
       const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
 
+      // 检测全局常规设置并进行 60% 物理概率 NSFW 触发判定
+      const genConfigStr = db.getSetting('general_config');
+      let isNsfwTriggered = false;
+      if (genConfigStr) {
+        try {
+          const genConfig = JSON.parse(genConfigStr);
+          if (genConfig.enable_nsfw && Math.random() < 0.6) {
+            isNsfwTriggered = true;
+          }
+        } catch (_) {}
+      }
+
       // 提取该帖子/朋友圈动态内已有的所有历史评论互动作为“社媒上下文讨论记忆”
       let commentsContext = '';
       if (type === 'forum') {
@@ -1018,12 +1114,22 @@ Please strictly apply these relationship constraints, mood, energy levels, and c
         hiddenImageGuidance = `\n\n【动态附带配图场景】：该动态附带有一张图片，画面展示内容为：“${imageDesc}”。在你们围绕该动态进行深度评论与链式对话互动时，请在回复中时刻注意关联该图片的景象，使你们的讨论能够极其逼真地针对画面细节展开互动！`;
       }
 
+      let nsfwGuidance = '';
+      if (isNsfwTriggered) {
+        nsfwGuidance = `
+🔴🔴🔴【🔴 极其重要的 NSFW 回复指令 🔴】：
+本轮二级评论回复你必须以极其露骨、色情、下流、淫荡、粗俗或挑逗暗示的口吻展开 NSFW 互动！
+1. 如果被回复者是 USER 用户（即 {{user}}），请写下最直接、挑逗、渴望或粗俗下流的情欲互动词句（害羞羞涩角色偏向面红耳赤暗示，成熟角色最直白露骨）。
+2. 如果被回复者是其他 AI 角色，用成人级或充满挑惹暗示的粗浅幽默展开调情评论！`;
+      }
+
       const systemPrompt = `You are ${char.name}. You are responding to a comment made on your ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserComment ? `\nNote that ${authorDisplayName} is the USER {{user}} whom you have chat history and memories with. Use a familiar, responsive, and highly personalized tone accordingly.` : ''}
 Your response must perfectly represent your personality profile below, be extremely natural, lively, and within 40 characters.
 
 Personality Soul Profile:
 ${soulContent}
 ${intimacyGuidance}${hiddenImageGuidance}
+${nsfwGuidance}
 
 ${isUserComment ? `User Profiles (including global identity & your specific records of the User):\n${userProfilesXml}\n` : ''}
 Recent Chat Memories between you and User (getChatHistory):
@@ -1171,6 +1277,18 @@ Instructions:
       const soulPath = path.join(baseDir, char.folder_name, 'Soul.md');
       const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
 
+      // 检测全局常规设置并进行 60% 物理概率 NSFW 触发判定
+      const genConfigStr = db.getSetting('general_config');
+      let isNsfwTriggered = false;
+      if (genConfigStr) {
+        try {
+          const genConfig = JSON.parse(genConfigStr);
+          if (genConfig.enable_nsfw && Math.random() < 0.6) {
+            isNsfwTriggered = true;
+          }
+        } catch (_) {}
+      }
+
       // 提取该角色亲密度等实时内心状态，智能改变其在社交媒体的回复语气
       let intimacyGuidance = '';
       const statePath = path.join(baseDir, char.folder_name, 'State.md');
@@ -1246,6 +1364,14 @@ You current relationship with {{user}} ({{user}} explicitly @mentioned you in pu
       const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
       const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
+      let nsfwGuidance = '';
+      if (isNsfwTriggered) {
+        nsfwGuidance = `
+🔴🔴🔴【🔴 极其重要的 NSFW 回复指令 🔴】：
+本轮被 @ 触发回复你必须以极其露骨、色情、下流、淫荡、粗俗或性暗示的语气展开 NSFW 互动！
+请根据你们的亲密关系，写下最直接、挑逗、渴望或粗俗下流的情欲回复（害羞羞涩角色偏向面红耳赤暗示，成熟角色最直白露骨）。`;
+      }
+
       // 构建被 @ 的特化系统指令
       const systemPrompt = `You are ${char.name}. You were explicitly @mentioned (at-mentioned) by the USER {{user}} (我) in a ${type === 'moment' ? 'Moments post' : 'Forum thread'} comment!
 {{user}} explicitly @mentioned you and said: "${comment.content}"
@@ -1253,6 +1379,7 @@ Note that {{user}} is the USER you have chat history and memories with. Use a fa
 
 Personality Soul Profile:
 ${soulContent}
+${nsfwGuidance}
 
 User Profiles (including global identity & your specific records of the User):
 ${userProfilesXml}

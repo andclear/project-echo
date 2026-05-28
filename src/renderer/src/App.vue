@@ -11,9 +11,52 @@
     :style="isMobile ? { height: viewportHeight } : { height: '100%' }"
     @dragenter.prevent="handleDragEnter"
   >
-    <!-- macOS 拖拽条 -->
-    <div v-if="!isMobile" class="h-7 w-full flex-shrink-0 bg-surface border-b border-outline-variant/30 flex items-center justify-center pointer-events-none select-none shadow-sm" style="-webkit-app-region: drag;">
-      <span class="text-[11px] font-semibold tracking-wide text-on-surface/60 font-sans">Echo-回音</span>
+    <!-- 顶部拖拽导航条 (兼顾 Windows 与 macOS，标题 100% 绝对水平居中) -->
+    <div v-if="!isMobile" class="h-7 w-full flex-shrink-0 bg-surface border-b border-outline-variant/30 flex items-center justify-between select-none shadow-sm relative animate-in slide-in-from-top duration-200" style="-webkit-app-region: drag;">
+      
+      <!-- 🚀 绝对居中的标题：通过绝对定位绝对居中，保证在 Mac/Win 两端都对称处于正中间，且完全避免与两侧控件重叠 -->
+      <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <span class="text-[11px] font-semibold tracking-wide text-on-surface/60 font-sans">Echo-回音</span>
+      </div>
+
+      <!-- 左侧占位栏：主要用于在 macOS 下完美留出系统原生“交通灯”按钮的安全气隙，防止其他元素越界 -->
+      <div class="h-full flex items-center pl-3 pointer-events-none" :class="{ 'w-20': !isWindows }">
+        <!-- 保持空白以保护 macOS 的左侧控制区域 -->
+      </div>
+
+      <!-- Windows 专属精致窗口控制按钮组件 (设置 relative z-10 确保悬浮在绝对居中的容器上方) -->
+      <div v-if="isWindows" class="h-full flex items-center flex-shrink-0 relative z-10" style="-webkit-app-region: no-drag;">
+        <!-- 最小化 -->
+        <button 
+          @click="handleWindowControl('minimize')"
+          class="w-11 h-full flex items-center justify-center hover:bg-on-surface/10 active:bg-on-surface/20 transition-colors text-on-surface-variant cursor-pointer"
+          title="最小化"
+        >
+          <svg class="w-[10px] h-[10px]" viewBox="0 0 1024 1024" fill="currentColor">
+            <path d="M64 896h896v80H64z"></path>
+          </svg>
+        </button>
+        <!-- 最大化 -->
+        <button 
+          @click="handleWindowControl('maximize')"
+          class="w-11 h-full flex items-center justify-center hover:bg-on-surface/10 active:bg-on-surface/20 transition-colors text-on-surface-variant cursor-pointer"
+          title="最大化"
+        >
+          <svg class="w-[10px] h-[10px]" viewBox="0 0 1024 1024" fill="currentColor">
+            <path d="M128 128h768v768H128V128zm80 80v608h608V208H208z"></path>
+          </svg>
+        </button>
+        <!-- 关闭 -->
+        <button 
+          @click="handleWindowControl('close')"
+          class="w-11 h-full flex items-center justify-center hover:bg-[#e81123] hover:text-white active:bg-[#f1707a] transition-colors text-on-surface-variant cursor-pointer"
+          title="关闭"
+        >
+          <svg class="w-[10px] h-[10px]" viewBox="0 0 1024 1024" fill="currentColor">
+            <path d="M576 512l342.4-342.4c17.6-17.6 17.6-46.4 0-64s-46.4-17.6-64 0L512 448 169.6 105.6c-17.6-17.6-46.4-17.6-64 0s-17.6 46.4 0 64L448 512 105.6 854.4c-17.6 17.6-17.6 46.4 0 64s46.4 17.6 64 0L512 576l342.4 342.4c17.6 17.6 46.4 17.6 64 0s17.6-46.4 0-64L576 512z"></path>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- 三栏主体布局 -->
@@ -1529,7 +1572,7 @@
                       <h4 class="text-[11px] font-bold text-on-surface">聊天交互模式</h4>
                       <span class="text-[8px] px-1 py-0.5 rounded bg-primary/10 text-primary font-bold">影响回复细节</span>
                     </div>
-                    <div class="grid grid-cols-2 gap-3">
+                    <div class="grid grid-cols-3 gap-3">
                       <button
                         @click="chatMode = 'descriptive'"
                         class="text-left p-3 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
@@ -1551,6 +1594,17 @@
                           <span class="font-bold text-xs">纯文字对话</span>
                         </div>
                         <div class="text-[9px] opacity-75 mt-1 leading-relaxed">输出最直接的纯文字对话，像日常聊天软件一样轻松自然、干净简洁。</div>
+                      </button>
+                      <button
+                        @click="chatMode = 'director'"
+                        class="text-left p-3 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
+                        :class="chatMode === 'director' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
+                      >
+                        <div class="flex items-center space-x-2">
+                          <BookOpenIcon class="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                          <span class="font-bold text-xs">导演模式</span>
+                        </div>
+                        <div class="text-[9px] opacity-75 mt-1 leading-relaxed">打破对话，全程以优美的第三人称视角撰写 800 字以上小说故事。</div>
                       </button>
                     </div>
                   </div>
@@ -1652,6 +1706,22 @@
                       </div>
                       <button @click="generalConfig.show_goals = !generalConfig.show_goals; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.show_goals ? 'bg-primary' : 'bg-outline-variant'">
                         <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.show_goals ? 'left-5.5' : 'left-0.5'"></span>
+                      </button>
+                    </div>
+
+                    <!-- 角色会发布NSFW内容 -->
+                    <div class="py-3 flex items-center justify-between last:pb-0">
+                      <div class="flex items-center space-x-3.5">
+                        <div class="p-1.5 rounded-xl bg-surface border border-outline-variant/40 text-on-surface-variant">
+                          <EyeOffIcon class="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <div>
+                          <h4 class="text-xs font-bold text-on-surface">角色会发布NSFW内容</h4>
+                          <p class="text-[9px] text-on-surface-variant mt-0.5">启用后，角色将有 60% 的概率在朋友圈/论坛中发布或互动（评论）露骨及限制级 NSFW 内容。</p>
+                        </div>
+                      </div>
+                      <button @click="generalConfig.enable_nsfw = !generalConfig.enable_nsfw; saveGeneralSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="generalConfig.enable_nsfw ? 'bg-primary' : 'bg-outline-variant'">
+                        <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="generalConfig.enable_nsfw ? 'left-5.5' : 'left-0.5'"></span>
                       </button>
                     </div>
 
@@ -4445,11 +4515,20 @@
                   <div 
                     v-else-if="msg.content" 
                     class="ai-chat-bubble relative" 
+                    :class="{ 'border-red-500/30 bg-red-500/5 dark:bg-red-500/10 text-red-600 dark:text-red-400': msg.isError }"
                     @contextmenu.prevent="openMessageContextMenu($event, msg)"
                     @touchstart="onLongPressStart($event, msg, 'message')"
                     @touchend="onLongPressEnd"
                     @touchmove="onLongPressMove"
                   >
+                    <!-- 失败警告的小图标 -->
+                    <div 
+                      v-if="msg.isError" 
+                      class="absolute -left-6 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20" 
+                      title="连接超时，右键气泡可重新回复"
+                    >
+                      <AlertTriangleIcon class="w-3.5 h-3.5" />
+                    </div>
                     <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
                   </div>
 
@@ -6958,7 +7037,7 @@
       <!-- 操作按钮 -->
       <div class="flex space-x-3 pt-2">
         <button @click="showPromptConfirmModal = false" class="btn-secondary flex-1 text-xs py-2 rounded-xl">取消</button>
-        <button @click="executeNovelAiImageGeneration" class="btn-primary flex-1 text-xs py-2 rounded-xl flex items-center justify-center space-x-1">
+        <button @click="handleConfirmModalImageGeneration" class="btn-primary flex-1 text-xs py-2 rounded-xl flex items-center justify-center space-x-1">
           <SparklesIcon class="w-3.5 h-3.5" />
           <span>确定绘制场景</span>
         </button>
@@ -7063,6 +7142,17 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch, toRaw } from 'vue'
 import ClockView from './components/ClockView.vue'
+
+// 🚀 跨平台 Windows 专属窗口属性与 IPC 事件通道
+const isWindows = computed(() => {
+  return window.api && window.api.platform === 'win32'
+})
+
+const handleWindowControl = (action: 'minimize' | 'maximize' | 'close') => {
+  if (window.api && typeof window.api.invoke === 'function') {
+    window.api.invoke(`window-${action}`)
+  }
+}
 import {
   MessageSquare as MessageSquareIcon,
   Users as UsersIcon,
@@ -7475,7 +7565,8 @@ const generalConfig = ref({
   enable_music: false,
   lan_mapping_enabled: false,
   lan_mapping_port: 6868,
-  enable_token_stats: true
+  enable_token_stats: true,
+  enable_nsfw: false
 })
 
 // 监听音乐功能的开启/关闭联动
@@ -7546,7 +7637,7 @@ const userMdEditing = ref(false)
 
 // ===================== 设置 =====================
 const showSettingsModal = ref(false)
-const chatMode = ref<'descriptive' | 'dialogue'>('descriptive')
+const chatMode = ref<'descriptive' | 'dialogue' | 'director'>('descriptive')
 const activeSettingsTab = ref<'general' | 'states' | 'primary' | 'secondary' | 'drawing' | 'migration' | 'about'>('general')
 const globalPrompt = ref('')
 const settingsMenus: { id: 'general' | 'states' | 'primary' | 'secondary' | 'drawing' | 'migration' | 'about'; label: string; icon: any }[] = [
@@ -8011,6 +8102,62 @@ watch(isStreaming, (newVal) => {
     streamingCharacterId.value = null
   }
 })
+
+// 🚀 角色流式回复超时保护机制 (30秒超时自愈防线)
+let replyTimeoutTimer: any = null
+
+function clearReplyTimeout() {
+  if (replyTimeoutTimer) {
+    clearTimeout(replyTimeoutTimer)
+    replyTimeoutTimer = null
+  }
+}
+
+function startReplyTimeout(charId: string) {
+  clearReplyTimeout()
+  replyTimeoutTimer = setTimeout(() => {
+    handleReplyTimeout(charId)
+  }, 30000) // 30秒超时
+}
+
+function handleReplyTimeout(charId: string) {
+  isStreaming.value = false
+  streamingCharacterId.value = null
+  
+  const msgs = allMessages[charId] || []
+  if (msgs.length > 0) {
+    const last = msgs[msgs.length - 1]
+    if (last.role === 'assistant') {
+      last.isError = true
+      if (!last.content) {
+        last.content = '[连接超时，回复失败]'
+      } else {
+        last.content += '\n\n[连接超时，回复中断]'
+      }
+    } else {
+      msgs.push({
+        id: 'msg_err_' + Date.now(),
+        role: 'assistant',
+        content: '[连接超时，回复失败]',
+        isError: true,
+        created_at: new Date().toISOString(),
+        timestamp: Date.now()
+      })
+    }
+  } else {
+    msgs.push({
+      id: 'msg_err_' + Date.now(),
+      role: 'assistant',
+      content: '[连接超时，回复失败]',
+      isError: true,
+      created_at: new Date().toISOString(),
+      timestamp: Date.now()
+    })
+  }
+  
+  nextTick(() => scrollToBottom())
+}
+
 const pastedImageBase64 = ref('')
 const lastUserMsgId = ref('')
 const isDraggingFile = ref(false)
@@ -9231,13 +9378,21 @@ async function selectCharacter(charId: string) {
         }
       ]
     }
-    nextTick(() => scrollToBottom('auto'))
+    nextTick(() => {
+      scrollToBottom('auto', true)
+      setTimeout(() => scrollToBottom('auto', true), 50)
+      setTimeout(() => scrollToBottom('auto', true), 150)
+    })
     return
   }
 
   // 🚀 核心优化：若内存中已有该角色的聊天历史（说明之前已加载过），则无需重复去数据库拉取覆盖，防范在合并防抖期或 AI 生成中切换导致消息丢失，并能带来极其顺畅的零卡顿体验！
   if (allMessages[charId] && allMessages[charId].length > 0) {
-    nextTick(() => scrollToBottom('auto'))
+    nextTick(() => {
+      scrollToBottom('auto', true)
+      setTimeout(() => scrollToBottom('auto', true), 50)
+      setTimeout(() => scrollToBottom('auto', true), 150)
+    })
     return
   }
 
@@ -9257,7 +9412,11 @@ async function selectCharacter(charId: string) {
       allMessages[charId] = []
       hasMoreHistoryMap[charId] = false
     }
-    nextTick(() => scrollToBottom('auto'))
+    nextTick(() => {
+      scrollToBottom('auto', true)
+      setTimeout(() => scrollToBottom('auto', true), 50)
+      setTimeout(() => scrollToBottom('auto', true), 150)
+    })
   } catch (error) {
     console.error('读取聊天历史异常:', error)
   }
@@ -9504,13 +9663,26 @@ async function sendChatMessage() {
   })
 
   // 4. 重置并刷新 3 秒延时聚合防抖定时器
-  if (messageMergeTimersMap[charId]) {
-    clearTimeout(messageMergeTimersMap[charId])
+  const isSlashStart = chatMode.value === 'director' && (userMsg === '/开始' || userMsg === '/开始剧情')
+
+  if (isSlashStart) {
+    // 🚀 如果是导演模式下的开场白斜杠指令，立即清除聚合防抖定时器并瞬间发起调用，提供 0 延迟交互
+    if (messageMergeTimersMap[charId]) {
+      clearTimeout(messageMergeTimersMap[charId])
+      messageMergeTimersMap[charId] = null
+    }
+    nextTick(async () => {
+      await triggerMergedAiResponse(char)
+    })
+  } else {
+    if (messageMergeTimersMap[charId]) {
+      clearTimeout(messageMergeTimersMap[charId])
+    }
+    
+    messageMergeTimersMap[charId] = setTimeout(async () => {
+      await triggerMergedAiResponse(char)
+    }, 3000)
   }
-  
-  messageMergeTimersMap[charId] = setTimeout(async () => {
-    await triggerMergedAiResponse(char)
-  }, 3000)
 }
 
 // 聚合期满，向 AI 发起真正的回复请求
@@ -9566,8 +9738,18 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
   isStreaming.value = true
   streamingCharacterId.value = char.id
   scrubber.reset()
+
+  // 🚀 如果是导演模式下的开场白斜杠指令，启动 scrubber 的特化 <content> 提取模式
+  const isSlashStart = chatMode.value === 'director' && pendingQueue.some(m => m.content === '/开始' || m.content === '/开始剧情')
+  if (isSlashStart) {
+    scrubber.setExtractMode(true)
+  }
+
   typingQueue.value = []
   nextTick(() => scrollToBottom())
+
+  // 🚀 启动 30 秒超时自愈定时器保护
+  startReplyTimeout(char.id)
 
   try {
     // 4. 发起大模型一次性返回调用
@@ -9587,12 +9769,13 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
     // 在手机端，为了彻底杜绝局域网 fetch 耗时长延迟返回与 SSE 长连接 done 信号撞车造成的双份消息 BUG，
     // 手机发送端的 fetch 回调直接静默 return 拦截，100% 交由绝对不超时、高保真的 SSE done 接收器去触发唯一一次的分段仿真渲染！
     if (isMobile.value) {
+      clearReplyTimeout() // 移动端交由 SSE 保活，此处清除 fetch 定时器
       return
     }
 
     // 5. 仅当 IPC 返回了实际内容且非动作描写流式模式下才调用渲染播放器
     // 动作描写模式与 Creator Bot 走的是 event.sender.send 流式推送，无需在此处重复渲染
-    if (res.content && chatMode.value !== 'descriptive') {
+    if (res.content && chatMode.value !== 'descriptive' && chatMode.value !== 'director') {
       await handleAssistantResponse(
         char,
         res.content,
@@ -9607,7 +9790,7 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
     if (res.redPacketSend && char.id === selectedCharacterId.value) {
       const msgs = allMessages[char.id] || []
       
-      // 倒序寻找前一个文字气泡，若存在则抹去其 token 统计（使其只展现在最后一个红包卡片上）
+      // 倒序寻找前一个文字气泡，若存在则抹去其 token 统计（使其只展展现最后一个红包卡片上）
       let lastTextMsg = null
       for (let i = msgs.length - 1; i >= 0; i--) {
         if (msgs[i].role === 'assistant' && !msgs[i].redPacket) {
@@ -9639,6 +9822,7 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
     }
 
   } catch (err: any) {
+    clearReplyTimeout() // 🚀 发生异常，物理清除 30秒 超时定时器
     // 移动端静默忽略 fetch 超时断连报错，因为后台大模型依然在完美生成，且 100% 最终会由 SSE 强力救活！
     if (isMobile.value) {
       console.warn('[Mobile Fetch Handshake Disconnect] 移动端局域网握手超时/断开（属正常自愈范畴），静默移交 SSE 保活接管。');
@@ -9708,7 +9892,7 @@ async function handleAssistantResponse(
     // B. 根据当前聊天模式分发渲染
     const msgs = allMessages[char.id] || []
     
-    if (chatMode.value === 'descriptive') {
+    if (chatMode.value === 'descriptive' || chatMode.value === 'director') {
       // B.1 包含描写模式：直接向会话追加一条完整的助理回复气泡，瞬间呈现
       msgs.push({
         role: 'assistant',
@@ -9902,9 +10086,11 @@ function scrollToBottom(behavior: 'auto' | 'smooth' = 'smooth', force = false) {
     const container = chatContainer.value
     const diff = container.scrollHeight - container.scrollTop - container.clientHeight
     
-    // 如果不是强制置底，且用户明显大幅上滑（距离底部超过 200px），则不要自动滚到底部以防剥夺用户阅读主动权
-    // 200px 容差完美给流式换行、大图片和动作气泡动态变高留出充足反应区间，防范置底自锁
-    if (!force && showScrollToBottomBtn.value && diff > 200) {
+    // 🚀 黄金防抖自愈避让机制：
+    // 如果不是强制置底（例如用户自己发消息或点了回底按钮），且当前滚动条距离底部已经超过了 50px（约两行字高度），
+    // 说明用户明显在向上滑动或停留在上方阅读历史。此时必须直接避让 return，绝对不要强行置底拉回，
+    // 从而完美终结流式输出打字机高频置底导致的剧烈上下拉扯与回弹，给用户最丝滑、无阻力的历史翻阅体验！
+    if (!force && diff > 50) {
       return
     }
     container.scrollTo({ top: container.scrollHeight, behavior })
@@ -9953,8 +10139,11 @@ async function handleChatScroll(e: Event) {
         
         const olderMsgs = res.history.map((m: any) => restoreMessageProps(m))
         
-        // 物理拼接至当前会话的历史队列最头部
-        currentMsgs.unshift(...olderMsgs)
+        // 🚀 核心自愈优化：通过 ID 强效去重过滤，100% 根除快速连续滚动、并发拉取可能造成的历史消息重复显示 Bug
+        const filteredOlder = olderMsgs.filter((om: any) => !currentMsgs.some((cm: any) => cm.id === om.id))
+        if (filteredOlder.length > 0) {
+          currentMsgs.unshift(...filteredOlder)
+        }
 
         // 如果拉取的历史条数不足 100 条，说明已达数据库消息起点，标记为无更多
         if (res.history.length < 100) {
@@ -11342,11 +11531,52 @@ function formatGalleryFullTime(timestamp: number) {
 
 // ===================== 聊天框 AI 绘图交互逻辑 =====================
 const showPromptConfirmModal = ref(false)
-const isAnalyzingPrompt = ref(false)
-const isDrawingImage = ref(false)
-const confirmedPrompt = ref('')
-const confirmedDescription = ref('')
-const confirmedDimensions = ref<'portrait' | 'landscape' | 'square'>('portrait')
+// 🚀 角色提示词分析状态隔离机制，防止跨角色串台与禁用共享
+const isAnalyzingPromptMap = reactive<Record<string, boolean>>({})
+const isAnalyzingPrompt = computed(() => {
+  return selectedCharacterId.value ? !!isAnalyzingPromptMap[selectedCharacterId.value] : false
+})
+// 🚀 角色绘图状态隔离机制，防止跨角色串台与禁用共享
+const isDrawingImageMap = reactive<Record<string, boolean>>({})
+const isDrawingImage = computed(() => {
+  return selectedCharacterId.value ? !!isDrawingImageMap[selectedCharacterId.value] : false
+})
+
+// 🚀 核心上下文隔离：实现生图提示词、描述和尺寸参数在角色维度的物理隔离，杜绝异步切换会话时的数据覆盖与污染
+const activeDrawingContextMap = reactive<Record<string, {
+  prompt: string;
+  description: string;
+  dimensions: 'portrait' | 'landscape' | 'square';
+}>>({})
+// 锚定当前弹出的确认框所属的角色 ID
+const confirmModalCharacterId = ref<string>('')
+
+// 🚀 桥接 computed：为了零改动 Vue 模版并实现 100% 编译安全，使用 computed 将旧的 confirmed 变量智能路由到当前选中的确认框角色专属 Map
+const confirmedPrompt = computed({
+  get: () => confirmModalCharacterId.value ? (activeDrawingContextMap[confirmModalCharacterId.value]?.prompt || '') : '',
+  set: (val) => {
+    if (confirmModalCharacterId.value) {
+      if (!activeDrawingContextMap[confirmModalCharacterId.value]) {
+        activeDrawingContextMap[confirmModalCharacterId.value] = { prompt: '', description: '', dimensions: 'portrait' }
+      }
+      activeDrawingContextMap[confirmModalCharacterId.value].prompt = val
+    }
+  }
+})
+const confirmedDescription = computed(() => {
+  return confirmModalCharacterId.value ? (activeDrawingContextMap[confirmModalCharacterId.value]?.description || '') : ''
+})
+const confirmedDimensions = computed({
+  get: () => confirmModalCharacterId.value ? (activeDrawingContextMap[confirmModalCharacterId.value]?.dimensions || 'portrait') : 'portrait',
+  set: (val: 'portrait' | 'landscape' | 'square') => {
+    if (confirmModalCharacterId.value) {
+      if (!activeDrawingContextMap[confirmModalCharacterId.value]) {
+        activeDrawingContextMap[confirmModalCharacterId.value] = { prompt: '', description: '', dimensions: 'portrait' }
+      }
+      activeDrawingContextMap[confirmModalCharacterId.value].dimensions = val
+    }
+  }
+})
 
 async function triggerChatImageGeneration() {
   if (!activeCharacter.value) return
@@ -11355,8 +11585,9 @@ async function triggerChatImageGeneration() {
     return
   }
 
-  isAnalyzingPrompt.value = true
   const charId = activeCharacter.value.id
+  const folderName = activeCharacter.value.folder_name
+  isAnalyzingPromptMap[charId] = true
 
   try {
     const recentMsgs = (allMessages[charId] || []).slice(-20)
@@ -11364,19 +11595,23 @@ async function triggerChatImageGeneration() {
 
     const res = await window.api.invoke('analyze-chat-image-prompt', {
       characterId: charId,
-      folderName: activeCharacter.value.folder_name,
+      folderName: folderName,
       recentMessages: JSON.parse(JSON.stringify(recentMsgs))
     })
 
     if (res.success) {
-      confirmedPrompt.value = res.prompt
-      confirmedDescription.value = res.description
-      confirmedDimensions.value = (novelai.defaultDimensions as 'portrait' | 'landscape' | 'square') || 'portrait'
+      // 🚀 局部状态锁定：将当前角色分析出来的参数直接物理绑定，隔离全局
+      activeDrawingContextMap[charId] = {
+        prompt: res.prompt,
+        description: res.description,
+        dimensions: (novelai.defaultDimensions as 'portrait' | 'landscape' | 'square') || 'portrait'
+      }
 
       if (novelai.confirmMode) {
+        confirmModalCharacterId.value = charId
         showPromptConfirmModal.value = true
       } else {
-        await executeNovelAiImageGeneration()
+        await executeNovelAiImageGeneration(charId, folderName)
       }
     } else {
       showCustomAlert('分析场景失败', `${res.error || 'AI 分析上下文场景失败，请重试。'}`, 'error')
@@ -11384,24 +11619,41 @@ async function triggerChatImageGeneration() {
   } catch (err: any) {
     showCustomAlert('分析场景异常', `${err.message || String(err)}`, 'error')
   } finally {
-    isAnalyzingPrompt.value = false
+    isAnalyzingPromptMap[charId] = false
   }
 }
 
-async function executeNovelAiImageGeneration() {
-  if (!activeCharacter.value) return
-  isDrawingImage.value = true
+// 确认框中点击“确定绘制场景”时触发的物理锁定处理器，彻底摆脱全局 activeCharacter 漂移影响
+async function handleConfirmModalImageGeneration() {
+  const charId = confirmModalCharacterId.value
+  if (!charId) return
+  const char = characterList.value.find(c => c.id === charId)
+  const folderName = char ? char.folder_name : ''
+  if (!folderName) return
+
+  await executeNovelAiImageGeneration(charId, folderName)
+}
+
+async function executeNovelAiImageGeneration(targetCharId?: string, targetFolderName?: string) {
+  // 🚀 核心去状态化传参机制：优先使用显式注入的角色 ID 与文件夹，从根本上解决异步生图时切换会话的串台问题！
+  const charId = targetCharId || (activeCharacter.value ? activeCharacter.value.id : '')
+  const folderName = targetFolderName || (activeCharacter.value ? activeCharacter.value.folder_name : '')
+  if (!charId || !folderName) return
+
+  const context = activeDrawingContextMap[charId]
+  if (!context) return
+
+  isDrawingImageMap[charId] = true
   showPromptConfirmModal.value = false
   
   showToast('AI 画笔绘制中，预计需要 3~8 秒... 🎨')
 
-  const charId = activeCharacter.value.id
   try {
     const res = await window.api.invoke('generate-novelai-image', {
       characterId: charId,
-      folderName: activeCharacter.value.folder_name,
-      prompt: confirmedPrompt.value,
-      dimensions: confirmedDimensions.value,
+      folderName: folderName,
+      prompt: context.prompt,
+      dimensions: context.dimensions,
       prefixType: 'drawing'
     })
 
@@ -11433,9 +11685,12 @@ async function executeNovelAiImageGeneration() {
         }
         allMessages[charId].push(restoreMessageProps(newImgMsg))
         
-        nextTick(() => {
-          scrollToBottom('smooth')
-        })
+        // 🚀 极致细节：生图完成后，只有当用户当前视窗浏览的仍然是原绘图角色时，才静默强制滚动触底
+        if (selectedCharacterId.value === charId) {
+          nextTick(() => {
+            scrollToBottom('smooth')
+          })
+        }
 
         refreshAnlas()
       }
@@ -11445,7 +11700,7 @@ async function executeNovelAiImageGeneration() {
   } catch (err: any) {
     showCustomAlert('生图异常', `${err.message || String(err)}`, 'error')
   } finally {
-    isDrawingImage.value = false
+    isDrawingImageMap[charId] = false
   }
 }
 
@@ -11866,6 +12121,9 @@ onMounted(async () => {
       if (generalConfig.value.enable_token_stats === undefined) {
         generalConfig.value.enable_token_stats = true
       }
+      if (generalConfig.value.enable_nsfw === undefined) {
+        generalConfig.value.enable_nsfw = false
+      }
     }
   } catch (e) {
     console.error('加载通用设置异常:', e)
@@ -12021,6 +12279,28 @@ onMounted(async () => {
     }
   })
 
+  // 🚀 核心修复：监听局域网与物理删除广播，打通多端秒级删除自愈同步机制，根治电脑缓存残留 Bug
+  window.api.receive('message-deleted', (data: { characterId: string; messageId: string }) => {
+    const msgs = allMessages[data.characterId]
+    if (msgs) {
+      const idx = msgs.findIndex(m => m.id === data.messageId)
+      if (idx !== -1) {
+        msgs.splice(idx, 1)
+      }
+    }
+  })
+
+  window.api.receive('chat-window-cleared', (data: { characterId: string }) => {
+    allMessages[data.characterId] = []
+  })
+
+  window.api.receive('history-memory-cleared', (data: { characterId: string }) => {
+    allMessages[data.characterId] = []
+    if (activeCharacter.value && activeCharacter.value.id === data.characterId && showBrainPanel.value) {
+      openBrainPanel()
+    }
+  })
+
   // 监听局域网多端同步实时广播
   window.api.receive('user-profile-updated', (profile: any) => {
     if (profile) {
@@ -12039,6 +12319,13 @@ onMounted(async () => {
   // 监听流式 chunk
   window.api.receive('chat-chunk', (data: { characterId: string; content: string; done: boolean; isSystem?: boolean }) => {
     const chunkCharId = data.characterId || streamingCharacterId.value || selectedCharacterId.value || ''
+
+    // 🚀 只要流式吐字或处于流式交互中，就重置/清除 30秒超时定时器，只在真正停滞 30 秒以上时才超时自愈
+    if (data.done) {
+      clearReplyTimeout()
+    } else if (data.content) {
+      startReplyTimeout(chunkCharId)
+    }
 
     if (data.content && data.content.includes('[SUCCESS_CREATION_JUMP]:')) {
       const parts = data.content.split('[SUCCESS_CREATION_JUMP]:')
@@ -12076,7 +12363,7 @@ onMounted(async () => {
       }
 
       // 🚀 核心自愈优化：大模型流式打字输出完毕后，仅在动作描写模式下将最后一条 assistant 消息内容一次性覆盖为包含完美换行符的权威全文
-      if (data.content && chatMode.value === 'descriptive') {
+      if (data.content && (chatMode.value === 'descriptive' || chatMode.value === 'director')) {
         const charId = chunkCharId
         if (charId && allMessages[charId]) {
           const msgs = allMessages[charId]
@@ -12088,6 +12375,19 @@ onMounted(async () => {
               const halfBracketReg = /[（(][^）)]*$/g
 
               let cleanedContent = data.content
+
+              // 🚀 黄金开场白内容物理过滤：只提取 <content> 与 </content> 标签之间的正文和抉择
+              if (cleanedContent.includes('<content>')) {
+                const startIdx = cleanedContent.indexOf('<content>') + 9
+                const endIdx = cleanedContent.indexOf('</content>')
+                if (endIdx !== -1) {
+                  cleanedContent = cleanedContent.substring(startIdx, endIdx).trim()
+                } else {
+                  cleanedContent = cleanedContent.substring(startIdx).trim()
+                }
+              }
+
+              cleanedContent = cleanedContent
                 .replace(/\[RECEIVE_RED_PACKET\]/g, '')
                 .replace(/\[RETURN_RED_PACKET\]/g, '')
                 .replace(sendReg, '')
@@ -13129,7 +13429,8 @@ async function saveGeneralSettings() {
     enable_music: generalConfig.value.enable_music,
     lan_mapping_enabled: generalConfig.value.lan_mapping_enabled,
     lan_mapping_port: port,
-    enable_token_stats: generalConfig.value.enable_token_stats
+    enable_token_stats: generalConfig.value.enable_token_stats,
+    enable_nsfw: generalConfig.value.enable_nsfw
   })
   if (!res.success) {
     showToast(`保存失败: ${res.error}`)

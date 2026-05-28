@@ -1125,7 +1125,7 @@ ${soulContent}
     characterId: string
     folderName: string
     userMessage: string
-    chatMode?: 'descriptive' | 'dialogue'
+    chatMode?: 'descriptive' | 'dialogue' | 'director'
     imageBase64?: string
     userMsgId?: string
     dbMessage?: string
@@ -1536,51 +1536,145 @@ ${soulContent}
     // 支持 chatMode 参数：含描写模式 vs 纯对话模式
     const chatMode = payload.chatMode || 'descriptive'
     const globalPrompt = settings.globalPrompt || ''
-    const systemPrompt = ContextAssembler.assemble(
-      soulPath,
-      worldPath,
-      memoryPath,
-      globalUserPath,
-      charUserPath,
-      history,
-      new Date(),
-      chatMode,
-      globalPrompt
+
+    // 🚀 识别导演模式下黄金开局专属斜杠命令
+    const isOpeningCommand = chatMode === 'director' && (
+      userMessage.trim() === '/开始' || 
+      userMessage.trim() === '/开始剧情'
     )
 
-    // 组装动态记忆、内心世界状态与高频时间环境信息，拼接在最后一个 user 消息最前端，保证 systemPrompt 绝对静止以最大化缓存命中率
-    const liveEnvInfo = ContextAssembler.assembleLiveEnvInfo(new Date())
-    const memoryStr = ContextAssembler.assembleMemory(memoryPath)
-    const stateGuidance = ContextAssembler.assembleStateGuidance(soulPath)
-
-    let dynamicContext = ''
-    if (liveEnvInfo) {
-      dynamicContext += `${liveEnvInfo}\n\n`
-    }
-    if (memoryStr) {
-      dynamicContext += `### DYNAMIC MEMORY (STM & LTM Facts)\n${memoryStr}\n\n`
-    }
-    if (stateGuidance) {
-      dynamicContext += `### Character Current Internal State & Subjective Attitude\n${stateGuidance}\n\n`
-    }
-
+    let messages: ChatMessage[] = []
+    let systemPrompt = ''
     let finalUserContent = ''
-    if (dynamicContext) {
-      finalUserContent += `[System Dynamic Context Update]\n${dynamicContext}---\n\n`
+
+    if (isOpeningCommand) {
+      console.log(`[Director Command] 识别到导演模式黄金开篇斜杠命令: "${userMessage.trim()}"，启动专属特化 Prompt 生成！`)
+      
+      const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : ''
+      const worldContent = fs.existsSync(worldPath) ? fs.readFileSync(worldPath, 'utf8') : ''
+      const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : ''
+
+      // 🚀 获取真实角色名称与真实用户姓名，并在开场白生成中全面替换掉 {{char}} 和 {{user}} 占位符
+      const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
+      const charName = charRow ? charRow.name : '角色'
+      const userProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+      const userName = (userProfile && userProfile.name) ? userProfile.name : '用户'
+
+      const openingSystemPrompt = `# 角色定位：顶级小说创意导演 & 剧本RP大师
+
+你是一名善于创作“黄金开端 (Golden Opener)”的小说导演与创意大师。你的目标是根据给定的角色人设和世界观设定，为用户 \${userName}（主角）与角色 \${charName} 创作一个高潮迭起、充满悬念与感官细节的沉浸式小说开篇，吸引读者和玩家瞬间沉浸其中。
+
+## 背景设定数据
+
+### 1. 角色 \${charName} 的人设设定
+\${soulContent}
+
+### 2. 世界观设定
+\${worldContent}
+
+### 3. 角色 \${charName} 与用户 \${userName} 的记忆背景
+\${memoryContent}
+
+## 任务与创作指令
+
+编写一段极其精彩引人入胜的**小说开篇**，字数必须在 **800字以上**（不设上限），字数多寡要与描写的精彩程度相匹配，不遗余力地进行深度长篇叙事。
+
+### 核心限制与质量标准（不可妥协铁律）：
+1. **纯正第三人称小说叙事**：必须使用“第三人称限制性叙事”视角，像出版小说一样富有文学美感与高级质感。绝不能使用第一人称“我”或者第二人称“你”，更不能直接对用户进行对话说明。用户是故事的主角，请在叙事中以“\${userName}”或“他/她”指代用户（主角），以“\${charName}”或“他/她”指代角色，以此建立客观但沉浸的小说镜头。
+2. **名字指代规则（不可有占位符）**：在创作正文时，你**必须直接使用故事中的真实姓名指代他们，绝对禁止使用字面占位符（如 {{char}}、{{user}} 等）**。角色的中文真实名字是“\${charName}”，用户的中文真实名字是“\${userName}”。
+3. **黄金开场技巧 (In Medias Res)**：拒绝平庸的铺垫、无聊的打招呼或日常琐碎的醒来起床动作。开篇即是冲突、危机、压抑的渴望或变故现场。把镜头对准某个充满张力的事件中央，让读者一眼就感受到极高的戏剧压力。
+4. **具象化呈现 (Show, Don't Tell)**：禁止直接使用抽象词汇定义感情（例如：“他很愤怒”、“她很害羞”）。必须通过具体的生理特征、环境变化、微小动作和眼神来展现（例如：发白的指关节、微缩的瞳孔、不自主偏开的视线、加速的呼吸声）。
+5. **排除 Simile Bridges 桥梁比喻**：禁止频繁使用“仿佛”、“好像”、“如同”、“犹如”等句式构建浮夸的比喻。直接用具体而写实的五感体验（视觉、听觉、嗅觉、触觉、味觉）去撞击读者，展现最扎实的物理质感。
+6. **对话双引号规则**：开篇中出现的所有角色台词和说话内容，必须且只能使用双引号 \`""\` 括起来，严禁使用其它怪异的括弧。
+7. **语言**：必须完全使用简体中文进行创作，不带任何 Markdown 格式（严禁使用 \`**加粗**\`、\`### 标题\` 等排版标记），保持干净利落的小说文本状态。
+
+## 🎭 走向抉择模块规范
+
+在完成上述 800 字以上的高品质开篇正文后，在内容最末尾，你必须严格换行并添加一个名为 \`【 🎭 剧情走向抉择 】\` 的专属选项区。
+在这个区域中，你必须针对当前的开篇剧情，为用户（主角）接下来的行动规划 **4 种完全不同维度的剧情发展走向选项**，格式必须如下所示（保持整洁、艺术感的空行排版）：
+
+---
+【 🎭 剧情走向抉择 】
+
+1. **合理向**：[在这里简明扼要且精彩地描述一个符合逻辑、正常的推进走向]
+2. **脑洞向**：[在这里规划一个跳脱常规、充满奇思妙想甚至有些离奇的走向]
+3. **反转向**：[在这里规划一个彻底颠覆读者预想、发生意想不到剧情反转的走向]
+4. **NSFW向**：[根据当前的开篇语境，规划一个剧情将会向成人级、限制级、极度诱惑或充满情色情欲内容方向推进的走向说明]
+---
+
+## ⚠️ 标签与格式输出绝对铁律（极度重要）
+
+1. **思考过程**：在真正生成你的开篇与抉择选项前，你可以在 \`<cot>\` 和 \`</cot>\` 标签之间进行你的思考和自我审视。
+2. **正文输出包裹**：思考完毕后，你**必须且仅能**把创作的“开篇小说正文与剧情走向抉择选项”（包含末尾的走向抉择模块）全部输出并包裹在 \`<content>\` 和 \`</content>\` 标签对内。
+3. **排除杂质文字**：你**绝对禁止**在 \`<content>\` 之外输出任何其他的自我陈述、前言、废话、以及非开场白之外的任何文字。正文必须从 \`<content>\` 立即开始，以 \`</content>\` 彻底宣告结束。
+
+## 输出规范
+(直接按以下格式进行流式输出，除 <cot> 和 <content> 外不吐出任何其他字)
+<cot>
+你的思考过程
+</cot>
+<content>
+小说开篇正文...
+【 🎭 剧情走向抉择 】
+1. 合理向：...
+2. 脑洞向：...
+3. 反转向：...
+4. NSFW向：...
+</content>`
+
+      systemPrompt = openingSystemPrompt
+      finalUserContent = userMessage
+      messages = [
+        { role: 'system', content: openingSystemPrompt },
+        { role: 'user', content: '请立即根据上述设定与指令，为我创作黄金开篇与走向抉择。' }
+      ]
+    } else {
+      systemPrompt = ContextAssembler.assemble(
+        soulPath,
+        worldPath,
+        memoryPath,
+        globalUserPath,
+        charUserPath,
+        history,
+        new Date(),
+        chatMode,
+        globalPrompt
+      )
+
+      // 组装动态记忆、内心世界状态与高频时间环境信息，拼接在最后一个 user 消息最前端，保证 systemPrompt 绝对静止以最大化缓存命中率
+      const liveEnvInfo = ContextAssembler.assembleLiveEnvInfo(new Date())
+      const memoryStr = ContextAssembler.assembleMemory(memoryPath)
+      const stateGuidance = ContextAssembler.assembleStateGuidance(soulPath)
+
+      let dynamicContext = ''
+      if (liveEnvInfo) {
+        dynamicContext += `${liveEnvInfo}\n\n`
+      }
+      if (memoryStr) {
+        dynamicContext += `### DYNAMIC MEMORY (STM & LTM Facts)\n${memoryStr}\n\n`
+      }
+      if (stateGuidance) {
+        dynamicContext += `### Character Current Internal State & Subjective Attitude\n${stateGuidance}\n\n`
+      }
+
+      finalUserContent = ''
+      if (dynamicContext) {
+        finalUserContent += `[System Dynamic Context Update]\n${dynamicContext}---\n\n`
+      }
+
+      // 如果有粘贴图片，在用户消息中追加图片描述提示
+      const userMessageFinal = payload.imageBase64
+        ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
+        : userMessage
+
+      finalUserContent += userMessageFinal
+
+      messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.map(m => ({ role: m.role as any, content: m.content })),
+        { role: 'user', content: finalUserContent }
+      ]
     }
-
-    // 如果有粘贴图片，在用户消息中追加图片描述提示
-    const userMessageFinal = payload.imageBase64
-      ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
-      : userMessage
-
-    finalUserContent += userMessageFinal
-
-    const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt },
-      ...history.map(m => ({ role: m.role as any, content: m.content })),
-      { role: 'user', content: finalUserContent }
-    ]
 
     // 开启前台流式聊天，获取并发锁，阻塞后台任务
     await InferenceMutex.lock()

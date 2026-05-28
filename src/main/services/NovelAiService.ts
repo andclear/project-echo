@@ -187,15 +187,31 @@ export class NovelAiService {
 
     console.log(`[NovelAiService] 正在向 NAI 发起生图请求，尺寸: ${width}x${height}, 模型: ${payload.model}`)
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'User-Agent': 'EchoPlatform/1.0.0'
-      },
-      body: JSON.stringify(payload)
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+    }, 45000) // 🚀 45秒超时自愈防线
+
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'User-Agent': 'EchoPlatform/1.0.0'
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      })
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error('NovelAI 绘图请求超时，请检查网络连通性或代理设置。')
+      }
+      throw err
+    } finally {
+      clearTimeout(timeoutId)
+    }
 
     if (!response.ok) {
       const errText = await response.text()

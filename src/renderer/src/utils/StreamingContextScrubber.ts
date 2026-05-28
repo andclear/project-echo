@@ -17,6 +17,11 @@ export class StreamingContextScrubber {
   private currentBracketBuffer: string = '';
   private inDiscardBracket: boolean = false;
 
+  // 新增：提取模式与正文标签定位状态机
+  private extractMode: boolean = false;
+  private hasSeenContentStart: boolean = false;
+  private hasSeenContentEnd: boolean = false;
+
   // 需要完全隐式丢弃其“内部所有内容”的标签集合
   private readonly discardSpanTags = new Set(['memory-context', 'system-note', 'thought', 'image_prompt', 'image_desc']);
 
@@ -91,6 +96,17 @@ export class StreamingContextScrubber {
         if (char === '>') {
           this.inTag = false;
           const fullTag = this.currentTagBuffer.trim();
+          
+          // 🚀 物理提取特定正文标签定位
+          if (fullTag === 'content') {
+            this.hasSeenContentStart = true;
+            continue;
+          }
+          if (fullTag === '/content') {
+            this.hasSeenContentEnd = true;
+            continue;
+          }
+
           if (this.discardSpanTags.has(fullTag)) {
             this.inDiscardSpan = true;
             this.discardTag = fullTag;
@@ -104,7 +120,14 @@ export class StreamingContextScrubber {
       }
 
       // 普通聊天正文文本，安全放行
-      output += char;
+      if (this.extractMode) {
+        // 如果开启了特定内容提取模式，仅在成功定位起始标签且未遭遇结束标签时才允许输出
+        if (this.hasSeenContentStart && !this.hasSeenContentEnd) {
+          output += char;
+        }
+      } else {
+        output += char;
+      }
     }
 
     return output;
@@ -123,5 +146,17 @@ export class StreamingContextScrubber {
     this.inBracket = false;
     this.currentBracketBuffer = '';
     this.inDiscardBracket = false;
+
+    // 🚀 重置提取模式状态
+    this.extractMode = false;
+    this.hasSeenContentStart = false;
+    this.hasSeenContentEnd = false;
+  }
+
+  /**
+   * 设置提取模式
+   */
+  public setExtractMode(enabled: boolean): void {
+    this.extractMode = enabled;
   }
 }

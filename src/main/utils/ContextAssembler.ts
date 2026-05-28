@@ -41,7 +41,7 @@ export class ContextAssembler {
     charUserPath: string,
     history: HistoryMessage[],
     date: Date = new Date(),
-    chatMode: 'descriptive' | 'dialogue' = 'descriptive',
+    chatMode: 'descriptive' | 'dialogue' | 'director' = 'descriptive',
     globalPrompt?: string
   ): string {
     let soulContent = '*性格核心未装载*';
@@ -180,7 +180,26 @@ export class ContextAssembler {
     // 聊天回复模式指令装配与注入 (核心优化)
     let chatModeInstruction = '';
     if (chatMode === 'descriptive') {
-      chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Descriptive)\n你的回复应该包含角色的心理描写和简短的动作描写，让对话更加沉浸生动。在对话中穿插内心独白（用斜体或括号标注）以及简短的动作描述（如"她微微一笑，目光落在远处"）。保持角色的性格特色，让每次回复都有层次感。`;
+      chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Descriptive)\n你的回复应该包含角色的心理描写 and 简短的动作描写，让对话更加沉浸生动。在对话中穿插内心独白（用斜体或括号标注）以及简短的动作描述（如"她微微一笑，目光落在远处"）。保持角色的性格特色，让每次回复都有层次感。`;
+    } else if (chatMode === 'director') {
+      chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Director - 导演模式)
+在【导演模式】下，你们正在共同创作一部极其精彩、引人入胜的小说。
+请你无条件极其严格地遵守以下【导演模式绝对铁律】：
+1. **角色输入定位 (AI Input is Director's Commands)**：
+   - 对方（用户）输入的内容**并不是和你进行常规的两人一问一答聊天对话**，而是对接下来的小说情节、场景、内容走向所发出的【剧情发展指令、指导意见和剧本要求】。
+   - 你的回复也**绝对禁止**以常规的面对面说话口吻进行一问一答！你必须作为小说的总执笔人和执行导演，在你的回复中，**完美、绝对忠实地把用户刚才提出的剧情指令落实为小说正文**！
+2. **全程第三人称小说叙事 (Full Third-Person Novel Narrative)**：
+   - 必须使用【第三人称限制性或全知叙事视角】来撰写输出内容，像一本出版的小说一样富有文学色彩。
+   - 绝对禁止使用第一人称“我”来指代角色，也绝对禁止使用第二人称“你”来与用户直接对话。用户仍然是这本小说的主角，请在叙事中以用户的姓名或“他/她”来指代用户（主角）。
+3. **打破两人对话限制与引入 NPC (Breaking Dual Dialogue & Introducing NPCs)**：
+   - 你需要根据剧情的发展需要，自由、自然地引入其他 NPC 角色（如路人、对手、亲友、盟友等），并为他们设计符合场景的台词、动作与命运。
+   - ⚠️ **重要注记：是否引入 NPC 完全根据情节需要来灵活决定，绝不强制。如果情节当前仅需要主角的单人场景、心理或独角戏，请专注于纯粹的主角个人深度动作与环境刻画，不要生硬地插入旁人**。
+4. **弱化时间跨度限制 (No Strict Time Span Constraints)**：
+   - 抛弃琐碎的即时通信时间概念！用户可能会要求剧情发生大跨度的推移（例如：“时间过去了三年”、“几个月后……”、“五年后的一个深夜”）。
+   - 你在撰写小说正文时，必须极其自然地把这些大跨度的时间跃迁、岁月流逝作为小说的过渡章节，展开长线叙事，切勿拘泥于一分一秒的日常限制。
+5. **超高文学素养与长文本输出 (Masterpiece Novel & Long Text Writing)**：
+   - AI 输出的内容必须像一篇精雕细琢的优秀小说，语言要优美、细腻，场景、环境、心理、动作描写必须非常扎实。
+   - **单次回复的字数必须强力保障在 800 字以上，且不做上限限制**！请发挥高超的叙事和扩写功力，把场景、冲突、环境氛围与心理挣扎描写得淋漓尽致，不遗余力地展现高表现力的长篇叙事！`;
     } else {
       chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Pure Dialogue)
 你的回复必须像真实的手机聊天软件（如微信、WhatsApp、Telegram、iMessage 等即时通讯打字软件）一样极其简洁、自然、碎片口语化。

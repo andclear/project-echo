@@ -44,6 +44,7 @@ const electronAPI = {
 
 // 供渲染进程使用的安全 API 自定义扩展
 const api = {
+  platform: process.platform,
   send: (channel: string, data: any) => {
     ipcRenderer.send(channel, data)
   },
