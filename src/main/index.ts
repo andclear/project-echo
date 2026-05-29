@@ -458,6 +458,30 @@ function registerIpcHandlers(): void {
       }
 
       db.deleteMessage(payload.messageId)
+
+      // 🚀 物理删除消息后，立即触发秒级自愈同步：广播给电脑软件前端和局域网连接的所有手机浏览器（SSE 通道）
+      if (msg) {
+        const charId = msg.character_id
+        
+        // 1. 广播给电脑端前端
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('message-deleted', { characterId: charId, messageId: payload.messageId })
+        }
+        
+        // 2. 广播给所有连入局域网的客户端 SSE 通道
+        const ssePayload = {
+          channel: 'message-deleted',
+          data: { characterId: charId, messageId: payload.messageId }
+        }
+        for (const client of sseClients) {
+          try {
+            client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
+          } catch (_) {
+            sseClients.delete(client)
+          }
+        }
+      }
+
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 物理删除消息失败:', error)
@@ -605,6 +629,23 @@ function registerIpcHandlers(): void {
     try {
       const storageManager = new CharacterStorageManager()
       storageManager.writeCharacterFile(payload.folderName, 'Appearance.md', payload.content)
+      // 🚀 广播通知其他局域网客户端与电脑端外貌文件已更新，触发秒级同步
+      const appearanceBroadcast = { folderName: payload.folderName, fileName: 'Appearance.md', content: payload.content }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('character-file-updated', appearanceBroadcast)
+      }
+      const appearanceSse = {
+        channel: 'character-file-updated',
+        data: appearanceBroadcast
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(appearanceSse)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (error: any) {
       console.error(`[IPC] 保存 Appearance.md 失败:`, error)
@@ -1244,6 +1285,23 @@ ${soulContent}
         console.error('[save-character-files] 保存触发重生成设定总结异常:', err)
       })
 
+      // 🚀 广播通知其他局域网客户端与电脑端人设已更新，触发秒级同步
+      const settingsBroadcast = { folderName: payload.folderName, soul: payload.soul, world: payload.world }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('character-settings-updated', settingsBroadcast)
+      }
+      const settingsSse = {
+        channel: 'character-settings-updated',
+        data: settingsBroadcast
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(settingsSse)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 角色人设配置文件保存失败:', error)
@@ -1303,6 +1361,7 @@ ${soulContent}
     userMsgId?: string
     dbMessage?: string
     isGroup?: boolean
+    isRegenerate?: boolean // 🚀 是否是重新回复触发
   }) => {
     const { characterId, folderName, userMessage } = payload
     const isGroup = !!payload.isGroup
@@ -1339,15 +1398,17 @@ ${soulContent}
 
       // 2. 将用户的发言首先持久化存盘入库
       const userMsgId = payload.userMsgId || crypto.randomUUID()
-      db.saveMessage({
-        id: userMsgId,
-        character_id: groupId,
-        role: 'user',
-        content: payload.dbMessage || userMessage,
-        timestamp: Date.now(),
-        token_usage: 0,
-        sender_id: 'user'
-      })
+      if (!payload.isRegenerate) {
+        db.saveMessage({
+          id: userMsgId,
+          character_id: groupId,
+          role: 'user',
+          content: payload.dbMessage || userMessage,
+          timestamp: Date.now(),
+          token_usage: 0,
+          sender_id: 'user'
+        })
+      }
 
       // 3. 核心决策：决定当前发言人队列 speakerQueue
       const speakerQueue: string[] = []
@@ -2613,14 +2674,16 @@ ${memoryContent}
     const outputTokens = Math.ceil(outputChars * 1.4) // 针对助手返回长句的复合乘数
     const totalEstimatedTokens = inputTokens + outputTokens
 
-    db.saveMessage({
-      id: userMsgId,
-      character_id: characterId,
-      role: 'user',
-      content: dbContent,
-      timestamp: Date.now(),
-      token_usage: totalEstimatedTokens
-    })
+    if (!payload.isRegenerate) {
+      db.saveMessage({
+        id: userMsgId,
+        character_id: characterId,
+        role: 'user',
+        content: dbContent,
+        timestamp: Date.now(),
+        token_usage: totalEstimatedTokens
+      })
+    }
 
     // 提示：大模型运行数据统计已在 ModelAdapter 底层拦截器中高保全无感统一记录，此处无需再次手动写入，防止数据重复统计。
 
@@ -3034,6 +3097,23 @@ ${memoryContent}
       const storageManager = new CharacterStorageManager()
       storageManager.writeCharacterFile(payload.folderName, 'Memory.md', payload.content)
       console.log(`[IPC] Memory.md 手动保存成功: ${payload.folderName}`)
+      // 🚀 广播通知其他局域网客户端与电脑端记忆文件已更新，触发秒级同步
+      const memoryBroadcast = { folderName: payload.folderName, fileName: 'Memory.md', content: payload.content }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('character-file-updated', memoryBroadcast)
+      }
+      const memorySse = {
+        channel: 'character-file-updated',
+        data: memoryBroadcast
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(memorySse)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -4177,6 +4257,23 @@ Please output in exactly this XML format:
       const storageManager = new CharacterStorageManager()
       const statePath = join(storageManager.getBaseDir(), payload.folderName, 'State.md')
       StateReaderWriter.writeState(statePath, payload.state)
+      // 🚀 广播通知其他局域网客户端与电脑端角色状态已被用户手动修改，触发秒级同步刷新
+      const stateBroadcast = { characterId: payload.folderName, updates: [] }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('character-state-updated', stateBroadcast)
+      }
+      const stateSse = {
+        channel: 'character-state-updated',
+        data: stateBroadcast
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(stateSse)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -4615,7 +4712,7 @@ ${soulContent}
   })
 
   // 9. 保存通用常规设置
-  ipcMain.handle('save-general-settings', async (_, payload: { show_schedule: boolean; show_goals: boolean; cron_frequency: string; enable_music?: boolean; lan_mapping_enabled?: boolean; lan_mapping_port?: number; enable_token_stats?: boolean }) => {
+  ipcMain.handle('save-general-settings', async (_, payload: { show_schedule: boolean; show_goals: boolean; cron_frequency: string; enable_music?: boolean; lan_mapping_enabled?: boolean; lan_mapping_port?: number; enable_token_stats?: boolean; descriptive_min_words?: number; director_min_words?: number }) => {
     try {
       const db = getDatabaseService()
       db.setSetting('general_config', JSON.stringify(payload))
@@ -4652,7 +4749,11 @@ ${soulContent}
       const db = getDatabaseService()
       const genConfigStr = db.getSetting('general_config')
       if (genConfigStr) {
-        return { success: true, config: JSON.parse(genConfigStr) }
+        const parsed = JSON.parse(genConfigStr)
+        // 🚀 向下兼容默认字数兜底
+        if (parsed.descriptive_min_words === undefined) parsed.descriptive_min_words = 500
+        if (parsed.director_min_words === undefined) parsed.director_min_words = 800
+        return { success: true, config: parsed }
       }
       // 返回默认值
       return {
@@ -4664,13 +4765,44 @@ ${soulContent}
           enable_music: false,
           lan_mapping_enabled: false,
           lan_mapping_port: 6868,
-          enable_token_stats: true
+          enable_token_stats: true,
+          descriptive_min_words: 500, // 🚀 动作描写模式默认最低500字
+          director_min_words: 800     // 🚀 导演模式默认最低800字
         }
       }
     } catch (e: any) {
       console.error('[IPC] 读取通用配置失败:', e)
       return { success: false, error: e.message || e }
     }
+  })
+
+  // 11. 读取首次使用协议同意状态
+  ipcMain.handle('get-agreement-status', async () => {
+    try {
+      const db = getDatabaseService()
+      const accepted = db.getSetting('agreement_accepted') === 'true'
+      return { success: true, accepted }
+    } catch (e: any) {
+      console.error('[IPC] 读取协议状态失败:', e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 12. 保存协议同意状态
+  ipcMain.handle('save-agreement-status', async () => {
+    try {
+      const db = getDatabaseService()
+      db.setSetting('agreement_accepted', 'true')
+      return { success: true }
+    } catch (e: any) {
+      console.error('[IPC] 保存协议状态失败:', e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 13. 不同意协议，强力退出程序
+  ipcMain.handle('exit-app', () => {
+    app.quit()
   })
 }
 

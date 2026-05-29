@@ -3,6 +3,7 @@ import * as path from 'path';
 import { MemoryReaderWriter } from './MemoryReaderWriter';
 import { UserProfileReaderWriter } from './UserProfileReaderWriter';
 import { StateReaderWriter } from './StateReaderWriter';
+import { getDatabaseService } from '../db/database';
 import { SummaryReaderWriter } from './SummaryReaderWriter';
 
 /**
@@ -177,10 +178,29 @@ export class ContextAssembler {
       }
     }
 
+    // 🚀 读取常规设置获取最低字数限制指令 (核心优化)
+    let descriptiveMinWords = 500;
+    let directorMinWords = 800;
+    try {
+      const db = getDatabaseService();
+      const genConfigStr = db.getSetting('general_config');
+      if (genConfigStr) {
+        const parsed = JSON.parse(genConfigStr);
+        if (parsed.descriptive_min_words !== undefined) {
+          descriptiveMinWords = Number(parsed.descriptive_min_words) || 500;
+        }
+        if (parsed.director_min_words !== undefined) {
+          directorMinWords = Number(parsed.director_min_words) || 800;
+        }
+      }
+    } catch (_) {
+      // 容错兜底
+    }
+
     // 聊天回复模式指令装配与注入 (核心优化)
     let chatModeInstruction = '';
     if (chatMode === 'descriptive') {
-      chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Descriptive)\n你的回复应该包含角色的心理描写 and 简短的动作描写，让对话更加沉浸生动。在对话中穿插内心独白（用斜体或括号标注）以及简短的动作描述（如"她微微一笑，目光落在远处"）。保持角色的性格特色，让每次回复都有层次感。`;
+      chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Descriptive)\n你的回复应该包含角色的心理描写 and 简短的动作描写，让对话更加沉浸生动。在对话中穿插内心独白（用斜体或括号标注）以及简短 of 动作描述（如"她微微一笑，目光落在远处"）。保持角色的性格特色，让每次回复都有层次感。\n⚠️ **字数限制铁律**：你每次输出的内容（包含所有动作描写、心理活动与台词）在总字数上**必须极其严格地不得低于 ${descriptiveMinWords} 字**！请尽量展开细腻、多层次的环境与心理铺垫，绝对禁止敷衍了事或短句回复，字数没有上限限制！`;
     } else if (chatMode === 'director') {
       chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Director - 导演模式)
 在【导演模式】下，你们正在共同创作一部极其精彩、引人入胜的小说。
@@ -199,9 +219,9 @@ export class ContextAssembler {
    - 抛弃琐碎的即时通信时间概念！用户可能会要求剧情发生大跨度的推移（例如：“时间过去了三年”、“几个月后……”、“五年后的一个深夜”）。
    - 你在撰写小说正文时，必须极其自然地把这些大跨度的时间跃迁、岁月流逝作为小说的过渡章节，展开长线叙事，切勿拘泥于一分一秒的日常限制。
 5. **超高文学素养与长文本输出 (Masterpiece Novel & Long Text Writing)**：
-   - AI 输出的内容必须像一篇精雕细琢的优秀小说，语言要优美、细腻，场景、环境、心理、动作描写必须非常扎实。
+   - 输出的内容必须像一篇精雕戏琢的优秀小说，语言要优美、细腻，场景、环境、心理、动作描写必须非常扎实。
    - ⚠️ **对白对话占比绝对铁律：输出的整篇小说正文内容中，角色之间的对话台词对白内容（即用标准双引号 "" 括起来的说话台词，包括主角与各角色的对白）在篇幅或字数上必须占据不少于 30% 的比例！绝对禁止通篇都是冗长沉闷的内心独白或环境描写，必须保证高密度、生动有趣的台词互动，让故事充满戏感与对话张力！**
-   - **单次回复的字数必须强力保障在 800 字以上，且不做上限限制**！请发挥高超的叙事、动作白描和台词对白撰写功力，把场景、对白张力、环境氛围与心理挣扎描写得淋漓尽致，不遗余力地展现高表现力的长篇叙事！`;
+   - ⚠️ **字数限制绝对铁律**：作为一个长篇连载的小说章节，你每次创作并输出的小说正文内容在总字数上**必须极其严格地不得低于 ${directorMinWords} 字**！请尽情进行丰富、跌宕起伏的细节铺垫、心理刻画与对话交锋，字数没有上限限制！`;
     } else {
       chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Pure Dialogue)
 你的回复必须像真实的手机聊天软件（如微信、WhatsApp、Telegram、iMessage 等即时通讯打字软件）一样极其简洁、自然、碎片口语化。

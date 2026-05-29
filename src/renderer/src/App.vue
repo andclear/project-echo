@@ -1,8 +1,184 @@
 <template>
+  <!-- 🚀 A. 前置微型加载检测锁 (在获取数据库协议签署状态之前呈现，彻底杜绝主界面瞬间闪现) -->
+  <div v-if="isAgreementChecking" class="fixed inset-0 z-[999] flex flex-col items-center justify-center bg-background text-on-surface select-none animate-fade-in" :class="{ 'dark': isDark }">
+    <div class="flex flex-col items-center space-y-4">
+      <div class="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center animate-pulse">
+        <SparklesIcon class="w-5.5 h-5.5 text-primary animate-spin" />
+      </div>
+      <span class="text-xs font-bold text-on-surface-variant/60 tracking-wider">正在加载安全环境...</span>
+    </div>
+  </div>
+
+  <!-- 🚀 B. 全屏高颜值磨砂用户协议卡片：在未同意且非检测中时强制锁死全屏 -->
+  <div v-else-if="!hasAcceptedAgreement && showAgreementModal" class="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-background text-on-surface select-text animate-fade-in" :class="{ 'dark': isDark }">
+    <div class="w-full max-w-[500px] h-[85vh] bg-surface rounded-[24px] border border-outline-variant shadow-2xl flex flex-col overflow-hidden animate-scale-in relative">
+      <header class="p-6 border-b border-outline-variant/30 flex items-center space-x-3 select-none flex-shrink-0 bg-surface">
+        <div class="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+          <BookOpenIcon class="w-4.5 h-4.5 text-primary animate-pulse" />
+        </div>
+        <div>
+          <h3 class="text-sm font-black text-on-surface tracking-wide">Echo-回音 用户协议与免责声明</h3>
+          <p class="text-[9px] text-on-surface-variant/60 tracking-tighter mt-0.5">请在使用前仔细阅读并遵守以下条款</p>
+        </div>
+      </header>
+
+      <!-- 条款高颜值结构化排版区 (扁平极简主义，不要卡片，图标 100% 补齐显现) -->
+      <div class="flex-1 overflow-y-auto p-6 select-text space-y-6 bg-surface-low border-b border-outline-variant/20 mobile-select-text leading-relaxed">
+        <div class="text-[11.5px] text-on-surface/90 space-y-6 select-text leading-relaxed">
+          <!-- 核心免责置顶高亮公告 (扁平精致边框，无卡片底色) -->
+          <div class="p-3.5 border-l-3 border-error/50 space-y-1 select-text">
+            <div class="flex items-center space-x-1.5 text-error text-xs font-black select-none">
+              <AlertTriangleIcon class="w-4 h-4 flex-shrink-0" />
+              <span>重要免责与特别声明（核心条款）</span>
+            </div>
+            <p class="text-[10px] text-on-surface-variant font-semibold leading-relaxed">
+              本工具不提供任何内容生成服务，不预置接入任何大模型，不提供任何开放或封闭版权的音乐资源，仅供学习交流和研究使用。用户生成的任何内容、数据，使用的任何音乐资源均由用户自行负责，本工具不承担任何法律责任。
+            </p>
+          </div>
+
+          <!-- 一、定义与服务内容 -->
+          <div class="space-y-2">
+            <div class="flex items-center space-x-2 text-primary font-black select-none">
+              <BookOpenIcon class="w-4.5 h-4.5 text-primary flex-shrink-0" />
+              <span class="text-[11.5px] font-black">一、定义与服务内容</span>
+            </div>
+            <div class="text-[10.5px] text-on-surface-variant/90 space-y-1.5 pl-6.5 leading-relaxed">
+              <p>
+                <strong>Echo-回音</strong>（本软件）是一个用户与 AI 进行角色扮演对话的工具。它提供美观的对话界面、便捷的文本管理、智能的内容生成以及强大的多模型接入能力，旨在为用户提供沉浸式、个性化的角色扮演体验。
+              </p>
+              <p>主要功能包括但不限于：角色扮演对话、朋友圈、论坛、音乐等功能。</p>
+            </div>
+          </div>
+
+          <!-- 二、使用许可与限制 -->
+          <div class="space-y-2">
+            <div class="flex items-center space-x-2 text-primary font-black select-none">
+              <ShieldAlertIcon class="w-4.5 h-4.5 text-primary flex-shrink-0" />
+              <span class="text-[11.5px] font-black">二、使用许可与限制</span>
+            </div>
+            <div class="text-[10.5px] text-on-surface-variant/90 pl-6.5 space-y-2 leading-relaxed">
+              <p>本工具遵循“共享、交流”的原则发布，并严格遵守以下许可限制：</p>
+              
+              <ul class="list-none space-y-2">
+                <li class="p-1.5 rounded-lg bg-on-surface/5 border border-outline-variant/15 text-[10px]">
+                  <span class="font-bold text-on-surface">1. 仅限学习交流：</span> 您仅可将本工具用于个人学习、研究或技术交流目的。
+                </li>
+                <li class="p-1.5 rounded-lg bg-error/5 border border-error/15 text-[10px]">
+                  <span class="font-bold text-error">2. 严禁商用：</span> <strong>禁止</strong>将本工具或基于本工具修改后的衍生版本用于任何形式的商业用途（包括但不限于付费下载、付费会员制、广告盈利、推广引流、作为商业软件的一部分等）。
+                </li>
+                <li class="p-1.5 rounded-lg bg-on-surface/5 border border-outline-variant/15 text-[10px] space-y-1">
+                  <span class="font-bold text-on-surface">3. 开源与许可协议：</span> 本项目采用 <strong>CC BY-NC-SA 4.0</strong> 协议进行授权。
+                  <ul class="list-disc pl-4 space-y-0.5 text-[9.5px] text-on-surface-variant/80 mt-1">
+                    <li><strong>自由使用</strong>：您可以自由地复制、分发、修改本工具的源代码。</li>
+                    <li><strong>禁止商用</strong>：您不得将本工具或其任何衍生版本用于商业目的。</li>
+                    <li><strong>相同方式共享</strong>：如果您修改了本工具或基于本工具开发了新项目，您的项目必须同样采用 <strong>CC BY-NC-SA 4.0</strong> 协议开源，且必须包含本条禁止商用的限制。</li>
+                  </ul>
+                </li>
+              </ul>
+              <p class="text-[9.5px] opacity-70 italic">协议全文：https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en</p>
+            </div>
+          </div>
+
+          <!-- 三、用户行为规范与版权尊重 -->
+          <div class="space-y-2">
+            <div class="flex items-center space-x-2 text-primary font-black select-none">
+              <HeartHandshakeIcon class="w-4.5 h-4.5 text-primary flex-shrink-0" />
+              <span class="text-[11.5px] font-black">三、用户行为规范与版权尊重</span>
+            </div>
+            <div class="text-[10.5px] text-on-surface-variant/90 pl-6.5 space-y-2 leading-relaxed">
+              <p class="font-bold text-on-surface">本条款为本协议的核心，请务必严格遵守：</p>
+              
+              <div class="space-y-2">
+                <p><strong>1. 工具属性声明：</strong> 本工具本身不拥有、不提供、也不存储任何大模型生成的文本内容的版权。</p>
+                <div class="space-y-1">
+                  <p><strong>2. 尊重原作者权利：</strong></p>
+                  <ul class="list-disc pl-4 space-y-1 text-[9.5px]">
+                    <li><strong>严禁擅自二改</strong>：在导入他人创作的角色卡、提示词（Prompt）、世界书或图片进行编辑、修改或“二改”之前，<strong>您必须确认原作者明确授权允许此类操作</strong>。</li>
+                    <li><strong>关于酒馆角色卡</strong>：工具本身支持酒馆角色卡的导入，但<strong>绝对禁止</strong>导入作者声明<strong>仅可用于酒馆</strong>的角色卡，以免侵犯作者自身权益。推荐使用工具内置的“角色创建Bot”或 MOI 工具创建角色卡。</li>
+                    <li><strong>遵守原始协议</strong>：如果原作者在角色卡描述、发布页面或元数据中声明了“禁止二改”、“禁止转载”或“禁止用于AI训练”等限制，您必须严格遵守。</li>
+                    <li><strong class="text-error">后果自负</strong>：因您违反原作者规定擅自修改、分发或公开他人作品而产生的任何版权纠纷，<strong>由您个人承担全部责任</strong>，与本工具及本工具开发者无关。</li>
+                  </ul>
+                </div>
+                <p><strong>3. 导入内容的合法性：</strong> 您保证您导入本工具的所有数据（包括但不限于图片、文本、配置），您均拥有合法的使用权或版权。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 四、关于 AI 生成内容的免责 -->
+          <div class="space-y-2">
+            <div class="flex items-center space-x-2 text-primary font-black select-none">
+              <CpuIcon class="w-4.5 h-4.5 text-primary flex-shrink-0" />
+              <span class="text-[11.5px] font-black">四、关于 AI 生成内容的免责</span>
+            </div>
+            <div class="text-[10.5px] text-on-surface-variant/90 pl-6.5 space-y-1.5 leading-relaxed">
+              <p><strong>1. AI功能的来源：</strong> 本工具不提供任何AI能力，用户需要自行接入LLM（大语言模型）的API进行使用。</p>
+              <p><strong>2. 生成结果的不确定性：</strong> 本工具接入的 AI 生成的内容具有随机性和不可控性，开发者不对生成内容的准确性、逻辑性或价值做任何保证。</p>
+              <p><strong>3. 合规性责任：</strong> 您在使用 AI 生成功能时，必须遵守相关法律法规。不得利用本工具生成违反法律法规、违背公序良俗、色情、暴力、仇恨言论或侵犯他人权益的内容。</p>
+              <p><strong>4. AI 版权归属：</strong> 关于 AI 生成内容的版权归属，请遵循您所使用的 AI 模型服务商的服务条款。本工具开发者不对生成的作品主张任何版权，也不对因使用生成作品产生的版权纠纷负责。</p>
+            </div>
+          </div>
+
+          <!-- 五、免责声明 -->
+          <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
+            <div class="flex items-center space-x-2 text-primary font-black">
+              <FileTextIcon class="w-4 h-4 text-primary" />
+              <span class="text-xs font-black">五、免责声明</span>
+            </div>
+            <div class="text-[10.5px] text-on-surface-variant space-y-2 leading-relaxed">
+              <p><strong>1. “按原样”提供：</strong> 本工具按“现状”提供，不包含任何明示或暗示的保证（包括但不限于适销性、特定用途适用性或不侵权性）。</p>
+              <p><strong>2. 数据安全：</strong> 虽然本工具包含数据备份功能，但开发者不保证数据的绝对安全。<strong>请您务必自行定期备份重要数据。</strong> 因软件故障、操作失误或不可抗力导致的数据丢失、损坏，开发者不承担赔偿责任。</p>
+              <p><strong>3. 责任限制：</strong> 在法律允许的最大范围内，开发者不对因使用或无法使用本工具而引起的任何直接、间接、附带或惩罚性损害赔偿负责。</p>
+            </div>
+          </div>
+
+          <!-- 六、协议修改 -->
+          <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
+            <div class="flex items-center space-x-2 text-primary font-black">
+              <HelpCircleIcon class="w-4 h-4 text-primary" />
+              <span class="text-xs font-black">六、协议修改</span>
+            </div>
+            <div class="text-[10.5px] text-on-surface-variant leading-relaxed">
+              <p>开发者保留在任何时候修改本协议的权利。修改后的协议将在项目发布页面更新。如果您在协议更新后继续使用本工具，即表示您接受修改后的协议。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部操作按钮 -->
+      <footer class="p-5 flex flex-col space-y-3 bg-surface select-none flex-shrink-0 border-t border-outline-variant/20">
+        <div class="flex items-center space-x-3">
+          <button
+            @click="rejectAgreement"
+            class="flex-1 py-3 rounded-xl bg-surface-high border border-outline-variant hover:bg-on-surface/5 active:scale-95 text-xs font-bold text-on-surface-variant transition-all cursor-pointer"
+          >
+            我不同意
+          </button>
+          
+          <button
+            :disabled="agreementCountdown > 0"
+            @click="acceptAgreement"
+            class="flex-[2] py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-2"
+            :class="agreementCountdown > 0 
+              ? 'bg-outline-variant text-on-surface-variant/40 cursor-not-allowed shadow-inner' 
+              : 'bg-primary text-white hover:bg-primary-container active:scale-95 cursor-pointer shadow-md shadow-primary/10'"
+          >
+            <CheckIcon class="w-3.5 h-3.5" />
+            <span v-if="agreementCountdown > 0">请仔细阅读并等待 ({{ agreementCountdown }}秒)</span>
+            <span v-else>我同意并自愿遵守所有内容</span>
+          </button>
+        </div>
+        <p class="text-[9px] text-center text-on-surface-variant/40 select-none">
+          * 拒绝签署本协议将立刻自动物理退出程序所有进程
+        </p>
+      </footer>
+    </div>
+  </div>
+
   <!-- 精致跳秒时钟独立分流视图 -->
-  <div v-if="isClockView" class="w-full h-full select-none overflow-hidden" :class="{ 'dark': isDark }">
+  <div v-else-if="isClockView" class="w-full h-full select-none overflow-hidden" :class="{ 'dark': isDark }">
     <ClockView />
   </div>
+
   <!-- 根容器，支持亮色/暗色模式 -->
   <div
     v-else
@@ -1635,6 +1811,53 @@
                         <div class="text-[9px] opacity-75 mt-1 leading-relaxed">打破对话，全程以优美的第三人称视角撰写 800 字以上小说故事。</div>
                       </button>
                     </div>
+
+                    <!-- 🚀 最低字数限制输入框组件：仅在动作描写或导演模式下展开展示 -->
+                    <div v-if="chatMode === 'descriptive'" class="p-3 bg-surface-low border border-outline-variant/60 rounded-2xl animate-fade-in space-y-2 mt-2 select-none">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface flex items-center space-x-1.5">
+                          <SlidersHorizontalIcon class="w-3.5 h-3.5 text-primary" />
+                          <span>动作描写最低字数限制</span>
+                        </span>
+                        <div class="flex items-center space-x-1 border border-outline-variant rounded-xl bg-surface px-2.5 py-1">
+                          <input
+                            v-model.number="generalConfig.descriptive_min_words"
+                            type="number"
+                            min="10"
+                            max="5000"
+                            class="w-14 text-center text-xs font-black text-primary focus:outline-none bg-transparent"
+                            @change="saveGeneralSettings()"
+                          />
+                          <span class="text-[10px] text-on-surface-variant/40">字</span>
+                        </div>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-relaxed">
+                        设置 AI 单次输出的最低字数（默认500，不做上限限制）。大模型会严格遵守此铁律，进行多层次的动作神态与心理细节白描。
+                      </p>
+                    </div>
+
+                    <div v-if="chatMode === 'director'" class="p-3 bg-surface-low border border-outline-variant/60 rounded-2xl animate-fade-in space-y-2 mt-2 select-none">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface flex items-center space-x-1.5">
+                          <SlidersHorizontalIcon class="w-3.5 h-3.5 text-primary" />
+                          <span>导演模式最低字数限制</span>
+                        </span>
+                        <div class="flex items-center space-x-1 border border-outline-variant rounded-xl bg-surface px-2.5 py-1">
+                          <input
+                            v-model.number="generalConfig.director_min_words"
+                            type="number"
+                            min="10"
+                            max="5000"
+                            class="w-14 text-center text-xs font-black text-primary focus:outline-none bg-transparent"
+                            @change="saveGeneralSettings()"
+                          />
+                          <span class="text-[10px] text-on-surface-variant/40">字</span>
+                        </div>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-relaxed">
+                        设置导演模式下小说章节的最低字数（默认800，不做上限限制）。大模型会根据铁律创作宏大、起伏跌宕且对白占比 > 30% 的小说连载。
+                      </p>
+                    </div>
                   </div>
 
                   <!-- 系统外观 -->
@@ -2277,7 +2500,7 @@
                       <span v-if="isLoadingAnlas" class="text-xs font-mono text-primary animate-pulse">查询中...</span>
                       <span v-else class="text-sm font-mono font-extrabold text-primary">{{ anlasPoints }} 点</span>
                     </div>
-                    <button @click="refreshAnlas" :disabled="isLoadingAnlas || !novelai.apiKey" class="px-3 py-1.5 rounded-lg border border-outline-variant text-[11px] text-on-surface hover:bg-surface-high transition-all flex items-center space-x-1 disabled:opacity-50">
+                    <button @click="() => refreshAnlas(false)" :disabled="isLoadingAnlas || !novelai.apiKey" class="px-3 py-1.5 rounded-lg border border-outline-variant text-[11px] text-on-surface hover:bg-surface-high transition-all flex items-center space-x-1 disabled:opacity-50">
                       <RefreshCwIcon class="w-3.5 h-3.5" :class="{ 'animate-spin': isLoadingAnlas }" />
                       <span>刷新点数</span>
                     </button>
@@ -2387,6 +2610,20 @@
                       客户端集成了高级安全沙箱隔离层，无论角色执行何种专属技能或扩展动作，都将在安全的独立沙箱内平稳运行，绝对保障系统数据安全。
                     </p>
                   </div>
+                  <div>
+                    <h3 class="text-xs font-bold text-on-surface uppercase tracking-wider font-mono">法律与条款</h3>
+                    <p class="text-xs text-on-surface-variant mt-1.5 leading-relaxed flex items-center space-x-1">
+                      <span>在使用本软件前，请确保您已知晓并同意</span>
+                      <a
+                        href="javascript:void(0)"
+                        @click="showAgreementModal = true; isAgreementViewMode = true;"
+                        class="text-primary font-bold hover:underline cursor-pointer inline-flex items-center space-x-0.5"
+                      >
+                        <BookOpenIcon class="w-3.5 h-3.5" />
+                        <span>《用户协议与免责声明》</span>
+                      </a>
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2396,7 +2633,7 @@
               <div class="flex items-center justify-between max-w-3xl w-full mx-auto">
                 <button 
                   v-if="activeSettingsTab === 'drawing'"
-                  @click="refreshAnlas" 
+                  @click="() => refreshAnlas(false)" 
                   :disabled="isLoadingAnlas || !novelai.apiKey" 
                   class="btn-secondary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 rounded-xl active:scale-95 transition-all"
                 >
@@ -5053,7 +5290,11 @@
       <template v-else-if="contextMenu.type === 'message'">
         <button class="ctx-menu-item" @click="ctxCopyMessage">
           <CopyIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
-          <span>复制</span>
+          <span>复制全文</span>
+        </button>
+        <button v-if="isMobile && contextMenu.message && contextMenu.message.content" class="ctx-menu-item" @click="ctxOpenSelectCopy">
+          <ScissorsIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
+          <span>选择复制</span>
         </button>
         <button v-if="contextMenu.message && contextMenu.message.role === 'assistant'" class="ctx-menu-item" @click="ctxRegenerateMessage">
           <RefreshCwIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
@@ -7246,6 +7487,188 @@
         </div>
       </div>
     </div>
+
+    <!-- 🚀 手机端消息“选择复制”专用弹窗（毛玻璃拟真大字阅读与局部选择模式） -->
+    <div v-if="showSelectCopyModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in select-text">
+      <div class="w-full max-w-[340px] bg-surface rounded-3xl border border-outline-variant/70 shadow-2xl flex flex-col max-h-[70vh] overflow-hidden select-text animate-scale-in">
+        <!-- 头部 -->
+        <header class="p-4 border-b border-outline-variant/40 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+          <div class="flex items-center space-x-2">
+            <ScissorsIcon class="w-4 h-4 text-primary animate-pulse" />
+            <span class="text-xs font-black text-on-surface tracking-wide">选择复制（长按拖拽局部文字）</span>
+          </div>
+          <button @click="showSelectCopyModal = false" class="p-1.5 rounded-full hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer select-none">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+
+        <!-- 卡片内容区域：在这个大框框里，正文强制开启选择！ -->
+        <div class="flex-1 overflow-y-auto p-5 select-text min-h-0 bg-surface-low">
+          <div class="p-4 rounded-2xl bg-surface border border-outline-variant/50 shadow-inner select-text">
+            <p class="select-text text-sm leading-relaxed text-on-surface whitespace-pre-wrap break-all mobile-select-text">
+              {{ selectCopyText }}
+            </p>
+          </div>
+        </div>
+
+        <!-- 底部操作按钮 -->
+        <footer class="p-4 border-t border-outline-variant/30 bg-surface flex items-center space-x-3 flex-shrink-0 select-none">
+          <button @click="selectCopyAll" class="flex-1 py-2.5 rounded-xl bg-primary text-white text-xs font-bold shadow-md active:scale-95 transition-all hover:bg-primary-container flex items-center justify-center space-x-1.5">
+            <CopyIcon class="w-3.5 h-3.5" />
+            <span>复制全文</span>
+          </button>
+          <button @click="showSelectCopyModal = false" class="px-5 py-2.5 rounded-xl bg-surface-high border border-outline-variant/60 text-on-surface-variant text-xs font-bold active:scale-95 transition-all">
+            关闭
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- 🚀 浮动用户协议只读回看 Modal（用于同意协议后在关于页面中随时无感唤起） -->
+    <div v-if="showAgreementModal && isAgreementViewMode" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in select-text">
+      <div class="w-full max-w-[500px] h-[80vh] bg-surface rounded-[24px] border border-outline-variant shadow-2xl flex flex-col overflow-hidden animate-scale-in relative select-text">
+        <header class="p-5 border-b border-outline-variant/30 flex items-center justify-between select-none flex-shrink-0 bg-surface">
+          <div class="flex items-center space-x-3">
+            <BookOpenIcon class="w-4.5 h-4.5 text-primary animate-pulse" />
+            <h3 class="text-xs font-black text-on-surface tracking-wide">用户协议与免责声明</h3>
+          </div>
+          <button @click="showAgreementModal = false" class="p-1.5 rounded-full hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </header>
+
+        <!-- 条款高颜值结构化排版区 (mobile-select-text 确保触屏上顺畅局部选择复制) -->
+        <div class="flex-1 overflow-y-auto p-5 select-text space-y-4 bg-surface-low border-b border-outline-variant/20 mobile-select-text leading-relaxed">
+          <div class="text-xs text-on-surface/90 space-y-4 select-text leading-relaxed">
+            <!-- 核心免责置顶高亮公告 -->
+            <div class="p-3.5 rounded-2xl bg-error/5 border border-error/20 space-y-1.5 select-text">
+              <div class="flex items-center space-x-2 text-error text-xs font-black">
+                <AlertTriangleIcon class="w-4 h-4 flex-shrink-0" />
+                <span>重要免责与特别声明（核心条款）</span>
+              </div>
+              <p class="text-[10px] text-error/85 leading-relaxed font-semibold">
+                本工具不提供任何内容生成服务，不预置接入任何大模型，不提供任何开放或封闭版权的音乐资源，仅供学习交流和研究使用。用户生成的任何内容、数据，使用的任何音乐资源均由用户自行负责，本工具不承担任何法律责任。
+              </p>
+            </div>
+
+            <!-- 一、定义与服务内容 -->
+            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
+              <div class="flex items-center space-x-2 text-primary font-black">
+                <BookOpenIcon class="w-4 h-4 text-primary" />
+                <span class="text-xs font-black">一、定义与服务内容</span>
+              </div>
+              <div class="text-[10.5px] text-on-surface-variant space-y-2 leading-relaxed">
+                <p>
+                  <strong>Echo-回音</strong>（本软件）是一个用户与 AI 进行角色扮演对话的工具。它提供美观的对话界面、便捷的文本管理、智能的内容生成以及强大的多模型接入能力，旨在为用户提供沉浸式、个性化的角色扮演体验。
+                </p>
+                <p>主要功能包括但不限于：角色扮演对话、朋友圈、论坛、音乐等功能。</p>
+              </div>
+            </div>
+
+            <!-- 二、使用许可与限制 -->
+            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
+              <div class="flex items-center space-x-2 text-primary font-black">
+                <LockIcon class="w-4 h-4 text-primary" />
+                <span class="text-xs font-black">二、使用许可与限制</span>
+              </div>
+              <div class="text-[10.5px] text-on-surface-variant space-y-2.5">
+                <p>本工具遵循“共享、交流”的原则发布，并严格遵守以下许可限制：</p>
+                
+                <div class="pl-2.5 border-l-2 border-primary/20 space-y-2">
+                  <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] leading-relaxed">
+                    <span class="font-bold text-on-surface">1. 仅限学习交流：</span> 您仅可将本工具用于个人学习、研究或技术交流目的。
+                  </div>
+                  <div class="p-2 rounded-xl bg-error/5 border border-error/15 text-[10px] leading-relaxed">
+                    <span class="font-bold text-error">2. 严禁商用：</span> <strong>禁止</strong>将本工具或基于本工具修改后的衍生版本用于任何形式的商业用途（包括但不限于付费下载、付费会员制、广告盈利、推广引流、作为商业软件的一部分等）。
+                  </div>
+                  <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] space-y-1 leading-relaxed">
+                    <span class="font-bold text-on-surface">3. 开源与许可协议：</span> 本项目采用 <strong>CC BY-NC-SA 4.0</strong> 协议进行授权。
+                    <ul class="list-disc pl-4 space-y-0.5 text-[9.5px] text-on-surface-variant/80 mt-1">
+                      <li><strong>自由使用</strong>：您可以自由地复制、分发、修改本工具的源代码。</li>
+                      <li><strong>禁止商用</strong>：您不得将本工具或其任何衍生版本用于商业目的。</li>
+                      <li><strong>相同方式共享</strong>：如果您修改了本工具或基于本工具开发了新项目，您的项目必须同样采用 <strong>CC BY-NC-SA 4.0</strong> 协议开源，且必须包含本条禁止商用的限制。</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 三、用户行为规范与版权尊重 -->
+            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
+              <div class="flex items-center space-x-2 text-primary font-black">
+                <ShieldCheckIcon class="w-4 h-4 text-primary" />
+                <span class="text-xs font-black">三、用户行为规范与版权尊重</span>
+              </div>
+              <div class="text-[10.5px] text-on-surface-variant space-y-2.5">
+                <p class="font-bold text-on-surface">本条款为本协议的核心，请务必严格遵守：</p>
+                <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] leading-relaxed">
+                  <span class="font-bold">1. 工具属性声明：</span> 本工具本身不拥有、不提供、也不存储任何大模型生成的文本内容的版权。
+                </div>
+                <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] space-y-1.5 leading-relaxed">
+                  <span class="font-bold text-on-surface">2. 尊重原作者权利：</span>
+                  <ul class="list-disc pl-4 space-y-1 text-[9.5px]">
+                    <li><strong>严禁擅自二改</strong>：在导入他人创作的角色卡、提示词（Prompt）、世界书或图片进行编辑、修改或“二改”之前，<strong>您必须确认原作者明确授权允许此类操作</strong>。</li>
+                    <li><strong>关于酒馆角色卡</strong>：工具本身支持酒馆角色卡的导入，但<strong>绝对禁止</strong>导入作者声明<strong>仅可用于酒馆</strong>的角色卡，以免侵犯作者自身权益。推荐使用工具内置的“角色创建Bot”或 MOI 工具创建角色卡。</li>
+                    <li><strong>遵守原始协议</strong>：如果原作者在角色卡描述、发布页面或元数据中声明了“禁止二改”、“禁止转载”或“禁止用于AI训练”等限制，您必须严格遵守。</li>
+                    <li><strong class="text-error">后果自负</strong>：因您违反原作者规定擅自修改、分发或公开他人作品而产生的任何版权纠纷，<strong>由您个人承担全部责任</strong>，与本工具及本工具开发者无关。</li>
+                  </ul>
+                </div>
+                <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] leading-relaxed">
+                  <span class="font-bold">3. 导入内容的合法性：</span> 您保证您导入本工具的所有数据（包括但不限于图片、文本、配置），您均拥有合法的使用权或版权。
+                </div>
+              </div>
+            </div>
+
+            <!-- 四、关于 AI 生成内容的免责 -->
+            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
+              <div class="flex items-center space-x-2 text-primary font-black">
+                <CpuIcon class="w-4 h-4 text-primary" />
+                <span class="text-xs font-black">四、关于 AI 生成内容的免责</span>
+              </div>
+              <div class="text-[10.5px] text-on-surface-variant space-y-2 leading-relaxed">
+                <p><strong>1. AI功能的来源：</strong> 本工具不提供任何AI能力，用户需要自行接入LLM（大语言模型）的API进行使用。</p>
+                <p><strong>2. 生成结果的不确定性：</strong> 本工具接入的 AI 生成的内容具有随机性和不可控性，开发者不对生成内容的准确性、逻辑性 or 价值做任何保证。</p>
+                <p><strong>3. 合规性责任：</strong> 您在使用 AI 生成功能时，必须遵守相关法律法规。不得利用本工具生成违反法律法规、违背公序良俗、色情、暴力、仇恨言论或侵犯他人权益的内容。</p>
+                <p><strong>4. AI 版权归属：</strong> 关于 AI 生成内容的版权归属，请遵循您所使用的 AI 模型服务商的服务条款。本工具开发者不对生成的作品主张任何版权，也不对因使用生成作品产生的版权纠纷负责。</p>
+              </div>
+            </div>
+
+            <!-- 五、免责声明 -->
+            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
+              <div class="flex items-center space-x-2 text-primary font-black">
+                <FileTextIcon class="w-4 h-4 text-primary" />
+                <span class="text-xs font-black">五、免责声明</span>
+              </div>
+              <div class="text-[10.5px] text-on-surface-variant space-y-2 leading-relaxed">
+                <p><strong>1. “按原样”提供：</strong> 本工具按“现状”提供，不包含任何明示或暗示的保证（包括但不限于适销性、特定用途适用性或不侵权性）。</p>
+                <p><strong>2. 数据安全：</strong> 虽然本工具包含数据备份功能，但开发者不保证数据的绝对安全。<strong>请您务必自行定期备份重要数据。</strong> 因软件故障、操作失误或不可抗力导致的数据丢失、损坏，开发者不承担赔偿责任。</p>
+                <p><strong>3. 责任限制：</strong> 在法律允许的最大范围内，开发者不对因使用或无法使用本工具而引起的任何直接、间接、附带或惩罚性损害赔偿负责。</p>
+              </div>
+            </div>
+
+            <!-- 六、协议修改 -->
+            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
+              <div class="flex items-center space-x-2 text-primary font-black">
+                <HelpCircleIcon class="w-4 h-4 text-primary" />
+                <span class="text-xs font-black">六、协议修改</span>
+              </div>
+              <div class="text-[10.5px] text-on-surface-variant leading-relaxed">
+                <p>开发者保留在任何时候修改本协议的权利。修改后的协议将在项目发布页面更新。如果您在协议更新后继续使用本工具，即表示您接受修改后的协议。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="p-4 flex items-center justify-end bg-surface select-none flex-shrink-0 border-t border-outline-variant/10">
+          <button
+            @click="showAgreementModal = false"
+            class="px-8 py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-container active:scale-95 transition-all shadow-md cursor-pointer"
+          >
+            确定
+          </button>
+        </footer>
+      </div>
+    </div>
   </div>
 
   <!-- ========================= 多端复用单例全局表情包/Emoji面板 ========================= -->
@@ -7548,6 +7971,7 @@ import {
   Scroll as ScrollIcon,
   Bookmark as BookmarkIcon,
   Copy as CopyIcon,
+  Scissors as ScissorsIcon,
   Share2 as Share2Icon,
   RefreshCw as RefreshCwIcon,
   Trash2 as TrashIcon,
@@ -7912,7 +8336,9 @@ const generalConfig = ref({
   lan_mapping_enabled: false,
   lan_mapping_port: 6868,
   enable_token_stats: true,
-  enable_nsfw: false
+  enable_nsfw: false,
+  descriptive_min_words: 500,
+  director_min_words: 800
 })
 
 // 监听音乐功能的开启/关闭联动
@@ -7982,6 +8408,55 @@ const userProfileActiveTab = ref<'profile' | 'userMd'>('profile')
 const userMdEditing = ref(false)
 
 // ===================== 设置 =====================
+// ===================== 用户使用协议前置拦截状态 =====================
+const isAgreementChecking = ref(true)
+const hasAcceptedAgreement = ref(false)
+const showAgreementModal = ref(false)
+const agreementCountdown = ref(15)
+const isAgreementViewMode = ref(false)
+let agreementTimer: any = null
+
+const agreementText = `## 一、定义与服务内容
+
+Echo-回音（本软件）是一个用户与AI进行角色扮演对话的工具。它提供美观的对话界面、便捷的文本管理、智能的内容生成以及强大的多模型接入能力，旨在为用户提供沉浸式、个性化的角色扮演体验。
+主要功能包括但不限于：角色扮演对话、朋友圈、论坛、音乐等功能。
+**本工具不提供任何内容生成服务，不预置接入任何大模型，不提供任何开放或封闭版权的音乐资源，仅供学习交流和研究使用，用户生成的任何内容、数据，使用的任何音乐资源均由用户自行负责，本工具不承担任何责任。**
+---
+## 二、使用许可与限制
+本工具遵循“共享、交流”的原则发布。
+1. **仅限学习交流：** 您仅可将本工具用于个人学习、研究或技术交流目的。
+2. **严禁商用：** **禁止**将本工具或基于本工具修改后的衍生版本用于任何形式的商业用途（包括但不限于付费下载、付费会员制、广告盈利、推广引流、作为商业软件的一部分等）。
+3. **开源与许可协议**：本项目采用 **CC BY-NC-SA 4.0 (署名-非商业性使用-相同方式共享 4.0 国际)** 协议进行授权。
+   - **自由使用**：您可以自由地复制、分发、修改本工具的源代码。
+   - **禁止商用**：您**不得**将本工具或其任何衍生版本用于商业目的（包括但不限于付费销售、通过广告盈利、作为商业产品的一部分）。
+   - **相同方式共享**：如果您修改了本工具或基于本工具开发了新项目，您的项目必须同样采用 **CC BY-NC-SA 4.0** 协议开源，且**必须包含本条禁止商用的限制**。
+
+   协议全文：https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en
+---
+## 三、用户行为规范与版权尊重
+**本条款为本协议的核心，请务必遵守。**
+1. **工具属性声明：** 本工具本身不拥有、不提供、也不存储任何大模型生成的文本内容的版权。
+2. **尊重原作者权利：**
+   - **严禁擅自二改：** 在导入他人创作的角色卡、提示词（Prompt）、世界书或图片进行编辑、修改或“二改”之前，**您必须确认原作者明确授权允许此类操作**。
+   - **关于酒馆角色卡** 工具本身支持酒馆角色卡的导入，但**绝对禁止**导入作者声明**仅可用于酒馆**的角色卡，以免侵犯作者自身权益。推荐使用工具内置的\`角色创建Bot\`或\`MOI(https://moi.jiuwo.me)\`工具创建角色卡
+   - **遵守原始协议：** 如果原作者在角色卡描述、发布页面或元数据中声明了“禁止二改”、“禁止转载”或“禁止用于AI训练”等限制，您必须严格遵守。
+   - **后果自负：** 因您违反原作者规定擅自修改、分发或公开他人作品而产生的任何版权纠纷，**由您个人承担全部责任**，与本工具及本工具开发者无关。
+3. **导入内容的合法性：** 您保证您导入本工具的所有数据（包括但不限于图片、文本、配置），您均拥有合法的使用权或版权。
+---
+## 四、关于 AI 生成内容的免责
+1. **AI功能的来源：** 本工具不提供任何AI能力，用户需要自行接入LLM（大语言模型）的API进行使用。
+2. **生成结果的不确定性：** 本工具接入的 AI 生成的内容具有随机性和不可控性，开发者不对生成内容的准确性、逻辑性或价值做任何保证。
+3. **合规性责任：** 您在使用 AI 生成功能时，必须遵守相关法律法规。不得利用本工具生成违反法律法规、违背公序良俗、色情、暴力、仇恨言论或侵犯他人权益的内容。
+4. **AI 版权归属：** 关于 AI 生成内容的版权归属，请遵循您所使用的 AI 模型服务商（如 OpenAI, Claude, Deepseek, 通义千问等）的服务条款。本工具开发者不对生成的作品主张任何版权，也不对因使用生成作品产生的版权纠纷负责。
+---
+## 五、免责声明
+1. **“按原样”提供：** 本工具按“现状”提供，不包含任何明示或暗示的保证（包括但不限于适销性、特定用途适用性或不侵权性）。
+2. **数据安全：** 虽然本工具包含数据备份功能，但开发者不保证数据的绝对安全。**请您务必自行定期备份重要数据。** 因软件故障、操作失误或不可抗力导致的数据丢失、损坏，开发者不承担赔偿责任。
+3. **责任限制：** 在法律允许的最大范围内，开发者不对因使用或无法使用本工具而引起的任何直接、间接、附带或惩罚性损害赔偿负责。
+---
+## 六、协议修改
+开发者保留在任何时候修改本协议的权利。修改后的协议将在项目发布页面更新。如果您在协议更新后继续使用本工具，即表示您接受修改后的协议。`
+
 const showSettingsModal = ref(false)
 const chatMode = ref<'descriptive' | 'dialogue' | 'director'>('descriptive')
 const activeSettingsTab = ref<'general' | 'states' | 'primary' | 'secondary' | 'drawing' | 'migration' | 'about'>('general')
@@ -8071,6 +8546,8 @@ function handleImportProjectData() {
 const isMobile = ref(false)
 const isMobileSettingsActive = ref(false)
 const isMobileMusicActive = ref(false)
+const showSelectCopyModal = ref(false)
+const selectCopyText = ref('')
 const viewportHeight = ref('100%')
 const conversationActiveTimes = reactive<Record<string, number>>({})
 
@@ -10498,7 +10975,7 @@ async function sendChatMessage() {
 }
 
 // 聚合期满，向 AI 发起真正的回复请求
-async function triggerMergedAiResponse(char: any, overrideText?: string) {
+async function triggerMergedAiResponse(char: any, overrideText?: string, isRegenerate = false) {
   const charId = char.id
   const pendingQueue = pendingUserMessagesMap[charId] || []
   if (!overrideText && pendingQueue.length === 0) return
@@ -10608,7 +11085,8 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
       imageBase64: lastImage || undefined,
       userMsgId: finalUserMsgId,
       dbMessage: finalDbMessage,
-      isGroup: isGroup
+      isGroup: isGroup,
+      isRegenerate: isRegenerate // 🚀 传入重新回复标识，避开用户消息的二次重复保存
     })
 
     if (!res.success) throw new Error(res.error || '连接断开')
@@ -10743,17 +11221,26 @@ async function handleAssistantResponse(
     
     if (chatMode.value === 'descriptive' || chatMode.value === 'director') {
       // B.1 包含描写模式/导演模式：直接向会话追加一条完整的助理回复气泡，瞬间呈现
-      msgs.push({
-        role: 'assistant',
-        content: content,
-        id: messageId, // 🚀 瞬间呈现直接绑定真实物理 ID
-        created_at: new Date().toISOString(),
-        prompt_tokens: promptTokens,
-        completion_tokens: completionTokens,
-        cached_tokens: cachedTokens
-      })
-      isStreaming.value = false
-      nextTick(() => scrollToBottom())
+      
+      // 🚀 核心自愈去重：检查本地 msgs 中是否由于 receive-message 提前到达而已经存在了相同 id 或高度相同内容的消息！
+      const isAlreadyExist = msgs.some(m => m.id === messageId || (m.role === 'assistant' && m.content === content))
+      if (isAlreadyExist) {
+        console.log(`[Sync Gate] 瞬间呈现模式：本地已被 receive-message 提前写入，不再重复 push`)
+        isStreaming.value = false
+        nextTick(() => scrollToBottom())
+      } else {
+        msgs.push({
+          role: 'assistant',
+          content: content,
+          id: messageId, // 🚀 瞬间呈现直接绑定真实物理 ID
+          created_at: new Date().toISOString(),
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          cached_tokens: cachedTokens
+        })
+        isStreaming.value = false
+        nextTick(() => scrollToBottom())
+      }
 
       // 检查是否不在当前活跃会话或活跃窗口中
       if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
@@ -13038,16 +13525,8 @@ watch(
 )
 
 // ===================== 生命周期 =====================
-onMounted(async () => {
-  checkIfMobile()
-  window.addEventListener('resize', checkIfMobile)
-
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', updateViewportHeight)
-    window.visualViewport.addEventListener('scroll', updateViewportHeight)
-    updateViewportHeight()
-  }
-
+// 🚀 核心数据资产加载主函数（唯独在同意用户协议后，才允许被执行载入挂载，实行物理阻断）
+async function initializeCoreApp() {
   fetchStatePresets()
   // 提前加载通用常规设置，以获取音乐模块的启用状态
   try {
@@ -13068,6 +13547,12 @@ onMounted(async () => {
       }
       if (generalConfig.value.enable_nsfw === undefined) {
         generalConfig.value.enable_nsfw = false
+      }
+      if (generalConfig.value.descriptive_min_words === undefined) {
+        generalConfig.value.descriptive_min_words = 500
+      }
+      if (generalConfig.value.director_min_words === undefined) {
+        generalConfig.value.director_min_words = 800
       }
     }
   } catch (e) {
@@ -13095,11 +13580,6 @@ onMounted(async () => {
   // 加载社媒朋友圈与论坛列表
   loadMomentsList()
   loadForumPostsList()
-
-  // 加载主题
-  const savedTheme = localStorage.getItem('echo_theme')
-  if (savedTheme === 'dark') { isDark.value = true; document.documentElement.classList.add('dark') }
-  else { document.documentElement.classList.remove('dark') }
 
   // 加载用户个人信息并通过 IPC 向主进程同步画像权威数据
   loadUserProfileLocal()
@@ -13205,15 +13685,129 @@ onMounted(async () => {
     if (naiRes.success && naiRes.config) {
       Object.assign(novelai, naiRes.config)
       if (novelai.apiKey) {
-        // 🚀 延迟 3.5 秒静默刷新余额：防止刚开机/刚启动时网络连接与系统代理尚未完全加载就绪，导致 fetch ECONNRESET 报错。
+        // 🚀 延迟 3.5 秒静默刷新余额
         setTimeout(() => refreshAnlas(true), 3500)
       }
     }
   } catch (e) {
     console.error('加载 NovelAI 配置异常:', e)
   }
+}
 
-  // 监听后台自省增量状态更新广播
+// 🚀 用户协议 15 秒倒计时启动器
+function startAgreementCountdown() {
+  if (agreementTimer) {
+    clearInterval(agreementTimer)
+  }
+  agreementCountdown.value = 15
+  agreementTimer = setInterval(() => {
+    if (agreementCountdown.value > 0) {
+      agreementCountdown.value--
+    } else {
+      clearInterval(agreementTimer)
+      agreementTimer = null
+    }
+  }, 1000)
+}
+
+// 🚀 同意用户协议存盘并解锁加载
+async function acceptAgreement() {
+  try {
+    const res = await window.api.invoke('save-agreement-status')
+    if (res.success) {
+      showAgreementModal.value = false
+      hasAcceptedAgreement.value = true
+      // 🚀 正式解除阻断，加载大模型、角色卡等全部资产
+      await initializeCoreApp()
+    } else {
+      showToast('保存协议同意状态失败，请稍后重试 🐾')
+    }
+  } catch (e: any) {
+    showToast(`同意协议发生异常: ${e.message || e}`)
+  }
+}
+
+// 🚀 不同意用户协议物理彻底关闭程序进程
+function rejectAgreement() {
+  window.api.invoke('exit-app')
+}
+
+// ===================== 生命周期 =====================
+onMounted(async () => {
+  checkIfMobile()
+  window.addEventListener('resize', checkIfMobile)
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateViewportHeight)
+    window.visualViewport.addEventListener('scroll', updateViewportHeight)
+    updateViewportHeight()
+  }
+
+  // 加载主题
+  const savedTheme = localStorage.getItem('echo_theme')
+  if (savedTheme === 'dark') { isDark.value = true; document.documentElement.classList.add('dark') }
+  else { document.documentElement.classList.remove('dark') }
+
+  // 🚀 最前置的物理级用户协议拦截锁
+  try {
+    const agreeRes = await window.api.invoke('get-agreement-status')
+    isAgreementChecking.value = false
+    if (agreeRes.success && agreeRes.accepted) {
+      hasAcceptedAgreement.value = true
+      // 已同意协议，顺畅载入大模型与角色列表
+      await initializeCoreApp()
+    } else {
+      // 未同意协议，强行激活磨砂弹窗与 15 秒强制倒计时
+      hasAcceptedAgreement.value = false
+      showAgreementModal.value = true
+      isAgreementViewMode.value = false
+      startAgreementCountdown()
+    }
+  } catch (e) {
+    console.error('[Agreement Gate] 获取协议同意状态发生异常:', e)
+    isAgreementChecking.value = false
+    hasAcceptedAgreement.value = true
+    await initializeCoreApp()
+  }
+
+  // 监听局域网多端同步角色设定（性格/世界观）更新广播
+  window.api.receive('character-settings-updated', (data: { folderName: string, soul?: string, world?: string }) => {
+    console.log('[Sync Gate] 收到角色人设/世界观更新广播，执行多端数据同步自愈:', data.folderName)
+    // 重新拉取角色列表以刷新所有缓存及左侧状态
+    loadCharacters()
+    
+    // 如果当前打开的就是该被修改的角色，且正在右侧面板/大脑面板里查看其设定，静默重新读取其内容以刷新当前视图
+    if (activeCharacter.value && (activeCharacter.value.folder_name || '').toLowerCase() === data.folderName.toLowerCase()) {
+      if (showBrainPanel.value) {
+        openBrainPanel() // 自动重拉并渲染最新人设
+      }
+    }
+  })
+
+  // 监听局域网多端同步角色文件（如 Memory.md/Appearance.md）更新广播
+  window.api.receive('character-file-updated', (data: { folderName: string, fileName: string, content: string }) => {
+    console.log(`[Sync Gate] 收到角色文件 [${data.fileName}] 物理更新广播，触发局域网数据自愈:`, data.folderName)
+    // 如果当前打开的就是该被修改的角色
+    if (activeCharacter.value && (activeCharacter.value.folder_name || '').toLowerCase() === data.folderName.toLowerCase()) {
+      if (data.fileName === 'Memory.md') {
+        // 如果当前大脑面板开着，重新读取长期记忆以更新视图
+        if (showBrainPanel.value) {
+          openBrainPanel()
+        }
+      } else if (data.fileName === 'Appearance.md') {
+        // 如果当前正好在绘图设置 Tab 中，静默刷新外貌提示词文本框
+        if (showSettingsModal.value && activeSettingsTab.value === 'drawing') {
+          window.api.invoke('read-appearance-file', { folderName: data.folderName }).then(res => {
+            if (res.success && res.content) {
+              contactAppearanceContent.value = res.content
+            }
+          })
+        }
+      }
+    }
+  })
+
+  // 监听后台自省与用户手动修改状态增量更新广播
   window.api.receive('character-state-updated', (data: { characterId: string, updates: any[] }) => {
     if (activeCharacter.value) {
       const activeFolder = (activeCharacter.value.folder_name || '').toLowerCase()
@@ -13706,13 +14300,15 @@ onMounted(async () => {
     const charId = msg.character_id
     if (!charId) return
 
-    // 🚀 微信分段打字竞态去重过滤：
+    // 🚀 微信分段打字与实时发送竞态过滤：
     // 如果本地正好在进行该角色的仿真分段打字（在 activeTypingSessions 中存在该角色的活跃 session），
+    // 或者本地发送端正在等待该角色的流式/一次性回复返回（isStreaming.value 为 true 且 streamingCharacterId 为该角色），
     // 主进程由 SQLite 存盘级联广播来的 receive-message 信号将 100% 被安全拦截并忽略。
-    // 这能从逻辑根源上彻底解决“打字尚未结束/前几句播完时，后台完整句推送撞车导致去重失效追加第4个完整大气泡”的致命竞态 BUG！
+    // 这能彻底杜绝“在 Promise 返回前，主进程存盘广播抢先到达，被前端误判为非重复消息提前追加”的时序竞态 BUG！
     const hasActiveTyping = Array.from(activeTypingSessions).some((key: string) => key.startsWith(charId + '_'))
-    if (hasActiveTyping && msg.role === 'assistant') {
-      console.log(`[Sync Gate] 检测到本地正在进行角色 ${charId} 的分段打字渲染，忽略后台级联同步广播以防双气泡`)
+    const isWaitingResponse = isStreaming.value && streamingCharacterId.value === charId
+    if ((hasActiveTyping || isWaitingResponse) && msg.role === 'assistant') {
+      console.log(`[Sync Gate] 检测到本地正在进行或正在等待角色 ${charId} 的回复渲染，忽略后台级联同步广播以防双气泡`)
       return
     }
     // 更新对应会话的活跃时间戳
@@ -14432,6 +15028,25 @@ function ctxCopyMessage() {
   contextMenu.visible = false
 }
 
+// 🚀 手机端：打开选择复制局部弹窗
+function ctxOpenSelectCopy() {
+  const content = contextMenu.message?.content
+  if (content) {
+    // 自动过滤并提取干净的文本正文内容
+    selectCopyText.value = cleanUserContentForUI(content)
+    showSelectCopyModal.value = true
+  }
+  contextMenu.visible = false
+}
+
+// 🚀 手机端选择复制内：一键复制全文
+function selectCopyAll() {
+  if (selectCopyText.value) {
+    navigator.clipboard.writeText(selectCopyText.value)
+    showToast('全文已成功复制到剪贴板！📋')
+  }
+}
+
 async function ctxFavoriteMessage() {
   const msg = contextMenu.message
   const char = contextMenu.char
@@ -14516,7 +15131,7 @@ async function ctxRegenerateMessage() {
         const lastUserMsg = userMsgs[userMsgs.length - 1]
         
         // 3. 触发重答流
-        await triggerMergedAiResponse(char, lastUserMsg.content)
+        await triggerMergedAiResponse(char, lastUserMsg.content, true)
       } else {
         showToast(`重新回复触发失败: ${res.error}`)
       }
@@ -14596,7 +15211,9 @@ async function saveGeneralSettings() {
     lan_mapping_enabled: generalConfig.value.lan_mapping_enabled,
     lan_mapping_port: port,
     enable_token_stats: generalConfig.value.enable_token_stats,
-    enable_nsfw: generalConfig.value.enable_nsfw
+    enable_nsfw: generalConfig.value.enable_nsfw,
+    descriptive_min_words: Number(generalConfig.value.descriptive_min_words) || 500,
+    director_min_words: Number(generalConfig.value.director_min_words) || 800
   })
   if (!res.success) {
     showToast(`保存失败: ${res.error}`)

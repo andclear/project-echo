@@ -361,3 +361,41 @@ body {
   pointer-events: none;
 }
 
+/* =====================================================================
+   移动端长按手势防系统文字选择与 callout 干扰（黄金自愈）
+   ===================================================================== */
+.user-chat-bubble,
+.ai-chat-bubble,
+.wechat-red-packet-card {
+  user-select: none;
+  -webkit-user-select: none;   /* 针对 iOS Safari 极速物理拦截 */
+  -webkit-touch-callout: none; /* 针对 iOS 原生长按 Callout 弹出物理压制 */
+}
+
+/* 
+   🚀 媒体特性查询高级自愈：
+   仅针对 coarse 触控手势设备（如 iPhone/Android 手机平板）强行锁定 user-select: none;
+   而在 PC 桌面端（fine 鼠标设备）依旧保留鼠标拖拽选中高亮复制的极佳体验，做到两全其美！
+*/
+@media (pointer: coarse) {
+  .user-chat-bubble,
+  .ai-chat-bubble,
+  .user-chat-bubble *,
+  .ai-chat-bubble * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    -webkit-touch-callout: none !important;
+  }
+}
+
+/* 
+   🚀 移动端选择复制专用类：
+   物理重写一切外层手势屏蔽，让特定文字选择卡片在手机端 100% 能够拖拽与局部高亮选中
+*/
+.mobile-select-text,
+.mobile-select-text * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+
