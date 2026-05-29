@@ -1476,12 +1476,15 @@ ${formattedHistory}
           // 流式回传前台
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
+            // 关闭流式碎片推送：在任何模式下均不在流式中分发 done: false 的碎片
+            /*
             event.sender.send('chat-chunk', {
               characterId: groupId,
               content: chunk.content,
               done: false,
               senderId: currentSpeakerId
             })
+            */
           }
 
           // C. 清洗大模型回复
@@ -2221,10 +2224,12 @@ ${memoryContent}
           const processedContent = chatMode === 'dialogue'
             ? ContextAssembler.cleanDialogueActions(sentence)
             : sentence
-          // 流式输出：仅在动作描写模式下，实时向前端分发片段
+          // 流式输出已在全局屏蔽：不再向前端推送 done: false 的碎片消息
+          /*
           if (chatMode === 'descriptive' && processedContent) {
             event.sender.send('chat-chunk', { characterId, content: processedContent, done: false })
           }
+          */
         })
 
         // 处理沙箱隔离运行
@@ -2286,25 +2291,28 @@ ${memoryContent}
           console.log(`[Agent Action] 专属技能沙箱执行圆满成功. Observation: ...观察${observation}`)
           lastObservation = observation
 
-          // 发送系统 Observation 气泡
+          // 发送系统 Observation 气泡 (已在全局关闭流式时屏蔽)
+          /*
           event.sender.send('chat-chunk', {
             characterId,
             content: `\n[系统动作执行完成]: ${observation}\n`,
             done: false,
             isSystem: true
           })
+          */
         }
       }
 
-      // 推送断句剩余字符
+      // 推送断句剩余字符 (已在全局关闭流式时屏蔽)
       streamSplit.flush((sentence) => {
         const processedContent = chatMode === 'dialogue'
           ? ContextAssembler.cleanDialogueActions(sentence)
           : sentence
-        // 流式输出：仅在动作描写模式下，实时向前端分发片段
+        /*
         if (chatMode === 'descriptive' && processedContent) {
           event.sender.send('chat-chunk', { characterId, content: processedContent, done: false })
         }
+        */
       })
 
       // Observation 闭环回传 LLM 续写
@@ -2332,20 +2340,22 @@ ${memoryContent}
             const processedContent = chatMode === 'dialogue'
               ? ContextAssembler.cleanDialogueActions(sentence)
               : sentence
-            // 流式输出：仅在动作描写模式下，实时向前端分发片段
+            /*
             if (chatMode === 'descriptive' && processedContent) {
               event.sender.send('chat-chunk', { characterId, content: processedContent, done: false })
             }
+            */
           })
         }
         followUpSplit.flush((sentence) => {
           const processedContent = chatMode === 'dialogue'
             ? ContextAssembler.cleanDialogueActions(sentence)
             : sentence
-          // 流式输出：仅在动作描写模式下，实时向前端分发片段
+          /*
           if (chatMode === 'descriptive' && processedContent) {
             event.sender.send('chat-chunk', { characterId, content: processedContent, done: false })
           }
+          */
         })
         accumulatedResponse += `\n[Observation]: ${lastObservation}\n` + followUpAccumulated
       }
@@ -2741,6 +2751,7 @@ ${memoryContent}
       characterId,
       content: finalResponse,
       done: true,
+      messageId: assistantMsgId, // 🚀 携带真实消息 ID 以供前端分段打字机防重绑定
       prompt_tokens: finalPromptTokens,
       completion_tokens: finalCompletionTokens,
       cached_tokens: finalCachedTokens
@@ -2750,6 +2761,7 @@ ${memoryContent}
     return {
       success: true,
       content: finalResponse,
+      messageId: assistantMsgId, // 🚀 携带真实消息 ID
       redPacketAction: redPacketAction,
       redPacketSend: redPacketSend ? JSON.parse(JSON.stringify(redPacketSend)) : null,
       prompt_tokens: finalPromptTokens,
@@ -4957,6 +4969,27 @@ app.whenReady().then(() => {
   // 启动局域网 IPC 桥接服务器，支持通过 Settings 数据库动态自定义端口
   try {
     const db = getDatabaseService()
+    
+    // 级联事件广播总线：当有任何新消息保存到 SQLite 数据库时，秒级同步广播给电脑前端和局域网手机端
+    db.registerOnMessageSaved((msg) => {
+      // 1. 广播给电脑软件前端
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('receive-message', msg)
+      }
+      
+      // 2. 广播给局域网连接中的所有手机浏览器前端 (SSE 通道)
+      const payload = {
+        channel: 'receive-message',
+        data: msg
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(payload)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+    })
     const customPortStr = db.getSetting('ipc_bridge_port')
     let port = 3000
     if (customPortStr && customPortStr.trim() !== '') {

@@ -49,6 +49,7 @@ const api = {
     ipcRenderer.send(channel, data)
   },
   receive: (channel: string, func: (...args: any[]) => void) => {
+    ipcRenderer.removeAllListeners(channel)
     ipcRenderer.on(channel, (_event, ...args) => func(...args))
   },
   invoke: (channel: string, ...args: any[]) => {

@@ -9684,6 +9684,68 @@ function getLastMessage(charId: string) {
   return null
 }
 
+function splitAssistantContent(content: string): string[] {
+  if (!content || !content.trim()) return []
+  const paragraphs: string[] = []
+  const lines = content.split('\n').map(l => l.trim()).filter(Boolean)
+  for (const line of lines) {
+    if (line.length <= 25) {
+      paragraphs.push(line)
+      continue
+    }
+    const sentences = line.split(/(?<=[。；！？!?])\s*/).map(s => s.trim()).filter(Boolean)
+    let currentTemp = ''
+    for (const s of sentences) {
+      if (currentTemp.length === 0) {
+        currentTemp = s
+      } else {
+        if (currentTemp.length + s.length <= 15 || s.length < 4) {
+          currentTemp += s
+        } else {
+          paragraphs.push(currentTemp)
+          currentTemp = s
+        }
+      }
+    }
+    if (currentTemp) {
+      paragraphs.push(currentTemp)
+    }
+  }
+  return paragraphs
+}
+
+function flattenMessages(historyMessages: any[], charId: string): any[] {
+  const isGroupChat = groupChats.value.some(g => g.id === charId)
+  if (isGroupChat || chatMode.value !== 'dialogue') {
+    return historyMessages
+  }
+  const flattened: any[] = []
+  for (const msg of historyMessages) {
+    if (msg.role === 'assistant' && msg.content && !msg.isSystem && !msg.redPacket) {
+      const paragraphs = splitAssistantContent(msg.content)
+      if (paragraphs.length <= 1) {
+        flattened.push(msg)
+      } else {
+        for (let idx = 0; idx < paragraphs.length; idx++) {
+          const text = paragraphs[idx]
+          const isLast = (idx === paragraphs.length - 1)
+          flattened.push({
+            ...msg,
+            id: isLast ? msg.id : `msg_part_${idx}_` + msg.id,
+            content: text,
+            prompt_tokens: isLast ? msg.prompt_tokens : undefined,
+            completion_tokens: isLast ? msg.completion_tokens : undefined,
+            cached_tokens: isLast ? msg.cached_tokens : undefined
+          })
+        }
+      }
+    } else {
+      flattened.push(msg)
+    }
+  }
+  return flattened
+}
+
 function restoreMessageProps(m: any) {
   const result: any = reactive({
     id: m.id,
@@ -9789,7 +9851,7 @@ async function loadCharacters() {
         const histRes = await window.api.invoke('get-chat-history', { characterId: char.id, limit: 50 })
         if (histRes.success && histRes.history) {
           const restored = histRes.history.map((m: any) => restoreMessageProps(m))
-          tempAllMessages[char.id] = restored
+          tempAllMessages[char.id] = flattenMessages(restored, char.id)
           // 获取最后一条非系统活跃消息时间戳，作为会话的最新活跃时间
           const lastMsg = restored.filter((m: any) => !m.isSystem && (m.role === 'user' || m.role === 'assistant')).pop()
           tempActiveTimes[char.id] = lastMsg?.timestamp || 0
@@ -9952,7 +10014,8 @@ async function selectCharacter(charId: string) {
 
     const chatHistoryRes = await window.api.invoke('get-chat-history', { characterId: charId, limit: 100 })
     if (chatHistoryRes.success && chatHistoryRes.history) {
-      allMessages[charId] = chatHistoryRes.history.map((m: any) => restoreMessageProps(m))
+      const restored = chatHistoryRes.history.map((m: any) => restoreMessageProps(m))
+      allMessages[charId] = flattenMessages(restored, charId)
       // 如果首次拉取的记录条数不足 100 条，代表所有历史已加载完毕，标记为无更多
       if (chatHistoryRes.history.length < 100) {
         hasMoreHistoryMap[charId] = false
@@ -10558,16 +10621,16 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
       return
     }
 
-    // 5. 仅当 IPC 返回了实际内容且非动作描写流式模式下才调用渲染播放器
-    // 动作描写模式与 Creator Bot 走的是 event.sender.send 流式推送，无需在此处重复渲染
-    if (res.content && chatMode.value !== 'descriptive' && chatMode.value !== 'director') {
+    // 5. 在任何模式下（包含对话、描写和导演模式）均直接一次性调用 handleAssistantResponse 弹射或播放完整内容
+    if (res.content) {
       await handleAssistantResponse(
         char,
         res.content,
         res.redPacketAction,
         res.prompt_tokens,
         res.completion_tokens,
-        res.cached_tokens
+        res.cached_tokens,
+        res.messageId
       )
     }
 
@@ -10629,7 +10692,8 @@ async function handleAssistantResponse(
   redPacketAction: string | null,
   promptTokens?: number,
   completionTokens?: number,
-  cachedTokens?: number
+  cachedTokens?: number,
+  messageId?: string
 ) {
   const sessionKey = char.id + '_' + content.slice(0, 15)
   activeTypingSessions.add(sessionKey)
@@ -10678,87 +10742,17 @@ async function handleAssistantResponse(
     const msgs = allMessages[char.id] || []
     
     if (chatMode.value === 'descriptive' || chatMode.value === 'director') {
-      // B.1 包含描写模式：直接向会话追加一条完整的助理回复气泡，瞬间呈现
+      // B.1 包含描写模式/导演模式：直接向会话追加一条完整的助理回复气泡，瞬间呈现
       msgs.push({
         role: 'assistant',
         content: content,
+        id: messageId, // 🚀 瞬间呈现直接绑定真实物理 ID
         created_at: new Date().toISOString(),
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
         cached_tokens: cachedTokens
       })
       isStreaming.value = false
-      nextTick(() => scrollToBottom())
-
-    // 检查是否不在当前活跃会话或活跃窗口中
-    if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
-      if (!conversationMeta[char.id]) {
-        conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
-      }
-      conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
-      window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
-    }
-  } else {
-    // B.2 纯对话模式：采用高维微信级智能分句重组算法，进行有节奏的逐句打字弹射播放
-    const paragraphs: string[] = []
-    const lines = content.split('\n').map(l => l.trim()).filter(Boolean)
-    
-    for (const line of lines) {
-      if (line.length <= 25) {
-        paragraphs.push(line)
-        continue
-      }
-      
-      // 基于标准句尾标点进行高精度二次拆分
-      const sentences = line.split(/(?<=[。；！？!?])\s*/)
-        .map(s => s.trim())
-        .filter(Boolean)
-        
-      let currentTemp = ''
-      for (const s of sentences) {
-        if (currentTemp.length === 0) {
-          currentTemp = s
-        } else {
-          // 合并过短的断句片段，防止显示太细造成刷屏
-          if (currentTemp.length + s.length <= 15 || s.length < 4) {
-            currentTemp += s
-          } else {
-            paragraphs.push(currentTemp)
-            currentTemp = s
-          }
-        }
-      }
-      if (currentTemp) {
-        paragraphs.push(currentTemp)
-      }
-    }
-
-    if (paragraphs.length === 0) {
-      isStreaming.value = false
-      return
-    }
-
-    // 开启串行异步微信分段打字发送模拟
-    for (let idx = 0; idx < paragraphs.length; idx++) {
-      const text = paragraphs[idx]
-      
-      // 在顶部标题栏显示“对方正在输入...”
-      isStreaming.value = true
-      
-      // 根据每句话的字数拟真思考打字的时长
-      const typeDelay = Math.min(Math.max(text.length * 100, 1000), 2800)
-      await new Promise(resolve => setTimeout(resolve, typeDelay))
-
-      // 延迟结束，该句段瞬间作为独立的微信助理气泡弹射展示出来！
-      const isLast = (idx === paragraphs.length - 1)
-      msgs.push({
-        role: 'assistant',
-        content: text,
-        created_at: new Date().toISOString(),
-        prompt_tokens: isLast ? promptTokens : undefined,
-        completion_tokens: isLast ? completionTokens : undefined,
-        cached_tokens: isLast ? cachedTokens : undefined
-      })
       nextTick(() => scrollToBottom())
 
       // 检查是否不在当前活跃会话或活跃窗口中
@@ -10769,24 +10763,96 @@ async function handleAssistantResponse(
         conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
         window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
       }
-
-      // 如果有下一句，微等 500ms 作为大脑思考打字间隔空隙，随后再次进入“对方正在输入”状态
-      if (idx < paragraphs.length - 1) {
-        isStreaming.value = false
-        await new Promise(resolve => setTimeout(resolve, 500))
+    } else {
+      // B.2 纯对话模式：采用高维微信级智能分句重组算法，进行有节奏的逐句打字弹射播放
+      const paragraphs: string[] = []
+      const lines = content.split('\n').map(l => l.trim()).filter(Boolean)
+      
+      for (const line of lines) {
+        if (line.length <= 25) {
+          paragraphs.push(line)
+          continue
+        }
+        
+        // 基于标准句尾标点进行高精度二次拆分
+        const sentences = line.split(/(?<=[。；！？!?])\s*/)
+          .map(s => s.trim())
+          .filter(Boolean)
+          
+        let currentTemp = ''
+        for (const s of sentences) {
+          if (currentTemp.length === 0) {
+            currentTemp = s
+          } else {
+            // 合并过短的断句片段，防止显示太细造成刷屏
+            if (currentTemp.length + s.length <= 15 || s.length < 4) {
+              currentTemp += s
+            } else {
+              paragraphs.push(currentTemp)
+              currentTemp = s
+            }
+          }
+        }
+        if (currentTemp) {
+          paragraphs.push(currentTemp)
+        }
       }
+
+      if (paragraphs.length === 0) {
+        isStreaming.value = false
+        return
+      }
+
+      // 开启串行异步微信分段打字发送模拟
+      for (let idx = 0; idx < paragraphs.length; idx++) {
+        const text = paragraphs[idx]
+        
+        // 在顶部标题栏显示“对方正在输入...”
+        isStreaming.value = true
+        
+        // 根据每句话 of 字数拟真思考打字的时长
+        const typeDelay = Math.min(Math.max(text.length * 100, 1000), 2800)
+        await new Promise(resolve => setTimeout(resolve, typeDelay))
+
+        // 延迟结束，该句段瞬间作为独立的微信助理气泡弹射展示出来！
+        const isLast = (idx === paragraphs.length - 1)
+        msgs.push({
+          role: 'assistant',
+          content: text,
+          id: isLast && messageId ? messageId : 'msg_part_' + Math.random().toString(36).substr(2, 9), // 🚀 最后一句绑定真实物理 ID，前几段用临时唯一 ID！
+          created_at: new Date().toISOString(),
+          prompt_tokens: isLast ? promptTokens : undefined,
+          completion_tokens: isLast ? completionTokens : undefined,
+          cached_tokens: isLast ? cachedTokens : undefined
+        })
+        nextTick(() => scrollToBottom())
+
+        // 检查是否不在当前活跃会话或活跃窗口中
+        if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
+          if (!conversationMeta[char.id]) {
+            conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+          }
+          conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
+          window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
+        }
+
+        // 如果有下一句，微等 500ms 作为大脑思考打字间隔空隙，随后再次进入“对方正在输入”状态
+        if (idx < paragraphs.length - 1) {
+          isStreaming.value = false
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+
+      isStreaming.value = false
     }
 
-    isStreaming.value = false
-  }
-
-  // 刷新记忆与日记视图
-  setTimeout(async () => {
-    const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
-    if (memRes.success) activeMemory.value = memRes.content
-    const diaryRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Diary.md' })
-    if (diaryRes.success) activeDiary.value = diaryRes.content
-  }, 1500)
+    // 刷新记忆与日记视图
+    setTimeout(async () => {
+      const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
+      if (memRes.success) activeMemory.value = memRes.content
+      const diaryRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Diary.md' })
+      if (diaryRes.success) activeDiary.value = diaryRes.content
+    }, 1500)
   } finally {
     activeTypingSessions.delete(sessionKey)
   }
@@ -10946,7 +11012,8 @@ async function handleChatScroll(e: Event) {
       if (res.success && res.history && res.history.length > 0) {
         console.log(`[handleChatScroll] 成功拉取到历史。条数: ${res.history.length}, 返回消息最老一条时间戳: ${res.history[0].timestamp}, 最新一条时间戳: ${res.history[res.history.length - 1].timestamp}`)
         
-        const olderMsgs = res.history.map((m: any) => restoreMessageProps(m))
+        const restored = res.history.map((m: any) => restoreMessageProps(m))
+        const olderMsgs = flattenMessages(restored, charId) // 🚀 翻页加载的历史记录也在前端进行 flatten 拆分铺平！
         
         // 🚀 核心自愈优化：通过 ID 强效去重过滤，100% 根除快速连续滚动、并发拉取可能造成的历史消息重复显示 Bug
         const filteredOlder = olderMsgs.filter((om: any) => !currentMsgs.some((cm: any) => cm.id === om.id))
@@ -11282,7 +11349,15 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
       dbMessage: `[wechat_custom_emoji]:${JSON.stringify({ meaning: emoji.meaning, base64: emoji.base64 })}`
     })
     if (!res.success) throw new Error(res.error || '连接断开')
-    await handleAssistantResponse(char, res.content, res.redPacketAction)
+    await handleAssistantResponse(
+      char,
+      res.content,
+      res.redPacketAction,
+      res.prompt_tokens,
+      res.completion_tokens,
+      res.cached_tokens,
+      res.messageId
+    )
   } catch (err: any) {
     isStreaming.value = false
     const msgs = allMessages[char.id] || []
@@ -12199,7 +12274,7 @@ async function saveNovelAiConfig() {
   }
 }
 
-async function refreshAnlas() {
+async function refreshAnlas(silent = false) {
   if (!novelai.apiKey) return
   isLoadingAnlas.value = true
   try {
@@ -12207,10 +12282,18 @@ async function refreshAnlas() {
     if (res.success) {
       anlasPoints.value = res.anlas
     } else {
-      showToast(`点数获取失败: ${res.error}`)
+      if (!silent) {
+        showToast(`点数获取失败: ${res.error}`)
+      } else {
+        console.warn(`[NovelAI] 自动获取点数失败: ${res.error}`)
+      }
     }
   } catch (e: any) {
-    showToast(`点数获取异常: ${e.message}`)
+    if (!silent) {
+      showToast(`点数获取异常: ${e.message}`)
+    } else {
+      console.warn(`[NovelAI] 自动获取点数异常: ${e.message}`)
+    }
   } finally {
     isLoadingAnlas.value = false
   }
@@ -13122,7 +13205,8 @@ onMounted(async () => {
     if (naiRes.success && naiRes.config) {
       Object.assign(novelai, naiRes.config)
       if (novelai.apiKey) {
-        refreshAnlas()
+        // 🚀 延迟 3.5 秒静默刷新余额：防止刚开机/刚启动时网络连接与系统代理尚未完全加载就绪，导致 fetch ECONNRESET 报错。
+        setTimeout(() => refreshAnlas(true), 3500)
       }
     }
   } catch (e) {
@@ -13185,8 +13269,14 @@ onMounted(async () => {
     // 🚀 只要流式吐字或处于流式交互中，就重置/清除 30秒超时定时器，只在真正停滞 30 秒以上时才超时自愈
     if (data.done) {
       clearReplyTimeout()
-    } else if (data.content) {
-      startReplyTimeout(chunkCharId)
+    } else {
+      // 🚀 彻底去流式：如果是普通聊天（非创角 Bot），直接屏蔽 done 为 false 的所有流式碎片，不启动超时定时器，不进行追加渲染，瞬间回执
+      if (chunkCharId !== 'character_creator_bot') {
+        return
+      }
+      if (data.content) {
+        startReplyTimeout(chunkCharId)
+      }
     }
 
     if (data.content && data.content.includes('[SUCCESS_CREATION_JUMP]:')) {
@@ -13615,12 +13705,53 @@ onMounted(async () => {
   window.api.receive('receive-message', (msg: any) => {
     const charId = msg.character_id
     if (!charId) return
+
+    // 🚀 微信分段打字竞态去重过滤：
+    // 如果本地正好在进行该角色的仿真分段打字（在 activeTypingSessions 中存在该角色的活跃 session），
+    // 主进程由 SQLite 存盘级联广播来的 receive-message 信号将 100% 被安全拦截并忽略。
+    // 这能从逻辑根源上彻底解决“打字尚未结束/前几句播完时，后台完整句推送撞车导致去重失效追加第4个完整大气泡”的致命竞态 BUG！
+    const hasActiveTyping = Array.from(activeTypingSessions).some((key: string) => key.startsWith(charId + '_'))
+    if (hasActiveTyping && msg.role === 'assistant') {
+      console.log(`[Sync Gate] 检测到本地正在进行角色 ${charId} 的分段打字渲染，忽略后台级联同步广播以防双气泡`)
+      return
+    }
     // 更新对应会话的活跃时间戳
     conversationActiveTimes[charId] = msg.timestamp || Date.now()
     // 将消息追加到对应缓存
     if (!allMessages[charId]) allMessages[charId] = []
-    if (!allMessages[charId].some(m => m.id === msg.id)) {
-      allMessages[charId].push(restoreMessageProps(msg))
+    
+    // 智能去重自愈：如果本地已经存在与该广播消息 role 相同且 content 高度一致的消息（尤其是流式 assistant 回复），
+    // 则视为本地已经流式渲染过，我们只需补全其 id 和 token 数据，而绝不重复追加气泡。
+    const msgs = allMessages[charId]
+    let isDuplicate = false
+    
+    if (msg.role === 'assistant') {
+      // 倒序寻找最近的 3 条消息进行内容匹配
+      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 3); i--) {
+        if (msgs[i].role === 'assistant' && (msgs[i].content === msg.content || msgs[i].id === msg.id)) {
+          // 找到高度雷同气泡，补齐 ID 和 Token
+          msgs[i].id = msg.id
+          if (msg.prompt_tokens) msgs[i].prompt_tokens = msg.prompt_tokens
+          if (msg.completion_tokens) msgs[i].completion_tokens = msg.completion_tokens
+          if (msg.cached_tokens) msgs[i].cached_tokens = msg.cached_tokens
+          isDuplicate = true
+          break
+        }
+      }
+    } else if (msg.role === 'user') {
+      // user 消息做同理内容级去重自愈
+      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 3); i--) {
+        if (msgs[i].role === 'user' && (msgs[i].content === msg.content || msgs[i].id === msg.id)) {
+          msgs[i].id = msg.id
+          isDuplicate = true
+          break
+        }
+      }
+    }
+
+    if (!isDuplicate && !msgs.some(m => m.id === msg.id)) {
+      const flattened = flattenMessages([msg], charId) // 🚀 同步广播到达时，也一律在前端进行 flatten 拆分铺平！
+      msgs.push(...flattened.map(m => restoreMessageProps(m)))
     }
     
     // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
