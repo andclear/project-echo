@@ -3586,7 +3586,18 @@ Please output in exactly this XML format:
 
       // 每次随机找最多 3 个有聊天记录的不同活跃角色各生成 1 条朋友圈
       const characters = db.getAllCharacters()
-      const activeChars = characters.filter(c => db.getChatHistory(c.id, 1).length > 0)
+      const activeChars = characters.filter(c => {
+        if (db.getChatHistory(c.id, 1).length === 0) return false
+        
+        const metaStr = db.getSetting(`meta_${c.id}`)
+        if (metaStr) {
+          try {
+            const meta = JSON.parse(metaStr)
+            if (meta.muted) return false
+          } catch (_) {}
+        }
+        return true
+      })
       
       if (activeChars.length === 0) {
         return { success: true, cached: false, moments: [], error: '当前没有任何处于活跃状态（有过对话）的角色。' }
@@ -3631,7 +3642,18 @@ Please output in exactly this XML format:
 
       // 每次随机找最多 3 个有聊天记录的不同活跃角色各生成 1 篇论坛帖子
       const characters = db.getAllCharacters()
-      const activeChars = characters.filter(c => db.getChatHistory(c.id, 1).length > 0)
+      const activeChars = characters.filter(c => {
+        if (db.getChatHistory(c.id, 1).length === 0) return false
+        
+        const metaStr = db.getSetting(`meta_${c.id}`)
+        if (metaStr) {
+          try {
+            const meta = JSON.parse(metaStr)
+            if (meta.muted) return false
+          } catch (_) {}
+        }
+        return true
+      })
 
       if (activeChars.length === 0) {
         return { success: true, cached: false, posts: [], error: '当前没有任何处于活跃状态（有过对话）的角色。' }
