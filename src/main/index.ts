@@ -10,6 +10,7 @@ import { ModelAdapter, ModelConfig, ChatMessage } from './models/ModelAdapter'
 import { CharacterCardParser } from './utils/CharacterCardParser'
 import { CharacterSummarizer } from './utils/CharacterSummarizer'
 import { CharacterStorageManager } from './utils/CharacterStorageManager'
+import { CharacterSummaryService } from './utils/CharacterSummaryService'
 import { StreamSplitController } from './utils/StreamSplitController'
 import { SkillSandboxManager } from './services/SkillSandboxManager'
 import { AgentLifeEngine } from './services/AgentLifeEngine'
@@ -922,6 +923,11 @@ function registerIpcHandlers(): void {
       })
       console.log('[IPC] 3/3 SQLite 角色元数据入库成功！')
 
+      // 首次导入成功后，强制异步触发大模型生成角色 100 字核心设定总结 (不阻塞导入完成返回)
+      CharacterSummaryService.getOrGenerateSummary(confirmedFolderName, true).catch(err => {
+        console.error('[import-character] 初始生成设定总结异常:', err)
+      })
+
       // 异步调用大模型评估背景 Lore 初始亲密度（完全异步，不阻塞用户界面导入操作）
       const evaluateInitialIntimacy = async (folderName: string, soulContent: string) => {
         try {
@@ -1020,6 +1026,158 @@ ${soulContent}
     }
   })
 
+  // 8.5 群聊相关核心 IPC 通道注册
+  ipcMain.handle('create-group-chat', async (_, payload: {
+    groupId: string
+    name: string
+    memberIds: string[]
+    avatarBase64?: string
+  }) => {
+    try {
+      const { groupId, name, memberIds, avatarBase64 } = payload
+      console.log(`[IPC] ➜ 收到创建群聊请求, ID: ${groupId}, 名称: ${name}, 成员数: ${memberIds.length}`)
+
+      const db = getDatabaseService()
+      
+      // 1. 初始化物理群聊目录并写入 Memory.md 与 拼贴头像
+      const groupDir = join(app.getPath('userData'), 'groups', groupId)
+      if (!fs.existsSync(groupDir)) {
+        fs.mkdirSync(groupDir, { recursive: true })
+      }
+
+      const memoryPath = join(groupDir, 'Memory.md')
+      if (!fs.existsSync(memoryPath)) {
+        const memoryInitContent = `<!--\n{\n  "stm": [],\n  "ltm": {}\n}\n-->\n# 记忆存储区\n\n## 短期记忆 (Short-Term Memory)\n暂无短期记忆。\n\n## 长期记忆 (Long-Term Memory)\n暂无长期记忆。`
+        fs.writeFileSync(memoryPath, memoryInitContent, 'utf8')
+      }
+
+      if (avatarBase64) {
+        const avatarPath = join(groupDir, 'avatar.png')
+        const base64Data = avatarBase64.replace(/^data:image\/\w+;base64,/, '')
+        fs.writeFileSync(avatarPath, Buffer.from(base64Data, 'base64'))
+      }
+
+      // 2. 数据库落盘
+      db.saveGroupChat({
+        id: groupId,
+        name,
+        avatar: 'avatar.png',
+        created_at: Date.now()
+      })
+
+      db.saveGroupMembers(groupId, memberIds)
+      console.log(`[IPC] ✔ 群聊 ${name} (${groupId}) 物理与数据库落盘大获成功！`)
+
+      return { success: true }
+    } catch (error: any) {
+      console.error('[IPC] 创建群聊失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  ipcMain.handle('get-group-chats', async () => {
+    try {
+      const db = getDatabaseService()
+      const groups = db.getAllGroupChats()
+      
+      // 携带群成员 ID 列表
+      const richGroups = groups.map(g => {
+        const memberIds = db.getGroupMembers(g.id)
+        return {
+          ...g,
+          isGroup: true, // 明确标识为群聊，便于前端列表统一渲染
+          memberIds
+        }
+      })
+      
+      return { success: true, groups: richGroups }
+    } catch (error: any) {
+      console.error('[IPC] 获取群聊列表失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  ipcMain.handle('get-group-avatar', async (_, groupId: string) => {
+    try {
+      const avatarPath = join(app.getPath('userData'), 'groups', groupId, 'avatar.png')
+      if (fs.existsSync(avatarPath)) {
+        const buffer = fs.readFileSync(avatarPath)
+        return `data:image/png;base64,${buffer.toString('base64')}`
+      }
+      return ''
+    } catch (error: any) {
+      console.error('[IPC] 获取群聊头像失败:', error)
+      return ''
+    }
+  })
+
+  ipcMain.handle('update-group-name', async (_, payload: { groupId: string; name: string }) => {
+    try {
+      const { groupId, name } = payload
+      console.log(`[IPC] ➜ 收到更新群名请求, ID: ${groupId}, 新名称: ${name}`)
+      const db = getDatabaseService()
+      db.updateGroupName(groupId, name)
+      return { success: true }
+    } catch (error: any) {
+      console.error('[IPC] 更新群名失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  ipcMain.handle('read-group-file', async (_, payload: { groupId: string; fileName: string }) => {
+    try {
+      const { groupId, fileName } = payload
+      const filePath = join(app.getPath('userData'), 'groups', groupId, fileName)
+      if (fs.existsSync(filePath)) {
+        const content = fs.readFileSync(filePath, 'utf8')
+        return { success: true, content }
+      }
+      return { success: true, content: '' }
+    } catch (error: any) {
+      console.error(`[IPC] 读取群文件 ${payload.fileName} 失败:`, error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  ipcMain.handle('save-group-file', async (_, payload: { groupId: string; fileName: string; content: string }) => {
+    try {
+      const { groupId, fileName, content } = payload
+      const groupDir = join(app.getPath('userData'), 'groups', groupId)
+      if (!fs.existsSync(groupDir)) {
+        fs.mkdirSync(groupDir, { recursive: true })
+      }
+      const filePath = join(groupDir, fileName)
+      fs.writeFileSync(filePath, content, 'utf8')
+      console.log(`[IPC] 群聊文件 ${fileName} 保存成功: ${groupId}`)
+      return { success: true }
+    } catch (error: any) {
+      console.error(`[IPC] 保存群文件 ${payload.fileName} 失败:`, error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  ipcMain.handle('delete-group-chat', async (_, payload: { groupId: string }) => {
+    try {
+      const { groupId } = payload
+      console.log(`[IPC] ➜ 收到删除群聊请求, ID: ${groupId}`)
+      const db = getDatabaseService()
+      
+      // 1. 物理清空磁盘群目录
+      const groupDir = join(app.getPath('userData'), 'groups', groupId)
+      if (fs.existsSync(groupDir)) {
+        fs.rmSync(groupDir, { recursive: true, force: true })
+      }
+      
+      // 2. 数据库级联物理删除
+      db.deleteGroupChat(groupId)
+      console.log(`[IPC] ✔ 群聊 ${groupId} 已被物理彻底擦除`)
+      return { success: true }
+    } catch (error: any) {
+      console.error('[IPC] 删除群聊失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
   // 9. 获取特定角色的 Base64 头像数据 (安全沙箱隔离) IPC 通道
   ipcMain.handle('get-character-avatar', async (_, folderName: string) => {
     try {
@@ -1071,6 +1229,21 @@ ${soulContent}
       if (payload.world !== undefined) {
         storageManager.writeCharacterFile(payload.folderName, 'World.md', payload.world)
       }
+
+      // 【生命周期自清洁】：由于人设已被用户修改，我们主动置空其设定总结 Summary.md 缓存文件
+      const speakerDir = join(storageManager.getBaseDir(), payload.folderName)
+      const summaryPath = join(speakerDir, 'Summary.md')
+      if (fs.existsSync(summaryPath)) {
+        try {
+          fs.writeFileSync(summaryPath, '', 'utf-8') // 置空文件
+        } catch (_) { }
+      }
+
+      // 异步调用总结服务，由于 Summary.md 已置空，它会百分之百自动调用大模型重新提炼存盘 (不阻塞用户保存操作)
+      CharacterSummaryService.getOrGenerateSummary(payload.folderName, true).catch(err => {
+        console.error('[save-character-files] 保存触发重生成设定总结异常:', err)
+      })
+
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 角色人设配置文件保存失败:', error)
@@ -1129,8 +1302,354 @@ ${soulContent}
     imageBase64?: string
     userMsgId?: string
     dbMessage?: string
+    isGroup?: boolean
   }) => {
     const { characterId, folderName, userMessage } = payload
+    const isGroup = !!payload.isGroup
+
+    // ===================== 群聊模式专属级联调度与流式生成引擎 =====================
+    if (isGroup) {
+      const groupId = characterId // 群聊时 characterId 传入的是 groupId
+      console.log(`[Group Chat] ➜ 收到群聊流式请求. 会话群组: ${groupId}, 发送消息: "${userMessage}"`)
+      
+      const db = getDatabaseService()
+      
+      // 1. 获取群聊元数据与全局模型设置
+      const groupMeta = db.getGroupChat(groupId)
+      if (!groupMeta) {
+        throw new Error('未找到指定的群聊会话，请先创建或刷新群聊！')
+      }
+      
+      const configStr = db.getSetting('model_config')
+      if (!configStr) {
+        throw new Error('未配置全局大模型参数，请前往设置中心先进行配置保存！')
+      }
+      const settings = JSON.parse(configStr)
+      const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+      const globalPrompt = settings.globalPrompt || ''
+
+      const memberIds = db.getGroupMembers(groupId) as string[] // AI 成员 ID 列表
+      if (memberIds.length === 0) {
+        throw new Error('群聊中没有任何 AI 成员，请先往群聊中添加角色！')
+      }
+
+      const groupDir = join(app.getPath('userData'), 'groups', groupId)
+      const groupMemoryPath = join(groupDir, 'Memory.md')
+      const globalUserPath = join(app.getPath('userData'), 'config', 'USER.md')
+
+      // 2. 将用户的发言首先持久化存盘入库
+      const userMsgId = payload.userMsgId || crypto.randomUUID()
+      db.saveMessage({
+        id: userMsgId,
+        character_id: groupId,
+        role: 'user',
+        content: payload.dbMessage || userMessage,
+        timestamp: Date.now(),
+        token_usage: 0,
+        sender_id: 'user'
+      })
+
+      // 3. 核心决策：决定当前发言人队列 speakerQueue
+      const speakerQueue: string[] = []
+
+      // 获取群 AI 成员姓名及智能简称（用于唤醒与提名）
+      const aiMembers = memberIds.map(id => {
+        const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(id) as any
+        const name = charRow ? charRow.name : '未知'
+        let shortName = name
+        if (name.length === 3) {
+          shortName = name.substring(1) // 3字姓名简称后2字 (如李沧海 -> 沧海)
+        }
+        return { id, name, shortName }
+      })
+
+      // A. 精确 @ 唤醒检测 (支持带或不带空格的 @)
+      aiMembers.forEach(member => {
+        if (userMessage.includes(`@${member.name}`) || userMessage.includes(`@ ${member.name}`)) {
+          if (!speakerQueue.includes(member.id)) {
+            speakerQueue.push(member.id)
+          }
+        }
+      })
+
+      // B. 提名检测 (若无精确 @，只要提到了简称便必回)
+      if (speakerQueue.length === 0) {
+        aiMembers.forEach(member => {
+          if (userMessage.includes(member.shortName)) {
+            if (!speakerQueue.includes(member.id)) {
+              speakerQueue.push(member.id)
+            }
+          }
+        })
+      }
+
+      // C. 随机接话机制 (无 @ 且无提名提名时，60% 概率 1 人，30% 概率 2 人，10% 概率 3 人)
+      if (speakerQueue.length === 0) {
+        const rand = Math.random()
+        let numToPick = 1
+        if (rand < 0.6) {
+          numToPick = 1
+        } else if (rand < 0.9) {
+          numToPick = 2
+        } else {
+          numToPick = 3
+        }
+        numToPick = Math.min(numToPick, aiMembers.length)
+
+        const shuffled = [...aiMembers].sort(() => Math.random() - 0.5)
+        for (let i = 0; i < numToPick; i++) {
+          speakerQueue.push(shuffled[i].id)
+        }
+      }
+
+      console.log(`[Group Chat Dispatcher] 调度就绪。初始发言人队列:`, speakerQueue)
+
+      // 4. 依次流式唤醒队列中的 AI 成员 (限制连续级联深度不超过 4 轮)
+      let currentRound = 0
+      await InferenceMutex.lock() // 锁定大模型
+
+      try {
+        while (speakerQueue.length > 0 && currentRound < 4) {
+          const currentSpeakerId = speakerQueue.shift()!
+          const currentSpeaker = aiMembers.find(m => m.id === currentSpeakerId)
+          if (!currentSpeaker) continue
+
+          console.log(`[Group Chat Dispatcher] ➜ 成员 [${currentSpeaker.name}] 发言中... (Round ${currentRound + 1}/4)`)
+
+          // A. 组装该角色的多次元交汇特化 System Prompt
+          const storageManager = new CharacterStorageManager()
+          const speakerDir = join(storageManager.getBaseDir(), currentSpeakerId)
+          const soulPath = join(speakerDir, 'Soul.md')
+          
+          const globalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+          const realUserName = (globalProfile.name || '').trim()
+          const allMemberNames = [realUserName || '用户', ...aiMembers.map(m => m.name)]
+
+          // 并发极速获取或兜底生成在场 AI 角色的 100 字核心设定总结 (静态只读/为空自愈)
+          const memberProfiles = await Promise.all(
+            aiMembers.map(async m => {
+              const summary = await CharacterSummaryService.getOrGenerateSummary(m.id)
+              return { name: m.name, summary }
+            })
+          )
+
+          const systemPrompt = ContextAssembler.assembleGroupChat(
+            groupMeta.name,
+            groupMemoryPath,
+            soulPath,
+            globalUserPath,
+            allMemberNames,
+            globalPrompt,
+            memberProfiles
+          )
+
+          // B. 拉取最近 25 条历史消息并格式化为剧本 RP 形式的大文本控制台
+          const history = db.getChatHistory(groupId, 25)
+          const formattedHistory = history.map((m: any) => {
+            let senderName = 'User'
+            if (m.sender_id !== 'user') {
+              const matched = aiMembers.find(member => member.id === m.sender_id)
+              senderName = matched ? matched.name : 'Character'
+            }
+            return `[${senderName}]: ${m.content}`
+          }).join('\n')
+
+          const eligibleMembers = aiMembers.filter(m => m.id !== currentSpeakerId)
+
+          const userPromptText = `【群聊面板历史记录】
+${formattedHistory}
+
+---
+[系统行动干涉]：现在轮到你（即 ${currentSpeaker.name}） in 发言了。
+请你严格坚守你的核心人设立心和说话习惯，在【包含描写】模式下，编写一段富有张力、带生动内心心理及肢体动作描写的群聊消息。
+注意：在这个世界里，你正与用户 ${realUserName} 以及 其他 成员 ${eligibleMembers.map(m => m.name).join('、')} 一起相处。如果你本轮认为非常有必要与某位成员互动（无论是反驳还是赞同），请在内容中直接 @ 他，但绝对不能凭空捏造不存在的人！
+如果决定发送回音红包，请只在回复的最开头输出控制符：\`[SEND_RED_PACKET: 金额, 附言]\`（扣减你各自的钱包余额，附言限15字以内），正文中绝对不能提到“我发了钱/塞红包”等。`
+
+          const chatMessages: ChatMessage[] = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPromptText }
+          ]
+
+          let accumulatedResponse = ''
+          const chatStreamGen = modelAdapter.chatStream(chatMessages, { usePrimary: true, skipSystemInjection: true })
+
+          // 流式回传前台
+          for await (const chunk of chatStreamGen) {
+            accumulatedResponse += chunk.content
+            event.sender.send('chat-chunk', {
+              characterId: groupId,
+              content: chunk.content,
+              done: false,
+              senderId: currentSpeakerId
+            })
+          }
+
+          // C. 清洗大模型回复
+          const thinkTagsReg = /<(cot|think|thinking)>[\s\S]*?<\/\1>/gi
+          const halfThinkTagsReg = /<(cot|think|thinking)>[\s\S]*$/gi
+          let finalResponse = accumulatedResponse
+            .replace(thinkTagsReg, '')
+            .replace(halfThinkTagsReg, '')
+            .trim()
+
+          // D. [回音红包动作决策] (扣减各自 State.md 的钱包余额)
+          let redPacketSend: { amount: number; title: string; status: string } | null = null
+          const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/i
+          const sendRegGlobal = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
+          const sendMatch = finalResponse.match(sendReg)
+
+          if (sendMatch) {
+            const amount = parseFloat(sendMatch[1])
+            const title = sendMatch[3].trim()
+            const charStatePath = join(speakerDir, 'State.md')
+
+            if (fs.existsSync(charStatePath)) {
+              try {
+                const charState = StateReaderWriter.readState(charStatePath)
+                const balanceItem = charState.items.find(i => i.key === 'balance')
+                const currentBalance = balanceItem ? Number(balanceItem.value) : 5200.0
+
+                if (!isNaN(amount) && amount > 0 && amount <= currentBalance) {
+                  StateReaderWriter.applyStateUpdates(charStatePath, [{ key: 'balance', delta: -amount }])
+                  redPacketSend = { amount, title, status: 'waiting' }
+                  console.log(`[Group Economy] 成员 ${currentSpeaker.name} 自主发送了群红包：金额 ${amount} 元`)
+                }
+              } catch (_) {}
+            }
+          }
+
+          // B. 判定是否为领取/退回用户群红包
+          let redPacketAction: 'receive' | 'return' | null = null
+          if (finalResponse.includes('[RECEIVE_RED_PACKET]')) {
+            redPacketAction = 'receive'
+            // 物理加钱给角色钱包
+            try {
+              const lastRedMsg = db.db.prepare(
+                "SELECT * FROM Messages WHERE character_id = ? AND role = 'user' AND content LIKE '[wechat_red_packet]:%' ORDER BY timestamp DESC LIMIT 1"
+              ).get(groupId) as any
+              if (lastRedMsg) {
+                const jsonStr = lastRedMsg.content.replace('[wechat_red_packet]:', '')
+                const rp = JSON.parse(jsonStr)
+                if (!rp.status || rp.status === 'waiting') {
+                  const isExclusive = !!rp.targetId
+                  const isMatch = !isExclusive || rp.targetId === currentSpeakerId
+                  if (isMatch) {
+                    const receivedAmount = parseFloat(rp.amount)
+                    if (!isNaN(receivedAmount) && receivedAmount > 0) {
+                      const charStatePath = join(speakerDir, 'State.md')
+                      StateReaderWriter.applyStateUpdates(charStatePath, [{ key: 'balance', delta: receivedAmount }])
+                      console.log(`[Group Economy] 角色 ${currentSpeaker.name} 领受用户红包，财富 +${receivedAmount} 元`)
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('[Group Economy] 角色收群红包加款异常:', err)
+            }
+          } else if (finalResponse.includes('[RETURN_RED_PACKET]')) {
+            redPacketAction = 'return'
+          }
+
+          // 物理擦除控制符
+          finalResponse = finalResponse
+            .replace(sendRegGlobal, '')
+            .replace(/\[RECEIVE_RED_PACKET\]/g, '')
+            .replace(/\[RETURN_RED_PACKET\]/g, '')
+            .trim()
+
+          // E. 保存 AI 回复至 Messages 聊天记录表
+          const assistantMsgId = crypto.randomUUID()
+          db.saveMessage({
+            id: assistantMsgId,
+            character_id: groupId,
+            role: 'assistant',
+            content: finalResponse,
+            timestamp: Date.now(),
+            token_usage: 0,
+            sender_id: currentSpeakerId
+          })
+
+          if (redPacketSend) {
+            db.saveMessage({
+              id: crypto.randomUUID(),
+              character_id: groupId,
+              role: 'assistant',
+              content: `[wechat_red_packet]:${JSON.stringify(redPacketSend)}`,
+              timestamp: Date.now() + 10,
+              token_usage: 0,
+              sender_id: currentSpeakerId
+            })
+          }
+
+          // F. 发送 done 信号给前台
+          event.sender.send('chat-chunk', {
+            characterId: groupId,
+            content: finalResponse,
+            done: true,
+            senderId: currentSpeakerId,
+            redPacketAction: redPacketAction,
+            redPacketSend: redPacketSend ? JSON.parse(JSON.stringify(redPacketSend)) : null
+          })
+
+          // G. 每一满 10 条消息时，异步触发群聊专属记忆提取与大事记合并压缩
+          try {
+            const totalMsgsRow = db.db.prepare('SELECT COUNT(*) as count FROM Messages WHERE character_id = ?').get(groupId) as any
+            const totalMsgs = totalMsgsRow ? totalMsgsRow.count : 0
+            if (totalMsgs > 0 && totalMsgs % 10 === 0) {
+              console.log(`[Group Memory] 当前群聊累计消息数已达 ${totalMsgs}，触发每 10 条消息的记忆更新与压缩...`)
+              const memoryService = new MemoryAgentService(modelAdapter)
+              memoryService.extractMemoryAndProfile(
+                groupMemoryPath,
+                '',
+                userMessage,
+                finalResponse,
+                true
+              ).then(async () => {
+                console.log(`[Group Memory] 群组 ${groupId} 记忆提取成功`)
+                await memoryService.compressActiveHistoryAndConsolidate(groupId, groupMemoryPath, true)
+              }).catch(err => {
+                console.error('[Group Memory] 提取异常:', err)
+              })
+            } else {
+              console.log(`[Group Memory] 当前群聊累计消息数: ${totalMsgs}，暂未达到 10 的倍数，跳过记忆更新。`)
+            }
+          } catch (err) {
+            console.error('[Group Memory] 统计或更新异常:', err)
+          }
+
+          // H. 级联 @ 唤醒，压入队列下一轮调度 (仅在显式 @ 时触发，排除无意提到简称的被动唤醒，赋予角色自由度)
+          aiMembers.forEach(member => {
+            if (member.id !== currentSpeakerId) {
+              const hasAt = finalResponse.includes(`@${member.name}`) || finalResponse.includes(`@ ${member.name}`)
+              if (hasAt) {
+                if (!speakerQueue.includes(member.id)) {
+                  speakerQueue.push(member.id)
+                  console.log(`[Group Chat Dispatcher] 级联响应: 成员 [${currentSpeaker.name}] @了 [${member.name}]`)
+                }
+              }
+            }
+          })
+
+          // 新增：自动接力搭话机制。如果队列已空但发言总轮数未满 4 轮，100% 自动挑选另一个 AI 成员接力发言，确保群聊维持在 4 轮的充分热闹程度
+          if (speakerQueue.length === 0 && currentRound + 1 < 4) {
+            const eligibleMembers = aiMembers.filter(m => m.id !== currentSpeakerId)
+            if (eligibleMembers.length > 0) {
+              const nextSpeaker = eligibleMembers[Math.floor(Math.random() * eligibleMembers.length)]
+              speakerQueue.push(nextSpeaker.id)
+              console.log(`[Group Chat Dispatcher] 级联接力: 成员 [${nextSpeaker.name}] 主动接过话茬 (Round ${currentRound + 2}/4)`)
+            }
+          }
+
+          currentRound++
+          await new Promise(r => setTimeout(r, 600)) // 角色气泡流式生成的间隔物理微缓冲
+        }
+      } finally {
+        InferenceMutex.unlock() // 释放锁
+      }
+
+      return { success: true }
+    }
+
     console.log(`[IPC] ➜ 收到流式聊天请求. 角色: ${characterId}, 消息: "${userMessage}"`)
 
     // ===================== 角色卡创建Bot 专属互动拦截器 =====================
@@ -2355,6 +2874,39 @@ ${memoryContent}
       console.log(`[IPC] 物理清空角色 [${folderName}] 的历史消息、记忆文件、State.md、画像和 Settings 参数完成！`)
       return { success: true }
     } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 15.25 清除群聊历史和记忆（物理彻底清空群组历史、Memory.md 与 SUMMARY.md）
+  ipcMain.handle('clear-group-history-and-memory', async (_, payload: { groupId: string }) => {
+    try {
+      const { groupId } = payload
+      const db = getDatabaseService()
+
+      // A. 清空 SQLite 聊天历史记录
+      db.deleteChatHistory(groupId)
+
+      // B. 重置窗口清除时间戳为 0
+      db.setSetting('clear_chat_at_' + groupId, '0')
+
+      // C. 清空 Memory.md 记忆文件为出厂初始状态
+      const groupDir = join(app.getPath('userData'), 'groups', groupId)
+      if (!fs.existsSync(groupDir)) {
+        fs.mkdirSync(groupDir, { recursive: true })
+      }
+      
+      const memoryInitContent = `<!--\n{\n  "stm": [],\n  "ltm": {}\n}\n-->\n# 记忆存储区\n\n## 短期记忆 (Short-Term Memory)\n暂无短期记忆。\n\n## 长期记忆 (Long-Term Memory)\n暂无长期记忆。`
+      fs.writeFileSync(join(groupDir, 'Memory.md'), memoryInitContent, 'utf8')
+
+      // D. 清空 SUMMARY.md 大事记文件为初始状态
+      const summaryInitContent = `<!--\n{\n  "summary": ""\n}\n-->\n# 群聊共同经历大事记 (Group History Summary)\n\n暂无大事记`
+      fs.writeFileSync(join(groupDir, 'SUMMARY.md'), summaryInitContent, 'utf8')
+
+      console.log(`[IPC] 群聊 [${groupId}] 物理清空聊天记录、Memory.md 记忆与 SUMMARY.md 大事记成功！`)
+      return { success: true }
+    } catch (e: any) {
+      console.error('[IPC] 物理清空群聊记录失败:', e)
       return { success: false, error: e.message || e }
     }
   })

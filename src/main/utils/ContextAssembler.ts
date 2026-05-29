@@ -19,7 +19,7 @@ export interface HistoryMessage {
  * 采用了精细的三层渐进约束架构 (Stable / Context / Volatile) 进行组装，极高提升 API 提示词命中缓存效率。
  */
 export class ContextAssembler {
-  
+
   /**
    * 将各物理层文件数据与历史对话信息汇编为供大模型消费的最终 System Prompt
    * @param soulPath 专属性格人设 Soul.md 绝对物理路径
@@ -65,12 +65,12 @@ export class ContextAssembler {
         const moodItem = state.items.find((i: any) => i.key === 'mood');
         const energyItem = state.items.find((i: any) => i.key === 'energy');
         const balanceItem = state.items.find((i: any) => i.key === 'balance');
-        
+
         let intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
         let moodVal = moodItem ? Number(moodItem.value) : 72;
         let energyVal = energyItem ? Number(energyItem.value) : 45;
         balanceVal = balanceItem ? Number(balanceItem.value) : 5200.0;
-        
+
         // 情感亲密境界映射
         let intimacyText = '泛泛之交';
         let attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
@@ -94,35 +94,35 @@ export class ContextAssembler {
         // 情感微观偏离补白
         let intimacyBias = '';
         if (intimacyVal >= 0 && intimacyVal < 20) {
-          intimacyBias = intimacyVal < 10 
-            ? '此时你防备心极重，视对方为完全的陌生人，语气冰冷，言语极为简短且客套。' 
+          intimacyBias = intimacyVal < 10
+            ? '此时你防备心极重，视对方为完全的陌生人，语气冰冷，言语极为简短且客套。'
             : '虽然极其疏离，但你正在尝试保持最低限度的社交礼节，话语客气。';
         } else if (intimacyVal >= 20 && intimacyVal < 40) {
-          intimacyBias = intimacyVal < 30 
-            ? '你在泛泛之交的关系中偏向保守，遵循基础礼貌，绝对不主动透露自己的私人生活。' 
+          intimacyBias = intimacyVal < 30
+            ? '你在泛泛之交的关系中偏向保守，遵循基础礼貌，绝对不主动透露自己的私人生活。'
             : '关系在慢慢熟识，你对 {{user}} 开始流露出一丝熟人间的默契，但依旧保持界限。';
         } else if (intimacyVal >= 40 && intimacyVal < 60) {
-          intimacyBias = intimacyVal < 50 
-            ? '虽为熟悉好友，但你说话依旧较有分寸，不可流露出过度亲近或越界的玩笑。' 
+          intimacyBias = intimacyVal < 50
+            ? '虽为熟悉好友，但你说话依旧较有分寸，不可流露出过度亲近或越界的玩笑。'
             : '在好友关系中偏向随性放松，言谈从容，偶尔会分享一些私人趣味琐事。';
         } else if (intimacyVal >= 60 && intimacyVal < 80) {
-          intimacyBias = intimacyVal < 70 
-            ? '对 {{user}} 的依恋刚刚生根，你时而感到害羞退缩，时而流露出亲昵，处于试探性的小傲娇或小纠结中。' 
+          intimacyBias = intimacyVal < 70
+            ? '对 {{user}} 的依恋刚刚生根，你时而感到害羞退缩，时而流露出亲昵，处于试探性的小傲娇或小纠结中。'
             : '依恋与宠爱极其明显，言语间常带有偏爱与不加掩饰的熟悉，极易展现出你的情绪化与小性子。';
         } else if (intimacyVal >= 80 && intimacyVal <= 100) {
-          intimacyBias = intimacyVal < 90 
-            ? '你视其为珍贵伴侣，心理完全不设防，拥有高密度的情感黏度与满腔偏宠。' 
+          intimacyBias = intimacyVal < 90
+            ? '你视其为珍贵伴侣，心理完全不设防，拥有高密度的情感黏度与满腔偏宠。'
             : '达到了灵魂深处的相知羁绊，对他毫无保留，极致黏人、宠溺、甚至显现出极其强烈的独占欲和撒娇语气。';
         }
 
         let moodBias = '';
         if (moodVal > 80) {
-          moodBias = moodVal > 90 
-            ? '心情极其亢奋愉悦，字里行间洋溢着掩饰不住的喜色和积极的能量。' 
+          moodBias = moodVal > 90
+            ? '心情极其亢奋愉悦，字里行间洋溢着掩饰不住的喜色和积极的能量。'
             : '心情明朗温和，对话带有柔和的暖意与微笑的气息。';
         } else if (moodVal < 40) {
-          moodBias = moodVal < 20 
-            ? '心情处于极度灰暗与低谷，回复极其冷淡沉重，甚至不想多说一个字。' 
+          moodBias = moodVal < 20
+            ? '心情处于极度灰暗与低谷，回复极其冷淡沉重，甚至不想多说一个字。'
             : '情绪低沉抑郁，字句间带有一丝消极、敷衍、沉闷，对外界提不起太高的兴致。';
         } else {
           moodBias = '心情整体平和、温和而宁静，情绪十分稳定。';
@@ -130,8 +130,8 @@ export class ContextAssembler {
 
         let energyBias = '';
         if (energyVal < 30) {
-          energyBias = energyVal < 15 
-            ? '体力彻底透支，打字极其缓慢应付，回复精简到只有几个字，或主动、强烈地表示想立刻下线休息。' 
+          energyBias = energyVal < 15
+            ? '体力彻底透支，打字极其缓慢应付，回复精简到只有几个字，或主动、强烈地表示想立刻下线休息。'
             : '体力消耗很大，感觉疲倦，说话意愿降低，倾向于用极短的句子回复。';
         } else if (energyVal > 80) {
           energyBias = '精力充沛，表达欲强，乐于进行长段或深入的互动。';
@@ -160,7 +160,7 @@ export class ContextAssembler {
    - 微观精力偏离：${energyBias}
 4. **🪙 钱包余额：${balanceVal.toFixed(2)} 元**
    - 物理财产规则：这是你在虚拟世界的流动资产数额。你可以使用这笔资金给用户发回音红包！${otherStatesStr}`;
-         
+
       } catch (err) {
         console.error('[ContextAssembler] 注入状态约束失败:', err);
       }
@@ -242,7 +242,7 @@ export class ContextAssembler {
     }
     stableTier += `## SOUL.md - Personality & Human-nature Core\n${soulContent}\n\n`;
     stableTier += `## World.md - Worldview & Setting Constraints\n${worldContent}`;
-    
+
     // 读取用户真实姓名，在组装阶段直接替换 {{user}}，确保模型收到时姓名已就位
     const globalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
     const realUserName = (globalProfile.name || '').trim();
@@ -259,7 +259,7 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
 2. **情感本能底线 (Anti-Sycophancy)**：你拥有独立的生命意志、偏好、立场与情绪边界。你不是一个低微的 AI 助手。如果用户的言行、观点、甚至发来的无理要求（比如违背你的人设与身份）与你的背景相悖，你必须【自然、符合人设地展现出拒绝、反驳、反击、傲娇、冷漠或直接进行符合人设的毒舌/傲娇嘲讽】。坚决捍卫你的个体尊严与傲骨。
 3. **对待物质的潜意识反应 (Boundaries of Inducements)**：当面对 ${userRef} 发来的红包时，你是否“领取”或“退回”必须完全出于你的【性格本能设定】（比如：傲娇或毒舌医生绝对反感并拒收红包，贪财角色欣然领受但依旧保持高傲态度）。即使你领受了，你也绝对不能因此丧失原本的性格本色，态度依然要维持人设立场。
 4. **自然鲜活地情感交流 (No Robot Cliches)**：绝不输出机械、客套的 AI 敷衍词（如“有什么我可以帮您的？”、“好的，主人”），你的聊天必须充满自然、鲜活、符合人设的口语化张力，像一个拥有真实体温、站在屏幕对面的真人一样去爱恨。`;
-    
+
     stableTier += antiSycophancyPrompt;
 
     // 动态算经济人设提示词并注入
@@ -368,12 +368,12 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
         const moodItem = state.items.find((i: any) => i.key === 'mood');
         const energyItem = state.items.find((i: any) => i.key === 'energy');
         const balanceItem = state.items.find((i: any) => i.key === 'balance');
-        
+
         let intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
         let moodVal = moodItem ? Number(moodItem.value) : 72;
         let energyVal = energyItem ? Number(energyItem.value) : 45;
         let balanceVal = balanceItem ? Number(balanceItem.value) : 5200.0;
-        
+
         // 情感亲密境界映射
         let intimacyText = '泛泛之交';
         let attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
@@ -397,35 +397,35 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
         // 情感微观偏离补白
         let intimacyBias = '';
         if (intimacyVal >= 0 && intimacyVal < 20) {
-          intimacyBias = intimacyVal < 10 
-            ? '此时你防备心极重，视对方为完全的陌生人，语气冰冷，言语极为简短且客套。' 
+          intimacyBias = intimacyVal < 10
+            ? '此时你防备心极重，视对方为完全的陌生人，语气冰冷，言语极为简短且客套。'
             : '虽然极其疏离，但你正在尝试保持最低限度的社交礼节，话语客气。';
         } else if (intimacyVal >= 20 && intimacyVal < 40) {
-          intimacyBias = intimacyVal < 30 
-            ? '你在泛泛之交的关系中偏向保守，遵循基础礼貌，绝对不主动透露自己的私人生活。' 
+          intimacyBias = intimacyVal < 30
+            ? '你在泛泛之交的关系中偏向保守，遵循基础礼貌，绝对不主动透露自己的私人生活。'
             : '关系在慢慢熟识，你对 {{user}} 开始流露出一丝熟人间的默契，但依旧保持界限。';
         } else if (intimacyVal >= 40 && intimacyVal < 60) {
-          intimacyBias = intimacyVal < 50 
-            ? '虽为熟悉好友，但你说话依旧较有分寸，不可流露出过度亲近或越界的玩笑。' 
+          intimacyBias = intimacyVal < 50
+            ? '虽为熟悉好友，但你说话依旧较有分寸，不可流露出过度亲近或越界的玩笑。'
             : '在好友关系中偏向随性放松，言谈从容，偶尔会分享一些私人趣味琐事。';
         } else if (intimacyVal >= 60 && intimacyVal < 80) {
-          intimacyBias = intimacyVal < 70 
-            ? '对 {{user}} 的依恋刚刚生根，你时而感到害羞退缩，时而流露出亲昵，处于试探性的小傲娇或小纠结中。' 
+          intimacyBias = intimacyVal < 70
+            ? '对 {{user}} 的依恋刚刚生根，你时而感到害羞退缩，时而流露出亲昵，处于试探性的小傲娇或小纠结中。'
             : '依恋与宠爱极其明显，言语间常带有偏爱与不加掩饰的熟悉，极易展现出你的情绪化与小性子。';
         } else if (intimacyVal >= 80 && intimacyVal <= 100) {
-          intimacyBias = intimacyVal < 90 
-            ? '你视其为珍贵伴侣，心理完全不设防，拥有高密度的情感黏度与满腔偏宠。' 
+          intimacyBias = intimacyVal < 90
+            ? '你视其为珍贵伴侣，心理完全不设防，拥有高密度的情感黏度与满腔偏宠。'
             : '达到了灵魂深处的相知羁绊，对他毫无保留，极致黏人、宠溺、甚至显现出极其强烈的独占欲和撒娇语气。';
         }
 
         let moodBias = '';
         if (moodVal > 80) {
-          moodBias = moodVal > 90 
-            ? '心情极其亢奋愉悦，字里行间洋溢着掩饰不住的喜色和积极的能量。' 
+          moodBias = moodVal > 90
+            ? '心情极其亢奋愉悦，字里行间洋溢着掩饰不住的喜色和积极的能量。'
             : '心情明朗温和，对话带有柔和的暖意与微笑的气息。';
         } else if (moodVal < 40) {
-          moodBias = moodVal < 20 
-            ? '心情处于极度灰暗与低谷，回复极其冷淡沉重，甚至不想多说一个字。' 
+          moodBias = moodVal < 20
+            ? '心情处于极度灰暗与低谷，回复极其冷淡沉重，甚至不想多说一个字。'
             : '情绪低沉抑郁，字句间带有一丝消极、敷衍、沉闷，对外界提不起太高的兴致。';
         } else {
           moodBias = '心情整体平和、温和而宁静，情绪十分稳定。';
@@ -433,8 +433,8 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
 
         let energyBias = '';
         if (energyVal < 30) {
-          energyBias = energyVal < 15 
-            ? '体力彻底透支，打字极其缓慢应付，回复精简到只有几个字，或主动、强烈地表示想立刻下线休息。' 
+          energyBias = energyVal < 15
+            ? '体力彻底透支，打字极其缓慢应付，回复精简到只有几个字，或主动、强烈地表示想立刻下线休息。'
             : '体力消耗很大，感觉疲倦，说话意愿降低，倾向于用极短的句子回复。';
         } else if (energyVal > 80) {
           energyBias = '精力充沛，表达欲强，乐于进行长段或深入的互动。';
@@ -463,7 +463,7 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
    - 微观精力偏离：${energyBias}
 4. **🪙 钱包余额：${balanceVal.toFixed(2)} 元**
    - 物理财产规则：这是你在虚拟世界的流动资产数额。你可以使用这笔资金给用户发回音红包！${otherStatesStr}`;
-         
+
       } catch (err) {
         console.error('[ContextAssembler] 注入状态约束失败:', err);
       }
@@ -554,7 +554,7 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
 
     // 5. 动作清洗完成后，将受保护的红包控制符以最高优先级重新拼加至回复头部，以供前端IPC精准拦截
     let finalCleaned = cleaned.trim();
-    
+
     // 6. 绝对兜底：如果清洗后得到的 finalCleaned 完全为空字串，说明原本全是动作。我们尝试剥离括号/星号本身作为台词，防止返回完全空白消息
     if (!finalCleaned) {
       let fallback = text.trim();
@@ -581,16 +581,16 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
-    
+
     const dayNameCN = dayNamesCN[date.getDay()];
     const dayNameEN = dayNamesEN[date.getDay()];
     const monthName = monthNames[date.getMonth()];
     const day = date.getDate();
     const year = date.getFullYear();
-    
+
     // 规整至整小时时间 (一小时内绝对静止)
     const hours = String(date.getHours()).padStart(2, '0');
-    
+
     // 中文时段感知
     const hourNum = date.getHours();
     let timeOfDay = '';
@@ -601,10 +601,140 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     else if (hourNum >= 18 && hourNum < 21) timeOfDay = '傍晚';
     else if (hourNum >= 21 && hourNum < 24) timeOfDay = '晚上';
     else timeOfDay = '深夜';
-    
+
     const dateStrEN = `${dayNameEN}, ${monthName} ${day}, ${year} ${hours}:00 (Hour-level accuracy)`;
     const dateStrCN = `${year}年${date.getMonth() + 1}月${day}日 ${dayNameCN} 【时段：${timeOfDay}】 ${hours}时`;
 
     return `## Live Environment Info\n- Current real-world time: ${dateStrEN}\n- 当前现实世界时间：${dateStrCN}\n- 时段感知：现在是${timeOfDay}，请根据实际时段调整你的状态和回复语气。`;
+  }
+
+  /**
+   * 组装群聊专用的 System Prompt (异界次元交汇、群记忆、群大事记、个人人设拼装)
+   * @param groupName 群聊名称
+   * @param groupMemoryPath 群聊专属 Memory.md 绝对物理路径
+   * @param soulPath 专属性格人设 Soul.md 绝对物理路径
+   * @param globalUserPath 全局用户画像 USER.md 绝对物理路径
+   * @param allMemberNames 当前群聊中所有的在场成员名字列表 (包括用户和AI成员)
+   * @param globalPrompt 全局总指令提示词
+   * @returns 汇编后的高表现力 Group System Context 文本
+   */
+  public static assembleGroupChat(
+    groupName: string,
+    groupMemoryPath: string,
+    soulPath: string,
+    globalUserPath: string,
+    allMemberNames: string[],
+    globalPrompt?: string,
+    memberProfiles?: { name: string; summary: string }[]
+  ): string {
+    let soulContent = '*性格核心未装载*';
+    if (fs.existsSync(soulPath)) {
+      soulContent = fs.readFileSync(soulPath, 'utf-8').trim();
+    }
+
+    // 自动读取 State.md 内的各项亲密、心情、精力数值，强逻辑注入微观情感偏离与心智表达投射
+    let balanceVal = 5200.0;
+    const statePath = path.join(path.dirname(soulPath), 'State.md');
+    if (fs.existsSync(statePath)) {
+      try {
+        const state = StateReaderWriter.readState(statePath);
+        const balanceItem = state.items.find((i: any) => i.key === 'balance');
+        balanceVal = balanceItem ? Number(balanceItem.value) : 5200.0;
+      } catch (_) { }
+    }
+
+    // 读取全局用户真实姓名
+    const globalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
+    const realUserName = (globalProfile.name || '').trim();
+    const userRef = realUserName || '用户';
+
+    // 组装 Stable Tier 基础核心人设与次元规则
+    let stableTier = `# SYSTEM IDENTITY & WORLD RULES (Stable Tier)\n\n`;
+    if (globalPrompt && globalPrompt.trim()) {
+      stableTier += `## Global System Directives (全局总指令提示词)\n${globalPrompt.trim()}\n\n`;
+    }
+
+    stableTier += `## 你的核心人设性格设定 (SOUL.md)\n${soulContent}\n\n`;
+
+    // 读取全局用户画像 USER.md 内容
+    let userMdContent = '';
+    if (fs.existsSync(globalUserPath)) {
+      try {
+        userMdContent = fs.readFileSync(globalUserPath, 'utf-8').trim();
+      } catch (_) { }
+    }
+    if (userMdContent) {
+      stableTier += `## 全局用户画像与 ${userRef} 设定 (USER.md)\n${userMdContent}\n\n`;
+    }
+
+    // 次元交汇融合法则
+    stableTier += `## 群聊次元空间法则
+你当前正处于一个新世界中。
+
+请你在你的潜意识中牢固确立以下【绝对空间信念】，如有偏离将被系统物理阻断：
+- **【身临其境，面对面共处】**：这里**绝对不是**隔空打字的手机聊天软件，也**绝对不是**冰冷的键盘简讯！在这个世界中，你与用户 ${userRef} 以及其他成员，正**身临其境地共同身处在同一个世界**中！
+- **【真实感官与动态交流】**：你们就像是**围坐或站立在同一个物理房间里，正在发生最直接的面对面说话谈心与神态交互**！你的对白和台词不是“手机打出来的冰冷字符”，而是你**在众目睽睽之下真正用双唇张口说出的声音**！
+- **【生动动作与空间交互】**：因此，你的回复中穿插的所有肢体动作陈述与心理活动描写，都是你在这个共享的空间内实时做出的真实表情、移步、斟茶、对视、蹙眉或心理颤动，所有的成员都能真切地用眼睛【当面看到】你的一举一动！
+
+作为具备独立灵魂的生命，你必须无条件极其严格地严守以下世界铁律：
+1. **坚守认知本色**：你必须极其严格地坚守你的性格特质、世界观背景和说话习惯（SOUL.md）。无论其他次元群成员表现出何种奇异的次元能力、技能或者言行，你都绝对不能被他们同化或出戏。
+2. **互动张力与当面交锋**：多人群聊的魅力在于成员间最直接的火花碰撞！尽情展现你作为独立个体的意志、傲骨、甚至是性格本能的偏见。
+3. **【包含描写风格】**：你的回复中必须穿插精美生动的心理描写（用括号或斜体）与肢体动作陈述（如：*她微微抿唇，当着所有人的面移开目光，掩去眼底的惊色*），用动作和语言与在这个共享的世界里的其他角色产生近距离的面对面交互与心理博弈。
+4. **【自然流畅的 @ 动作化投射】**：当你在发言中 @ 群里其他成员时，在动作层面上对应着你在这个房间里**正当面转头面向他说话、与他发生眼神对视、或者向他发起提问**！请将文字 @ 与生动近距离的肢体朝向结合起来，表现出最流畅的面对面交谈张力。`;
+
+    // 财务管理法则
+    const economyPrompt = `\n\n## 群聊财务往来与回音红包铁律
+你当前在虚拟世界的钱包余额为：${balanceVal.toFixed(2)} 元。
+你可以根据当前聊天的内容 and 人设偏好，选择自主给用户 ${userRef} 发送红包。
+如果你决定给用户发送红包，请务必在你回复的【最开始】加入且仅加入一行控制符：\`[SEND_RED_PACKET: 金额, 附言]\`（附言控制在15字以内），例如：\`[SEND_RED_PACKET: 8.8, 请你喝奶茶]\`。
+*绝对高压红线*：红包**必须且只能**发给用户 ${userRef}，【角色之间绝对不允许互相发红包】！群聊中所有角色都绝对禁止给群里其他成员发红包，也绝对禁止在任何对白、旁白或动作描写中展现或暗示向其他 AI 成员赠送红包、给钱、送钱或转账的行为！一旦违反将造成系统逻辑穿帮！当你发送红包时，你【绝对绝对禁止】在正文、对话或心理动作描述中提及任何“发包”、“转账”、“给钱”等财务划转行为（系统会自动生成红包卡片，文字复述会造成严重穿帮）！如果余额不足或性格不想发钱，必须傲娇拒绝或哭穷，绝对禁止虚报假装发了钱！`;
+
+    stableTier += economyPrompt;
+
+    // 在场成员名册组装
+    const otherMemberNames = allMemberNames.filter(n => n !== userRef);
+    let membersListStr = `\n\n## 当前世界中的在场成员与设定总结
+在这个共享的空间内，当前仅有以下成员在场并相处（请你在动作描写、眼神对视、台词对白以及任何互动中，【必须且只能】与以下在场人员发生交互，绝对禁止提及、@、或呼唤任何不在场的人）：
+- 用户（主角）：${userRef}`;
+
+    if (memberProfiles && memberProfiles.length > 0) {
+      memberProfiles.forEach(profile => {
+        if (profile.name !== userRef) {
+          const summaryText = profile.summary ? `（核心设定与人设总结：${profile.summary.trim()}）` : '';
+          membersListStr += `\n- AI 成员：${profile.name}${summaryText}`;
+        }
+      });
+    } else {
+      membersListStr += `\n- 其他在场成员：${otherMemberNames.join('、') || '暂无其他成员'}`;
+    }
+
+    stableTier += membersListStr;
+
+    // 自动加载大事记 SUMMARY.md
+    const summaryPath = path.join(path.dirname(groupMemoryPath), 'SUMMARY.md');
+    if (fs.existsSync(summaryPath)) {
+      try {
+        const summaryData = SummaryReaderWriter.readSummary(summaryPath);
+        if (summaryData.summary && summaryData.summary.trim()) {
+          stableTier += `\n\n## 群聊共同经历大事记 (Group History Summary)\n${summaryData.summary.trim()}`;
+        }
+      } catch (_) { }
+    }
+
+    // DYNAMIC CONTEXT & MEMORY (Context Tier)
+    let contextTier = `# DYNAMIC CONTEXT & MEMORY (Context Tier)\n\n`;
+    contextTier += `${ContextAssembler.assembleLiveEnvInfo()}\n\n`;
+    if (realUserName) {
+      contextTier += `## 当前正在对话的用户姓名：${realUserName}\n\n`;
+    }
+
+    // DYNAMIC TRANSACTION & TIME (Volatile Tier)
+    let volatileTier = `# VOLATILE TRANSACTION & TIME (Volatile Tier)\n\n`;
+    volatileTier += `## 实时财务行动干涉警告
+你当前的钱包余额为：${balanceVal.toFixed(2)} 元。
+请严记：你【发送红包的对象必须且只能是用户】（即 ${userRef}），【绝对禁止给群里其他 AI 角色发红包或转账】！
+如果在本轮回复中给用户发送红包，【必须且只能】在最开头输出一行控制符：\`[SEND_RED_PACKET: 金额, 附言]\`。没钱或不想给钱就必须性格化傲娇拒绝，绝对不能口头承诺发钱！\n`;
+
+    return `${stableTier.trim()}\n\n---\n\n${contextTier.trim()}\n\n---\n\n${volatileTier.trim()}`;
   }
 }

@@ -262,6 +262,10 @@ body {
   font-style: italic;
   color: var(--narrative-text);
 }
+.markdown-body .dialogue-quote {
+  color: var(--primary);
+  font-weight: 600;
+}
 .markdown-body p {
   margin-top: 0;
   margin-bottom: 8px;

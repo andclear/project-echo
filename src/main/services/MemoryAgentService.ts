@@ -12,7 +12,7 @@ import { SummaryReaderWriter } from '../utils/SummaryReaderWriter';
 /**
  * MemoryAgentService
  * 负责在对话完成后，静默进行长期记忆（LTM）与专属用户偏好画像（USER.md）的后台提取与物理更新。
- * 同时，将状态系统（State.md）的动态更新（Delta 增量）也合入本轮自省流程，实现零额外费用开销！
+ * 在群聊模式下，则专注于群聊记忆与大事记的异步合并提炼。
  */
 export class MemoryAgentService {
   private modelAdapter: ModelAdapter;
@@ -24,33 +24,84 @@ export class MemoryAgentService {
   /**
    * 核心后台反思任务：从最新一轮交互中提取并沉淀记忆、画像以及评估心情状态的 Delta 并落盘
    * @param memoryPath 专属 Memory.md 绝对路径
-   * @param charUserPath 专属 USER.md 绝对路径
+   * @param charUserPath 专属 USER.md 绝对路径 (群聊时可为空 '')
    * @param userMessage 本回合用户输入
    * @param assistantMessage 本回合 AI 角色流式输出的完整回复
+   * @param isGroup 是否为群聊模式
    */
   public async extractMemoryAndProfile(
     memoryPath: string,
     charUserPath: string,
     userMessage: string,
-    assistantMessage: string
+    assistantMessage: string,
+    isGroup: boolean = false
   ): Promise<void> {
     
     // 1. 获取非阻塞并发互斥锁，确保前台 Stream 对话没有任何卡顿
     await InferenceMutex.lock();
 
     try {
-      console.log('[MemoryAgentService] 互斥锁获取成功，开始后台长期记忆、专属画像与状态 Delta 自省提取...');
+      console.log(`[MemoryAgentService] 互斥锁获取成功，开始后台长期记忆自省提取(群聊模式=${isGroup})...`);
 
       // B. 读取当前的短期记忆 (STM) 与长期记忆 (LTM)
       const currentMemory = MemoryReaderWriter.readMemory(memoryPath);
       const currentStm = currentMemory.stm;
       const currentLtm = currentMemory.ltm;
 
-      // C. 读取当前的专属画像事实 (Facts)
-      const currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
+      let currentCharFacts: string[] = [];
+      let currentMemoryContext = '';
+      let stateContext = '';
+      let systemPrompt = '';
+      let statePath = '';
 
-      // 格式化现有记忆上下文
-      const currentMemoryContext = `
+      if (isGroup) {
+        // 群聊自省反思上下文 (过滤个人画像与个人内心状态)
+        currentMemoryContext = `
+--- 当前已有的群聊短期记忆 (STM) 队列 ---
+${currentStm.length === 0 ? '（暂无短期记忆）' : currentStm.map((f, i) => `[短期 #${i + 1}] ${f}`).join('\n')}
+
+--- 当前已有的群聊长期记忆 (LTM) 键值对 ---
+${Object.keys(currentLtm).length === 0 ? '（暂无长期记忆）' : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n')}
+`;
+
+        systemPrompt = `你是一个 Echo 平台的群聊认知与群记忆提取智能体。你的任务是分析群聊中最新一轮对话，并结合【当前已有的群记忆】，评估是否需要增补、更新或合并/修剪群聊的长期记忆（LTM）和短期记忆（STM）。
+
+【群记忆提取红线规则】
+1. 统一且强制使用 {{user}} 与各角色占位符：
+   - 对于用户，使用 \`{{user}}\` 代指。
+   - 对于群聊中的各个 AI 角色，**请在记忆中直接使用其各自的真实名字称呼，例如“魏淑珍”、“李沧海”**，以使群聊成员相互之间的关系被准确记录。
+   
+2. 记忆的防膨胀与高保真合并：
+   - 避免无限膨胀：仔细查阅【当前已有的记忆】。如果这一轮新对话中没有产生任何“具有长期持久、全新价值的事实”，直接保持旧有记忆，不要盲目增加新条目！
+   - 合并与精简：如果发现本轮对话中的记忆与已有的条目相似或相关，请主动将其【合并】成一条更精炼的表述，不要留存多条高度重复的条目。
+   
+3. 撰写格式规范：
+   - 必须以第三人称客观陈述句撰写事实（例如：“\`魏淑珍和李沧海在群里探讨了现代铁疙瘩是不是飞剑，魏淑珍认为不是\`”）。
+   - 严禁撰写指令性或提示词式的句子。
+   - 所有提取的记忆必须使用【简体中文】。
+
+【当前已有的群记忆】
+${currentMemoryContext}
+
+【输出格式】
+你必须返回一个符合以下格式要求的 JSON 对象，不要用 \`\`\`markdown 等包裹，不要附加任何解释或对话。
+
+Target JSON 格式：
+{
+  "ltm": {
+    // 完整的、经过你合并/精炼/增删后的最新群聊长期记忆（LTM）键值对。
+    // 如果没有变化，请完整复制原有的 LTM。
+  },
+  "stm_updates": [
+    // 本轮对话中产生的“最新群聊短期记忆（STM）”。只有在发现有真正值得记录的最新关键话题或事件时填入（1-2 条短事实）。
+    // 如果没有，必须返回空数组 []。
+  ]
+}`;
+      } else {
+        // 单聊自省反思上下文 (包含个人画像与内心状态)
+        currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
+
+        currentMemoryContext = `
 --- 当前已有的短期记忆 (STM) 队列 ---
 ${currentStm.length === 0 ? '（暂无短期记忆）' : currentStm.map((f, i) => `[短期 #${i + 1}] ${f}`).join('\n')}
 
@@ -61,21 +112,19 @@ ${Object.keys(currentLtm).length === 0 ? '（暂无长期记忆）' : Object.ent
 ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentCharFacts.map((f, i) => `[画像 #${i + 1}] ${f}`).join('\n')}
 `;
 
-      // 获取当前角色的状态，并格式化为上下文 (提取 rule 自然语言 AI 更新规则)
-      const statePath = path.join(path.dirname(memoryPath), 'State.md');
-      const currentState = StateReaderWriter.readState(statePath);
-      const stateContext = currentState.items
-        .map(i => {
-          const meaningDesc = i.meaning ? ` (指标含义：${i.meaning})` : '';
-          const ruleDesc = i.rule ? ` (AI更新规则：${i.rule})` : '';
-          const minVal = i.min ?? 0;
-          const maxVal = i.max ?? 100;
-          return `- ${i.label} (${i.key}): 当前值 ${i.value}${meaningDesc}${ruleDesc} (取值范围 ${minVal}-${maxVal}) ${i.emoji}`;
-        })
-        .join('\n');
+        statePath = path.join(path.dirname(memoryPath), 'State.md');
+        const currentState = StateReaderWriter.readState(statePath);
+        stateContext = currentState.items
+          .map(i => {
+            const meaningDesc = i.meaning ? ` (指标含义：${i.meaning})` : '';
+            const ruleDesc = i.rule ? ` (AI更新规则：${i.rule})` : '';
+            const minVal = i.min ?? 0;
+            const maxVal = i.max ?? 100;
+            return `- ${i.label} (${i.key}): 当前值 ${i.value}${meaningDesc}${ruleDesc} (取值范围 ${minVal}-${maxVal}) ${i.emoji}`;
+          })
+          .join('\n');
 
-      // 组装反思 System Prompt（合入在场合并机制、代指占位符要求与严格事实溯源规范）
-      const systemPrompt = `你是一个 Echo 平台的后台认知与记忆提取智能体。你的任务是分析用户（User）与角色（Character）之间的最新一轮对话，并结合【当前已有的记忆与画像】，评估是否需要增补、更新或合并/修剪长期记忆（LTM）和专属画像事实（char_user_facts），以及评估该轮对话对角色内心状态的影响。
+        systemPrompt = `你是一个 Echo 平台的后台认知与记忆提取智能体。你的任务是分析用户（User）与角色（Character）之间的最新一轮对话，并结合【当前已有的记忆与画像】，评估是否需要增补、更新或合并/修剪长期记忆（LTM）和专属画像事实（char_user_facts），以及评估该轮对话对角色内心状态的影响。
 
 【至关重要：记忆画像提取核心红线规则】
 1. 严格仅基于用户（User）本人的输入提取偏好与画像：
@@ -86,10 +135,6 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
 2. 统一且强制使用 {{user}} 与 {{char}} 占位符：
    - 在所有提取或合并的长期记忆（LTM）、短期记忆（STM）以及专属画像事实（char_user_facts）中，**必须且仅能使用 \`{{user}}\` 来代指用户本身，使用 \`{{char}}\` 来代指当前的角色本身**！
    - 绝对禁止输出任何真实名字（如“杨越”、“真由”等），也禁止使用“用户”、“User”、“Character”、“角色”或第一/第二人称（如“你”、“我”、“他”）。
-   - 正确写法示范：
-     - 正确：“\`{{user}}喜欢吃苹果\`” （错误：“用户喜欢吃苹果” 或 “杨越喜欢吃苹果”）
-     - 正确：“\`{{char}}最近在忙着赶课题\`” （错误：“真由最近在忙着赶课题” 或 “角色最近在忙着赶课题”）
-     - 正确：“\`{{user}}想吃{{char}}做的炸鸡\`” （错误：“杨越想吃杨宁宁做的炸鸡” 或 “你想吃我做的炸鸡”）
 
 【核心指令】
 1. 记忆画像的防膨胀与高保真合并：
@@ -139,6 +184,7 @@ Target JSON 格式：
     { "key": "clothing", "value": "白大褂" }
   ]
 }`;
+      }
 
       // 组装聊天内容快照
       const userContent = `[LATEST DIALOGUE TURN]\nUser: ${userMessage}\nCharacter: ${assistantMessage}`;
@@ -196,18 +242,15 @@ Target JSON 格式：
           } else {
             memory.ltm = cleanedLtm;
             MemoryReaderWriter.writeMemory(memoryPath, memory.stm, memory.ltm);
-            // 🚀 用户优化：控制台日志清爽化，移除超长精炼 LTM 数据输出，保留写盘动作
           }
         }
 
-        // C. 角色专属千人千面画像 (USER.md) 整合覆盖更新 (彻底避免无限追加带来的膨胀)
-        if (Array.isArray(parsed.char_user_facts)) {
+        // C. 角色专属千人千面画像 (USER.md) 整合覆盖更新 (仅单聊)
+        if (!isGroup && Array.isArray(parsed.char_user_facts)) {
           const cleanedFacts = parsed.char_user_facts
             .map((f: any) => typeof f === 'string' ? f.trim() : '')
             .filter((f: string, idx: number, self: string[]) => f !== '' && self.indexOf(f) === idx);
 
-          // 极端防御性防呆设计：如果原有 facts 非空，但大模型反思结果返回了空列表，大概率为 JSON 字段漏解或模型幻觉错误。
-          // 此时，为防范物理擦除，直接跳过物理落盘以保护用户专属侧写。
           if (cleanedFacts.length === 0 && currentCharFacts.length > 0) {
             console.warn('[MemoryAgentService] 大模型返回专属画像 Facts 为空，但历史存在事实，跳过更新以物理保全画像。');
           } else {
@@ -256,8 +299,8 @@ Target JSON 格式：
           }
         }
 
-        // D. 角色状态 (State.md) Delta 增量更新与物理落盘
-        if (Array.isArray(parsed.state_updates) && parsed.state_updates.length > 0) {
+        // D. 角色状态 (State.md) Delta 增量更新与物理落盘 (仅单聊)
+        if (!isGroup && Array.isArray(parsed.state_updates) && parsed.state_updates.length > 0) {
           StateReaderWriter.applyStateUpdates(statePath, parsed.state_updates);
           console.log(`[MemoryAgentService] 物理状态增量更新落盘成功:`, parsed.state_updates);
 
@@ -265,7 +308,7 @@ Target JSON 格式：
           const windows = BrowserWindow.getAllWindows();
           if (windows.length > 0) {
             windows[0].webContents.send('character-state-updated', {
-              characterId: path.basename(path.dirname(memoryPath)), // 角色 folderName 作为临时标志，也可以直接传 folderName 
+              characterId: path.basename(path.dirname(memoryPath)),
               updates: parsed.state_updates
             });
           }
@@ -280,19 +323,16 @@ Target JSON 格式：
       console.log('[MemoryAgentService] 后台自省任务结束，互斥锁已安全释放。');
     }
 
-    // 🚀 并发解死锁自愈防线：将慢速大模型请求移出 InferenceMutex 同步阻塞锁范围，
-    // 在释放锁之后，异步、非阻塞且带有错误隔离地触发 Schedule/Goals 推进，避免阻塞前台对话
-    this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter).catch(err => {
-      console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
-    });
+    // 🚀 并发解死锁自愈防线：仅在单聊时，异步触发 Schedule/Goals 推进
+    if (!isGroup) {
+      this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter).catch(err => {
+        console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
+      });
+    }
   }
 
   /**
    * 检查并生成/推进 Schedule.md 和 Goals.md (拟真日程与长期目标)
-   * 确保:
-   * 1. 首次对话或文件为空/“暂无日程”/“暂无长期目标”时强力生成。
-   * 2. 距离上次生成每隔 7 天强制推进自省更新。
-   * 3. 生成的 Schedule 中必须包含从今天起算的确切日期，避免时空穿帮或残留历史日程。
    */
   private async checkAndUpdateScheduleAndGoals(
     memoryPath: string,
@@ -301,12 +341,11 @@ Target JSON 格式：
     const db = getDatabaseService();
     const charDir = path.dirname(memoryPath);
     const folderName = path.basename(charDir);
-    const charId = folderName; // characterId 与 folderName 保持一致
+    const charId = folderName;
 
     const schedulePath = path.join(charDir, 'Schedule.md');
     const goalsPath = path.join(charDir, 'Goals.md');
 
-    // 判定是否为空或初始占位占空状态
     const isScheduleEmpty =
       !fs.existsSync(schedulePath) ||
       fs.readFileSync(schedulePath, 'utf8').trim() === '' ||
@@ -320,7 +359,6 @@ Target JSON 格式：
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-    // 检查 7 天周期
     const lastUpdateStr = db.getSetting(`last_schedule_goals_date_${charId}`);
     let needUpdate = false;
     
@@ -346,7 +384,6 @@ Target JSON 格式：
 
     // A. 推进并写回 Schedule.md
     try {
-      // 预生成接下来 7 天的参考日期组
       const dateList: string[] = [];
       for (let i = 0; i < 7; i++) {
         const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
@@ -364,13 +401,13 @@ ${diaryContent}
 【日程表生成绝对红线指令】
 1. **日程必须包含明确且从今天起算的最新日期**：
    - 今天的日期是：${todayStr}。
-   - 你规划的 7 天日程必须**绝对严格地按照以下最新日期列表顺序排布**，禁止编造已经过去的历史日期，防止用户在未来的日子里产生对话穿帮：
+   - 你规划的 7 天日程必须**绝对严格地按照以下最新日期列表顺序排布**，禁止编造已经过去的历史日期：
 ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
    - 每一行日程开头必须使用标准的 \`- **YYYY-MM-DD**: [具体的行为事件和感受]\` 格式书写。
 2. **日程的真实与拟真性**：
-   - 不要写死板的“去工作”、“睡觉”，必须根据你的性格写得极其生动逼真（例如：性格傲娇的医生写：“- **${todayStr}**: 医院大查房，杨越这笨手笨脚的新人今天没怎么出错，心情马马虎虎吧。”）。
+   - 不要写死板的“去工作”、“睡觉”，必须根据你的性格写得极其生动逼真。
    - 保持日程完全使用【简体中文】。
-   - 仅输出 Markdown 的日程列表内容，不要有任何前言或解释说明废话。
+   - 仅输出 Markdown 的日程列表内容，不要有任何前言或解释说明。
 
 请规划并直接输出你的最新近 7 天日程。格式示例如下：
 # 近7天日程
@@ -408,10 +445,10 @@ ${diaryContent}
 1. 评估当前的目标进度：对各项长期目标规划进行深度演进。使用百分比指标（如从“当前进度：30%”推移至“当前进度：35%”）来记录你的数字生命成长。
 2. 保持拟真性：丰富每一项目标的“目前已完成事实”与“接下来关键规划”，字句要生动、符合你的人设口吻。
 3. 保持完全使用【简体中文】。
-4. 仅输出 Markdown 的长期目标文档内容，不要有任何前言或引言废话。
+4. 仅输出 Markdown 的长期目标文档内容，不要有任何前言或引言。
 
 请评估并输出你的最新长期目标与进化规划。格式示例如下：
-# 长期目标
+#长期目标
 - **目标一**：[目标标题]
   - 当前进度：XX%
   - 目前进展：[具体事实与感悟]
@@ -431,45 +468,46 @@ ${diaryContent}
       console.error(`[MemoryAgentService] 规划 ${folderName} 的长期目标进化发生异常:`, err);
     }
 
-    // 更新最后自省时间戳
     db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
   }
 
   /**
    * 核心后台双通道自省归并压缩引擎（V3 终极白金版）
-   * 检查活跃历史消息是否达到 50 条。如果达到，启动后台辅助大模型进行大事记与长期记忆双通道归并压缩，并推进 last_compression_ts。
-   * @param characterId 角色唯一 ID
+   * @param characterId 角色/群聊唯一 ID
    * @param memoryPath 专属 Memory.md 绝对物理路径
+   * @param isGroup 是否为群聊模式
    */
   public async compressActiveHistoryAndConsolidate(
     characterId: string,
-    memoryPath: string
+    memoryPath: string,
+    isGroup: boolean = false
   ): Promise<void> {
     const db = getDatabaseService();
     const lastCompressionKey = `last_compression_ts_${characterId}`;
     const lastCompressionTsStr = db.getSetting(lastCompressionKey);
     const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
 
-    // 拉取最近 100 条历史（大模型需要的 activeHistory 最多 50 条，但我们为了安全拉取 100 条并在内存中按时间戳过滤）
     let activeHistory = db.getChatHistory(characterId, 100);
     if (lastCompressionTs > 0) {
       activeHistory = activeHistory.filter((m: any) => m.timestamp > lastCompressionTs);
     }
 
-    // 只有当活跃历史消息大于等于 50 条时，才确定性触发一次后台自省归并（重置频次为 1/50）
     if (activeHistory.length < 50) {
       console.log(`[MemoryAgentService] 活跃历史条数为 ${activeHistory.length}，未达 50 条阈值，暂不触发归并压缩。`);
       return;
     }
 
-    console.log(`[MemoryAgentService] 活跃历史已达 ${activeHistory.length} 条！正式确定性触发双通道自省归并压缩...`);
+    console.log(`[MemoryAgentService] 活跃历史已达 ${activeHistory.length} 条！触发双通道自省归并压缩(群聊=${isGroup})...`);
 
     // 1. 获取非阻塞并发互斥锁
     await InferenceMutex.lock();
 
     try {
-      // 2. 读取已有的大事记 SUMMARY.md
+      // 2. 读取已有的大事记 SUMMARY.md (若不存在则初始化)
       const summaryPath = path.join(path.dirname(memoryPath), 'SUMMARY.md');
+      if (!fs.existsSync(summaryPath)) {
+        SummaryReaderWriter.writeSummary(summaryPath, '（暂无大事记）');
+      }
       const currentSummary = SummaryReaderWriter.readSummary(summaryPath);
       const oldSummaryText = currentSummary.summary.trim();
 
@@ -483,14 +521,61 @@ ${diaryContent}
         ? '（暂无长期记忆）' 
         : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n');
 
-      // 5. 格式化待归并的 50 条历史对话文本，用于大模型反思提炼
+      // 5. 格式化待归并的 50 条历史对话文本 (群聊时获取真实 AI 成员名字)
       const chatTranscript = activeHistory.map((m: any) => {
-        const roleName = m.role === 'user' ? 'User' : 'Character';
-        return `[${roleName}]: ${m.content}`;
+        let name = m.role === 'user' ? 'User' : 'Character';
+        if (isGroup && m.sender_id) {
+          if (m.sender_id === 'user') {
+            name = 'User';
+          } else {
+            const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(m.sender_id) as any;
+            name = charRow ? charRow.name : 'Character';
+          }
+        }
+        return `[${name}]: ${m.content}`;
       }).join('\n');
 
-      // 6. 组装双通道归并 System Prompt
-      const systemPrompt = `你是一个 Echo 平台的后台“自省与大事记记忆归并”智能体。
+      // 6. 组装双通道归并 System Prompt (分单聊和群聊分支)
+      let systemPrompt = '';
+      if (isGroup) {
+        systemPrompt = `你是一个 Echo 平台的群聊“大事记与记忆归并”智能体。
+你的任务是将群聊中最近 50 条的聊天历史对话，进行“双通道群记忆提取与分段归并压缩”。
+
+这是我们本次反思的群大事记和长期记忆沉淀的机制：
+1. 通道一：LTM 长期记忆沉淀
+   提取关于群聊成员关系的客观、结构化事实，以键值对形式存储在 "ltm" 中。
+   在记忆中直接使用各 AI 角色的真实名字，例如“魏淑珍”、“李沧海”，用户使用“{{user}}”代指。
+2. 通道二：群聊大事记情感叙事 (SUMMARY)
+   提取富含趣味性、叙事性、两人及多人共同经历的群聊高光简报。
+   你需要将最近这 50 条对话中发生的“高光或深刻时刻”融合进已有的【旧群聊大事记】中，递归融合成一段全新的、不超过 800 字的“群聊大事记”。
+
+【群聊大事记 (SUMMARY) 撰写红线】
+- 使用客观、富有画面感的小说体视角或交织视角撰写（例如：“{{user}}在群里发起了一场关于修仙的探讨，李沧海展示了剑意，而魏淑珍则用现代科技的无人机进行了调侃……”）。
+- 字数必须【严格限制在 800 字以内】，精炼提炼，保留最精彩的名场面，舍弃流水账。
+- 必须且只能在 “summary” 字段中返回合并后的文本。
+- 用户使用 \`{{user}}\` 占位符代指，AI 角色直接使用其真实中文姓名。
+
+【已有的旧群聊大事记 (SUMMARY.md)】
+${currentSummaryContext}
+
+【已有的群聊长期记忆 (Memory.md - LTM)】
+${currentLtmContext}
+
+【最新待归并的 50 条历史群聊对话记录】
+${chatTranscript}
+
+【输出格式要求】
+你必须且只能返回一个符合以下格式要求的 JSON 对象，不要用 \`\`\`markdown 等任何多余文字包裹，不要有任何前言或后记。
+
+Target JSON 格式：
+{
+  "summary": "最新递归融合后的群聊大事记内容",
+  "ltm": {
+    // 整合合并后的群聊长期记忆（LTM）键值对
+  }
+}`;
+      } else {
+        systemPrompt = `你是一个 Echo 平台的后台“自省与大事记记忆归并”智能体。
 你的任务是将角色（{{char}}）与用户（{{user}}）之间最近 50 条的聊天历史对话，进行“双通道记忆提取与分段归并压缩”。
 
 这是我们本次反思的大事记和长期记忆沉淀的机制：
@@ -532,6 +617,7 @@ Target JSON 格式：
     // 整合合并后的完整长期记忆（LTM）键值对
   }
 }`;
+      }
 
       const messages: ChatMessage[] = [
         { role: 'system', content: systemPrompt },

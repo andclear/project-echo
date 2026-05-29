@@ -188,28 +188,21 @@ export class AgentLifeEngine {
       return { wakeAgent: false, reason: '该角色从未与用户发生过聊天互动，保持完全静默。🐾', triggerStrength: 'weak' };
     }
 
-    // 2.1 对话期间20分钟静默防打扰：若 20 分钟内与用户发生过任何对话，则绝对禁止主动搭讪
+    // 2.1 对话与搭讪冷却状态检测 (防止在最前置一刀切 return 误伤 17 点自省写日记)
     const lastMsgTime = history[0].timestamp;
     const msPassedSinceLastMsg = now.getTime() - lastMsgTime;
-    if (msPassedSinceLastMsg < 20 * 60 * 1000) {
-      return {
-        wakeAgent: false,
-        reason: `用户在 20 分钟内与该角色有过对话交流（上次对话仅在 ${(msPassedSinceLastMsg / (1000 * 60)).toFixed(1)} 分钟前），触发免打扰保护拦截搭讪。🐾`,
-        triggerStrength: 'weak'
-      };
-    }
+    
+    // 对话期间20分钟静默防打扰：若 20 分钟内与用户发生过任何对话，则搭讪受限
+    const isDialogueCooldown = msPassedSinceLastMsg < 20 * 60 * 1000;
 
     // 2.2 上次搭讪未回复保护：若最近一条消息是角色自己发送的（且非手账日记卡片），说明用户尚未回复。
-    // 在 48 小时之内，我们坚守“矜持与静默”边界，绝对不连续发送第二条主动消息，彻底杜绝短时间内的追问轰炸与大模型无反馈上下文的幻觉复述。
+    // 在 48 小时之内，我们坚守“矜持与静默”边界，绝对不连续发送第二条主动消息。
+    let isProactiveRestricted = false;
     if (history[0].role === 'assistant') {
       const contentStr = (history[0].content || '').trim();
       const isDiary = contentStr.startsWith('[character_diary]:');
       if (!isDiary && msPassedSinceLastMsg < 48 * 60 * 60 * 1000) {
-        return {
-          wakeAgent: false,
-          reason: `上一次主动消息后用户尚未回复（已等待 ${(msPassedSinceLastMsg / (1000 * 60 * 60)).toFixed(1)} 小时，未达到破冰阈值 48 小时），保持矜持静默。🐾`,
-          triggerStrength: 'weak'
-        };
+        isProactiveRestricted = true;
       }
     }
 
@@ -235,7 +228,9 @@ export class AgentLifeEngine {
     const lastActiveTs = lastActiveTsStr ? parseInt(lastActiveTsStr) : 0;
     const msPassedSinceLastActive = now.getTime() - lastActiveTs;
     const isCooldown = msPassedSinceLastActive < 2 * 60 * 60 * 1000;
-    const allowActiveDialog = (activeCountToday < 3) && !isCooldown;
+    
+    // 【门控升级】：将 20分钟静默 与 48小时矜持 共同作为主动搭讪对话的与门条件，彻底解绑下午 17 点日记的生成！
+    const allowActiveDialog = (activeCountToday < 3) && !isCooldown && !isDialogueCooldown && !isProactiveRestricted;
 
     // 3. 检查强触发事件之：久未联系 (>= 72 小时)
     const hoursPassed = (now.getTime() - lastMsgTime) / (1000 * 60 * 60);

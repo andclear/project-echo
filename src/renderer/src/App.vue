@@ -254,11 +254,11 @@
                     <span>导入角色卡</span>
                   </button>
                   <button
-                    @click.stop="showComingSoon('发起群聊'); showAddMenu = false"
-                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 opacity-60 cursor-pointer font-medium"
+                    @click.stop="showCreateGroupModal = true; showAddMenu = false"
+                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
                   >
                     <UsersIcon class="w-4 h-4 text-secondary" stroke-width="1.5" />
-                    <span>发起群聊</span>
+                    <span>群聊 (beta)</span>
                   </button>
                 </div>
               </div>
@@ -1572,11 +1572,20 @@
                       <h4 class="text-[11px] font-bold text-on-surface">聊天交互模式</h4>
                       <span class="text-[8px] px-1 py-0.5 rounded bg-primary/10 text-primary font-bold">影响回复细节</span>
                     </div>
+                    
+                    <div v-if="isGroupActive" class="p-3 bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 dark:text-yellow-400 rounded-xl text-[10px] leading-relaxed flex items-start space-x-2 select-none animate-in fade-in slide-in-from-top-1 duration-200">
+                      <span>💡</span>
+                      <span>当前处于 **次元交汇群聊** 中。由于时空碰撞和世界观法则融合，为了保证每个角色最完美拟真的心理解读、神态描写与性格特质演绎，交互模式已强制锁定为 **「包含描写」**（动作描写）模式。</span>
+                    </div>
+
                     <div class="grid grid-cols-3 gap-3">
                       <button
-                        @click="chatMode = 'descriptive'"
-                        class="text-left p-3 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
-                        :class="chatMode === 'descriptive' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
+                        @click="!isGroupActive && (chatMode = 'descriptive')"
+                        class="text-left p-3 rounded-2xl border transition-all select-none focus:outline-none"
+                        :class="[
+                          chatMode === 'descriptive' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 text-on-surface-variant',
+                          isGroupActive ? 'cursor-default border-primary bg-primary/5 text-primary' : 'hover:bg-surface-high cursor-pointer'
+                        ]"
                       >
                         <div class="flex items-center space-x-2">
                           <PenLineIcon class="w-3.5 h-3.5 text-primary flex-shrink-0" />
@@ -1585,9 +1594,13 @@
                         <div class="text-[9px] opacity-75 mt-1 leading-relaxed">回复中融合心理、神态及动作描写，塑造极具沉浸交互的人物感。</div>
                       </button>
                       <button
-                        @click="chatMode = 'dialogue'"
-                        class="text-left p-3 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
-                        :class="chatMode === 'dialogue' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
+                        @click="!isGroupActive && (chatMode = 'dialogue')"
+                        class="text-left p-3 rounded-2xl border transition-all select-none focus:outline-none"
+                        :class="[
+                          chatMode === 'dialogue' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 text-on-surface-variant',
+                          isGroupActive ? 'opacity-40 cursor-not-allowed bg-surface-low' : 'hover:bg-surface-high cursor-pointer'
+                        ]"
+                        :disabled="isGroupActive"
                       >
                         <div class="flex items-center space-x-2">
                           <MessageSquareIcon class="w-3.5 h-3.5 text-primary flex-shrink-0" />
@@ -1596,9 +1609,13 @@
                         <div class="text-[9px] opacity-75 mt-1 leading-relaxed">输出最直接的纯文字对话，像日常聊天软件一样轻松自然、干净简洁。</div>
                       </button>
                       <button
-                        @click="chatMode = 'director'"
-                        class="text-left p-3 rounded-2xl border transition-all cursor-pointer select-none focus:outline-none"
-                        :class="chatMode === 'director' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 hover:bg-surface-high text-on-surface-variant'"
+                        @click="!isGroupActive && (chatMode = 'director')"
+                        class="text-left p-3 rounded-2xl border transition-all select-none focus:outline-none"
+                        :class="[
+                          chatMode === 'director' ? 'border-primary bg-primary/5 text-primary shadow-sm' : 'border-outline-variant/60 text-on-surface-variant',
+                          isGroupActive ? 'opacity-40 cursor-not-allowed bg-surface-low' : 'hover:bg-surface-high cursor-pointer'
+                        ]"
+                        :disabled="isGroupActive"
                       >
                         <div class="flex items-center space-x-2">
                           <BookOpenIcon class="w-3.5 h-3.5 text-primary flex-shrink-0" />
@@ -3867,7 +3884,7 @@
         </template>
 
         <!-- 未选择角色的占位 -->
-        <template v-else-if="!activeCharacter">
+        <template v-else-if="!activeCharacter && !isGroupActive">
           <div class="flex-1 flex flex-col items-center justify-center text-center px-8">
             <div class="w-16 h-16 rounded-full bg-surface-high flex items-center justify-center mb-4">
               <MessageSquareIcon class="w-8 h-8 text-on-surface-variant/30" />
@@ -3891,28 +3908,35 @@
               </button>
               <div 
                 class="w-8 h-8 rounded overflow-hidden border border-outline-variant bg-surface flex-shrink-0 flex items-center justify-center"
-                :class="{ 'cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 shadow-sm': activeCharacter.id !== 'character_creator_bot' }"
-                :title="activeCharacter.id !== 'character_creator_bot' ? '点击查看角色详细资料' : ''"
-                @click="activeCharacter.id !== 'character_creator_bot' && viewCharacterDetails()"
+                :class="{ 'cursor-pointer hover:scale-105 active:scale-95 transition-all duration-200 shadow-sm': activeCharacter && activeCharacter.id !== 'character_creator_bot' }"
+                :title="activeCharacter && activeCharacter.id !== 'character_creator_bot' ? '点击查看角色详细资料' : ''"
+                @click="activeCharacter && activeCharacter.id !== 'character_creator_bot' && viewCharacterDetails()"
               >
-                <template v-if="activeCharacter.id === 'character_creator_bot'">
-                  <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
-                    <BrainIcon class="w-4 h-4 animate-pulse" stroke-width="1.5" />
-                  </div>
+                <template v-if="isGroupActive">
+                  <img v-if="selectedCharacterId && groupAvatars[selectedCharacterId as string]" :src="groupAvatars[selectedCharacterId as string]" class="w-full h-full object-cover" />
+                  <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto" />
                 </template>
-                <template v-else>
-                  <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
-                  <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto mt-2" />
+                <template v-else-if="activeCharacter">
+                  <template v-if="activeCharacter.id === 'character_creator_bot'">
+                    <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
+                      <BrainIcon class="w-4 h-4 animate-pulse" stroke-width="1.5" />
+                    </div>
+                  </template>
+                  <template v-else>
+                    <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                    <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto mt-2" />
+                  </template>
                 </template>
               </div>
               <div class="relative">
                 <div class="text-sm font-bold text-on-surface flex items-center space-x-1.5">
-                  <span>{{ activeCharacter.name }}</span>
-                  <span v-if="isStreaming && streamingCharacterId === activeCharacter.id" class="text-xs font-normal text-primary/80 animate-pulse">（对方正在输入...）</span>
+                  <span v-if="isGroupActive">{{ activeGroupChat.name }}</span>
+                  <span v-else-if="activeCharacter">{{ activeCharacter.name }}</span>
+                  <span v-if="isStreaming && streamingCharacterId === selectedCharacterId" class="text-xs font-normal text-primary/80 animate-pulse">（对方正在输入...）</span>
                   
                   <!-- 爱心图标挂件 (入口按钮) -->
                   <button
-                    v-if="activeCharacter.id !== 'character_creator_bot'"
+                    v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                     @click.stop="showStatesDropdown = !showStatesDropdown"
                     class="ml-1 flex items-center justify-center p-1 rounded-full text-rose-500 hover:bg-rose-500/10 active:scale-95 transition-all select-none focus:outline-none"
                     :class="{ 'bg-rose-500/10 shadow-sm scale-110': showStatesDropdown }"
@@ -3923,12 +3947,13 @@
                 </div>
                 <div class="text-[10px] text-on-surface-variant/60 flex items-center space-x-1">
                   <span class="w-1.5 h-1.5 rounded-full bg-green-400 inline-block"></span>
-                  <span>在线</span>
+                  <span v-if="isGroupActive">时空交汇中 ({{ activeGroupChatMembers.length }}人)</span>
+                  <span v-else>在线</span>
                 </div>
 
                 <!-- 下拉展开的内心状态悬浮卡片 -->
                 <div
-                  v-if="showStatesDropdown && activeCharacter.id !== 'character_creator_bot'"
+                  v-if="showStatesDropdown && activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                   class="absolute top-full mt-2 left-0 w-80 rounded-2xl border border-outline-variant bg-surface-high/95 backdrop-blur-xl shadow-2xl p-4 flex flex-col space-y-3.5 z-30 cursor-default select-none animate-in fade-in slide-in-from-top-2 duration-200"
                   @click.stop
                 >
@@ -4120,7 +4145,7 @@
                     class="absolute top-full right-0 mt-2 w-48 rounded-2xl border border-outline-variant bg-surface shadow-2xl p-2 flex flex-col space-y-1.5 z-30 animate-in fade-in slide-in-from-top-2 duration-150"
                   >
                     <button
-                      v-if="activeCharacter.id !== 'character_creator_bot'"
+                      v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                       @click="triggerDreamReflection(); showTopMoreMenu = false"
                       class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-indigo-500 hover:bg-indigo-500/10 transition-all select-none w-full text-left"
                     >
@@ -4128,7 +4153,7 @@
                       <span>睡眠自省进化</span>
                     </button>
                     <button
-                      v-if="activeCharacter.id !== 'character_creator_bot'"
+                      v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                       @click="openBrainPanel(); showTopMoreMenu = false"
                       class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-on-surface/5 transition-all select-none w-full text-left"
                     >
@@ -4136,12 +4161,20 @@
                       <span>查看并编辑记忆</span>
                     </button>
                     <button
-                      v-if="activeCharacter.id !== 'character_creator_bot'"
+                      v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                       @click="openDiaryPanel(); showTopMoreMenu = false"
                       class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-on-surface/5 transition-all select-none w-full text-left"
                     >
                       <BookOpenIcon class="w-4 h-4 text-green-500" />
                       <span>查看角色日记</span>
+                    </button>
+                    <button
+                      v-if="isGroupActive"
+                      @click="openGroupBrainPanel(); showTopMoreMenu = false"
+                      class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-on-surface/5 transition-all select-none w-full text-left"
+                    >
+                      <BrainIcon class="w-4 h-4 text-primary" />
+                      <span>查看并编辑群记忆</span>
                     </button>
                     <button
                       @click="triggerCleanChoice(); showTopMoreMenu = false"
@@ -4158,7 +4191,7 @@
               <template v-else>
                 <!-- 梦境图标：手动触发角色睡眠反思进化 -->
                 <button
-                  v-if="activeCharacter.id !== 'character_creator_bot'"
+                  v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                   @click="triggerDreamReflection"
                   class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-indigo-500 transition-all"
                   :class="{ 'animate-pulse text-indigo-500 bg-indigo-500/10': isDreaming }"
@@ -4169,7 +4202,7 @@
 
                 <!-- 大脑图标：查看/编辑角色记忆文件 -->
                 <button
-                  v-if="activeCharacter.id !== 'character_creator_bot'"
+                  v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                   @click="openBrainPanel"
                   class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
                   title="查看并编辑角色记忆"
@@ -4179,7 +4212,7 @@
 
                 <!-- 日记图标：查看角色日记 -->
                 <button
-                  v-if="activeCharacter.id !== 'character_creator_bot'"
+                  v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                   @click="openDiaryPanel"
                   class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
                   title="查看角色日记"
@@ -4187,12 +4220,22 @@
                   <BookOpenIcon class="w-4 h-4" stroke-width="1.5" />
                 </button>
 
+                <!-- 大脑图标：查看/编辑群聊记忆与大事记 (仅群聊模式可见) -->
+                <button
+                  v-if="isGroupActive"
+                  @click="openGroupBrainPanel"
+                  class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all mr-0.5"
+                  title="查看并编辑群聊记忆与大事记"
+                >
+                  <BrainIcon class="w-4 h-4" stroke-width="1.5" />
+                </button>
+
                 <!-- 扫帚图标：清除会话与记忆 / 创角Bot重置 -->
                 <button
                   id="brush-cleaning"
                   @click="triggerCleanChoice"
                   class="brush-cleaning p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-red-500 transition-all active:scale-95 flex items-center justify-center"
-                  :title="activeCharacter.id === 'character_creator_bot' ? '重置并重新创角' : '清除会话与记忆'"
+                  :title="activeCharacter && activeCharacter.id === 'character_creator_bot' ? '重置并重新创角' : '清除会话与记忆'"
                 >
                   <svg
                     class="brush-cleaning w-4 h-4"
@@ -4238,16 +4281,22 @@
             <!-- 初始空白（不显示开场白） -->
             <div v-if="chatMessages.length === 0" class="flex flex-col items-center justify-center h-full text-center">
               <div class="w-14 h-14 rounded overflow-hidden border border-on-surface/5 bg-surface mb-3 shadow-md flex items-center justify-center">
-                <template v-if="activeCharacter.id === 'character_creator_bot'">
-                  <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
-                    <BrainIcon class="w-7 h-7 animate-pulse" stroke-width="1.5" />
-                  </div>
+                <template v-if="isGroupActive">
+                  <img v-if="selectedCharacterId && groupAvatars[selectedCharacterId]" :src="groupAvatars[selectedCharacterId]" class="w-full h-full object-cover" />
+                  <UserIcon v-else class="w-7 h-7 text-on-surface-variant m-auto" />
                 </template>
-                <template v-else>
-                  <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                <template v-else-if="activeCharacter">
+                  <template v-if="activeCharacter.id === 'character_creator_bot'">
+                    <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
+                      <BrainIcon class="w-7 h-7 animate-pulse" stroke-width="1.5" />
+                    </div>
+                  </template>
+                  <template v-else>
+                    <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                  </template>
                 </template>
               </div>
-              <p class="text-sm font-semibold text-on-surface">{{ activeCharacter.name }}</p>
+              <p class="text-sm font-semibold text-on-surface">{{ isGroupActive ? activeGroupChat?.name : activeCharacter?.name }}</p>
               <p class="text-xs text-on-surface-variant/50 mt-1">发送消息开始对话</p>
             </div>
 
@@ -4305,23 +4354,33 @@
                   >
                     <!-- A. 等待领取状态 (waiting) -->
                     <template v-if="!msg.redPacket.status || msg.redPacket.status === 'waiting'">
-                      <!-- 上半部分：红橙渐变 -->
-                      <div class="p-3.5 bg-gradient-to-br from-[#f25542] to-[#da3f2d] text-white flex items-center space-x-3.5 min-w-[210px] border-b border-white/5">
+                      <!-- 上半部分：红橙渐变 (专属红包金色丝边) -->
+                      <div 
+                        class="p-3.5 text-white flex items-center space-x-3.5 min-w-[210px] border-b border-white/5"
+                        :class="msg.redPacket.targetId ? 'bg-gradient-to-br from-[#e0523f] via-[#da3f2d] to-[#b32b1c] border-2 border-yellow-400/20' : 'bg-gradient-to-br from-[#f25542] to-[#da3f2d]'"
+                      >
                         <!-- 金色圆形容器包🧧 -->
-                        <div class="w-10 h-10 rounded-full bg-[#fcedc4]/15 flex items-center justify-center flex-shrink-0 border border-[#fcedc4]/20 shadow-sm">
+                        <div class="w-10 h-10 rounded-full bg-[#fcedc4]/15 flex items-center justify-center flex-shrink-0 border border-[#fcedc4]/20 shadow-sm relative">
                           <span class="text-xl">🧧</span>
+                          <span v-if="msg.redPacket.targetId" class="absolute -top-0.5 -right-0.5 text-[8px] bg-yellow-400 text-stone-900 px-0.5 rounded font-black scale-75 origin-top-right">专</span>
                         </div>
                         <div class="flex-1 min-w-0">
-                          <div class="text-xs font-bold truncate text-[#fcedc4] leading-normal">{{ msg.redPacket.title || '恭喜发财，大吉大利' }}</div>
-                          <div class="text-[10px] opacity-90 mt-0.5 text-white/90">金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元</div>
+                          <div class="text-xs font-bold truncate text-[#fcedc4] leading-normal flex items-center space-x-1">
+                            <span v-if="msg.redPacket.targetId" class="text-[9px] px-1 py-0.2 bg-yellow-400 text-stone-900 rounded font-black scale-90 origin-left flex-shrink-0">专属</span>
+                            <span class="truncate">{{ msg.redPacket.title || '恭喜发财，大吉大利' }}</span>
+                          </div>
+                          <div class="text-[10px] opacity-90 mt-0.5 text-white/90">
+                            <span v-if="msg.redPacket.targetId">专属成员：{{ msg.redPacket.targetName }}</span>
+                            <span v-else>金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元</span>
+                          </div>
                         </div>
                       </div>
                       <!-- 下半部分：深红细底条 -->
                       <div class="px-3.5 py-1.5 bg-[#cf3c2a] text-[#fcedc4]/70 text-[9px] flex items-center justify-between border-t border-white/5 font-medium">
-                        <span>回音红包</span>
+                        <span>{{ msg.redPacket.targetId ? '专属红包' : '普通群红包' }}</span>
                         <span class="opacity-80 flex items-center space-x-1">
                           <span class="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span>
-                          <span>等待对方领取...</span>
+                          <span>{{ msg.redPacket.targetId ? `等待 ${msg.redPacket.targetName} 领取...` : '等待对方领取...' }}</span>
                         </span>
                       </div>
                     </template>
@@ -4336,12 +4395,16 @@
                         </div>
                         <div class="flex-1 min-w-0">
                           <div class="text-xs font-bold truncate text-[#fcedc4]/70 leading-normal">{{ msg.redPacket.title || '恭喜发财，大吉大利' }}</div>
-                          <div class="text-[10px] opacity-75 mt-0.5">金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元 (已拆开)</div>
+                          <div class="text-[10px] opacity-75 mt-0.5">
+                            金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元
+                            <span v-if="msg.redPacket.targetId">({{ msg.redPacket.targetName }}已拆开)</span>
+                            <span v-else>(已拆开)</span>
+                          </div>
                         </div>
                       </div>
                       <!-- 下半部分：淡红细底条 -->
                       <div class="px-3.5 py-1.5 bg-[#cf3c2a]/60 text-[#fcedc4]/50 text-[9px] flex items-center justify-between border-t border-white/5 font-medium">
-                        <span>回音红包</span>
+                        <span>{{ msg.redPacket.targetId ? '专属红包' : '普通红包' }}</span>
                         <span>已被拆开领用</span>
                       </div>
                     </template>
@@ -4356,12 +4419,16 @@
                         </div>
                         <div class="flex-1 min-w-0">
                           <div class="text-xs font-bold truncate text-white/50 leading-normal line-through">{{ msg.redPacket.title || '恭喜发财，大吉大利' }}</div>
-                          <div class="text-[10px] opacity-75 mt-0.5">金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元 (已退回)</div>
+                          <div class="text-[10px] opacity-75 mt-0.5">
+                            金额：{{ parseFloat(msg.redPacket.amount).toFixed(2) }} 元
+                            <span v-if="msg.redPacket.targetId">({{ msg.redPacket.targetName }}已拒收)</span>
+                            <span v-else>(已退回)</span>
+                          </div>
                         </div>
                       </div>
                       <!-- 下半部分：深灰细底条 -->
                       <div class="px-3.5 py-1.5 bg-gray-700/80 text-white/50 text-[9px] flex items-center justify-between border-t border-white/5 font-medium">
-                        <span>回音红包</span>
+                        <span>{{ msg.redPacket.targetId ? '专属红包' : '普通红包' }}</span>
                         <span>已被拒收并退款</span>
                       </div>
                     </template>
@@ -4399,16 +4466,24 @@
               <div v-else-if="msg.role === 'assistant'" class="flex items-start space-x-2">
                 <!-- AI角色头像方形圆角化 -->
                 <div class="w-8 h-8 rounded overflow-hidden border border-on-surface/5 bg-surface flex-shrink-0 flex items-center justify-center shadow-sm">
-                  <template v-if="activeCharacter.id === 'character_creator_bot'">
+                  <template v-if="msg.sender_id === 'character_creator_bot'">
                     <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
                       <BrainIcon class="w-4 h-4 animate-pulse" stroke-width="1.5" />
                     </div>
                   </template>
                   <template v-else>
-                    <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                    <img v-if="msg.sender_id && characterAvatars[msg.sender_id as string]" :src="characterAvatars[msg.sender_id as string]" class="w-full h-full object-cover" />
+                    <img v-else-if="activeCharacter && characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                    <div v-else class="w-full h-full flex items-center justify-center bg-gray-200">
+                      <UserIcon class="w-4 h-4 text-gray-400" />
+                    </div>
                   </template>
                 </div>
                 <div class="max-w-[68%]">
+                  <!-- 群聊下在消息上方展示 AI 发言人姓名 -->
+                  <div v-if="isGroupActive && msg.sender_id && msg.sender_id !== 'user'" class="text-[10px] text-on-surface-variant/50 mb-1 ml-1 font-bold">
+                    {{ getSenderInfo(msg.sender_id).name }}
+                  </div>
                   <!-- 图片气泡 -->
                   <div 
                     v-if="msg.imageBase64" 
@@ -4433,13 +4508,13 @@
                   </div>
 
                   <!-- 典雅日记手账本消息卡片 -->
-                  <div v-if="msg.diary" class="diary-card-bubble p-4 rounded-2xl bg-gradient-to-br from-[#f8f5eb] to-[#f0ebde] border border-[#d6cdb4] shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[240px] text-stone-800" @click="openDiaryForCharacter(msg.character_id || activeCharacter.id)">
+                  <div v-if="msg.diary" class="diary-card-bubble p-4 rounded-2xl bg-gradient-to-br from-[#f8f5eb] to-[#f0ebde] border border-[#d6cdb4] shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[240px] text-stone-800" @click="openDiaryForCharacter(msg.character_id || activeCharacter?.id)">
                     <div class="flex items-center space-x-2.5 mb-2.5 pb-2 border-b border-[#e6deca]/60">
                       <div class="w-8 h-8 rounded-full bg-[#8c7e63]/10 flex items-center justify-center flex-shrink-0 text-stone-700 shadow-inner">
                         <span>📓</span>
                       </div>
                       <div class="flex-1 min-w-0">
-                        <div class="text-xs font-bold text-stone-800 truncate">{{ msg.diary.characterName || activeCharacter.name }} 的手账日记</div>
+                        <div class="text-xs font-bold text-stone-800 truncate">{{ msg.diary.characterName || activeCharacter?.name }} 的手账日记</div>
                         <div class="text-[10px] text-stone-500/80 mt-0.5">{{ msg.diary.date }}</div>
                       </div>
                     </div>
@@ -4582,12 +4657,34 @@
               <div class="flex items-end space-x-2 w-full relative">
                 <!-- 最左侧：自适应 textarea 输入框 -->
                 <div class="relative flex-1 min-w-0">
+                  <!-- @成员提及浮窗 (仅群聊且可见时) -->
+                  <div
+                    v-if="showAtMentionModal && filteredAtMentionMembers.length > 0"
+                    class="absolute bottom-full left-0 mb-2 w-52 max-h-48 overflow-y-auto rounded-xl border border-outline-variant bg-surface shadow-2xl p-1.5 flex flex-col space-y-0.5 z-50 select-none animate-in fade-in slide-in-from-bottom-2 duration-150"
+                  >
+                    <div class="px-2.5 py-1 text-[9px] text-on-surface-variant/50 font-bold uppercase tracking-wider">选择群成员进行提及</div>
+                    <button
+                      v-for="(member, idx) in filteredAtMentionMembers"
+                      :key="member.id"
+                      @click="insertAtMention(member.name)"
+                      @mouseenter="activeAtMentionSelectIndex = idx"
+                      class="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-on-surface-variant hover:text-on-surface w-full text-left transition-all cursor-pointer"
+                      :class="activeAtMentionSelectIndex === idx ? 'bg-primary/10 text-primary hover:text-primary' : ''"
+                    >
+                      <div class="w-5 h-5 rounded overflow-hidden border border-outline-variant/30 flex-shrink-0">
+                        <img v-if="characterAvatars[member.id]" :src="characterAvatars[member.id]" class="w-full h-full object-cover" />
+                        <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant m-auto mt-0.5" />
+                      </div>
+                      <span class="truncate">{{ member.name }}</span>
+                    </button>
+                  </div>
+
                   <textarea
                     ref="chatTextarea"
                     v-model="chatInputText"
                     @keydown="handleKeyDown"
                     @paste="handlePaste"
-                    @input="adjustTextareaHeight"
+                    @input="e => { adjustTextareaHeight(); handleInputAtMention(e) }"
                     placeholder="发送消息..."
                     rows="1"
                     class="w-full py-2 px-3 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text max-h-[40vh] shadow-inner"
@@ -4837,12 +4934,35 @@
               <!-- 文本输入框 (PC flex-grow) -->
               <div class="px-4 pt-1.5 pb-2.5 flex-1 flex flex-col min-h-0">
                 <div class="relative flex-1 flex flex-col min-h-0">
+                  <!-- @成员提及浮窗 (仅群聊且可见时) -->
+                  <div
+                    v-if="showAtMentionModal && filteredAtMentionMembers.length > 0"
+                    class="absolute bottom-full left-0 mb-2 w-52 max-h-48 overflow-y-auto rounded-xl border border-outline-variant bg-surface shadow-2xl p-1.5 flex flex-col space-y-0.5 z-50 select-none animate-in fade-in slide-in-from-bottom-2 duration-150"
+                  >
+                    <div class="px-2.5 py-1 text-[9px] text-on-surface-variant/50 font-bold uppercase tracking-wider">选择群成员进行提及</div>
+                    <button
+                      v-for="(member, idx) in filteredAtMentionMembers"
+                      :key="member.id"
+                      @click="insertAtMention(member.name)"
+                      @mouseenter="activeAtMentionSelectIndex = idx"
+                      class="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-on-surface-variant hover:text-on-surface w-full text-left transition-all cursor-pointer"
+                      :class="activeAtMentionSelectIndex === idx ? 'bg-primary/10 text-primary hover:text-primary' : ''"
+                    >
+                      <div class="w-5 h-5 rounded overflow-hidden border border-outline-variant/30 flex-shrink-0">
+                        <img v-if="characterAvatars[member.id]" :src="characterAvatars[member.id]" class="w-full h-full object-cover" />
+                        <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant m-auto mt-0.5" />
+                      </div>
+                      <span class="truncate">{{ member.name }}</span>
+                    </button>
+                  </div>
+
                   <textarea
                     ref="chatTextarea"
                     v-model="chatInputText"
                     @keydown="handleKeyDown"
                     @paste="handlePaste"
                     @focus="handleTextareaFocus"
+                    @input="handleInputAtMention"
                     placeholder="发送消息... (Enter 发送，Shift+Enter 换行)"
                     class="w-full flex-1 py-2 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text"
                     :class="pastedImageBase64 ? 'pl-20 pr-3' : 'px-3'"
@@ -4894,10 +5014,14 @@
           <BellOffIcon class="w-3.5 h-3.5 mr-2" />
           {{ contextMenu.char && conversationMeta[contextMenu.char.id]?.muted ? '取消免打扰' : '消息免打扰' }}
         </button>
+        <button v-if="contextMenu.char && contextMenu.char.isGroup" class="ctx-menu-item" @click="ctxEditGroupName">
+          <PenIcon class="w-3.5 h-3.5 mr-2" />
+          修改群名称
+        </button>
         <div class="my-1 border-t border-outline-variant/30"></div>
         <button class="ctx-menu-item text-error" @click="ctxHideConversation">
           <EyeOffIcon class="w-3.5 h-3.5 mr-2" />
-          删除会话
+          {{ contextMenu.char && contextMenu.char.isGroup ? '解散群聊' : '删除会话' }}
         </button>
       </template>
 
@@ -5315,18 +5439,18 @@
     </div>
 
     <!-- ========================= 弹窗：大脑（角色记忆编辑） ========================= -->
-    <div v-if="showBrainPanel && activeCharacter" class="modal-overlay" @click.self="showBrainPanel = false">
+    <div v-if="showBrainPanel && (activeCharacter || isGroupActive)" class="modal-overlay" @click.self="showBrainPanel = false">
       <div class="modal-panel w-[640px] h-[580px] flex flex-col">
         <div class="modal-header">
           <div class="flex items-center space-x-2">
             <BrainIcon class="w-4 h-4 text-primary" />
-            <span>{{ activeCharacter.name }} · 记忆与画像</span>
+            <span>{{ isGroupActive ? activeGroupChat?.name : activeCharacter?.name }} · 记忆与画像</span>
           </div>
           <button @click="showBrainPanel = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
         </div>
 
         <div class="flex border-b border-outline-variant/30">
-          <button v-for="tab in brainTabs" :key="tab.key"
+          <button v-for="tab in currentBrainTabs" :key="tab.key"
             @click="brainActiveTab = tab.key"
             class="px-4 py-2.5 text-xs font-bold border-b-2 transition-all"
             :class="brainActiveTab === tab.key ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
@@ -5364,9 +5488,10 @@
 
           <div v-else-if="brainActiveTab === 'memory'" class="flex-1 flex flex-col min-h-0">
             <div class="flex items-center justify-between mb-2 flex-shrink-0">
-              <div class="text-[10px] text-on-surface-variant font-mono">Memory.md · 双轨记忆（STM + LTM）</div>
+              <div class="text-[10px] text-on-surface-variant font-mono">{{ isGroupActive ? 'Memory.md · 群聊记忆' : 'Memory.md · 双轨记忆（STM + LTM）' }}</div>
               <div class="flex items-center space-x-2 flex-shrink-0">
                 <button 
+                  v-if="!isGroupActive"
                   @click="tidyCharacterMemory('brain')" 
                   :disabled="isTidyingMemory"
                   class="flex items-center space-x-1.5 text-xs text-secondary border border-secondary/20 hover:border-secondary bg-secondary/5 hover:bg-secondary/10 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0 animate-fade-in"
@@ -5384,6 +5509,20 @@
             <div v-if="!brainEditModes.memory" class="flex-1 p-4 rounded-lg border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm" v-html="renderMarkdown(brainMemoryContent || '*记忆为空*')"></div>
             <!-- 编辑 -->
             <textarea v-else v-model="brainMemoryContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-lg p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner"></textarea>
+          </div>
+
+          <div v-else-if="brainActiveTab === 'summary'" class="flex-1 flex flex-col min-h-0">
+            <div class="flex items-center justify-between mb-2 flex-shrink-0">
+              <div class="text-[10px] text-on-surface-variant font-mono">SUMMARY.md · 群聊大事记简报</div>
+              <button @click="brainEditModes.summary = !brainEditModes.summary" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                <component :is="brainEditModes.summary ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                <span>{{ brainEditModes.summary ? '预览大事记' : '修改大事记' }}</span>
+              </button>
+            </div>
+            <!-- 预览 -->
+            <div v-if="!brainEditModes.summary" class="flex-1 p-4 rounded-lg border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm" v-html="renderMarkdown(brainSummaryContent || '*暂无大事记简报*')"></div>
+            <!-- 编辑 -->
+            <textarea v-else v-model="brainSummaryContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-lg p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner"></textarea>
           </div>
 
           <div v-else-if="brainActiveTab === 'charUser'" class="flex-1 flex flex-col min-h-0">
@@ -5481,6 +5620,136 @@
       </div>
     </div>
 
+    <!-- ========================= 弹窗：创建群聊 ========================= -->
+    <div v-if="showCreateGroupModal" class="modal-overlay" @click.self="showCreateGroupModal = false">
+      <div class="modal-panel w-[380px] rounded-2xl overflow-hidden shadow-2xl border border-outline-variant/30 bg-surface-container-lowest animate-fade-in select-none">
+        <!-- 头部：极简冷白毛玻璃质感 -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30 bg-surface-container-high/60 backdrop-blur-md">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary shadow-inner">
+              <UsersIcon class="w-4 h-4" stroke-width="2" />
+            </div>
+            <div>
+              <h3 class="font-bold text-xs text-on-surface tracking-tight leading-normal">发起群聊</h3>
+              <p class="text-[9px] text-on-surface-variant/50">不完善的测试功能</p>
+            </div>
+          </div>
+          <button @click="showCreateGroupModal = false" class="w-6 h-6 rounded-full hover:bg-surface-high text-on-surface-variant/60 hover:text-on-surface flex items-center justify-center transition-all focus:outline-none">
+            <XIcon class="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div class="p-5 space-y-4">
+          <!-- 1. 群名输入框 -->
+          <div class="space-y-1.5">
+            <label class="text-[10px] uppercase font-bold text-on-surface-variant/70 font-mono tracking-wider">群聊名称</label>
+            <input 
+              v-model="newGroupName" 
+              type="text" 
+              max="20" 
+              class="w-full bg-surface border border-outline-variant/60 hover:border-outline focus:border-primary focus:ring-4 focus:ring-primary/10 rounded-xl px-3 py-2 text-xs text-on-surface transition-all duration-200 outline-none placeholder:text-on-surface-variant/30 shadow-inner"
+              placeholder="请输入群聊名称" 
+            />
+          </div>
+
+          <!-- 2. 群成员多选与极速搜索 -->
+          <div class="space-y-1.5">
+            <div class="flex justify-between items-center">
+              <label class="text-[10px] uppercase font-bold text-on-surface-variant/70 font-mono tracking-wider">选择群成员（最多3个）</label>
+              <span class="text-xs font-bold text-primary font-mono bg-primary/5 px-1.5 py-0.5 rounded">{{ selectedGroupMembers.length }}/3</span>
+            </div>
+
+            <!-- 精美微型搜索栏 -->
+            <div class="relative flex items-center">
+              <SearchIcon class="absolute left-2.5 w-3.5 h-3.5 text-on-surface-variant/40" />
+              <input 
+                v-model="groupMemberSearchQuery" 
+                type="text" 
+                class="w-full bg-surface border border-outline-variant/30 focus:border-primary focus:ring-2 focus:ring-primary/5 rounded-lg pl-8 pr-7 py-1.5 text-[10px] text-on-surface transition-all outline-none placeholder:text-on-surface-variant/40"
+                placeholder="搜索备选 AI 成员名字..." 
+              />
+              <button 
+                v-if="groupMemberSearchQuery" 
+                @click="groupMemberSearchQuery = ''" 
+                class="absolute right-2.5 w-4 h-4 text-on-surface-variant/50 hover:text-on-surface flex items-center justify-center rounded-full hover:bg-surface-high transition-colors focus:outline-none"
+              >
+                <XIcon class="w-2.5 h-2.5" />
+              </button>
+            </div>
+
+            <!-- 成员滚动面板 -->
+            <div class="max-h-[180px] overflow-y-auto border border-outline-variant/30 rounded-xl p-2 space-y-1.5 bg-surface-low/50">
+              <div 
+                v-for="char in filteredGroupMembers" 
+                :key="char.id" 
+                class="flex items-center justify-between p-2 rounded-xl transition-all duration-200 select-none border border-transparent"
+                :class="selectedGroupMembers.includes(char.id) 
+                  ? 'bg-primary/5 border-primary/10' 
+                  : 'hover:bg-surface-high/60'"
+              >
+                <div class="flex items-center space-x-2.5 min-w-0">
+                  <div class="w-7 h-7 rounded-lg overflow-hidden border border-outline-variant/30 flex-shrink-0 bg-surface shadow-sm relative ring-1 ring-outline-variant/10">
+                    <img v-if="characterAvatars[char.id]" :src="characterAvatars[char.id]" class="w-full h-full object-cover" />
+                  </div>
+                  <div class="flex items-center space-x-2 min-w-0">
+                    <span class="text-xs font-semibold text-on-surface truncate">{{ char.name }}</span>
+                  </div>
+                </div>
+                <!-- 微信圆形勾选框 -->
+                <button 
+                  @click="selectedGroupMembers.includes(char.id) ? selectedGroupMembers = selectedGroupMembers.filter(id => id !== char.id) : (selectedGroupMembers.length < 3 && selectedGroupMembers.push(char.id))"
+                  class="w-[18px] h-[18px] rounded-full border flex items-center justify-center transition-all duration-200 focus:outline-none flex-shrink-0"
+                  :class="selectedGroupMembers.includes(char.id) 
+                    ? 'border-primary bg-primary text-white scale-105 shadow-sm shadow-primary/20' 
+                    : 'border-outline-variant/80 bg-surface hover:border-outline'"
+                  :disabled="selectedGroupMembers.length >= 3 && !selectedGroupMembers.includes(char.id)"
+                >
+                  <CheckIcon v-if="selectedGroupMembers.includes(char.id)" class="w-2.5 h-2.5 text-white" stroke-width="3" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. 时空融合温馨贴士 -->
+          <div class="text-[9px] text-primary/80 leading-relaxed bg-primary/5 p-3 rounded-xl border border-primary/10 flex items-start space-x-2">
+            <SparklesIcon class="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5 animate-pulse" />
+            <span>【群聊功能说明】：群聊模式将被强制锁定为 **「包含描写」** 模式，以确保群聊内容更具张力。</span>
+          </div>
+
+          <!-- 4. 动作按钮 -->
+          <div class="flex justify-end space-x-2.5 pt-1.5">
+            <button @click="showCreateGroupModal = false" class="border border-outline-variant/60 hover:border-outline text-on-surface-variant hover:bg-surface-container-high rounded-xl py-1.5 px-4 text-xs font-medium active:scale-95 transition-all duration-200 focus:outline-none">取消</button>
+            <button @click="createGroupChatAction" class="bg-primary hover:bg-primary-container text-white rounded-xl py-1.5 px-4 text-xs font-bold active:scale-95 shadow-md shadow-primary/10 hover:shadow-lg hover:shadow-primary/20 hover:-translate-y-0.5 transition-all duration-200 focus:outline-none">创建群聊</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：修改群名称 ========================= -->
+    <div v-if="showEditGroupNameModal" class="modal-overlay" @click.self="showEditGroupNameModal = false">
+      <div class="modal-panel w-[320px] rounded-2xl overflow-hidden shadow-2xl border bg-surface animate-fade-in select-none">
+        <div class="modal-header">
+          <div class="flex items-center space-x-2">
+            <PenIcon class="w-4 h-4 text-primary" />
+            <span class="font-bold text-sm text-on-surface">修改群名称</span>
+          </div>
+          <button @click="showEditGroupNameModal = false" class="modal-close-btn">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </div>
+        <div class="p-5 space-y-4">
+          <div class="form-group">
+            <label class="form-label text-[10px] uppercase font-bold text-on-surface-variant font-mono">新群名称</label>
+            <input v-model="editGroupNameVal" type="text" max="20" class="form-input text-xs" placeholder="请输入新的群名称..." />
+          </div>
+          <div class="flex justify-end space-x-2 pt-1">
+            <button @click="showEditGroupNameModal = false" class="btn-secondary text-xs py-1.5 px-4 rounded-lg active:scale-95 transition-all duration-200">取消</button>
+            <button @click="saveGroupNameAction" class="btn-primary text-xs py-1.5 px-4 rounded-lg active:scale-95 transition-all duration-200">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ========================= 弹窗：红包 ========================= -->
     <div v-if="showRedPacketModal" class="modal-overlay" @click.self="showRedPacketModal = false">
       <div class="modal-panel w-[320px] rounded-2xl overflow-hidden shadow-2xl border bg-surface animate-fade-in select-none">
@@ -5489,6 +5758,55 @@
           <button @click="showRedPacketModal = false" class="text-[#fcedc4] hover:text-white hover:scale-115 transition-all"><XIcon class="w-4 h-4" /></button>
         </div>
         <div class="p-5 space-y-4">
+          <!-- 群聊红包类型切换 -->
+          <div v-if="isGroupActive" class="form-group">
+            <label class="form-label text-[10px] uppercase font-bold text-on-surface-variant font-mono">红包类型</label>
+            <div class="flex items-center space-x-4 mt-1">
+              <label class="flex items-center space-x-1 cursor-pointer text-xs">
+                <input type="radio" value="normal" v-model="groupRedPacketType" class="text-primary focus:ring-primary" />
+                <span>普通群红包</span>
+              </label>
+              <label class="flex items-center space-x-1 cursor-pointer text-xs">
+                <input type="radio" value="exclusive" v-model="groupRedPacketType" class="text-primary focus:ring-primary" />
+                <span>专属红包</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 专属红包指定成员 -->
+          <div v-if="isGroupActive && groupRedPacketType === 'exclusive'" class="form-group animate-in slide-in-from-top-1 duration-200">
+            <label class="form-label text-[10px] uppercase font-bold text-on-surface-variant font-mono">指定领取人</label>
+            <div class="relative">
+              <button 
+                @click.stop="showExclusiveDropdown = !showExclusiveDropdown"
+                @blur="hideExclusiveDropdownDelayed"
+                class="form-input text-xs text-left w-full flex items-center justify-between cursor-pointer select-none active:scale-[0.99] transition-all mt-1"
+              >
+                <span :class="{ 'text-on-surface-variant/60': !groupRedPacketTargetId }">
+                  {{ groupRedPacketTargetId ? (getSenderInfo(groupRedPacketTargetId).name || '未命名成员') : '请选择群成员...' }}
+                </span>
+                <ChevronDownIcon class="w-3.5 h-3.5 text-on-surface-variant transition-transform duration-200" :class="{ 'rotate-180': showExclusiveDropdown }" />
+              </button>
+              
+              <!-- 自定义毛玻璃成员选择面板 -->
+              <div 
+                v-if="showExclusiveDropdown"
+                class="absolute left-0 right-0 top-full mt-1.5 rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 select-none animate-in fade-in slide-in-from-top-1.5 duration-150 max-h-48 overflow-y-auto"
+              >
+                <div 
+                  v-for="charId in activeGroupChatMembers" 
+                  :key="charId" 
+                  @mousedown="groupRedPacketTargetId = charId; showExclusiveDropdown = false"
+                  class="px-3.5 py-2 text-xs text-on-surface hover:bg-primary/10 hover:text-primary transition-all flex items-center justify-between cursor-pointer"
+                  :class="{ 'bg-primary/5 text-primary font-semibold': groupRedPacketTargetId === charId }"
+                >
+                  <span>{{ getSenderInfo(charId).name }}</span>
+                  <CheckIcon v-if="groupRedPacketTargetId === charId" class="w-3.5 h-3.5 text-primary" stroke-width="2.5" />
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="form-group">
             <label class="form-label text-[10px] uppercase font-bold text-on-surface-variant font-mono">红包金额（元）</label>
             <input v-model.number="redPacketAmount" type="number" min="0.01" step="0.01" max="999999" class="form-input text-xs" placeholder="请输入金额" />
@@ -5498,7 +5816,16 @@
             <input v-model="redPacketTitle" type="text" max="30" class="form-input text-xs" placeholder="恭喜发财，大吉大利" />
           </div>
           <div class="text-[10px] text-on-surface-variant/80 leading-normal bg-surface-low p-2.5 rounded-lg border border-outline-variant/30">
-            扣减您的虚拟回音币，当前钱包余额：<span class="text-primary font-bold">{{ userProfile.walletBalance.toFixed(2) }} 元</span>
+            <template v-if="isGroupActive && groupRedPacketType === 'normal'">
+              普通红包将分发给群内 <span class="text-primary font-bold">{{ activeGroupChatMembers.length }}</span> 位 AI 角色。
+              共需扣除：<span class="text-error font-bold">{{ (activeGroupChatMembers.length * (redPacketAmount || 0)).toFixed(2) }} 元</span>
+            </template>
+            <template v-else>
+              扣减您的虚拟回音币，单份金额：<span class="text-primary font-bold">{{ (redPacketAmount || 0).toFixed(2) }} 元</span>
+            </template>
+            <div class="mt-1 opacity-75">
+              当前钱包余额：<span class="text-primary font-semibold">{{ userProfile.walletBalance.toFixed(2) }} 元</span>
+            </div>
           </div>
           <div class="flex justify-end space-x-2 pt-1">
             <button @click="showRedPacketModal = false" class="btn-secondary text-xs py-1.5 px-4 rounded-lg">取消</button>
@@ -5649,7 +5976,7 @@
         </div>
 
         <p class="text-xs text-on-surface-variant leading-relaxed">
-          请选择要对角色 <strong class="text-on-surface font-semibold">[{{ activeCharacter?.name }}]</strong> 执行的清除操作：
+          请选择要对<span v-if="isGroupActive">群聊 <strong class="text-on-surface font-semibold">[{{ activeGroupChat?.name }}]</strong></span><span v-else>角色 <strong class="text-on-surface font-semibold">[{{ activeCharacter?.name }}]</strong></span> 执行的清除操作：
         </p>
 
         <div class="space-y-3">
@@ -5663,14 +5990,18 @@
               </div>
             </div>
           </button>
-
           <!-- 选项 2 大卡片 -->
           <button @click="handleCleanOption(2)" class="w-full text-left p-3.5 rounded-xl border border-red-500/20 hover:border-red-500/50 bg-red-500/5 hover:bg-red-500/10 active:scale-[0.98] transition-all flex items-start space-x-3 group">
             <span class="w-5 h-5 rounded-full bg-red-500/10 text-red-500 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 group-hover:bg-red-500/20">2</span>
             <div class="flex-1">
               <div class="text-xs font-bold text-red-500 group-hover:text-red-600 transition-colors">清除历史和记忆 (物理彻底清空)</div>
               <div class="text-[10px] text-red-500/70 mt-1 leading-relaxed">
-                ⚠️ 【高危操作】*：物理清除所有聊天历史。清空专属 `MEMORY.md` 里的长短期记忆，清空该角色专属的 `USER.md` 画像事实等等文件，仅保留性格设定 (`SOUL.md`) 与世界设定 (`WORLD.md`)。
+                <template v-if="isGroupActive">
+                  ⚠️ 【高危操作】*：物理清除该群聊的所有聊天记录。彻底清空此群聊专属的 `Memory.md` 群组短期记忆与 `SUMMARY.md` 共用大事记文档。此操作【仅清除群聊相关】，完全不影响任何群成员角色本身的个人人设、私聊记忆与世界设定！
+                </template>
+                <template v-else>
+                  ⚠️ 【高危操作】*：物理清除所有聊天历史。清空专属 `MEMORY.md` 里的长短期记忆，清空该角色专属的 `USER.md` 画像事实等等文件，仅保留性格设定 (`SOUL.md`) 与世界设定 (`WORLD.md`)。
+                </template>
               </div>
             </div>
           </button>
@@ -7317,13 +7648,17 @@ function renderMarkdown(content: string) {
     
     let temp = text
     // 1. 替换中文括号 （...）
-    temp = temp.replace(/（([\s\S]*?)）/g, '<span class="narrative-bracket">（$1）</span>')
+    temp = temp.replace(/（([\s\S]*?)）/g, "<span class='narrative-bracket'>（$1）</span>")
     // 2. 替换英文括号 (...)
-    temp = temp.replace(/\(([\s\S]*?)\)/g, '<span class="narrative-bracket">($1)</span>')
+    temp = temp.replace(/\(([\s\S]*?)\)/g, "<span class='narrative-bracket'>($1)</span>")
     // 3. 替换中文中括号 【...】
-    temp = temp.replace(/【([\s\S]*?)】/g, '<span class="narrative-bracket">【$1】</span>')
+    temp = temp.replace(/【([\s\S]*?)】/g, "<span class='narrative-bracket'>【$1】</span>")
     // 4. 替换英文中括号 [...]
-    temp = temp.replace(/\[([\s\S]*?)\]/g, '<span class="narrative-bracket">[$1]</span>')
+    temp = temp.replace(/\[([\s\S]*?)\]/g, "<span class='narrative-bracket'>[$1]</span>")
+    // 5. 替换中文双引号 “...” (使用单引号属性且限定内部无HTML标签，防范二次吞噬)
+    temp = temp.replace(/“([^”<>]*?)”/g, "<span class='dialogue-quote'>“$1”</span>")
+    // 6. 替换英文双引号 "..." (使用单引号属性且限定内部无HTML标签，物理隔绝二次吞噬)
+    temp = temp.replace(/"([^"<>]*?)"/g, "<span class='dialogue-quote'>\"$1\"</span>")
     
     return temp
   })
@@ -7795,6 +8130,36 @@ const characterList = ref<any[]>([])
 const characterAvatars = ref<Record<string, string>>({})
 const activeCharacter = computed(() => characterList.value.find(c => c.id === selectedCharacterId.value) || null)
 
+// ===================== 群聊功能相关响应式状态 =====================
+const groupChats = ref<any[]>([])
+const groupAvatars = ref<Record<string, string>>({})
+const activeGroupChat = computed(() => groupChats.value.find(g => g.id === selectedCharacterId.value) || null)
+const isGroupActive = computed(() => !!activeGroupChat.value)
+const activeGroupChatMembers = computed(() => {
+  if (!isGroupActive.value || !activeGroupChat.value) return []
+  return activeGroupChat.value.memberIds || []
+})
+
+// 红包 Modal 专属
+const groupRedPacketType = ref<'normal' | 'exclusive'>('normal')
+const groupRedPacketTargetId = ref<string>('')
+
+// 新增群聊 UI 所需状态
+const showCreateGroupModal = ref(false)
+const newGroupName = ref('')
+const groupMemberSearchQuery = ref('')
+const filteredGroupMembers = computed(() => {
+  const query = groupMemberSearchQuery.value.trim().toLowerCase()
+  if (!query) return characterList.value
+  return characterList.value.filter(c => c.name.toLowerCase().includes(query))
+})
+const selectedGroupMembers = ref<string[]>([])
+
+// 修改群名称 Modal 状态
+const showEditGroupNameModal = ref(false)
+const editGroupNameVal = ref('')
+const activeEditingGroupId = ref<string>('')
+
 // 会话元数据（置顶/未读/免打扰/隐藏）
 const conversationMeta = reactive<Record<string, { pinned?: boolean; unread?: number; muted?: boolean; hidden?: boolean }>>({})
 const hasUnreadConversations = computed(() => {
@@ -8076,15 +8441,19 @@ function getCharacterActiveTime(charId: string): number {
   return conversationActiveTimes[charId] || 0
 }
 
-// 计算置顶角色（过滤隐藏的），按活跃时间倒序
+const combinedList = computed(() => {
+  return [...characterList.value, ...groupChats.value]
+})
+
+// 计算置顶会话（过滤隐藏的），按活跃时间倒序
 const pinnedCharacters = computed(() => {
-  return characterList.value
+  return combinedList.value
     .filter(c => conversationMeta[c.id]?.pinned && !conversationMeta[c.id]?.hidden)
     .sort((a, b) => getCharacterActiveTime(b.id) - getCharacterActiveTime(a.id))
 })
-// 普通角色（不置顶、不隐藏），按活跃时间倒序
+// 普通会话（不置顶、不隐藏），按活跃时间倒序
 const visibleCharacters = computed(() => {
-  return characterList.value
+  return combinedList.value
     .filter(c => !conversationMeta[c.id]?.pinned && !conversationMeta[c.id]?.hidden)
     .sort((a, b) => getCharacterActiveTime(b.id) - getCharacterActiveTime(a.id))
 })
@@ -8164,7 +8533,7 @@ const isDraggingFile = ref(false)
 const inputHeight = ref(Number(localStorage.getItem('echo_input_height') || '160'))
 
 // 多消息延时聚合防抖状态（分角色独立隔离，防范跨窗口时序冲突与串台 Bug）
-const pendingUserMessagesMap = reactive<Record<string, Array<{ content: string; imageBase64?: string; redPacketPayload?: { amount: number; title: string; userMsgId: string } }>>>({})
+const pendingUserMessagesMap = reactive<Record<string, Array<{ content: string; imageBase64?: string; redPacketPayload?: { amount: number; title: string; userMsgId: string; targetId?: string; targetName?: string } }>>>({})
 const messageMergeTimersMap = reactive<Record<string, any>>({})
 
 // 监听用户输入框内容改变，实现极其智能的“打字感知防抖”与“输入删空自愈恢复”：
@@ -8207,18 +8576,91 @@ const activeMemory = ref('')
 
 // ===================== 大脑面板 =====================
 const showBrainPanel = ref(false)
-const brainActiveTab = ref<'soul' | 'world' | 'memory' | 'charUser'>('soul')
-const brainEditModes = reactive({ soul: false, world: false, memory: false, charUser: false })
-const brainTabs: { key: 'soul' | 'world' | 'memory' | 'charUser'; label: string }[] = [
-  { key: 'soul', label: 'Soul.md · 性格人设' },
-  { key: 'world', label: 'World.md · 世界设定' },
-  { key: 'memory', label: 'Memory.md · 双轨记忆' },
-  { key: 'charUser', label: 'USER.md · 专属画像' }
-]
+const brainActiveTab = ref<string>('soul')
+const brainEditModes = reactive({ soul: false, world: false, memory: false, charUser: false, summary: false })
+const currentBrainTabs = computed(() => {
+  if (isGroupActive.value) {
+    return [
+      { key: 'memory', label: 'Memory.md · 群聊记忆' },
+      { key: 'summary', label: 'SUMMARY.md · 大事记简报' }
+    ]
+  }
+  return [
+    { key: 'soul', label: 'Soul.md · 性格人设' },
+    { key: 'world', label: 'World.md · 世界设定' },
+    { key: 'memory', label: 'Memory.md · 双轨记忆' },
+    { key: 'charUser', label: 'USER.md · 专属画像' }
+  ]
+})
 const brainSoulContent = ref('')
 const brainWorldContent = ref('')
 const brainMemoryContent = ref('')
 const brainCharUserContent = ref('')
+const brainSummaryContent = ref('')
+
+// ===================== 群聊 @ 提及功能 =====================
+const showAtMentionModal = ref(false)
+const atMentionSearchQuery = ref('')
+const atMentionIndex = ref(-1)
+const activeAtMentionSelectIndex = ref(0)
+
+const currentGroupMembers = computed(() => {
+  if (!isGroupActive.value || !activeGroupChat.value) return []
+  const memberIds = activeGroupChat.value.memberIds || []
+  return characterList.value.filter(c => memberIds.includes(c.id))
+})
+
+const filteredAtMentionMembers = computed(() => {
+  const query = atMentionSearchQuery.value.trim().toLowerCase()
+  if (!query) return currentGroupMembers.value
+  return currentGroupMembers.value.filter(c => c.name.toLowerCase().includes(query))
+})
+
+function handleInputAtMention(e: Event) {
+  if (!isGroupActive.value) return
+
+  const textarea = e.target as HTMLTextAreaElement
+  const val = textarea.value
+  const selectionStart = textarea.selectionStart
+
+  // 寻找光标前最后一个 "@"
+  const textBeforeCursor = val.slice(0, selectionStart)
+  const lastAtIdx = textBeforeCursor.lastIndexOf('@')
+
+  if (lastAtIdx !== -1) {
+    // 确保从最后一个 "@" 到光标之间没有空格或换行
+    const textAfterAt = textBeforeCursor.slice(lastAtIdx + 1)
+    if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+      showAtMentionModal.value = true
+      atMentionSearchQuery.value = textAfterAt
+      atMentionIndex.value = lastAtIdx
+      activeAtMentionSelectIndex.value = 0
+      return
+    }
+  }
+
+  showAtMentionModal.value = false
+}
+
+function insertAtMention(memberName: string) {
+  const textarea = chatTextarea.value
+  if (!textarea) return
+
+  const val = chatInputText.value
+  const selectionStart = textarea.selectionStart
+  const beforeAt = val.slice(0, atMentionIndex.value)
+  const afterCursor = val.slice(selectionStart)
+
+  chatInputText.value = beforeAt + '@' + memberName + ' ' + afterCursor
+  showAtMentionModal.value = false
+
+  nextTick(() => {
+    textarea.focus()
+    const newCursorPos = atMentionIndex.value + memberName.length + 2 // @ + 空格
+    textarea.setSelectionRange(newCursorPos, newCursorPos)
+    adjustTextareaHeight()
+  })
+}
 
 // ===================== 会话历史弹窗 =====================
 const showChatHistoryModal = ref(false)
@@ -8391,6 +8833,16 @@ async function triggerDreamReflection() {
 }
 
 function triggerCleanChoice() {
+  if (isGroupActive.value) {
+    const group = activeGroupChat.value
+    if (!group) return
+    customDialog.title = '群聊会话与记忆清扫'
+    customDialog.message = ''
+    customDialog.type = 'clean-choice'
+    customDialog.visible = true
+    return
+  }
+
   const char = activeCharacter.value
   if (!char) return
   
@@ -8424,18 +8876,22 @@ function triggerCleanChoice() {
 }
 
 async function handleCleanOption(option: number) {
-  const char = activeCharacter.value
-  if (!char) return
+  const isGroup = isGroupActive.value
+  const targetId = isGroup ? activeGroupChat.value?.id : activeCharacter.value?.id
+  const targetName = isGroup ? activeGroupChat.value?.name : activeCharacter.value?.name
+  const folderName = isGroup ? activeGroupChat.value?.id : activeCharacter.value?.folder_name
+  
+  if (!targetId) return
   
   customDialog.visible = false
   
   if (option === 1) {
     // 选项 1：逻辑清除窗口会话
     try {
-      const res = await window.api.invoke('clear-chat-window', { characterId: char.id })
+      const res = await window.api.invoke('clear-chat-window', { characterId: targetId })
       if (res.success) {
         // 响应式置空，Vue 3 computed 会立即渲染为空白，侧边栏也联动隐藏最近消息
-        allMessages[char.id] = []
+        allMessages[targetId] = []
         showCustomAlert('清除成功', '✨ 当前窗口会话已成功逻辑清除！', 'success')
       } else {
         showCustomAlert('清除失败', `${res.error || '未知错误'}`, 'error')
@@ -8445,27 +8901,47 @@ async function handleCleanOption(option: number) {
     }
   } else if (option === 2) {
     // 选项 2：物理彻底清空
+    const title = isGroup ? '彻底清除群历史与记忆警告' : '彻底清除数据警告'
+    const warnMsg = isGroup
+      ? `您确定要彻底清空群聊 [${targetName}] 的所有聊天记录与群组短期记忆吗？\n此操作为高危操作，清空后数据将彻底消失且无法找回！群聊会重置回初始状态。`
+      : `您确定要彻底清空角色 [${targetName}] 的所有聊天记录、长短期记忆和专属用户画像吗？\n此操作为高危操作，清空后数据将彻底消失且无法找回！角色仅会保留其核心性格与世界设定。`
+
     showCustomConfirm(
-      '彻底清除数据警告',
-      `您确定要彻底清空角色 [${char.name}] 的所有聊天记录、长短期记忆和专属用户画像吗？\n此操作为高危操作，清空后数据将彻底消失且无法找回！角色仅会保留其核心性格与世界设定。`,
+      title,
+      warnMsg,
       async () => {
         try {
-          const res = await window.api.invoke('clear-history-and-memory', {
-            characterId: char.id,
-            folderName: char.folder_name
-          })
-          if (res.success) {
-            // 前端响应式置空
-            allMessages[char.id] = []
-            
-            // 如果大脑面板是开启的，重新获取以刷新展现的内容
-            if (showBrainPanel.value) {
-              openBrainPanel()
+          if (isGroup) {
+            // 🚀 群聊物理清空逻辑
+            const res = await window.api.invoke('clear-group-history-and-memory', {
+              groupId: targetId
+            })
+            if (res.success) {
+              allMessages[targetId] = []
+              
+              // 如果大脑面板是开启的，重新加载群记忆以刷新展现的内容
+              if (showBrainPanel.value) {
+                openBrainPanel()
+              }
+              showCustomAlert('彻底清除成功', '✨ 群聊历史记录与 Memory.md 记忆均已彻底物理清除！', 'success')
+            } else {
+              showCustomAlert('清空失败', `${res.error || '未知保存错误'}`, 'error')
             }
-            
-            showCustomAlert('彻底清除成功', '✨ 历史聊天记录、Memory.md 记忆与专属 USER.md 画像均已彻底清除，角色已重置回初始状态！', 'success')
           } else {
-            showCustomAlert('清空失败', `${res.error || '未知保存错误'}`, 'error')
+            // 🚀 单聊物理清空逻辑
+            const res = await window.api.invoke('clear-history-and-memory', {
+              characterId: targetId,
+              folderName: folderName
+            })
+            if (res.success) {
+              allMessages[targetId] = []
+              if (showBrainPanel.value) {
+                openBrainPanel()
+              }
+              showCustomAlert('彻底清除成功', '✨ 历史聊天记录、Memory.md 记忆与专属 USER.md 画像均已彻底清除，角色已重置回初始状态！', 'success')
+            } else {
+              showCustomAlert('清空失败', `${res.error || '未知保存错误'}`, 'error')
+            }
           }
         } catch (err: any) {
           showCustomAlert('清空失败', `${err.message}`, 'error')
@@ -9055,6 +9531,12 @@ const emojiList = [
 const showRedPacketModal = ref(false)
 const redPacketAmount = ref(1)
 const redPacketTitle = ref('恭喜发财，大吉大利')
+const showExclusiveDropdown = ref(false) // 专属红包指定领取人下拉菜单可见性
+function hideExclusiveDropdownDelayed() {
+  setTimeout(() => {
+    showExclusiveDropdown.value = false
+  }, 200)
+}
 
 // ===================== 右键菜单 =====================
 const contextMenu = reactive<{ visible: boolean; x: number; y: number; char: any | null; type: 'chat' | 'contact' | 'message'; message: any | null }>({
@@ -9203,7 +9685,8 @@ function restoreMessageProps(m: any) {
     completion_tokens: m.completion_tokens,
     cached_tokens: m.cached_tokens,
     imageBase64: m.imageBase64 || '',
-    imageMeta: m.imageMeta || null
+    imageMeta: m.imageMeta || null,
+    sender_id: m.sender_id || m.character_id
   })
   
   if (m.content) {
@@ -9310,6 +9793,53 @@ async function loadCharacters() {
       Object.assign(conversationMeta, tempMeta)
       Object.assign(allMessages, tempAllMessages)
       Object.assign(conversationActiveTimes, tempActiveTimes)
+
+      // ===================== 前端群聊会话批量预拉取与合并 =====================
+      try {
+        const groupRes = await window.api.invoke('get-group-chats')
+        if (groupRes.success && groupRes.groups) {
+          const rawGroups = groupRes.groups
+          groupChats.value = rawGroups
+          
+          const tempGroupAvatars: Record<string, string> = {}
+          const tempMeta: Record<string, any> = {}
+          const tempAllMessages: Record<string, any[]> = {}
+          const tempActiveTimes: Record<string, number> = {}
+
+          await Promise.all(rawGroups.map(async (group: any) => {
+            // A. 群聊头像
+            const avatarData = await window.api.invoke('get-group-avatar', group.id)
+            tempGroupAvatars[group.id] = avatarData
+            
+            // B. 会话元数据初始化与读取
+            tempMeta[group.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+            const metaRes = await window.api.invoke('get-conversation-meta', { characterId: group.id })
+            if (metaRes.success && metaRes.meta) {
+              Object.assign(tempMeta[group.id], metaRes.meta)
+            }
+
+            // C. 历史消息加载
+            const histRes = await window.api.invoke('get-chat-history', { characterId: group.id, limit: 50 })
+            if (histRes.success && histRes.history) {
+              const restored = histRes.history.map((m: any) => restoreMessageProps(m))
+              tempAllMessages[group.id] = restored
+              const lastMsg = restored.filter((m: any) => !m.isSystem && (m.role === 'user' || m.role === 'assistant')).pop()
+              tempActiveTimes[group.id] = lastMsg?.timestamp || 0
+            } else {
+              tempAllMessages[group.id] = []
+              tempActiveTimes[group.id] = 0
+            }
+          }))
+
+          Object.assign(groupAvatars.value, tempGroupAvatars)
+          Object.assign(characterAvatars.value, tempGroupAvatars)
+          Object.assign(conversationMeta, tempMeta)
+          Object.assign(allMessages, tempAllMessages)
+          Object.assign(conversationActiveTimes, tempActiveTimes)
+        }
+      } catch (groupError) {
+        console.error('加载群聊库异常:', groupError)
+      }
     }
   } catch (error) {
     console.error('加载角色库异常:', error)
@@ -9334,19 +9864,27 @@ async function selectCharacter(charId: string) {
   activeView.value = 'chat'
   sideView.value = 'chat'
 
-  // 预检性格进化草案，用以展示顶部吸顶成长横幅
-  try {
-    const draftRes = await window.api.invoke('get-soul-draft', { characterId: charId })
-    if (draftRes.success && draftRes.hasDraft) {
-      activeEvolutionCharId.value = charId
-      activeEvolutionDraft.value = draftRes.draft
-    } else {
+  // ===================== 群聊模式全局锁死描写模式（包含描写） =====================
+  const isGroup = groupChats.value.some(g => g.id === charId)
+  if (isGroup) {
+    chatMode.value = 'descriptive'
+  }
+
+  // 预检性格进化草案，用以展示顶部吸顶成长横幅 (群聊无须调用)
+  if (!isGroup) {
+    try {
+      const draftRes = await window.api.invoke('get-soul-draft', { characterId: charId })
+      if (draftRes.success && draftRes.hasDraft) {
+        activeEvolutionCharId.value = charId
+        activeEvolutionDraft.value = draftRes.draft
+      } else {
+        activeEvolutionCharId.value = ''
+        activeEvolutionDraft.value = null
+      }
+    } catch (_) {
       activeEvolutionCharId.value = ''
       activeEvolutionDraft.value = null
     }
-  } catch (_) {
-    activeEvolutionCharId.value = ''
-    activeEvolutionDraft.value = null
   }
 
   // 微信级细节：如果该会话曾经被删除/隐藏，在再次发起会话时，100% 自动恢复其在列表中的可见性
@@ -9429,17 +9967,33 @@ async function selectCharacterFromContacts(charId: string) {
 
 // ===================== 级联下拉添加角色菜单交互 =====================
 async function sendRedPacket() {
-  const char = activeCharacter.value
+  const char = activeCharacter.value || activeGroupChat.value
   if (!char || redPacketAmount.value <= 0) return
-  if (userProfile.walletBalance < redPacketAmount.value) {
-    showCustomAlert('余额不足', '当前虚拟钱包余额不足，请先充值！', 'error')
-    return
-  }
-  userProfile.walletBalance -= redPacketAmount.value
-  showRedPacketModal.value = false
 
   const amount = redPacketAmount.value
   const title = redPacketTitle.value.trim() || '恭喜发财，大吉大利'
+  const isGroup = !!activeGroupChat.value
+
+  // 计算总开销
+  const isExclusive = isGroup && groupRedPacketType.value === 'exclusive'
+  const totalCost = (isGroup && !isExclusive)
+    ? activeGroupChatMembers.value.length * amount
+    : amount
+
+  if (userProfile.walletBalance < totalCost) {
+    showCustomAlert('余额不足', '当前虚拟钱包余额不足，请先充值！', 'error')
+    return
+  }
+
+  // 专属红包如果没选人，进行提示
+  if (isExclusive && !groupRedPacketTargetId.value) {
+    showCustomAlert('提示', '请选择指定领取人！', 'info')
+    return
+  }
+
+  userProfile.walletBalance -= totalCost
+  showRedPacketModal.value = false
+
   if (!allMessages[char.id]) allMessages[char.id] = []
   
   // 生成唯一的 userMsgId，用于物理保存与定位消息
@@ -9447,11 +10001,30 @@ async function sendRedPacket() {
 
   const timestamp = Date.now()
   conversationActiveTimes[char.id] = timestamp
+
+  const targetIdVal = isExclusive ? groupRedPacketTargetId.value : undefined
+  const targetNameVal = isExclusive ? getSenderInfo(groupRedPacketTargetId.value).name : undefined
+
+  let showContent = `[发送红包: ${amount} 元, 附言: ${title}]`
+  if (isGroup) {
+    if (isExclusive) {
+      showContent = `[发送专属红包: ${amount} 元, 给: ${targetNameVal}, 附言: ${title}]`
+    } else {
+      showContent = `[发送普通群红包: ${amount} 元, 附言: ${title}]`
+    }
+  }
+
   allMessages[char.id].push({
     id: userMsgId,
     role: 'user',
-    content: `[发送红包: ${amount} 元, 附言: ${title}]`,
-    redPacket: { amount, title, status: 'waiting' },
+    content: showContent,
+    redPacket: { 
+      amount, 
+      title, 
+      status: 'waiting', 
+      targetId: targetIdVal, 
+      targetName: targetNameVal 
+    },
     created_at: new Date().toISOString(),
     timestamp: timestamp
   })
@@ -9464,8 +10037,14 @@ async function sendRedPacket() {
     pendingUserMessagesMap[charId] = []
   }
   pendingUserMessagesMap[charId].push({
-    content: `[发送红包: ${amount} 元, 附言: ${title}]`,
-    redPacketPayload: { amount, title, userMsgId }
+    content: showContent,
+    redPacketPayload: { 
+      amount, 
+      title, 
+      userMsgId,
+      targetId: targetIdVal,
+      targetName: targetNameVal
+    }
   })
 
   if (messageMergeTimersMap[charId]) {
@@ -9477,6 +10056,164 @@ async function sendRedPacket() {
   }, 3000)
 
   saveUserProfileLocal()
+}
+
+// ===================== 群聊核心辅助与合成物理头像 =====================
+function getSenderInfo(senderId: string) {
+  if (senderId === 'user') {
+    return { name: userProfile.nickname || '我', avatar: userProfile.avatarUrl || defaultAvatarSrc }
+  }
+  const char = characterList.value.find(c => c.id === senderId)
+  if (char) {
+    return { name: char.name, avatar: characterAvatars.value[char.id] || '' }
+  }
+  return { name: '未知', avatar: '' }
+}
+
+async function composeGroupAvatar(selectedCharIds: string[]): Promise<string> {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 120
+    canvas.height = 120
+    const ctx = canvas.getContext('2d')
+    if (!ctx) { resolve(''); return }
+    ctx.fillStyle = '#f3f4f6'
+    ctx.fillRect(0, 0, 120, 120)
+
+    const avatarsToDraw: string[] = []
+    selectedCharIds.forEach(id => {
+      const avatar = (characterAvatars.value as Record<string, string>)[id]
+      if (avatar) {
+        avatarsToDraw.push(avatar)
+      }
+    })
+    if (userProfile.avatarUrl) {
+      avatarsToDraw.push(userProfile.avatarUrl)
+    } else {
+      avatarsToDraw.push(defaultAvatarSrc)
+    }
+
+    const drawList = avatarsToDraw.slice(0, 4)
+    const count = drawList.length
+
+    let loadedCount = 0
+    const imgs: HTMLImageElement[] = []
+
+    const onAllLoaded = () => {
+      try {
+        if (count === 1) {
+          ctx.drawImage(imgs[0], 0, 0, 120, 120)
+        } else if (count === 2) {
+          ctx.drawImage(imgs[0], 0, 0, 60, 120)
+          ctx.drawImage(imgs[1], 60, 0, 60, 120)
+        } else if (count === 3) {
+          ctx.drawImage(imgs[0], 30, 0, 60, 60)
+          ctx.drawImage(imgs[1], 0, 60, 60, 60)
+          ctx.drawImage(imgs[2], 60, 60, 60, 60)
+        } else if (count >= 4) {
+          ctx.drawImage(imgs[0], 0, 0, 60, 60)
+          ctx.drawImage(imgs[1], 60, 0, 60, 60)
+          ctx.drawImage(imgs[2], 0, 60, 60, 60)
+          ctx.drawImage(imgs[3], 60, 60, 60, 60)
+        }
+      } catch (err) {
+        console.error('绘制群聊拼贴头像出错:', err)
+      }
+      resolve(canvas.toDataURL('image/png'))
+    }
+
+    drawList.forEach((src, idx) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        loadedCount++
+        if (loadedCount === count) {
+          onAllLoaded()
+        }
+      }
+      img.onerror = () => {
+        loadedCount++
+        if (loadedCount === count) {
+          onAllLoaded()
+        }
+      }
+      img.src = src
+      imgs[idx] = img
+    })
+  })
+}
+
+async function createGroupChatAction() {
+  if (!newGroupName.value.trim()) {
+    showCustomAlert('提示', '请填写群聊名称！', 'info')
+    return
+  }
+  if (selectedGroupMembers.value.length === 0) {
+    showCustomAlert('提示', '请至少选择一个群成员！', 'info')
+    return
+  }
+  if (selectedGroupMembers.value.length > 3) {
+    showCustomAlert('提示', '一个群聊最多只能添加 3 个 AI 成员！', 'info')
+    return
+  }
+
+  showCreateGroupModal.value = false
+  const name = newGroupName.value.trim()
+  const memberIds = [...selectedGroupMembers.value]
+  const groupId = 'group_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5)
+
+  try {
+    const avatarBase64 = await composeGroupAvatar(memberIds)
+    const res = await window.api.invoke('create-group-chat', {
+      groupId,
+      name,
+      memberIds,
+      avatarBase64
+    })
+    
+    if (res.success) {
+      newGroupName.value = ''
+      selectedGroupMembers.value = []
+      showCustomAlert('成功', '群聊创建成功！', 'success')
+      await loadCharacters() // 刷新列表
+      selectCharacter(groupId) // 选中并进入
+    } else {
+      showCustomAlert('错误', res.error || '创建群聊失败', 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('错误', err.message || err, 'error')
+  }
+}
+
+function ctxEditGroupName() {
+  contextMenu.visible = false
+  if (contextMenu.char) {
+    activeEditingGroupId.value = contextMenu.char.id
+    editGroupNameVal.value = contextMenu.char.name
+    showEditGroupNameModal.value = true
+  }
+}
+
+async function saveGroupNameAction() {
+  if (!activeEditingGroupId.value || !editGroupNameVal.value.trim()) return
+  const gId = activeEditingGroupId.value
+  const newName = editGroupNameVal.value.trim()
+  
+  try {
+    const res = await window.api.invoke('update-group-name', { groupId: gId, name: newName })
+    if (res.success) {
+      showEditGroupNameModal.value = false
+      showCustomAlert('成功', '群聊名称修改成功！', 'success')
+      const group = groupChats.value.find(g => g.id === gId)
+      if (group) {
+        group.name = newName
+      }
+    } else {
+      showCustomAlert('失败', res.error || '群名称修改失败', 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('失败', err.message || err, 'error')
+  }
 }
 
 function toggleAddMenu() {
@@ -9620,7 +10357,7 @@ function onImportCancel() { isPreviewOpen.value = false }
 
 // ===================== 发送消息 =====================
 async function sendChatMessage() {
-  const char = activeCharacter.value
+  const char = activeCharacter.value || activeGroupChat.value
   // 安全拦截：当 AI 正在回复（isStreaming 为 true）或者输入与图片均为空时，拦截不予发送
   if (!char || isStreaming.value || (!chatInputText.value.trim() && !pastedImageBase64.value)) return
 
@@ -9646,7 +10383,8 @@ async function sendChatMessage() {
     content: userMsg,
     imageBase64: imageBase64 || undefined,
     created_at: new Date().toISOString(),
-    timestamp: timestamp
+    timestamp: timestamp,
+    sender_id: 'user'
   })
   nextTick(() => scrollToBottom('smooth', true))
 
@@ -9709,17 +10447,51 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
     : (lastUserMsgId.value || 'msg_merged_' + Date.now())
 
   if (!overrideText && rpPayload) {
-    const greetings = finalUserMessage ? `在给你发红包的同时，用户对你说道：“${finalUserMessage}”\n` : ''
+    const isGroup = groupChats.value.some(g => g.id === charId)
+    const greetings = finalUserMessage ? `在发红包的同时，用户对你们说道：“${finalUserMessage}”\n` : ''
     
-    finalUserMessage = `${greetings}[USER_RED_ENVELOPE: ${rpPayload.amount}元, 祝福语: "${rpPayload.title}"] 用户给你发了 ${rpPayload.amount} 元的红包，附言：“${rpPayload.title}”。
+    if (isGroup) {
+      const isExclusive = !!rpPayload.targetId
+      if (isExclusive) {
+        finalUserMessage = `${greetings}[USER_EXCLUSIVE_RED_ENVELOPE: ${rpPayload.amount}元, 给: ${rpPayload.targetName}, 祝福语: "${rpPayload.title}"] 用户在群里给 ${rpPayload.targetName} 发了一个专属红包，金额为 ${rpPayload.amount} 元，附言：“${rpPayload.title}”。其他 AI 成员绝对不能领用（请选择拒收或保持沉默）。
+
+请 ${rpPayload.targetName} 决定是否“领取”或“退回/拒收”这个专属红包：
+- 如果你决定【领取专属红包】：请务必在你的回复的【最开始】加入一行控制符：[RECEIVE_RED_PACKET] ，并符合性格地感谢用户！
+- 如果你决定【退回专属红包】：请务必在你的回复的【最开始】加入一行控制符：[RETURN_RED_PACKET] ，并符合性格地拒绝。
+
+其他非指定的 AI 角色如果发言，请在发言中表现出对专属红包的吐槽、羡慕或无视，但绝不能加入控制符 [RECEIVE_RED_PACKET]。`
+        
+        finalDbMessage = `[wechat_red_packet]:${JSON.stringify({ 
+          amount: rpPayload.amount, 
+          title: rpPayload.title, 
+          status: 'waiting',
+          targetId: rpPayload.targetId,
+          targetName: rpPayload.targetName
+        })}`
+      } else {
+        finalUserMessage = `${greetings}[USER_GROUP_RED_ENVELOPE: ${rpPayload.amount}元, 祝福语: "${rpPayload.title}"] 用户在群里发了一个普通群红包，金额为 ${rpPayload.amount} 元，群内每个 AI 角色均可分得 ${rpPayload.amount} 元，附言：“${rpPayload.title}”。
+
+请各自以你们的 AI 角色性格和设定，独立决定是否“领取”或“退回/拒收”这个红包：
+- 如果你根据性格和设定决定【领取红包】：请务必在你的回复的【最开始】加入一行控制符：[RECEIVE_RED_PACKET] ，并以角色性格表示感谢！
+- 如果你根据性格和设定决定【退回红包】：请务必在你的回复的【最开始】加入一行控制符：[RETURN_RED_PACKET] ，并以角色性格拒绝。`
+
+        finalDbMessage = `[wechat_red_packet]:${JSON.stringify({ 
+          amount: rpPayload.amount, 
+          title: rpPayload.title, 
+          status: 'waiting'
+        })}`
+      }
+    } else {
+      finalUserMessage = `${greetings}[USER_RED_ENVELOPE: ${rpPayload.amount}元, 祝福语: "${rpPayload.title}"] 用户给你发了 ${rpPayload.amount} 元的红包，附言：“${rpPayload.title}”。
 
 请以你当前的 AI 角色性格和设定，独立决定是否“领取”或“退回”这个红包：
 - 如果你根据性格和设定决定【领取红包】：请你务必在你的回复的【最开始】加入一行控制符：[RECEIVE_RED_PACKET] ，并以角色的性格热情或符合人设地感谢用户！
 - 如果你根据性格和设定决定【退回红包】（拒收）：请你务必在你的回复的【最开始】加入一行控制符：[RETURN_RED_PACKET] ，以你的性格傲娇、委婉或符合设定地拒绝红包并说明缘由。
 
-请直接开始你符合人设的自然对话回复，不要向用户暴露控制符的存在。`
+请直接开始你符合人设 of 自然对话回复，不要向用户暴露控制符的存在。`
 
-    finalDbMessage = `[wechat_red_packet]:${JSON.stringify({ amount: rpPayload.amount, title: rpPayload.title, status: 'waiting' })}`
+      finalDbMessage = `[wechat_red_packet]:${JSON.stringify({ amount: rpPayload.amount, title: rpPayload.title, status: 'waiting' })}`
+    }
     finalUserMsgId = rpPayload.userMsgId
   }
 
@@ -9752,15 +10524,17 @@ async function triggerMergedAiResponse(char: any, overrideText?: string) {
   startReplyTimeout(char.id)
 
   try {
+    const isGroup = groupChats.value.some(g => g.id === charId)
     // 4. 发起大模型一次性返回调用
     const res = await window.api.invoke('chat-stream', {
       characterId: char.id,
-      folderName: char.folder_name,
+      folderName: char.folder_name || 'groups',
       userMessage: finalUserMessage || '（用户发来了一张图片）',
       chatMode: chatMode.value,
       imageBase64: lastImage || undefined,
       userMsgId: finalUserMsgId,
-      dbMessage: finalDbMessage
+      dbMessage: finalDbMessage,
+      isGroup: isGroup
     })
 
     if (!res.success) throw new Error(res.error || '连接断开')
@@ -10008,6 +10782,30 @@ async function handleAssistantResponse(
 }
 
 function handleKeyDown(e: KeyboardEvent) {
+  if (showAtMentionModal.value) {
+    const list = filteredAtMentionMembers.value
+    if (list.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        activeAtMentionSelectIndex.value = (activeAtMentionSelectIndex.value + 1) % list.length
+        return
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        activeAtMentionSelectIndex.value = (activeAtMentionSelectIndex.value - 1 + list.length) % list.length
+        return
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        insertAtMention(list[activeAtMentionSelectIndex.value].name)
+        return
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      showAtMentionModal.value = false
+      return
+    }
+  }
+
   if (e.key === 'Enter' && !e.shiftKey) {
     if (isMobile.value) {
       // 手机端回车仅作换行，不发送消息
@@ -10435,7 +11233,7 @@ function deleteCustomEmoji(id: string) {
 }
 
 async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
-  const char = activeCharacter.value
+  const char = activeCharacter.value || activeGroupChat.value
   if (!char) return
   
   showEmojiPanel.value = false
@@ -10664,7 +11462,36 @@ async function openBrainPanel() {
   brainCharUserContent.value = userRes.success ? userRes.content : ''
 }
 
+async function openGroupBrainPanel() {
+  const groupId = selectedCharacterId.value
+  if (!groupId) return
+  showBrainPanel.value = true
+  brainActiveTab.value = 'memory'
+  brainEditModes.memory = false
+  brainEditModes.summary = false
+
+  const memRes = await window.api.invoke('read-group-file', { groupId, fileName: 'Memory.md' })
+  brainMemoryContent.value = memRes.success ? memRes.content : ''
+
+  const sumRes = await window.api.invoke('read-group-file', { groupId, fileName: 'SUMMARY.md' })
+  brainSummaryContent.value = sumRes.success ? sumRes.content : ''
+}
+
 async function saveBrainFiles() {
+  if (isGroupActive.value) {
+    const groupId = selectedCharacterId.value
+    if (!groupId) return
+    const memRes = await window.api.invoke('save-group-file', { groupId, fileName: 'Memory.md', content: brainMemoryContent.value })
+    const sumRes = await window.api.invoke('save-group-file', { groupId, fileName: 'SUMMARY.md', content: brainSummaryContent.value })
+    if (memRes.success && sumRes.success) {
+      showBrainPanel.value = false
+      showCustomAlert('保存成功', '群聊记忆与大事记文件已成功保存并实时生效！', 'success')
+    } else {
+      showCustomAlert('保存失败', '部分或全部配置文件保存失败，请确保应用具有写入文件的权限后重试。', 'error')
+    }
+    return
+  }
+
   const char = activeCharacter.value
   if (!char) return
   const memRes = await window.api.invoke('save-memory-file', { folderName: char.folder_name, content: brainMemoryContent.value })
@@ -11015,8 +11842,31 @@ function ctxToggleMute() {
 }
 
 function ctxHideConversation() {
-  const id = contextMenu.char?.id
-  if (!id) return
+  const char = contextMenu.char
+  if (!char) return
+  const id = char.id
+  
+  if (char.isGroup) {
+    contextMenu.visible = false
+    showCustomConfirm(
+      '解散群聊',
+      `确定要退出并解散群聊 [${char.name}] 吗？此操作将物理清空磁盘群目录并擦除数据库记录，该操作不可逆。`,
+      async () => {
+        const res = await window.api.invoke('delete-group-chat', { groupId: id })
+        if (res.success) {
+          showCustomAlert('成功', '群聊已退出并解散！', 'success')
+          groupChats.value = groupChats.value.filter(g => g.id !== id)
+          if (selectedCharacterId.value === id) {
+            selectedCharacterId.value = null
+          }
+        } else {
+          showCustomAlert('错误', res.error || '解散群聊失败', 'error')
+        }
+      }
+    )
+    return
+  }
+
   if (!conversationMeta[id]) conversationMeta[id] = {}
   conversationMeta[id].hidden = true
   window.api.invoke('save-conversation-meta', { characterId: id, ...conversationMeta[id] })
@@ -11090,6 +11940,7 @@ function handleGlobalClick(e?: MouseEvent) {
 
   // 点击其他区域自动收起角色内心状态下拉浮窗及微调Popover
   showStatesDropdown.value = false
+  showExclusiveDropdown.value = false
   activePopoverKey.value = null
 }
 
@@ -12350,6 +13201,149 @@ onMounted(async () => {
     }
 
     if (data.done) {
+      const isGroupChat = groupChats.value.some(g => g.id === chunkCharId)
+      const senderId = (data as any).senderId
+      
+      if (isGroupChat) {
+        isStreaming.value = false
+        if (streamingCharacterId.value === chunkCharId) {
+          streamingCharacterId.value = null
+        }
+        
+        // 群聊红包状态接收与领退款微观经济处理
+        const act = (data as any).redPacketAction
+        if (act && senderId) {
+          const msgs = allMessages[chunkCharId] || []
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const msg = msgs[i]
+            if (msg.role === 'user' && msg.redPacket && (!msg.redPacket.status || msg.redPacket.status === 'waiting')) {
+              if (msg.redPacket.targetId && msg.redPacket.targetId !== senderId) {
+                continue
+              }
+              if (act === 'receive') {
+                msg.redPacket.status = 'received'
+              } else if (act === 'return') {
+                msg.redPacket.status = 'returned'
+                const amount = parseFloat(msg.redPacket.amount)
+                if (!isNaN(amount) && amount > 0) {
+                  userProfile.walletBalance += amount
+                  saveUserProfileLocal()
+                  showCustomAlert('红包被退回', `群成员退回了你的红包，金额 ${amount.toFixed(2)} 元已退回您的钱包！`, 'info')
+                }
+              }
+              if (msg.id) {
+                const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
+                  amount: msg.redPacket.amount,
+                  title: msg.redPacket.title,
+                  status: msg.redPacket.status,
+                  targetId: msg.redPacket.targetId,
+                  targetName: msg.redPacket.targetName
+                })}`
+                window.api.invoke('update-message-content', {
+                  messageId: msg.id,
+                  content: updatedDbMessage
+                })
+              }
+              break
+            }
+          }
+        }
+        
+        // AI 自主发出的红包卡片前台渲染
+        const rpSend = (data as any).redPacketSend
+        if (rpSend && senderId) {
+          const rpContent = `[wechat_red_packet]:${JSON.stringify(rpSend)}`
+          const msgs = allMessages[chunkCharId]
+          if (msgs && !msgs.some(m => m.content === rpContent)) {
+            msgs.push({
+              id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+              role: 'assistant',
+              sender_id: senderId,
+              content: rpContent,
+              redPacket: {
+                amount: rpSend.amount,
+                title: rpSend.title,
+                status: rpSend.status || 'waiting'
+              },
+              created_at: new Date().toISOString(),
+              timestamp: Date.now()
+            })
+          }
+        }
+
+        // 🚀 强力修复：群聊渲染偶发卡住/不显示气泡的自愈防线
+        // 在 done 为 true 时，将最新的权威全文覆盖到最后一条助理气泡中，若因网络延迟或丢包没能正常渲染，则作为兜底自动创建
+        if (data.content && senderId) {
+          const msgs = allMessages[chunkCharId] || []
+          // 查找最后一条由该 senderId 发送的 assistant 消息
+          let lastAssistantIdx = -1
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === 'assistant' && msgs[i].sender_id === senderId) {
+              lastAssistantIdx = i
+              break
+            }
+          }
+
+          let cleanedContent = data.content
+          // 🚀 黄金开场白内容物理过滤：只提取 <content> 与 </content> 标签之间的正文和抉择
+          if (cleanedContent.includes('<content>')) {
+            const startIdx = cleanedContent.indexOf('<content>') + 9
+            const endIdx = cleanedContent.indexOf('</content>')
+            if (endIdx !== -1) {
+              cleanedContent = cleanedContent.substring(startIdx, endIdx).trim()
+            } else {
+              cleanedContent = cleanedContent.substring(startIdx).trim()
+            }
+          }
+
+          // 🚀 升级为超强容错全局正则，清洗群聊中的红包控制符与系统私有控制符
+          const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
+          const halfBracketReg = /[（(][^）)]*$/g
+          cleanedContent = cleanedContent
+            .replace(/\[RECEIVE_RED_PACKET\]/g, '')
+            .replace(/\[RETURN_RED_PACKET\]/g, '')
+            .replace(sendReg, '')
+            .replace(halfBracketReg, '')
+            .trim()
+
+          if (lastAssistantIdx !== -1) {
+            msgs[lastAssistantIdx].content = cleanedContent
+          } else {
+            // 如果没能流式输出气泡，在此执行强力自愈，兜底 push 一个
+            msgs.push({
+              id: 'msg_fh_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+              role: 'assistant',
+              sender_id: senderId,
+              content: cleanedContent,
+              created_at: new Date().toISOString(),
+              timestamp: Date.now()
+            })
+          }
+        }
+
+        // 无论什么聊天模式，都将最新的 Token 使用及缓存命中率实时更新到群聊最后一个对应发言人气泡
+        if (senderId) {
+          const msgs = allMessages[chunkCharId] || []
+          let lastAssistantIdx = -1
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === 'assistant' && msgs[i].sender_id === senderId) {
+              lastAssistantIdx = i
+              break
+            }
+          }
+          if (lastAssistantIdx !== -1) {
+            msgs[lastAssistantIdx].prompt_tokens = (data as any).prompt_tokens
+            msgs[lastAssistantIdx].completion_tokens = (data as any).completion_tokens
+            msgs[lastAssistantIdx].cached_tokens = (data as any).cached_tokens
+          }
+        }
+        
+        if (chunkCharId === selectedCharacterId.value) {
+          nextTick(() => scrollToBottom())
+        }
+        return
+      }
+
       if (chunkCharId === selectedCharacterId.value) {
         isStreaming.value = false
         streamingCharacterId.value = null
@@ -12491,10 +13485,40 @@ onMounted(async () => {
 
     const cleanContent = scrubber.scrub(data.content)
     if (cleanContent) {
-      // 确保消息列表末尾有 assistant 气泡容器，Creator Bot 流式推送时不会预先 push 空气泡
-      // 若最后一条不是 assistant，则自动插入一条，供 startTypingEffect 逐字追加
       conversationActiveTimes[chunkCharId] = Date.now()
       const msgs = allMessages[chunkCharId]
+      
+      // ===================== 群聊模式流式文本追加 =====================
+      const isGroupChat = groupChats.value.some(g => g.id === chunkCharId)
+      const senderId = (data as any).senderId
+      if (isGroupChat && senderId) {
+        if (msgs) {
+          if (msgs.length === 0 || msgs[msgs.length - 1].role !== 'assistant' || msgs[msgs.length - 1].sender_id !== senderId) {
+            msgs.push({
+              role: 'assistant',
+              sender_id: senderId,
+              content: '',
+              created_at: new Date().toISOString(),
+              timestamp: Date.now()
+            })
+            if (chunkCharId === selectedCharacterId.value) {
+              nextTick(() => scrollToBottom())
+            }
+          }
+          
+          const last = msgs[msgs.length - 1]
+          if (last.role === 'assistant' && last.sender_id === senderId) {
+            last.content += cleanContent
+            if (chunkCharId === selectedCharacterId.value) {
+              nextTick(() => scrollToBottom())
+            }
+          }
+        }
+        return
+      }
+
+      // 确保消息列表末尾有 assistant 气泡容器，Creator Bot 流式推送时不会预先 push 空气泡
+      // 若最后一条不是 assistant，则自动插入一条，供 startTypingEffect 逐字追加
       if (msgs && (msgs.length === 0 || msgs[msgs.length - 1].role !== 'assistant')) {
         msgs.push({ role: 'assistant', content: '', created_at: new Date().toISOString() })
         if (chunkCharId === selectedCharacterId.value) {
@@ -13252,7 +14276,7 @@ function openMessageContextMenu(e: MouseEvent, msg: any) {
   const pos = adjustContextMenuPosition(e, 'message')
   contextMenu.x = pos.x
   contextMenu.y = pos.y
-  contextMenu.char = activeCharacter.value
+  contextMenu.char = activeCharacter.value || activeGroupChat.value
   contextMenu.message = msg
   contextMenu.type = 'message'
 }
