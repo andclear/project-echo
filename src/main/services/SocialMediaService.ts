@@ -90,6 +90,10 @@ export class SocialMediaService {
    */
   public async generateMoment(char: any, modelAdapter: ModelAdapter, forceDraw = false): Promise<any> {
     const db = getDatabaseService();
+    if (db.getChatHistory(char.id, 1).length === 0) {
+      console.log(`[SocialMediaService] 0-Token 物理拦截：角色 ${char.name} 从未与用户产生过聊天历史，拒绝生成朋友圈。`);
+      return null;
+    }
     const folderName = char.folder_name;
     const baseDir = this.storageManager.getBaseDir();
 
@@ -346,6 +350,10 @@ Constraints:
    */
   public async generateForumPost(char: any, modelAdapter: ModelAdapter, forceDraw = false): Promise<any> {
     const db = getDatabaseService();
+    if (db.getChatHistory(char.id, 1).length === 0) {
+      console.log(`[SocialMediaService] 0-Token 物理拦截：角色 ${char.name} 从未与用户产生过聊天历史，拒绝生成论坛帖子。`);
+      return null;
+    }
     const folderName = char.folder_name;
     const baseDir = this.storageManager.getBaseDir();
 

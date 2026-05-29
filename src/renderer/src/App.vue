@@ -1171,12 +1171,23 @@
                   <ScrollIcon class="w-4 h-4 text-primary animate-pulse" />
                   <span>回音社区</span>
                 </div>
-                <button
-                  @click="openPublishForumModal"
-                  class="px-2.5 py-1 rounded-lg bg-primary hover:bg-primary-high text-[10px] font-bold text-white shadow transition-all cursor-pointer select-none active:scale-95"
-                >
-                  + 发帖
-                </button>
+                <div class="flex items-center space-x-2">
+                  <button
+                    @click="refreshForum"
+                    :disabled="isRefreshingForum"
+                    class="px-2.5 py-1 rounded-lg border border-outline-variant/60 bg-surface hover:bg-surface-high hover:shadow-sm text-[10px] font-bold text-on-surface flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer transition-all active:scale-95"
+                  >
+                    <Loader2Icon v-if="isRefreshingForum" class="w-3 h-3 animate-spin text-primary" />
+                    <RefreshCwIcon v-else class="w-3 h-3 text-on-surface-variant" />
+                    <span>{{ forumCooldownText || '刷新' }}</span>
+                  </button>
+                  <button
+                    @click="openPublishForumModal"
+                    class="px-2.5 py-1 rounded-lg bg-primary hover:bg-primary-high text-[10px] font-bold text-white shadow transition-all cursor-pointer select-none active:scale-95"
+                  >
+                    + 发帖
+                  </button>
+                </div>
               </header>
 
               <!-- 中间板块标签筛选 (科技前沿、灌水日常、灵感脑洞、异世界探讨、情感树洞、暗夜私语) -->

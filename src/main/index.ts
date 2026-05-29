@@ -3577,19 +3577,6 @@ Please output in exactly this XML format:
     try {
       const db = getDatabaseService()
       const now = Date.now()
-      const lastRefreshStr = db.getSetting('last_refresh_moments')
-      const lastRefresh = lastRefreshStr ? parseInt(lastRefreshStr) : 0
-      
-      // 2 小时冷却校验
-      if (now - lastRefresh < 2 * 60 * 60 * 1000) {
-        const moments = db.getAllMoments(50)
-        for (const m of moments) {
-          m.comments = db.getMomentComments(m.id)
-          m.likes_list = db.getMomentLikes(m.id)  // 附上真实点赞者列表
-          m.isFavorited = db.isFavoriteExist('moment', m.id)
-        }
-        return { success: true, cached: true, moments, error: '刷新冷却中，已展示最新缓存数据' }
-      }
 
       // 获取大模型配置
       const configStr = db.getSetting('model_config')
@@ -3615,7 +3602,7 @@ Please output in exactly this XML format:
         if (m) newMoments.push(m)
       }
 
-      db.setSetting('last_refresh_moments', now.toString())
+
       const moments = db.getAllMoments(50)
       for (const m of moments) {
         m.comments = db.getMomentComments(m.id)
@@ -3635,14 +3622,6 @@ Please output in exactly this XML format:
     try {
       const db = getDatabaseService()
       const now = Date.now()
-      const lastRefreshStr = db.getSetting('last_refresh_forum')
-      const lastRefresh = lastRefreshStr ? parseInt(lastRefreshStr) : 0
-
-      // 2 小时冷却校验
-      if (now - lastRefresh < 2 * 60 * 60 * 1000) {
-        const posts = db.getAllForumPosts(50)
-        return { success: true, cached: true, posts, error: '刷新冷却中，已展示最新缓存数据' }
-      }
 
       // 获取大模型配置
       const configStr = db.getSetting('model_config')
@@ -3668,7 +3647,7 @@ Please output in exactly this XML format:
         if (p) newPosts.push(p)
       }
 
-      db.setSetting('last_refresh_forum', now.toString())
+
       const posts = db.getAllForumPosts(50)
       return { success: true, cached: false, posts, newCount: newPosts.length }
 

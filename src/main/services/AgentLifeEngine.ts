@@ -650,8 +650,14 @@ Please output in exactly this XML format:
         }
       }
 
+      // 增强型静默判断逻辑，全面兼容大小写、拼写错误 [SLIENT]、带引号或括号的各种静默标记
+      const isSilentMsg = (text: string): boolean => {
+        const clean = text.replace(/[\[\]"'\s]/g, '').trim().toLowerCase();
+        return clean === 'silent' || clean === 'slient';
+      };
+
       // 2. 发送主动消息（若非静默）
-      if (messageText && messageText !== '[SILENT]') {
+      if (messageText && !isSilentMsg(messageText)) {
         // 解析可能存在的配图标签
         const imagePromptMatch = messageText.match(/<image_prompt>([\s\S]*?)<\/image_prompt>/i);
         const imageDescMatch = messageText.match(/<image_desc>([\s\S]*?)<\/image_desc>/i);
