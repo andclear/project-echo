@@ -15196,7 +15196,16 @@ onMounted(async () => {
         } catch (_) {}
       }
 
-      // 首先检查是否有 ID、原始物理内容、或红包属性直接相存的重复项
+      // 🚀 物理级自定义表情包强力特征去重：从广播消息中提取表情包特征，防止临时追加的表情包与数据库落盘广播重复渲染
+      let broadcastEmoji: any = null
+      if (msg.content && msg.content.startsWith('[wechat_custom_emoji]:')) {
+        try {
+          const jsonStr = msg.content.replace('[wechat_custom_emoji]:', '')
+          broadcastEmoji = JSON.parse(jsonStr)
+        } catch (_) {}
+      }
+
+      // 首先检查是否有 ID、原始物理内容、或红包、表情包属性直接相存的重复项
       for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 15); i--) {
         if (msgs[i].role === 'assistant') {
           // 🚀 流式临时气泡前置匹配去重：如果本地存在 msg_stream_ 临时气泡，且内容高度重合，我们提前将其 id 修正为真正的物理 id 从而完美拦截广播
@@ -15215,11 +15224,22 @@ onMounted(async () => {
             break
           }
           // B. 红包强力特征去重
-          if (broadcastRp && msgs[i].redPacket) {
+          if (broadcastRp && msgs[i].redPacket && msgs[i].sender_id === msg.sender_id) {
             const localAmount = parseFloat(msgs[i].redPacket.amount)
             const broadcastAmount = parseFloat(broadcastRp.amount)
             if (localAmount === broadcastAmount && msgs[i].redPacket.title === broadcastRp.title) {
               isDuplicate = true
+              msgs[i].id = msg.id // 顺便原子修正临时红包卡片的 ID 为物理正式 ID
+              break
+            }
+          }
+          // C. 表情包强力特征去重：完美解决群发表情卡片后 receive-message 二次广播重叠导致的重复渲染 Bug
+          if (broadcastEmoji && msgs[i].customEmojiUrl && msgs[i].sender_id === msg.sender_id) {
+            const localMeaning = msgs[i].content ? msgs[i].content.replace(/^\[表情:\s*/, '').replace(/\]$/, '').trim() : ''
+            const broadcastMeaning = broadcastEmoji.meaning ? broadcastEmoji.meaning.trim() : ''
+            if (localMeaning === broadcastMeaning) {
+              isDuplicate = true
+              msgs[i].id = msg.id // 原子修正临时表情卡片的 ID 为物理正式 ID
               break
             }
           }
