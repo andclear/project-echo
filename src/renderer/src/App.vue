@@ -4992,6 +4992,7 @@
                   <div 
                     v-if="msg.content && !msg.redPacket && !msg.transfer && !msg.customEmojiUrl" 
                     class="user-chat-bubble markdown-body" 
+                    :class="{ 'emoji-only-bubble': isEmojiOnly(msg.content) }"
                     v-html="renderMarkdown(cleanUserContentForUI(msg.content))" 
                     @contextmenu.prevent="openMessageContextMenu($event, msg)"
                     @touchstart="onLongPressStart($event, msg, 'message')"
@@ -5135,7 +5136,10 @@
                   <div 
                     v-else-if="msg.content" 
                     class="ai-chat-bubble relative" 
-                    :class="{ 'border-red-500/30 bg-red-500/5 dark:bg-red-500/10 text-red-600 dark:text-red-400': msg.isError }"
+                    :class="{ 
+                      'emoji-only-bubble': isEmojiOnly(msg.content),
+                      'border-red-500/30 bg-red-500/5 dark:bg-red-500/10 text-red-600 dark:text-red-400': msg.isError 
+                    }"
                     @contextmenu.prevent="openMessageContextMenu($event, msg)"
                     @touchstart="onLongPressStart($event, msg, 'message')"
                     @touchend="onLongPressEnd"
@@ -8356,6 +8360,19 @@ import MarkdownIt from 'markdown-it'
 function cleanUserContentForUI(content: string): string {
   if (typeof content !== 'string') return content || ''
   return content.replace(/^\[System Dynamic Context Update\][\s\S]*?---\n\n/, '')
+}
+
+// 判断内容是否仅包含表情包
+function isEmojiOnly(content?: string): boolean {
+  if (!content) return false
+  const cleaned = cleanUserContentForUI(content)
+  const trimmed = cleaned.trim()
+  if (!trimmed) return false
+  // 确认至少包含一个表情包占位符
+  if (!/\[表情:\s*(.*?)\s*\]/.test(trimmed)) return false
+  // 移除所有表情包标签后，剩下的必须全是空白字符
+  const remaining = trimmed.replace(/\[表情:\s*(.*?)\s*\]/g, '').trim()
+  return remaining === ''
 }
 
 // 优雅的 window.api Polyfill 局域网桥接垫片
@@ -16282,6 +16299,33 @@ onUnmounted(() => {
 .ai-chat-bubble {
   @apply px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-ai-bubble text-ai-bubble-text text-sm leading-relaxed shadow-sm border;
   border-color: var(--chat-border);
+}
+.emoji-only-bubble {
+  width: fit-content !important;
+  max-width: 100% !important;
+  display: inline-block !important;
+  padding: 6px 8px !important; /* 精简空白，使其物理贴合表情包比例 */
+}
+.emoji-only-bubble.markdown-body,
+.emoji-only-bubble .markdown-body {
+  width: fit-content !important;
+  max-width: 100% !important;
+  display: inline-block !important;
+}
+.emoji-only-bubble p,
+.emoji-only-bubble .markdown-body p {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: fit-content !important;
+  max-width: 100% !important;
+}
+.emoji-only-bubble img,
+.emoji-only-bubble .markdown-body img {
+  margin: 0 !important;
+  vertical-align: middle;
 }
 
 /* ===== 红包/转账气泡 ===== */
