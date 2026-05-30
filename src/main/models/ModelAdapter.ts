@@ -828,8 +828,11 @@ export class ModelAdapter {
 
   private preprocessRedPackets(messages: ChatMessage[]): ChatMessage[] {
     try {
+      // 🚀 核心过滤 1：物理过滤掉聊天上下文中的日记消息 [character_diary]，防止大模型产生 Few-shot 格式污染与自吐 JSON 紊乱 Bug
+      const filtered = messages.filter(m => m.content && !m.content.startsWith('[character_diary]:'))
+      
       // 深度拷贝以避免修改外部消息对象
-      const cloned = JSON.parse(JSON.stringify(messages)) as ChatMessage[]
+      const cloned = JSON.parse(JSON.stringify(filtered)) as ChatMessage[]
       for (const msg of cloned) {
         if (msg.content && msg.content.startsWith('[wechat_red_packet]:')) {
           try {
@@ -838,12 +841,14 @@ export class ModelAdapter {
             const amount = packet.amount
             const title = packet.title || '大吉大利'
             
+            // 🚀 核心自愈 2：将机械冰冷的“系统提示”红包指令重构为沉浸式的角色扮演第三人称动作描写
+            // 彻底干掉 Few-shot 复读偏置，避免角色一旦开始发红包就陷入无限连环发送的死循环
             if (msg.role === 'user') {
               // 用户发给角色的红包
-              msg.content = `[系统提示：用户向你发送了一个金额为 ${amount} 元的红包，红包附言："${title}"。]`
+              msg.content = `（你收到了用户发送的一个金额为 ${amount} 元的红包，附言：“${title}”）`
             } else if (msg.role === 'assistant') {
               // 角色发给用户的红包
-              msg.content = `[系统提示：你主动向用户发送了一个金额为 ${amount} 元的红包，红包附言："${title}"。]`
+              msg.content = `*向用户发送了一个金额为 ${amount} 元的红包，附言：“${title}”*`
             }
           } catch (_) {
             // 容错兜底
@@ -852,7 +857,7 @@ export class ModelAdapter {
       }
       return cloned
     } catch (error) {
-      console.error('[ModelAdapter] 红包消息预处理失败:', error)
+      console.error('[ModelAdapter] 消息上下文预处理失败:', error)
     }
     return messages
   }
