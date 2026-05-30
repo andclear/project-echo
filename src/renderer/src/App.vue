@@ -14812,63 +14812,8 @@ onMounted(async () => {
             }
           }
 
-          // 🚀 同步表情包：如果大模型主动发送了表情包，在聊天队列追加对应的自定义表情包气泡
-          const customEmojiSend = (data as any).customEmojiSend
-          if (customEmojiSend && senderId) {
-            // 🚀 立体防重比对：检查 msgs 尾部 5 条内是否已经存在同含义的自定义表情包气泡（防止 receive-message 广播由于网络先于 chunk done 到达而导致的重复追加）
-            let hasEmoji = false
-            for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 5); i--) {
-              if (msgs[i] && msgs[i].customEmojiUrl && msgs[i].content) {
-                if (msgs[i].content.includes(customEmojiSend.meaning.trim())) {
-                  hasEmoji = true
-                  break
-                }
-              }
-            }
-            if (!hasEmoji) {
-              msgs.push({
-                id: 'msg_emoji_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-                role: 'assistant',
-                sender_id: senderId,
-                customEmojiUrl: customEmojiSend.base64,
-                content: `[表情: ${customEmojiSend.meaning}]`,
-                created_at: new Date().toISOString(),
-                timestamp: Date.now() + 20
-              })
-            } else {
-              console.log('[Sync Gate] chunk done 拦截到已被广播抢先渲染的重复表情包，予以丢弃自愈。')
-            }
-          }
-
-          // 🚀 同步红包：如果大模型主动发送了红包，在聊天队列追加对应的红包封面气泡
-          const redPacketSend = (data as any).redPacketSend
-          if (redPacketSend && senderId) {
-            // 🚀 立体防重比对：检查 msgs 尾部 5 条内是否已经存在同特征的红包气泡（防止广播抢先送达导致重复）
-            let hasRedPacket = false
-            for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 5); i--) {
-              if (msgs[i] && msgs[i].redPacket) {
-                const localAmount = parseFloat(msgs[i].redPacket.amount)
-                const broadcastAmount = parseFloat(redPacketSend.amount)
-                if (localAmount === broadcastAmount && msgs[i].redPacket.title === redPacketSend.title) {
-                  hasRedPacket = true
-                  break
-                }
-              }
-            }
-            if (!hasRedPacket) {
-              msgs.push({
-                id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-                role: 'assistant',
-                sender_id: senderId,
-                redPacket: redPacketSend,
-                content: `[发送红包: ${redPacketSend.amount} 元, 附言: ${redPacketSend.title}]`,
-                created_at: new Date().toISOString(),
-                timestamp: Date.now() + 10
-              })
-            } else {
-              console.log('[Sync Gate] chunk done 拦截到已被广播抢先渲染的重复红包，予以丢弃自愈。')
-            }
-          }
+          // 表情包与红包气泡统一由 receive-message 广播处理器负责追加，此处不再手动 push
+          // 避免双通道竞争导致重复消息
         }
 
         // 无论什么聊天模式，都将最新的 Token 使用及缓存命中率实时更新到群聊最后一个对应发言人气泡
