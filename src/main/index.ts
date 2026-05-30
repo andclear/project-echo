@@ -2020,17 +2020,19 @@ ${formattedHistory}
             .replace(/\[RETURN_RED_PACKET\]/g, '')
             .trim()
 
-          // E. 保存 AI 回复至 Messages 聊天记录表
+          // E. 保存 AI 回复至 Messages 聊天记录表（🚀 仅在文本内容不为空时才保存文字气泡，彻底防止空白消息气泡生成）
           const assistantMsgId = crypto.randomUUID()
-          db.saveMessage({
-            id: assistantMsgId,
-            character_id: groupId,
-            role: 'assistant',
-            content: finalResponse,
-            timestamp: Date.now(),
-            token_usage: 0,
-            sender_id: currentSpeakerId
-          })
+          if (finalResponse.trim().length > 0) {
+            db.saveMessage({
+              id: assistantMsgId,
+              character_id: groupId,
+              role: 'assistant',
+              content: finalResponse,
+              timestamp: Date.now(),
+              token_usage: 0,
+              sender_id: currentSpeakerId
+            })
+          }
 
           if (redPacketSend) {
             db.saveMessage({

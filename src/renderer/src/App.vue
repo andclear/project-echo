@@ -15133,11 +15133,33 @@ onMounted(async () => {
     
     if (msg.role === 'assistant') {
       const normBroadcast = cleanStr(msg.content)
-      // 首先检查是否有 ID 或原始物理内容直接相存的重复项（深度扩大至最近15条，防止多角色连贯刷屏导致去重穿透）
+      
+      // 🚀 物理级红包特征精准去重：从广播消息内容中提取金额与附言，实现以金额与附言为准的红包特征去重，免疫任何微观字符串格式或 JSON 属性顺序差异！
+      let broadcastRp: any = null
+      if (msg.content && msg.content.startsWith('[wechat_red_packet]:')) {
+        try {
+          const jsonStr = msg.content.replace('[wechat_red_packet]:', '')
+          broadcastRp = JSON.parse(jsonStr)
+        } catch (_) {}
+      }
+
+      // 首先检查是否有 ID、原始物理内容、或红包属性直接相存的重复项
       for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 15); i--) {
-        if (msgs[i].role === 'assistant' && (msgs[i].id === msg.id || cleanStr(msgs[i].content) === normBroadcast)) {
-          isDuplicate = true
-          break
+        if (msgs[i].role === 'assistant') {
+          // A. 物理 ID 或 字符串内容完全匹配
+          if (msgs[i].id === msg.id || cleanStr(msgs[i].content) === normBroadcast) {
+            isDuplicate = true
+            break
+          }
+          // B. 红包强力特征去重
+          if (broadcastRp && msgs[i].redPacket) {
+            const localAmount = parseFloat(msgs[i].redPacket.amount)
+            const broadcastAmount = parseFloat(broadcastRp.amount)
+            if (localAmount === broadcastAmount && msgs[i].redPacket.title === broadcastRp.title) {
+              isDuplicate = true
+              break
+            }
+          }
         }
       }
       
