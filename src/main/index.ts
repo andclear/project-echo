@@ -2247,15 +2247,14 @@ ${formattedHistory}
           let accumulatedResponse = ''
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
-            event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
           }
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
           session.step = 2 // 转移到 Step 2
 
-          event.sender.send('chat-chunk', { characterId, content: '', done: true })
-          return { success: true }
+          event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+          return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 2) {
           // 步骤 2：第二轮提问 - 身份地位与核心性格冲突
@@ -2278,15 +2277,14 @@ ${formattedHistory}
           let accumulatedResponse = ''
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
-            event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
           }
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
           session.step = 3 // 转移到 Step 3
 
-          event.sender.send('chat-chunk', { characterId, content: '', done: true })
-          return { success: true }
+          event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+          return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 3) {
           // 步骤 3：第三轮提问 - 穿搭特征与标志口癖语气
@@ -2309,15 +2307,14 @@ ${formattedHistory}
           let accumulatedResponse = ''
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
-            event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
           }
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
           session.step = 4 // 转移到 Step 4（设定生成阶段）
 
-          event.sender.send('chat-chunk', { characterId, content: '', done: true })
-          return { success: true }
+          event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+          return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 4) {
           // 步骤 4：生成人设阶段 - 整合三轮信息
@@ -2350,7 +2347,6 @@ ${formattedHistory}
           let accumulatedResponse = ''
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
-            event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
           }
 
           // 解析并缓存设定
@@ -2381,8 +2377,8 @@ ${formattedHistory}
           session.history.push({ role: 'assistant', content: accumulatedResponse })
           session.step = 5 // 转移到 Step 5，等待用户确认或调整人设
 
-          event.sender.send('chat-chunk', { characterId, content: '', done: true })
-          return { success: true }
+          event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+          return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 5) {
           // 步骤 5：审阅设定，用户要么输入“确认创建”，要么提出修改意见
@@ -2394,15 +2390,9 @@ ${formattedHistory}
 现在只剩下最后一步了：请向我发送一张图片（建议 1:1 的方形尺寸）作为该角色的精美头像吧~ 
 您可以直接在输入框粘贴图片发送，或者通过图片上传工具发送。期待与新数字生命的初次见面！🐾`
 
-            for (let i = 0; i < confirmMsg.length; i += 5) {
-              const chunk = confirmMsg.substring(i, i + 5)
-              event.sender.send('chat-chunk', { characterId, content: chunk, done: false })
-              await new Promise(r => setTimeout(r, 10))
-            }
-
             session.step = 6 // 转移到状态 6，等待上传头像
-            event.sender.send('chat-chunk', { characterId, content: '', done: true })
-            return { success: true }
+            event.sender.send('chat-chunk', { characterId, content: confirmMsg, done: true })
+            return { success: true, content: confirmMsg }
           } else {
             const creatorModifyPrompt = `# Role: 角色卡创建Bot
 用户对上一版生成的人设提出了修改意见：“${userMessage}”
@@ -2429,7 +2419,6 @@ ${formattedHistory}
             let accumulatedResponse = ''
             for await (const chunk of chatStreamGen) {
               accumulatedResponse += chunk.content
-              event.sender.send('chat-chunk', { characterId, content: chunk.content, done: false })
             }
 
             // 重新解析并缓存
@@ -2447,8 +2436,8 @@ ${formattedHistory}
             session.history.push({ role: 'user', content: userMessage })
             session.history.push({ role: 'assistant', content: accumulatedResponse })
 
-            event.sender.send('chat-chunk', { characterId, content: '', done: true })
-            return { success: true }
+            event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+            return { success: true, content: accumulatedResponse }
           }
 
         } else if (session.step === 6) {
@@ -2457,14 +2446,8 @@ ${formattedHistory}
             const errorMsg = `您还没有上传头像哦！
 请点击输入框左侧工具或直接粘贴一张 1:1 的方形图片给我，以作为【${session.charName}】的精美头像~ 🐾`
 
-            for (let i = 0; i < errorMsg.length; i += 5) {
-              const chunk = errorMsg.substring(i, i + 5)
-              event.sender.send('chat-chunk', { characterId, content: chunk, done: false })
-              await new Promise(r => setTimeout(r, 10))
-            }
-
-            event.sender.send('chat-chunk', { characterId, content: '', done: true })
-            return { success: true }
+            event.sender.send('chat-chunk', { characterId, content: errorMsg, done: true })
+            return { success: true, content: errorMsg }
           }
 
           const welcomeMsg = `🎉 头像上传成功！正在为您连接数字生命维度……
@@ -2474,13 +2457,6 @@ ${formattedHistory}
 恭喜！您专属的角色【${session.charName}】已成功诞生！✨
 系统正在为您同步唤醒它的底层性格机制……
 我们将于 3 秒后带您直接跳转并穿越到与它的正式聊天窗口！祝您旅途愉快！🚀`
-
-          // 流式回显
-          for (let i = 0; i < welcomeMsg.length; i += 5) {
-            const chunk = welcomeMsg.substring(i, i + 5)
-            event.sender.send('chat-chunk', { characterId, content: chunk, done: false })
-            await new Promise(r => setTimeout(r, 10))
-          }
 
           // 写物理文件和数据库
           const base64Data = payload.imageBase64.replace(/^data:image\/\w+;base64,/, '')
@@ -2520,14 +2496,13 @@ ${formattedHistory}
           event.sender.send('chat-chunk', {
             characterId,
             content: `\n[SUCCESS_CREATION_JUMP]: ${confirmedFolderName}`,
-            done: false
+            done: true
           })
 
           // 清空会话
           creatorSessions.delete(CREATOR_BOT_ID)
 
-          event.sender.send('chat-chunk', { characterId, content: '', done: true })
-          return { success: true }
+          return { success: true, content: welcomeMsg }
         }
       } catch (err: any) {
         console.error('[CreatorBot] 运行崩溃:', err)

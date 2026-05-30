@@ -14655,8 +14655,9 @@ onMounted(async () => {
     if (data.done) {
       clearReplyTimeout()
     } else {
-      // 🚀 彻底去流式：如果是普通聊天（非创角 Bot），直接屏蔽 done 为 false 的所有流式碎片，不启动超时定时器，不进行追加渲染，瞬间回执
-      if (chunkCharId !== 'character_creator_bot') {
+      // 🚀 彻底去流式：如果是单聊（包括创角 Bot），直接屏蔽 done 为 false 的所有流式碎片，不进行追加渲染，瞬间回执
+      const isGroup = groupChats.value.some(g => g.id === chunkCharId)
+      if (!isGroup) {
         return
       }
       if (data.content) {
@@ -14822,8 +14823,8 @@ onMounted(async () => {
         }
       }
 
-      // 🚀 核心自愈优化：大模型流式打字输出完毕后，仅在动作描写模式下将最后一条 assistant 消息内容一次性覆盖为包含完美换行符的权威全文
-      if (data.content && (chatMode.value === 'descriptive' || chatMode.value === 'director')) {
+      // 🚀 核心自愈优化：仅在移动端或群聊等需要流式更新/打字机同步的场景下，将最后一条 assistant 消息内容一次性覆盖为包含完美换行符的权威全文；在 PC 端单聊（非流式）下则完全无需且不应覆盖，以防篡改历史气泡
+      if (data.content && (chatMode.value === 'descriptive' || chatMode.value === 'director') && (isMobile.value || isGroupChat)) {
         const charId = chunkCharId
         if (charId && allMessages[charId]) {
           const msgs = allMessages[charId]
@@ -14940,10 +14941,9 @@ onMounted(async () => {
       return
     }
 
-    // 🚀 响应取消流式诉求：如果当前不是群聊，且不是创角 Bot，直接拦截并静默丢弃所有单聊流式碎片消息
-    // 这从物理源头上彻底防范了由于流式碎片导致的前端空气泡推入，实现单聊文字去重的 100% 精准度！
+    // 🚀 响应取消流式诉求：如果当前不是群聊，直接拦截并静默丢弃所有单聊消息（含创角 Bot 文本），全部交由 Promise 决议和广播接管，从根本上消灭重复气泡！
     const isGroupChat = groupChats.value.some(g => g.id === chunkCharId)
-    if (!isGroupChat && chunkCharId !== creatorBotId) {
+    if (!isGroupChat) {
       return
     }
 
