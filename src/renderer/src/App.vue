@@ -3948,7 +3948,7 @@
                     </button>
                   </div>
                   <p class="text-[10px] text-on-surface-variant/60 leading-relaxed pr-2">
-                    允许您从本地导入或通过在线 URL 导入专属的外部音源解析脚本（支持落雪无双 <code>.js</code> 格式），系统将优先尝试使用自定义音源进行高保真无损品质的直链解析。
+                    允许您从本地导入或通过在线 URL 导入专属的外部音源解析脚本（支持洛雪音乐 <code>.js</code> 格式，可以google搜索洛雪音源），系统将优先尝试使用自定义音源进行高保真无损品质的直链解析。
                   </p>
 
                   <!-- 在线 URL 导入输入工具栏 -->
@@ -4003,7 +4003,7 @@
                   </div>
 
                   <p class="text-[9.5px] text-on-surface-variant/50 leading-relaxed font-bold">
-                    💡 智能级联查询：当播放或下载一首歌曲时，系统将按照以上列表顺序**从上至下依次查询**。如果前面的音源未检索到歌曲或查询失败，系统将自动穿透去请求**下一个音源**，实现无缝链式容灾；只有全部自定义音源不可用时，才会自动降级至内置全网联合源。
+                    💡 智能级联查询：当播放或下载一首歌曲时，系统将按照以上列表顺序从上至下依次查询。如果前面的音源未检索到歌曲或查询失败，系统将自动穿透去请求下一个音源，实现无缝链式容灾；只有全部自定义音源不可用时，才会自动降级至内置全网联合源。
                   </p>
                 </div>
 
@@ -4029,16 +4029,18 @@
                           ? `background: ${lyricTextColor}; -webkit-background-clip: text; -webkit-text-fill-color: transparent;`
                           : `color: ${lyricTextColor}`"
                       >
-                        双击此处拖拽移动桌面歌词悬浮框
+                        这是桌面歌词的预览效果
                       </span>
                     </div>
                   </div>
 
                   <!-- 颜色设定区 -->
-                  <div class="grid grid-cols-2 gap-4">
+                  <div class="grid grid-cols-2 gap-6">
                     <!-- 背景底色 -->
-                    <div class="space-y-2">
-                      <label class="text-[10px] font-bold text-on-surface-variant">歌词容器底色 (CSS Color / RGBA)</label>
+                    <div class="space-y-3">
+                      <label class="text-[10px] font-bold text-on-surface-variant flex items-center justify-between">
+                        <span>歌词容器底色 (CSS Color / RGBA)</span>
+                      </label>
                       <input 
                         v-model="lyricBgColor" 
                         type="text" 
@@ -4046,30 +4048,75 @@
                         class="w-full px-3 py-1.5 bg-surface border border-outline-variant/50 rounded-xl text-xs focus:outline-none focus:border-primary transition-all font-mono"
                       />
                       
+                      <!-- 调色盘与透明度物理滑块联动控制器 -->
+                      <div class="flex items-center space-x-3.5 p-3 rounded-2xl bg-surface-low border border-outline-variant/30 select-none shadow-sm h-[74px]">
+                        <!-- 精致圆形调色盘微缩圆片 -->
+                        <div 
+                          class="relative w-8 h-8 rounded-full border border-outline-variant/60 shadow-sm flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 overflow-hidden"
+                          :style="{ backgroundColor: lyricBgColorHex }"
+                        >
+                          <input 
+                            type="color" 
+                            v-model="lyricBgColorHex" 
+                            @input="updateLyricBgColorFromPicker" 
+                            class="absolute inset-0 w-[200%] h-[200%] -translate-x-[25%] -translate-y-[25%] cursor-pointer border-0 p-0 bg-transparent opacity-0"
+                          />
+                        </div>
+                        <!-- 不透明度滑块区域 -->
+                        <div class="flex-1 flex flex-col space-y-1.5 justify-center">
+                          <div class="flex items-center justify-between text-[9.5px] font-bold text-on-surface-variant/70">
+                            <span>背景基础色调色盘</span>
+                            <span class="font-mono text-primary font-bold">透明度: {{ lyricBgColorOpacity }}%</span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="0" 
+                            max="100" 
+                            v-model="lyricBgColorOpacity" 
+                            @input="updateLyricBgColorFromPicker" 
+                            class="w-full accent-primary h-1 rounded bg-outline-variant/20 cursor-pointer"
+                          />
+                        </div>
+                      </div>
+
                       <!-- 预设底色快速选择 -->
-                      <div class="flex flex-wrap gap-1.5 pt-1">
+                      <div class="flex flex-wrap gap-1.5 pt-0.5">
                         <button 
                           @click="lyricBgColor = 'rgba(15, 23, 42, 0.45)'" 
-                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
-                        >经典暗紫</button>
+                          class="px-2.5 py-1 text-[9.5px] font-bold bg-surface-medium/80 border border-outline-variant/30 rounded-lg text-on-surface-variant hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer flex items-center space-x-1"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-[#0f172a]/60"></span>
+                          <span>经典暗紫</span>
+                        </button>
                         <button 
                           @click="lyricBgColor = 'rgba(0, 0, 0, 0.75)'" 
-                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
-                        >深邃纯黑</button>
+                          class="px-2.5 py-1 text-[9.5px] font-bold bg-surface-medium/80 border border-outline-variant/30 rounded-lg text-on-surface-variant hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer flex items-center space-x-1"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-black/80"></span>
+                          <span>深邃纯黑</span>
+                        </button>
                         <button 
                           @click="lyricBgColor = 'rgba(255, 255, 255, 0.15)'" 
-                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
-                        >磨砂雾白</button>
+                          class="px-2.5 py-1 text-[9.5px] font-bold bg-surface-medium/80 border border-outline-variant/30 rounded-lg text-on-surface-variant hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer flex items-center space-x-1"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-white/30 border border-zinc-500/20"></span>
+                          <span>磨砂雾白</span>
+                        </button>
                         <button 
                           @click="lyricBgColor = 'rgba(30, 41, 59, 0.5)'" 
-                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
-                        >极光深蓝</button>
+                          class="px-2.5 py-1 text-[9.5px] font-bold bg-surface-medium/80 border border-outline-variant/30 rounded-lg text-on-surface-variant hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer flex items-center space-x-1"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-[#1e293b]/50"></span>
+                          <span>极光深蓝</span>
+                        </button>
                       </div>
                     </div>
 
                     <!-- 文字颜色 -->
-                    <div class="space-y-2">
-                      <label class="text-[10px] font-bold text-on-surface-variant">歌词文字颜色 / 渐变色 (CSS / Gradient)</label>
+                    <div class="space-y-3">
+                      <label class="text-[10px] font-bold text-on-surface-variant flex items-center justify-between">
+                        <span>歌词文字颜色 / 渐变色 (CSS / Gradient)</span>
+                      </label>
                       <input 
                         v-model="lyricTextColor" 
                         type="text" 
@@ -4077,24 +4124,129 @@
                         class="w-full px-3 py-1.5 bg-surface border border-outline-variant/50 rounded-xl text-xs focus:outline-none focus:border-primary transition-all font-mono"
                       />
 
+                      <!-- 模式切换与高级渐变物理面板 -->
+                      <div class="p-2.5 rounded-2xl bg-surface-low border border-outline-variant/30 space-y-2.5 shadow-sm h-[74px] flex flex-col justify-center">
+                        <!-- 单色/渐变切换按钮 -->
+                        <div class="flex items-center space-x-1 bg-surface-medium/60 p-0.5 rounded-xl border border-outline-variant/20">
+                          <button 
+                            @click="lyricTextMode = 'solid'; updateLyricTextColorFromPicker()"
+                            :class="lyricTextMode === 'solid' ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant/70 hover:bg-surface-medium'"
+                            class="flex-1 py-1 text-[9.5px] font-bold rounded-lg transition-all cursor-pointer"
+                          >
+                            🎨 纯色模式
+                          </button>
+                          <button 
+                            @click="lyricTextMode = 'gradient'; updateLyricTextColorFromPicker()"
+                            :class="lyricTextMode === 'gradient' ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant/70 hover:bg-surface-medium'"
+                            class="flex-1 py-1 text-[9.5px] font-bold rounded-lg transition-all cursor-pointer"
+                          >
+                            ✨ 渐变模式
+                          </button>
+                        </div>
+
+                        <!-- 纯色模式控制面板 -->
+                        <div v-if="lyricTextMode === 'solid'" class="flex items-center space-x-3 px-1 select-none">
+                          <div 
+                            class="relative w-6 h-6 rounded-full border border-outline-variant/50 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 overflow-hidden shadow-sm"
+                            :style="{ backgroundColor: lyricTextSolidColor }"
+                          >
+                            <input 
+                              type="color" 
+                              v-model="lyricTextSolidColor" 
+                              @input="updateLyricTextColorFromPicker" 
+                              class="absolute inset-0 w-[200%] h-[200%] -translate-x-[25%] -translate-y-[25%] cursor-pointer border-0 p-0 bg-transparent opacity-0"
+                            />
+                          </div>
+                          <span class="text-[9.5px] font-bold text-on-surface-variant/60">点击左侧圆形色块唤起纯色调色盘</span>
+                        </div>
+
+                        <!-- 渐变模式控制面板 -->
+                        <div v-else class="space-y-1.5 select-none">
+                          <div class="flex items-center justify-between gap-3">
+                            <!-- 起点卡片 -->
+                            <div class="flex-1 flex items-center space-x-2 bg-surface border border-outline-variant/30 px-2 py-1 rounded-xl shadow-inner cursor-pointer relative hover:border-primary/40 transition-all select-none">
+                              <div 
+                                class="w-4 h-4 rounded-full overflow-hidden border border-outline-variant/50 relative flex-shrink-0"
+                                :style="{ backgroundColor: lyricTextStartColor }"
+                              >
+                                <input 
+                                  type="color" 
+                                  v-model="lyricTextStartColor" 
+                                  @input="updateLyricTextColorFromPicker" 
+                                  class="absolute inset-0 w-[200%] h-[200%] -translate-x-[25%] -translate-y-[25%] cursor-pointer border-0 p-0 bg-transparent opacity-0" 
+                                />
+                              </div>
+                              <div class="flex flex-col leading-none">
+                                <span class="text-[7px] font-black text-on-surface-variant/40 uppercase">START</span>
+                                <span class="text-[9px] font-bold font-mono text-on-surface-variant mt-0.5">{{ lyricTextStartColor }}</span>
+                              </div>
+                            </div>
+
+                            <!-- 终点卡片 -->
+                            <div class="flex-1 flex items-center space-x-2 bg-surface border border-outline-variant/30 px-2 py-1 rounded-xl shadow-inner cursor-pointer relative hover:border-primary/40 transition-all select-none">
+                              <div 
+                                class="w-4 h-4 rounded-full overflow-hidden border border-outline-variant/50 relative flex-shrink-0"
+                                :style="{ backgroundColor: lyricTextEndColor }"
+                              >
+                                <input 
+                                  type="color" 
+                                  v-model="lyricTextEndColor" 
+                                  @input="updateLyricTextColorFromPicker" 
+                                  class="absolute inset-0 w-[200%] h-[200%] -translate-x-[25%] -translate-y-[25%] cursor-pointer border-0 p-0 bg-transparent opacity-0" 
+                                />
+                              </div>
+                              <div class="flex flex-col leading-none">
+                                <span class="text-[7px] font-black text-on-surface-variant/40 uppercase">END</span>
+                                <span class="text-[9px] font-bold font-mono text-on-surface-variant mt-0.5">{{ lyricTextEndColor }}</span>
+                              </div>
+                            </div>
+
+                            <!-- 渐变角度滑块区 -->
+                            <div class="w-24 flex items-center space-x-1.5 pl-1.5 border-l border-outline-variant/20">
+                              <input 
+                                type="range" 
+                                min="0" 
+                                max="360" 
+                                v-model="lyricTextGradientAngle" 
+                                @input="updateLyricTextColorFromPicker" 
+                                class="w-12 accent-primary h-1 rounded bg-outline-variant/20 cursor-pointer"
+                              />
+                              <span class="text-[9px] font-mono font-bold text-on-surface-variant w-7 text-right">{{ lyricTextGradientAngle }}°</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
                       <!-- 预设文字颜色快速选择 -->
-                      <div class="flex flex-wrap gap-1.5 pt-1">
+                      <div class="flex flex-wrap gap-1.5 pt-0.5">
                         <button 
                           @click="lyricTextColor = 'linear-gradient(135deg, #a5b4fc, #818cf8, #6366f1)'" 
-                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
-                        >靛蓝渐变</button>
+                          class="px-2.5 py-1 text-[9.5px] font-bold bg-surface-medium/80 border border-outline-variant/30 rounded-lg text-on-surface-variant hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer flex items-center space-x-1"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-[#a5b4fc] to-[#6366f1]"></span>
+                          <span>靛蓝渐变</span>
+                        </button>
                         <button 
                           @click="lyricTextColor = 'linear-gradient(135deg, #34d399, #10b981, #059669)'" 
-                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
-                        >翡翠渐变</button>
+                          class="px-2.5 py-1 text-[9.5px] font-bold bg-surface-medium/80 border border-outline-variant/30 rounded-lg text-on-surface-variant hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer flex items-center space-x-1"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-[#34d399] to-[#059669]"></span>
+                          <span>翡翠渐变</span>
+                        </button>
                         <button 
                           @click="lyricTextColor = 'linear-gradient(135deg, #fda4af, #f43f5e, #be123c)'" 
-                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
-                        >珊瑚粉渐</button>
+                          class="px-2.5 py-1 text-[9.5px] font-bold bg-surface-medium/80 border border-outline-variant/30 rounded-lg text-on-surface-variant hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer flex items-center space-x-1"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-gradient-to-br from-[#fda4af] to-[#be123c]"></span>
+                          <span>珊瑚粉渐</span>
+                        </button>
                         <button 
                           @click="lyricTextColor = '#ffffff'" 
-                          class="px-2 py-0.5 text-[9px] bg-zinc-800 border border-zinc-700/60 rounded text-zinc-300 hover:bg-zinc-700 hover:text-white transition-all cursor-pointer"
-                        >经典纯白</button>
+                          class="px-2.5 py-1 text-[9.5px] font-bold bg-surface-medium/80 border border-outline-variant/30 rounded-lg text-on-surface-variant hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer flex items-center space-x-1"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-white border border-zinc-400/20"></span>
+                          <span>经典纯白</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -8189,6 +8341,95 @@ const onlineSourceUrl = ref('')
 const isDownloadingSource = ref(false)
 const lyricBgColor = ref(localStorage.getItem('music_lyric_bg_color') || 'rgba(15, 23, 42, 0.45)')
 const lyricTextColor = ref(localStorage.getItem('music_lyric_text_color') || 'linear-gradient(135deg, #a5b4fc, #818cf8, #6366f1)')
+
+// ── 桌面歌词颜色/渐变选择器联动辅助状态 ──
+const lyricBgColorHex = ref('#0f172a')
+const lyricBgColorOpacity = ref(45)
+
+const lyricTextMode = ref<'solid' | 'gradient'>('gradient')
+const lyricTextSolidColor = ref('#ffffff')
+const lyricTextGradientAngle = ref(135)
+const lyricTextStartColor = ref('#a5b4fc')
+const lyricTextEndColor = ref('#6366f1')
+
+// 将 Hex + Opacity 转化为 RGBA 字符串并更新到 lyricBgColor
+const updateLyricBgColorFromPicker = () => {
+  const hex = lyricBgColorHex.value
+  const opacity = (lyricBgColorOpacity.value / 100).toFixed(2)
+  // hex to rgb
+  const r = parseInt(hex.slice(1, 3), 16) || 0
+  const g = parseInt(hex.slice(3, 5), 16) || 0
+  const b = parseInt(hex.slice(5, 7), 16) || 0
+  lyricBgColor.value = `rgba(${r}, ${g}, ${b}, ${opacity})`
+}
+
+// 组装渐变或单色并更新到 lyricTextColor
+const updateLyricTextColorFromPicker = () => {
+  if (lyricTextMode.value === 'solid') {
+    lyricTextColor.value = lyricTextSolidColor.value
+  } else {
+    lyricTextColor.value = `linear-gradient(${lyricTextGradientAngle.value}deg, ${lyricTextStartColor.value}, ${lyricTextEndColor.value})`
+  }
+}
+
+// 从当前的 lyricBgColor 反向解析并同步到选择器
+const syncBgPickerFromColorValue = () => {
+  const val = lyricBgColor.value.trim()
+  const rgbaReg = /rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/i
+  const m = val.match(rgbaReg)
+  if (m) {
+    const r = parseInt(m[1])
+    const g = parseInt(m[2])
+    const b = parseInt(m[3])
+    const a = parseFloat(m[4])
+    const toHex = (c: number) => {
+      const hexStr = c.toString(16)
+      return hexStr.length === 1 ? '0' + hexStr : hexStr
+    }
+    lyricBgColorHex.value = `#${toHex(r)}${toHex(g)}${toHex(b)}`
+    lyricBgColorOpacity.value = Math.round(a * 100)
+  } else if (val.startsWith('#')) {
+    lyricBgColorHex.value = val
+    lyricBgColorOpacity.value = 100
+  }
+}
+
+// 从当前的 lyricTextColor 反向解析并同步到选择器
+const syncTextPickerFromColorValue = () => {
+  const val = lyricTextColor.value.trim()
+  if (val.includes('gradient')) {
+    lyricTextMode.value = 'gradient'
+    const angleMatch = val.match(/(\d+)deg/)
+    if (angleMatch) {
+      lyricTextGradientAngle.value = parseInt(angleMatch[1])
+    }
+    const hexMatches = val.match(/#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}/g)
+    if (hexMatches && hexMatches.length >= 2) {
+      lyricTextStartColor.value = hexMatches[0]
+      lyricTextEndColor.value = hexMatches[hexMatches.length - 1]
+    }
+  } else {
+    lyricTextMode.value = 'solid'
+    if (val.startsWith('#')) {
+      lyricTextSolidColor.value = val
+    }
+  }
+}
+
+// 初始化时执行一次同步
+syncBgPickerFromColorValue()
+syncTextPickerFromColorValue()
+
+// 侦听外部对 lyricBgColor 的修改（如手工打字、预设点击），反向同步给滑块/选择器
+watch(lyricBgColor, () => {
+  syncBgPickerFromColorValue()
+})
+
+// 侦听外部对 lyricTextColor 的修改，反向同步给滑块/选择器
+watch(lyricTextColor, () => {
+  syncTextPickerFromColorValue()
+})
+
 const activeMusicTab = ref('recommend') // 'recommend' | 'leaderboard' | 'playlist' | 'download' | 'settings'
 const isLoadingPlaylists = ref(false)
 const recommendPlaylists = ref<any[]>([])

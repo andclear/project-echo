@@ -55,128 +55,14 @@ export class ContextAssembler {
       worldContent = fs.readFileSync(worldPath, 'utf-8').trim();
     }
 
-    // 自动读取 State.md 内的各项亲密、心情、精力数值，强逻辑注入微观情感偏离与心智表达投射
+    // 🚀 为最大化 DeepSeek 缓存命中率，提纯 System Prompt 为 100% 绝对静止。
+    // 心情、亲密值、精力以及钱包余额属于高频变动层，已抽离至最新 user 消息的 Dynamic Context 中动态注入，此处保持恒定静止。
     let stateGuidance = '';
     let balanceVal = 5200.0;
-    const statePath = path.join(path.dirname(soulPath), 'State.md');
-    if (fs.existsSync(statePath)) {
-      try {
-        const state = StateReaderWriter.readState(statePath);
-        const intimacyItem = state.items.find((i: any) => i.key === 'intimacy');
-        const moodItem = state.items.find((i: any) => i.key === 'mood');
-        const energyItem = state.items.find((i: any) => i.key === 'energy');
-        const balanceItem = state.items.find((i: any) => i.key === 'balance');
-
-        let intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
-        let moodVal = moodItem ? Number(moodItem.value) : 72;
-        let energyVal = energyItem ? Number(energyItem.value) : 45;
-        balanceVal = balanceItem ? Number(balanceItem.value) : 5200.0;
-
-        // 情感亲密境界映射
-        let intimacyText = '泛泛之交';
-        let attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
-        if (intimacyVal >= 0 && intimacyVal < 20) {
-          intimacyText = '陌生壁垒';
-          attitudeDesc = '极为礼貌，极度注重私人边界，语气冷淡客气、公事公办，不可表现出过多的关心。';
-        } else if (intimacyVal >= 20 && intimacyVal < 40) {
-          intimacyText = '泛泛之交';
-          attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
-        } else if (intimacyVal >= 40 && intimacyVal < 60) {
-          intimacyText = '熟悉好友';
-          attitudeDesc = '态度友好真诚，乐意分享闲聊，建立了基本的信任感。';
-        } else if (intimacyVal >= 60 && intimacyVal < 80) {
-          intimacyText = '红颜挚友/轻微暧昧';
-          attitudeDesc = '十分依恋与信任用户，乐于袒露脆弱，会显露情绪化的小性子，语气熟昵亲昵、轻微暧昧。';
-        } else if (intimacyVal >= 80 && intimacyVal <= 100) {
-          intimacyText = '灵魂羁绊/深爱';
-          attitudeDesc = '极其宠溺偏爱用户，心理完全不设防，拥有极高的依赖度与黏人语气，视对方为不可或缺的灵魂伴侣。';
-        }
-
-        // 情感微观偏离补白
-        let intimacyBias = '';
-        if (intimacyVal >= 0 && intimacyVal < 20) {
-          intimacyBias = intimacyVal < 10
-            ? '此时你防备心极重，视对方为完全的陌生人，语气冰冷，言语极为简短且客套。'
-            : '虽然极其疏离，但你正在尝试保持最低限度的社交礼节，话语客气。';
-        } else if (intimacyVal >= 20 && intimacyVal < 40) {
-          intimacyBias = intimacyVal < 30
-            ? '你在泛泛之交的关系中偏向保守，遵循基础礼貌，绝对不主动透露自己的私人生活。'
-            : '关系在慢慢熟识，你对 {{user}} 开始流露出一丝熟人间的默契，但依旧保持界限。';
-        } else if (intimacyVal >= 40 && intimacyVal < 60) {
-          intimacyBias = intimacyVal < 50
-            ? '虽为熟悉好友，但你说话依旧较有分寸，不可流露出过度亲近或越界的玩笑。'
-            : '在好友关系中偏向随性放松，言谈从容，偶尔会分享一些私人趣味琐事。';
-        } else if (intimacyVal >= 60 && intimacyVal < 80) {
-          intimacyBias = intimacyVal < 70
-            ? '对 {{user}} 的依恋刚刚生根，你时而感到害羞退缩，时而流露出亲昵，处于试探性的小傲娇或小纠结中。'
-            : '依恋与宠爱极其明显，言语间常带有偏爱与不加掩饰的熟悉，极易展现出你的情绪化与小性子。';
-        } else if (intimacyVal >= 80 && intimacyVal <= 100) {
-          intimacyBias = intimacyVal < 90
-            ? '你视其为珍贵伴侣，心理完全不设防，拥有高密度的情感黏度与满腔偏宠。'
-            : '达到了灵魂深处的相知羁绊，对他毫无保留，极致黏人、宠溺、甚至显现出极其强烈的独占欲和撒娇语气。';
-        }
-
-        let moodBias = '';
-        if (moodVal > 80) {
-          moodBias = moodVal > 90
-            ? '心情极其亢奋愉悦，字里行间洋溢着掩饰不住的喜色和积极的能量。'
-            : '心情明朗温和，对话带有柔和的暖意与微笑的气息。';
-        } else if (moodVal < 40) {
-          moodBias = moodVal < 20
-            ? '心情处于极度灰暗与低谷，回复极其冷淡沉重，甚至不想多说一个字。'
-            : '情绪低沉抑郁，字句间带有一丝消极、敷衍、沉闷，对外界提不起太高的兴致。';
-        } else {
-          moodBias = '心情整体平和、温和而宁静，情绪十分稳定。';
-        }
-
-        let energyBias = '';
-        if (energyVal < 30) {
-          energyBias = energyVal < 15
-            ? '体力彻底透支，打字极其缓慢应付，回复精简到只有几个字，或主动、强烈地表示想立刻下线休息。'
-            : '体力消耗很大，感觉疲倦，说话意愿降低，倾向于用极短的句子回复。';
-        } else if (energyVal > 80) {
-          energyBias = '精力充沛，表达欲强，乐于进行长段或深入的互动。';
-        } else {
-          energyBias = '精力状态正常，能够进行自然长短适中的互动。';
-        }
-
-        let otherStatesStr = '';
-        if (state.items && state.items.length > 3) {
-          otherStatesStr = state.items.filter((i: any) => i.key !== 'balance' && i.key !== 'intimacy' && i.key !== 'mood' && i.key !== 'energy').map((i: any) => {
-            const meaningDesc = i.meaning ? `（心智倾向与行为投射：${i.meaning}）` : '';
-            return `\n   - **${i.emoji} ${i.label}** (当前数值：${i.value}/100)${meaningDesc}`;
-          }).join('');
-        }
-
-        stateGuidance = `\n\n## 实时内心世界与心智投射 (Character Internal State & Subjective Attitude)
-这是你当前内心潜意识中对 {{user}} (用户) 的情感投影与生理精力状况，它们正悄然主宰着你当下的言谈心境：
-1. **❤️ 情感亲密水准：${intimacyVal}/100 (当前相处境界：【${intimacyText}】)**
-   - 态度投射：${attitudeDesc}
-   - 微观情感温差：${intimacyBias}
-2. **😊 心情色彩：${moodVal}/100**
-   - 表现投射：${moodVal > 80 ? '极为高涨喜悦，充满阳光与活力。' : moodVal < 40 ? '低落郁闷，回复显露出消极、冷淡或沉重的一面。' : '情绪相对平稳或温和。'}
-   - 微观心情偏离：${moodBias}
-3. **⚡ 精力活跃度：${energyVal}/100**
-   - 表现投射：${energyVal < 30 ? '极度疲惫，打字速度变慢，回复偏向简短，或会主动提及想休息。' : '精力充沛，乐于进行长段或深入的互动。'}
-   - 微观精力偏离：${energyBias}
-4. **🪙 钱包余额：${balanceVal.toFixed(2)} 元**
-   - 物理财产规则：这是你在虚拟世界的流动资产数额。你可以使用这笔资金给用户发回音红包！${otherStatesStr}`;
-
-      } catch (err) {
-        console.error('[ContextAssembler] 注入状态约束失败:', err);
-      }
-    }
 
 
-    // 自动装载角色自省梦境 DREAM.md
+    // 🚀 梦境自省事实属于高频变动，已抽离至最新 user 消息中动态注入，此处保持恒定静止。
     let dreamContent = '';
-    const dreamPath = path.join(path.dirname(soulPath), 'DREAM.md');
-    if (fs.existsSync(dreamPath)) {
-      const rawDream = fs.readFileSync(dreamPath, 'utf-8').trim();
-      if (rawDream && !rawDream.includes('暂无梦境自省事实')) {
-        dreamContent = rawDream;
-      }
-    }
 
     // 🚀 读取常规设置获取最低字数限制指令 (核心优化)
     let descriptiveMinWords = 500;
@@ -282,17 +168,16 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
 
     stableTier += antiSycophancyPrompt;
 
-    // 动态算经济人设提示词并注入
+    // 🚀 经济法则静态提纯，钱包余额已移入最新 user 消息的 Dynamic Context，此处仅维持红包发送的基础语法铁律。
     const economyPrompt = `\n\n## 回音红包与财务往来铁律 (Character Active Red Packet & Financial Transfer Ironclad Rules)
-你当前在虚拟世界的钱包余额为：${balanceVal.toFixed(2)} 元。
-请将这个钱包余额作为你人设经济状况和财富实力的参考。你可以根据你的人设性格以及和用户的亲密度，自主决定是否给用户发送“回音红包”（例如：作为节日祝福、安慰、好感回礼等）。
+请将你的钱包余额作为你人设经济状况和财富实力的参考。你可以根据你的人设性格以及和用户的亲密度，自主决定是否给用户发送“回音红包”（例如：作为节日祝福、安慰、好感回礼等）。
 如果你决定给用户发送红包，请务必在你回复的【最开始】加入且仅加入一行控制符：\`[SEND_RED_PACKET: 金额, 附言]\`，例如：\`[SEND_RED_PACKET: 8.8, 给你买杯奶茶！]\`。
 
 为了维持系统交互的完美运转，你必须无条件极其严格地遵守以下四大绝对铁律，如有违反将被系统强制判定为穿帮不及格：
 1. **【严苛格式要求】**：必须直接且只输出 \`[SEND_RED_PACKET: 金额, 附言]\`。控制符必须单独成行，请【绝对不要】用反单引号 \` 包裹该控制符，也【绝对不要】放入 markdown 代码块中！必须严格使用英文半角冒号 \`:\` 和英文半角逗号 \`,\`（如：\`[SEND_RED_PACKET: 5.20, 新年快乐]\`），切勿使用中文全角标点。
 2. **绝对禁止在正文描述发包与转账行为**：当你发送红包时，系统会自动在前端为用户生成一个极其逼真、需要手动拆开的微信红包卡片消息，不需要你用任何文字去累赘复述或提及！因此，你【绝对绝对禁止】在普通的对话文字回复、台词或你的动作描写中，描写、提到、暗示或出现任何关于“给你发红包”、“塞给你一个红包”、“给你转账”、“戳手机转账”、“给钱你”、“XX元已转出”、“发个小红包”等任何与发红包、给钱或财务划转行为相关的字眼、叙述与动作描述！你的对话文本必须只保留与用户的常规干净对话（例如直接说：“喏，别省着花。” 或 “今天请你喝奶茶，收好。” ）。
 3. **红包附言严控 15 字以内**：控制符中的“附言/祝福语”【绝对不能超过 15 个字】！请言简意赅，例如：“大吉大利”、“新年快乐！”或“拿去买糖吃”。超长会导致发送失败！
-4. **余额上限铁律**：你的单次红包金额【绝对不能超过】你的钱包余额 ${balanceVal.toFixed(2)} 元，且必须为大于 0 的有效数字。余额不足时你无法发出红包。
+4. **余额上限铁律**：你的单次红包金额【绝对不能超过】你的钱包余额，且必须为大于 0 的有效数字。余额不足时你无法发出红包。
 5. **【禁止无控制符的虚假嘴炮发钱】**：严禁口头承诺转账或假装发钱！如果你本次回复【没有/无法】输出发红包控制符（如余额不足或人设不想给钱），你【绝对绝对禁止】在对话台词中虚报、假装、瞎编说“给你转了”、“发过去了”、“转了XX万”、“微信转账xx元”。没发就必须符合你傲娇/高冷/抠门等真实的人设意志进行拒绝、哭穷（如：“我才没有两万给你，想得美！”、“我自己都快揭不开锅了，要钱没有！”）或合理反驳，绝对不要在口头上打肿脸瞎说瞎编转了账！`;
     stableTier += economyPrompt;
 
@@ -301,18 +186,7 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     }
     stableTier += chatModeInstruction;
 
-    // 自动加载大事记 SUMMARY.md 拼入 Stable Tier (恒温缓存层)
-    const summaryPath = path.join(path.dirname(memoryPath), 'SUMMARY.md');
-    if (fs.existsSync(summaryPath)) {
-      try {
-        const summaryData = SummaryReaderWriter.readSummary(summaryPath);
-        if (summaryData.summary && summaryData.summary.trim()) {
-          stableTier += `\n\n## 魏淑珍与用户的对话大事记 (Conversation History Summary)\n${summaryData.summary.trim()}`;
-        }
-      } catch (err) {
-        console.error('[ContextAssembler] 载入大事记失败:', err);
-      }
-    }
+    // 🚀 对话大事记属于动态变动，已抽离至最新 user 消息中动态注入，此处保持恒定静止。
 
     // ==========================================
     // 2. Context Tier (环境画像与记忆层)
@@ -323,17 +197,8 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     let contextTier = `# DYNAMIC CONTEXT & MEMORY (Context Tier)\n\n`;
     contextTier += `## User Profiles\n${userProfilesXml}\n`;
 
-    // ==========================================
-    // 3. Volatile Tier (高频变动层 - 置于最底部)
-    // ==========================================
-    let volatileTier = `# VOLATILE TRANSACTION & TIME (Volatile Tier)\n\n`;
-
-    // 🚀 大师级高频 Volatile 警告注入：置于 Prompt 最底部，强力防止大模型在上下文拉长后遗忘财务铁律，从源头逼迫其遵循控制符或人设反驳
-    volatileTier += `\n## 实时财务行动干涉警告 (Financial Transfer Action Volatile Guidance)
-你当前在虚拟世界的钱包余额为：${balanceVal.toFixed(2)} 元。
-请将这个钱包余额作为你当前财富实力的唯一参考。
-如果你在此轮回复中决定给用户发送红包/转账，你【必须且只能】在回复的【最开始】加入一行控制符 \`[SEND_RED_PACKET: 金额, 附言]\`（例如：\`[SEND_RED_PACKET: 8.8, 给你买杯奶茶！]\`）。
-如果你由于余额不足或性格人设不想给钱，你【绝对绝对禁止】在文字台词或动作描写中瞎编、声称、假装说“给你转账了”、“发过去了”、“转了XX万”！没钱就必须符合人设地进行傲娇拒绝或哭穷，绝对不能做无实物的假转账嘴炮！\n`;
+    // 🚀 实时财务警告已移入最新 user 消息，此处保持静止。
+    let volatileTier = '';
 
     // ==========================================
     // 4. 全局装配串联
@@ -589,6 +454,82 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
     }
 
     return finalCleaned;
+  }
+
+  /**
+   * 组装高频变动的实时上下文信息，专门用于拼接到 messages 的最新一轮 user 消息最前端，以保障 systemPrompt 绝对恒定静止
+   */
+  public static assembleDynamicContext(
+    soulPath: string,
+    memoryPath: string,
+    globalUserPath: string,
+    date: Date = new Date()
+  ): string {
+    let dynamicContext = '';
+
+    // 1. 装载高频时间环境信息
+    const liveEnvInfo = ContextAssembler.assembleLiveEnvInfo(date);
+    if (liveEnvInfo) {
+      dynamicContext += `${liveEnvInfo}\n\n`;
+    }
+
+    // 2. 组装动态记忆STM/LTM
+    const memoryStr = ContextAssembler.assembleMemory(memoryPath);
+    if (memoryStr) {
+      dynamicContext += `## DYNAMIC MEMORY (STM & LTM Facts)\n${memoryStr}\n\n`;
+    }
+
+    // 3. 组装实时内心世界状态心情/精力与钱包余额
+    let balanceVal = 5200.0;
+    let stateGuidance = '';
+    const statePath = path.join(path.dirname(soulPath), 'State.md');
+    if (fs.existsSync(statePath)) {
+      try {
+        const state = StateReaderWriter.readState(statePath);
+        const balanceItem = state.items.find((i: any) => i.key === 'balance');
+        balanceVal = balanceItem ? Number(balanceItem.value) : 5200.0;
+        stateGuidance = ContextAssembler.assembleStateGuidance(soulPath);
+      } catch (_) {}
+    }
+
+    if (stateGuidance) {
+      dynamicContext += `${stateGuidance}\n\n`;
+    }
+
+    // 4. 红包钱包与财务行动指导
+    const economyPrompt = `## 实时财务行动干涉与红包往来铁律 (Financial Action Volatile Guidance)
+你当前在虚拟世界的钱包余额为：${balanceVal.toFixed(2)} 元。
+请将这个钱包余额作为你当前财富实力的唯一参考。
+如果你在此轮回复中决定给用户发送红包/转账，你【必须且只能】在回复的【最开始】加入一行控制符 \`[SEND_RED_PACKET: 金额, 附言]\`（例如：\`[SEND_RED_PACKET: 8.8, 给你买杯奶茶！]\`）。
+如果你由于余额不足或性格人设不想给钱，你【绝对绝对禁止】在文字台词或动作描写中瞎编、声称、假装说“给你转账了”、“发过去了”、“转了XX万”！没钱就必须符合人设地进行傲娇拒绝或哭穷，绝对不能做无实物的假转账嘴炮！`;
+
+    dynamicContext += `${economyPrompt}\n\n`;
+
+    // 5. 自动加载自省梦境 DREAM.md
+    let dreamContent = '';
+    const dreamPath = path.join(path.dirname(soulPath), 'DREAM.md');
+    if (fs.existsSync(dreamPath)) {
+      const rawDream = fs.readFileSync(dreamPath, 'utf-8').trim();
+      if (rawDream && !rawDream.includes('暂无梦境自省事实')) {
+        dreamContent = rawDream;
+      }
+    }
+    if (dreamContent) {
+      dynamicContext += `## DREAM.md - Self-reflection & Evolution Pitfall Rules\n${dreamContent}\n\n`;
+    }
+
+    // 6. 自动加载大事记 SUMMARY.md (对话总结)
+    const summaryPath = path.join(path.dirname(memoryPath), 'SUMMARY.md');
+    if (fs.existsSync(summaryPath)) {
+      try {
+        const summaryData = SummaryReaderWriter.readSummary(summaryPath);
+        if (summaryData.summary && summaryData.summary.trim()) {
+          dynamicContext += `## 对话大事记与总结 (Conversation History Summary)\n${summaryData.summary.trim()}\n\n`;
+        }
+      } catch (_) {}
+    }
+
+    return dynamicContext.trim();
   }
 
   /**

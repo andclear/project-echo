@@ -2258,25 +2258,17 @@ ${memoryContent}
         globalPrompt
       )
 
-      // 组装动态记忆、内心世界状态与高频时间环境信息，拼接在最后一个 user 消息最前端，保证 systemPrompt 绝对静止以最大化缓存命中率
-      const liveEnvInfo = ContextAssembler.assembleLiveEnvInfo(new Date())
-      const memoryStr = ContextAssembler.assembleMemory(memoryPath)
-      const stateGuidance = ContextAssembler.assembleStateGuidance(soulPath)
+      // 🚀 组装高频变动的实时 Dynamic Context (只在最新一轮 user 消息中动态注入，让 systemPrompt 100% 绝对静止以获得 >90% 缓存命中)
+      const dynamicContext = ContextAssembler.assembleDynamicContext(
+        soulPath,
+        memoryPath,
+        globalUserPath,
+        new Date()
+      )
 
-      let dynamicContext = ''
-      if (liveEnvInfo) {
-        dynamicContext += `${liveEnvInfo}\n\n`
-      }
-      if (memoryStr) {
-        dynamicContext += `### DYNAMIC MEMORY (STM & LTM Facts)\n${memoryStr}\n\n`
-      }
-      if (stateGuidance) {
-        dynamicContext += `### Character Current Internal State & Subjective Attitude\n${stateGuidance}\n\n`
-      }
-
-      finalUserContent = ''
+      let dynamicHeader = ''
       if (dynamicContext) {
-        finalUserContent += `[System Dynamic Context Update]\n${dynamicContext}---\n\n`
+        dynamicHeader = `[System Dynamic Context Update]\n${dynamicContext}\n---\n\n`
       }
 
       // 如果有粘贴图片，在用户消息中追加图片描述提示
@@ -2284,7 +2276,7 @@ ${memoryContent}
         ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
         : userMessage
 
-      finalUserContent += userMessageFinal
+      finalUserContent = dynamicHeader + userMessageFinal
 
       messages = [
         { role: 'system', content: systemPrompt },
@@ -2681,7 +2673,9 @@ ${memoryContent}
     }
 
     // 如果有粘贴/拖拽大图，物理保存至磁盘角色 media 目录中，实现索引化极速落盘
-    let dbContent = payload.dbMessage || finalUserContent
+    let dbContent = payload.dbMessage || (payload.imageBase64 && characterId !== CREATOR_BOT_ID
+      ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
+      : userMessage)
     if (payload.imageBase64 && characterId !== CREATOR_BOT_ID) {
       try {
         const charDir = join(storageManager.getBaseDir(), folderName)
