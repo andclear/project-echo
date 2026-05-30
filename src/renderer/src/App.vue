@@ -11739,6 +11739,8 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
       msgs.push({
         id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
         role: 'assistant',
+        // 🚀 注入标准的 content 控制符前缀，以便广播总线（receive-message）能够通过 content 完美匹配去重，彻底消除双红包气泡 Bug
+        content: `[wechat_red_packet]:${JSON.stringify(res.redPacketSend)}`,
         redPacket: {
           amount: res.redPacketSend.amount,
           title: res.redPacketSend.title,
