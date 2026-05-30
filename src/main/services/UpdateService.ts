@@ -281,12 +281,24 @@ export class UpdateService {
   }
 
   /**
-   * 获取远程 update.json
+   * 获取远程 update.json（支持对301/302重定向的深度自适应递归跟随）
    */
-  private fetchUpdateConfig(): Promise<UpdateConfig> {
+  private fetchUpdateConfig(targetUrl: string = this.updateUrl, redirectsCount: number = 0): Promise<UpdateConfig> {
+    if (redirectsCount > 5) {
+      return Promise.reject(new Error('获取更新配置重定向次数过多，已自动熔断'))
+    }
     return new Promise((resolve, reject) => {
       https
-        .get(this.updateUrl, (res) => {
+        .get(targetUrl, (res) => {
+          // 🚀 核心重构：自适应深度跟随 301 与 302 临时/永久重定向，彻底根治 Gitee / CDN 强力分发时的重定向报错
+          if (res.statusCode === 301 || res.statusCode === 302) {
+            const redirectUrl = res.headers.location
+            if (redirectUrl) {
+              resolve(this.fetchUpdateConfig(redirectUrl, redirectsCount + 1))
+              return
+            }
+          }
+
           if (res.statusCode !== 200) {
             reject(new Error(`获取更新配置失败，状态码: ${res.statusCode}`))
             return
