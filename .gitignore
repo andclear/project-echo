@@ -83,7 +83,7 @@ out/
 docs/
 
 # Custom database or local JSON database files
-db/
+/db/
 *.db
 *.sqlite
 data/
