@@ -15298,8 +15298,15 @@ onMounted(async () => {
       }
     }
 
+    const isSpecialMsg = msg.content && (
+      msg.content.startsWith('[character_diary]:') ||
+      msg.content.startsWith('[wechat_red_packet]:') ||
+      msg.content.startsWith('[wechat_custom_emoji]:') ||
+      msg.content.startsWith('[wechat_image_media]:')
+    )
+
     if (!isDuplicate && !msgs.some(m => m.id === msg.id)) {
-      if (chatMode.value === 'dialogue' && msg.role === 'assistant') {
+      if (chatMode.value === 'dialogue' && msg.role === 'assistant' && !isSpecialMsg) {
         // 🚀 纯文字对话模式下，收到主动回复或搭讪消息（非时序重复）时，严禁直接扁平化瞬间 push 出来！
         // 而是物理调用微信级仿真播放器 handleAssistantResponse 进行逐句延迟打字弹射播放，保障视觉与逻辑完全统一！
         const char = characterList.value.find(c => c.id === charId)
