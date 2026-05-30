@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write # 授予自动创建并写入 GitHub Release 附件的权限
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
