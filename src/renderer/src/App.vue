@@ -1690,7 +1690,7 @@
                           <BookOpenIcon class="w-3.5 h-3.5 text-primary flex-shrink-0" />
                           <span class="font-bold text-xs">导演模式</span>
                         </div>
-                        <div class="text-[9px] opacity-75 mt-1 leading-relaxed">打破对话，全程以优美的第三人称视角撰写 800 字以上小说故事。</div>
+                        <div class="text-[9px] opacity-75 mt-1 leading-relaxed">打破对话，全程以优美的第三人称视角撰写小说故事，可以使用 /开始 生成开场白。</div>
                       </button>
                     </div>
 
@@ -4465,7 +4465,7 @@
                       characterId: selectedCharacterId
                     })"
                   >
-                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" />
+                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" @load="scrollToBottom('auto', false)" />
                   </div>
                   
                   <!-- 自定义表情包大图气泡 -->
@@ -4634,7 +4634,7 @@
                     @touchend="onLongPressEnd"
                     @touchmove="onLongPressMove"
                   >
-                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" />
+                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" @load="scrollToBottom('auto', false)" />
                   </div>
 
                   <!-- 典雅日记手账本消息卡片 -->
@@ -10263,6 +10263,8 @@ async function selectCharacter(charId: string) {
       scrollToBottom('auto', true)
       setTimeout(() => scrollToBottom('auto', true), 50)
       setTimeout(() => scrollToBottom('auto', true), 150)
+      setTimeout(() => scrollToBottom('auto', true), 350)
+      setTimeout(() => scrollToBottom('auto', true), 600)
     })
     return
   }
@@ -10273,6 +10275,8 @@ async function selectCharacter(charId: string) {
       scrollToBottom('auto', true)
       setTimeout(() => scrollToBottom('auto', true), 50)
       setTimeout(() => scrollToBottom('auto', true), 150)
+      setTimeout(() => scrollToBottom('auto', true), 350)
+      setTimeout(() => scrollToBottom('auto', true), 600)
     })
     return
   }
@@ -10298,6 +10302,8 @@ async function selectCharacter(charId: string) {
       scrollToBottom('auto', true)
       setTimeout(() => scrollToBottom('auto', true), 50)
       setTimeout(() => scrollToBottom('auto', true), 150)
+      setTimeout(() => scrollToBottom('auto', true), 350)
+      setTimeout(() => scrollToBottom('auto', true), 600)
     })
   } catch (error) {
     console.error('读取聊天历史异常:', error)
@@ -11032,7 +11038,10 @@ async function handleAssistantResponse(
           cached_tokens: cachedTokens
         })
         isStreaming.value = false
-        nextTick(() => scrollToBottom())
+        nextTick(() => {
+          scrollToBottom('smooth', true)
+          setTimeout(() => scrollToBottom('smooth', true), 80)
+        })
       }
 
       // 检查是否不在当前活跃会话或活跃窗口中
@@ -11124,6 +11133,10 @@ async function handleAssistantResponse(
       }
 
       isStreaming.value = false
+      nextTick(() => {
+        scrollToBottom('smooth', true)
+        setTimeout(() => scrollToBottom('smooth', true), 80)
+      })
     }
 
     // 刷新记忆与日记视图
@@ -14063,6 +14076,39 @@ onMounted(async () => {
             scrollToBottom('auto')
           }, 100)
         })
+      }
+    }
+  })
+
+  // 监听多端会话元数据（置顶/免打扰/已读未读状态）变更广播，实现多端强同步
+  window.api.receive('conversation-meta-updated', (data: { characterId: string; pinned?: boolean; unread?: number; muted?: boolean; hidden?: boolean }) => {
+    const { characterId, pinned, unread, muted, hidden } = data
+    if (!characterId) return
+    
+    // 如果本地不存在此元数据，则进行初始化
+    if (!conversationMeta[characterId]) {
+      conversationMeta[characterId] = { pinned: false, unread: 0, muted: false, hidden: false }
+    }
+    
+    // 同步基础元数据属性
+    if (pinned !== undefined) conversationMeta[characterId].pinned = pinned
+    if (muted !== undefined) conversationMeta[characterId].muted = muted
+    if (hidden !== undefined) conversationMeta[characterId].hidden = hidden
+    
+    // 竞态自愈正反馈逻辑：同步已读未读状态
+    if (unread !== undefined) {
+      if (selectedCharacterId.value === characterId && isChattingActive.value) {
+        if (unread > 0) {
+          // 当前终端处于该角色的活跃聊天页面中，但收到了不为 0 的未读数广播，说明有其他终端因为新消息自增了未读并写库
+          // 此时我们将本地未读强行重设为 0，并立刻主动上报修正存库，触发二次广播以消灭其他端的红点 badge
+          conversationMeta[characterId].unread = 0
+          window.api.invoke('save-conversation-meta', { characterId: characterId, ...conversationMeta[characterId], unread: 0 })
+        } else {
+          conversationMeta[characterId].unread = 0
+        }
+      } else {
+        // 非活跃页面，直接同步接收到的未读数
+        conversationMeta[characterId].unread = unread
       }
     }
   })

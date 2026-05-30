@@ -2260,9 +2260,12 @@ ${memoryContent}
 
       messages = [
         { role: 'system', content: systemPrompt },
-        ...history.map(m => ({ role: m.role as any, content: m.content })),
-        { role: 'user', content: finalUserContent }
+        ...history.map(m => ({ role: m.role as any, content: m.content }))
       ]
+
+      if (!payload.isRegenerate) {
+        messages.push({ role: 'user', content: finalUserContent })
+      }
     }
 
     // 开启前台流式聊天，获取并发锁，阻塞后台任务
@@ -2889,6 +2892,23 @@ ${memoryContent}
       const { characterId } = payload
       const db = getDatabaseService()
       db.setSetting('clear_chat_at_' + characterId, Date.now().toString())
+
+      // 🚀 广播事件通知多端联动清除聊天窗口
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('chat-window-cleared', { characterId })
+      }
+      const ssePayload = {
+        channel: 'chat-window-cleared',
+        data: { characterId }
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -2949,6 +2969,23 @@ ${memoryContent}
       db.clearCharacterSettings(characterId)
 
       console.log(`[IPC] 物理清空角色 [${folderName}] 的历史消息、记忆文件、State.md、画像和 Settings 参数完成！`)
+
+      // 🚀 广播事件通知多端联动彻底清空历史与记忆
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('history-memory-cleared', { characterId })
+      }
+      const ssePayload = {
+        channel: 'history-memory-cleared',
+        data: { characterId }
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -2981,6 +3018,23 @@ ${memoryContent}
       fs.writeFileSync(join(groupDir, 'SUMMARY.md'), summaryInitContent, 'utf8')
 
       console.log(`[IPC] 群聊 [${groupId}] 物理清空聊天记录、Memory.md 记忆与 SUMMARY.md 大事记成功！`)
+
+      // 🚀 广播事件通知多端联动彻底清空群聊历史
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('history-memory-cleared', { characterId: groupId })
+      }
+      const ssePayload = {
+        channel: 'history-memory-cleared',
+        data: { characterId: groupId }
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (e: any) {
       console.error('[IPC] 物理清空群聊记录失败:', e)
@@ -3254,10 +3308,14 @@ ${memoryContent}
   })
 
   // 15. 持久化保存会话元数据（免打扰/置顶/隐藏等）到 SQLite
-  ipcMain.handle('save-conversation-meta', async (_, payload: { characterId: string; pinned?: boolean; muted?: boolean; hidden?: boolean }) => {
+  ipcMain.handle('save-conversation-meta', async (_, payload: { characterId: string; pinned?: boolean; unread?: number; muted?: boolean; hidden?: boolean }) => {
     try {
       const db = getDatabaseService()
       db.setSetting(`meta_${payload.characterId}`, JSON.stringify(payload))
+      
+      // 广播给所有客户端（包括通过 SSE 长连接的手机端）
+      mainWindow?.webContents.send('conversation-meta-updated', payload)
+      
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -3836,6 +3894,23 @@ Please output in exactly this XML format:
       db.db.prepare('DELETE FROM MomentComments WHERE moment_id = ?').run(payload.momentId)
       db.db.prepare('DELETE FROM MomentLikes WHERE moment_id = ?').run(payload.momentId)
       db.db.prepare("DELETE FROM Favorites WHERE type = 'moment' AND target_id = ?").run(payload.momentId)
+
+      // 🚀 删除朋友圈动态后，秒级通知多端联动重新加载
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('social-moment-updated')
+      }
+      const ssePayload = {
+        channel: 'social-moment-updated',
+        data: {}
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (e: any) {
       console.error('[IPC] 删除朋友圈动态异常:', e)
@@ -3850,6 +3925,23 @@ Please output in exactly this XML format:
       db.db.prepare('DELETE FROM ForumPosts WHERE id = ?').run(payload.postId)
       db.db.prepare('DELETE FROM ForumComments WHERE post_id = ?').run(payload.postId)
       db.db.prepare("DELETE FROM Favorites WHERE type = 'forum' AND target_id = ?").run(payload.postId)
+
+      // 🚀 删除论坛帖子后，秒级通知多端联动重新加载
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('social-forum-updated')
+      }
+      const ssePayload = {
+        channel: 'social-forum-updated',
+        data: {}
+      }
+      for (const client of sseClients) {
+        try {
+          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
+        } catch (_) {
+          sseClients.delete(client)
+        }
+      }
+
       return { success: true }
     } catch (e: any) {
       console.error('[IPC] 删除论坛帖子异常:', e)
@@ -4222,8 +4314,25 @@ Please output in exactly this XML format:
       let deleteCount = 0
       for (let i = history.length - 1; i >= 0; i--) {
         if (history[i].role === 'assistant') {
-          db.db.prepare('DELETE FROM Messages WHERE id = ?').run(history[i].id)
+          const deletedMsgId = history[i].id
+          db.db.prepare('DELETE FROM Messages WHERE id = ?').run(deletedMsgId)
           deleteCount++
+
+          // 🚀 重新回复物理擦除旧消息后，立即同步广播给多端联动删除气泡以保障时序一致性
+          if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+            mainWindow.webContents.send('message-deleted', { characterId: payload.characterId, messageId: deletedMsgId })
+          }
+          const ssePayload = {
+            channel: 'message-deleted',
+            data: { characterId: payload.characterId, messageId: deletedMsgId }
+          }
+          for (const client of sseClients) {
+            try {
+              client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
+            } catch (_) {
+              sseClients.delete(client)
+            }
+          }
         } else {
           break
         }
