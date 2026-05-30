@@ -314,11 +314,13 @@ export class AgentLifeEngine {
 
     return {
       wakeAgent: false,
-      reason: isCooldown 
-        ? `今日搭讪已触发 ${activeCountToday} 次，目前处于 2 小时搭讪冷却期内（已过去 ${(msPassedSinceLastActive / (1000 * 60)).toFixed(0)} 分钟）。`
-        : (activeCountToday >= 3 
-            ? '今日主动搭讪已达 3 次上限，保持静默。' 
-            : '未满足任何主动唤醒事件且今日已写过日记，保持静默。'),
+      reason: isDialogueCooldown
+        ? '20 分钟内与该角色有过对话交流，保持静默防打扰。🐾'
+        : (isCooldown 
+            ? `今日搭讪已触发 ${activeCountToday} 次，目前处于 2 小时搭讪冷却期内（已过去 ${(msPassedSinceLastActive / (1000 * 60)).toFixed(0)} 分钟）。`
+            : (activeCountToday >= 3 
+                ? '今日主动搭讪已达 3 次上限，保持静默。' 
+                : '未满足任何主动唤醒事件且今日已写过日记，保持静默。')),
       triggerStrength: 'weak'
     };
   }

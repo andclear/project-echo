@@ -1,0 +1,76 @@
+name: Build and Release Echo Client
+
+on:
+  push:
+    tags:
+      - 'v*' # 🚀 当您在本地推送形如 v1.0.0 的版本 Tag 时，自动触发多平台全自动打包流程
+
+permissions:
+  contents: write # 授予自动创建并写入 GitHub Release 附件的权限
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        # 🚀 采用 Matrix 原生编译矩阵！
+        # 针对含有 C++ 原生模块 (better-sqlite3) 的 Electron 项目，在各自原生虚拟机上进行编译是 100% 防崩、防架构不匹配的唯一标准实践！
+        os: [macos-latest, windows-latest, ubuntu-latest]
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install System Dependencies (Linux Only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools
+
+      - name: Install Project Dependencies
+        run: npm ci
+
+      - name: Rebuild Native C++ Modules (better-sqlite3)
+        # 为当前构建系统的操作系统与 CPU 架构无损重新编译 C++ 原生库，彻底排除运行时二进制异常
+        run: npx electron-builder install-app-deps
+
+      - name: Compile and Transpile Assets (Vite Build)
+        run: npm run build
+
+      - name: Build Electron Installers (macOS - Intel & Apple Silicon)
+        if: matrix.os == 'macos-latest'
+        # macos-latest 会读取 electron-builder.yml 中配置的 x64 与 arm64 自动打出两套 dmg 包
+        run: npx electron-builder --mac
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron Installers (Windows - x64)
+        if: matrix.os == 'windows-latest'
+        run: npx electron-builder --win
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron Installers (Linux - AppImage)
+        if: matrix.os == 'ubuntu-latest'
+        # 强制打包出全 Linux 主流发行版免安装通用的 .AppImage 包
+        run: npx electron-builder --linux AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto Publish and Upload Artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

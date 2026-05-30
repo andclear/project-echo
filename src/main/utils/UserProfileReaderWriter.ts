@@ -138,10 +138,21 @@ export class UserProfileReaderWriter {
       fs.mkdirSync(dir, { recursive: true });
     }
 
+    const jsonData = {
+      name: profile.name,
+      age: profile.age,
+      occupation: profile.occupation,
+      global_preferences: profile.global_preferences
+    };
+    const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`;
+
     // 🚀 大师级高容错全量增量更新策略：
-    // 如果原文件存在且含有自定义大量 Markdown 内容，我们进行精密行替换，绝不覆写擦除未捕获的其它 Markdown 文字！
+    // 如果原文件存在且含有自定义大量 Markdown 内容，我们进行精密行替换，并重新灌入 HTML 注释，绝不覆写擦除其它 Markdown
     if (fs.existsSync(filePath)) {
-      let content = fs.readFileSync(filePath, 'utf-8');
+      let rawContent = fs.readFileSync(filePath, 'utf-8');
+      
+      // 过滤剥离以往残留的 HTML 注释
+      let content = rawContent.replace(/<!--[\s\S]*?-->/g, '').trim();
       
       const replaceOrAppend = (label: string, value: string) => {
         if (value === undefined) return;
@@ -159,12 +170,13 @@ export class UserProfileReaderWriter {
       replaceOrAppend('年龄', profile.age);
       replaceOrAppend('职业', profile.occupation);
 
-      fs.writeFileSync(filePath, content.trim() + '\n', 'utf-8');
+      const finalMarkdown = `${jsonComment}\n\n${content.trim()}\n`;
+      fs.writeFileSync(filePath, finalMarkdown, 'utf-8');
       return;
     }
 
     // 如果原文件不存在，使用最简洁的格式初始化写入
-    let markdown = '';
+    let markdown = `${jsonComment}\n\n`;
     const lines: string[] = [];
     if (profile.name && profile.name.trim() !== '') {
       lines.push(`- **姓名**：${profile.name.trim()}`);

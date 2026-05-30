@@ -28,10 +28,9 @@ describe('BackgroundReviewService 后台睡眠做梦进化反思服务测试', (
       chat: vi.fn().mockResolvedValue({
         content: `
           {
-            "soul_patch": "深夜回答应更加轻柔简短，避免使用过度死板的称呼。",
-            "skill_patches": [
+            "behavior_patches": [
               {
-                "skill_name": "play-music",
+                "category": "play-music",
                 "patch_content": "深夜禁止推荐摇滚乐，优先推荐舒缓钢琴曲。"
               }
             ]

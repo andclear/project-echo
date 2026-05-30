@@ -44,7 +44,19 @@ export class StreamingContextScrubber {
     for (let i = 0; i < chunk.length; i++) {
       const char = chunk[i];
 
-      // 1. 处理中括号红包/转账控制符的跨 Chunk 流式丢弃
+      // 1. XML 标签丢弃区间具有最高优先级，防止被中括号逻辑误拦截
+      if (this.inDiscardSpan) {
+        this.buffer += char;
+        const endTag = `</${this.discardTag}>`;
+        if (this.buffer.endsWith(endTag)) {
+          this.inDiscardSpan = false;
+          this.discardTag = '';
+          this.buffer = '';
+        }
+        continue;
+      }
+
+      // 2. 处理中括号红包/转账控制符的跨 Chunk 流式丢弃
       if (this.inDiscardBracket) {
         if (char === ']') {
           this.inDiscardBracket = false;
@@ -79,18 +91,6 @@ export class StreamingContextScrubber {
           // 若不是系统控制符，说明是常规的小说动作描写中括号（如 [笑]），直接安全放行输出
           output += this.currentBracketBuffer;
           this.currentBracketBuffer = '';
-        }
-        continue;
-      }
-
-      // 2. 原有的 XML 标签丢弃逻辑
-      if (this.inDiscardSpan) {
-        this.buffer += char;
-        const endTag = `</${this.discardTag}>`;
-        if (this.buffer.endsWith(endTag)) {
-          this.inDiscardSpan = false;
-          this.discardTag = '';
-          this.buffer = '';
         }
         continue;
       }

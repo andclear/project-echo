@@ -2477,6 +2477,53 @@
                   <h2 class="text-base font-bold text-on-surface">Echo - 回音</h2>
                   <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.0 (桌面端)</p>
                   <p class="text-[10px] text-on-surface-variant mt-1.5 opacity-60">Power By Laopobao</p>
+
+                  <!-- 🚀 高科技炫彩玻璃检查更新控制组件 -->
+                  <div class="mt-4 flex flex-col items-center select-none">
+                    <!-- 闲置或者非下载就绪状态 -->
+                    <button
+                      v-if="downloadStatus !== 'downloaded'"
+                      @click="handleCheckForUpdates"
+                      :disabled="updateStatus === 'checking' || downloadStatus === 'downloading'"
+                      class="px-4 py-1.5 rounded-full border border-outline-variant hover:border-primary/30 bg-surface-high/30 hover:bg-primary/5 text-[11px] font-bold text-on-surface hover:text-primary transition-all active:scale-95 disabled:opacity-60 disabled:pointer-events-none flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                    >
+                      <Loader2Icon v-if="updateStatus === 'checking'" class="w-3.5 h-3.5 animate-spin text-primary" />
+                      <RefreshCwIcon v-else-if="updateStatus === 'error'" class="w-3.5 h-3.5 text-error" />
+                      <CheckIcon v-else-if="updateStatus === 'latest'" class="w-3.5 h-3.5 text-primary animate-scale-in" />
+                      <DownloadIcon v-else class="w-3.5 h-3.5" />
+
+                      <span v-if="updateStatus === 'checking'">正在检查更新...</span>
+                      <span v-else-if="downloadStatus === 'downloading'">正在后台下载新版本 ({{ updateProgress }}%)...</span>
+                      <span v-else-if="updateStatus === 'latest'">已是最新版本</span>
+                      <span v-else-if="updateStatus === 'error'">检查失败，点击重试</span>
+                      <span v-else>检查版本更新</span>
+                    </button>
+
+                    <!-- 后台下载中进度展示 -->
+                    <div v-if="downloadStatus === 'downloading'" class="w-48 mt-3">
+                      <div class="flex items-center justify-between text-[9px] font-mono text-on-surface-variant mb-1">
+                        <span>正在静默下载升级包...</span>
+                        <span class="font-bold text-primary">{{ updateProgress }}%</span>
+                      </div>
+                      <div class="w-full h-1 bg-surface-high rounded-full overflow-hidden">
+                        <div class="h-full bg-primary transition-all duration-200" :style="{ width: updateProgress + '%' }"></div>
+                      </div>
+                    </div>
+
+                    <!-- 下载就绪立即安装按钮 -->
+                    <button
+                      v-if="downloadStatus === 'downloaded'"
+                      @click="handleRestartAndInstall"
+                      class="px-5 py-2 rounded-full bg-gradient-to-r from-primary to-secondary hover:brightness-110 text-[11px] font-extrabold text-white transition-all active:scale-95 flex items-center space-x-1.5 shadow-md relative overflow-hidden group cursor-pointer"
+                    >
+                      <!-- 按钮闪光动画 -->
+                      <div class="absolute inset-0 w-1/2 h-full bg-white/20 skew-x-12 -translate-x-full group-hover:animate-shine"></div>
+                      <RefreshCwIcon class="w-3.5 h-3.5 animate-spin" />
+                      <span>更新已就绪，立即重启安装</span>
+                    </button>
+
+                    <p v-if="updateErrorMsg" class="text-[9px] text-error mt-2 font-mono">{{ updateErrorMsg }}</p>
+                  </div>
                 </div>
 
                 <div class="space-y-4">
@@ -7504,6 +7551,55 @@
         </footer>
       </div>
     </div>
+
+    <!-- 🚀 全局版本升级就绪毛玻璃炫彩 Modal -->
+    <div v-if="showUpdateModal" class="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-md animate-fade-in select-text">
+      <div class="w-full max-w-[460px] bg-surface-low/90 backdrop-blur-2xl rounded-[28px] border border-outline-variant shadow-2xl flex flex-col overflow-hidden animate-scale-in relative select-text">
+        <!-- 炫彩色流光背景遮罩 -->
+        <div class="absolute -top-24 -left-24 w-48 h-48 rounded-full bg-primary/20 blur-3xl pointer-events-none"></div>
+        <div class="absolute -bottom-24 -right-24 w-48 h-48 rounded-full bg-secondary/20 blur-3xl pointer-events-none"></div>
+
+        <header class="p-6 border-b border-outline-variant/30 flex flex-col items-center select-none flex-shrink-0 relative">
+          <!-- 升级火箭动画容器 -->
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-primary/20 to-secondary/20 border border-primary/30 flex items-center justify-center text-primary mb-3 shadow-inner relative overflow-hidden group">
+            <!-- 闪光流线 -->
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shine"></div>
+            <RefreshCwIcon class="w-6 h-6 animate-spin text-primary" />
+          </div>
+          <h3 class="text-sm font-black text-on-surface tracking-wide text-center">新版本回音 (Echo) 已准备就绪！</h3>
+          <p class="text-[10px] text-primary font-mono font-bold mt-1 bg-primary/10 px-2 py-0.5 rounded-full select-none">最新版本: {{ latestVersion }}</p>
+        </header>
+
+        <!-- 更新日志区域 -->
+        <div class="flex-1 overflow-y-auto p-6 select-text max-h-[260px] leading-relaxed border-b border-outline-variant/10">
+          <h4 class="text-xs font-bold text-on-surface mb-2 select-none flex items-center space-x-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+            <span>本次升级内容：</span>
+          </h4>
+          <div class="text-[11px] text-on-surface-variant font-sans whitespace-pre-line bg-surface-high/30 border border-outline-variant/10 rounded-2xl p-4 min-h-[100px] max-h-[220px] overflow-y-auto leading-relaxed shadow-inner">
+            {{ updateChangelog || '1. 客户端稳定性升级与日常缺陷修复。\n2. 数据库安全迁移机制上线。' }}
+          </div>
+        </div>
+
+        <footer class="p-5 flex items-center justify-end space-x-3 bg-surface-low select-none flex-shrink-0">
+          <button
+            @click="showUpdateModal = false"
+            class="px-5 py-2.5 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-all active:scale-95 cursor-pointer"
+          >
+            稍后安装
+          </button>
+          <button
+            @click="handleRestartAndInstall"
+            class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary hover:brightness-110 text-xs font-black text-white transition-all active:scale-95 shadow-md flex items-center space-x-1.5 cursor-pointer relative overflow-hidden group"
+          >
+            <!-- 闪光特效 -->
+            <div class="absolute inset-0 w-1/2 h-full bg-white/20 skew-x-12 -translate-x-full group-hover:animate-shine"></div>
+            <RefreshCwIcon class="w-3.5 h-3.5 animate-spin" />
+            <span>重启并升级</span>
+          </button>
+        </footer>
+      </div>
+    </div>
   </div>
 
   <!-- ========================= 多端复用单例全局表情包/Emoji面板 ========================= -->
@@ -7982,6 +8078,42 @@ const musicStore = musicPlayerStore
 
 // ===================== 全局状态 =====================
 const isDark = ref(false)
+
+// ===================== 客户端自动检查更新状态与函数 =====================
+const updateStatus = ref<'idle' | 'checking' | 'latest' | 'update-found' | 'error'>('idle')
+const updateProgress = ref(0)
+const latestVersion = ref('')
+const updateChangelog = ref('')
+const showUpdateModal = ref(false)
+const downloadStatus = ref<'idle' | 'downloading' | 'downloaded' | 'error'>('idle')
+const updateErrorMsg = ref('')
+
+let unlistenUpdateStatus: (() => void) | null = null
+let unlistenDownloadProgress: (() => void) | null = null
+let unlistenDownloadStatus: (() => void) | null = null
+
+const handleCheckForUpdates = async () => {
+  updateStatus.value = 'checking'
+  updateErrorMsg.value = ''
+  try {
+    const res = await window.api.invoke('check-for-updates-manual')
+    if (!res.success) {
+      updateStatus.value = 'error'
+      updateErrorMsg.value = res.message || '检查更新失败'
+    }
+  } catch (err: any) {
+    updateStatus.value = 'error'
+    updateErrorMsg.value = err.message || '检查更新失败'
+  }
+}
+
+const handleRestartAndInstall = async () => {
+  try {
+    await window.api.invoke('restart-and-install')
+  } catch (err: any) {
+    showToast(`启动安装程序失败: ${err.message || err}`)
+  }
+}
 const isClockView = ref(window.location.search.includes('view=clock'))
 const sideView = ref<'chat' | 'contacts' | 'settings' | 'stats' | 'moments' | 'forum' | 'favorites' | 'music'>('chat')
 const activeView = ref<'chat' | 'import'>('chat')
@@ -13758,6 +13890,40 @@ function rejectAgreement() {
 
 // ===================== 生命周期 =====================
 onMounted(async () => {
+  // 注册客户端版本更新通知监听
+  if (window.electron && window.electron.ipcRenderer) {
+    unlistenUpdateStatus = window.electron.ipcRenderer.on('update-check-status', (payload: any) => {
+      updateStatus.value = payload.status
+      if (payload.status === 'update-found') {
+        latestVersion.value = payload.version
+        updateChangelog.value = payload.changelog
+        downloadStatus.value = 'downloading'
+      } else if (payload.status === 'latest') {
+        updateStatus.value = 'latest'
+      } else if (payload.status === 'error') {
+        updateStatus.value = 'error'
+        updateErrorMsg.value = payload.message || '更新检查出错'
+      }
+    })
+
+    unlistenDownloadProgress = window.electron.ipcRenderer.on('update-download-progress', (payload: any) => {
+      updateProgress.value = payload.progress
+      downloadStatus.value = 'downloading'
+    })
+
+    unlistenDownloadStatus = window.electron.ipcRenderer.on('update-download-status', (payload: any) => {
+      downloadStatus.value = payload.status
+      if (payload.status === 'downloaded') {
+        latestVersion.value = payload.version
+        updateChangelog.value = payload.changelog
+        showUpdateModal.value = true // 后台静默下载完成，立刻弹窗提醒！
+      } else if (payload.status === 'error') {
+        downloadStatus.value = 'error'
+        updateErrorMsg.value = payload.message || '下载升级包出错'
+      }
+    })
+  }
+
   checkIfMobile()
   window.addEventListener('resize', checkIfMobile)
 
@@ -15389,6 +15555,10 @@ function formatTime(time: any): string {
 }
 
 onUnmounted(() => {
+  if (unlistenUpdateStatus) unlistenUpdateStatus()
+  if (unlistenDownloadProgress) unlistenDownloadProgress()
+  if (unlistenDownloadStatus) unlistenDownloadStatus()
+
   window.removeEventListener('resize', checkIfMobile)
   if (window.visualViewport) {
     window.visualViewport.removeEventListener('resize', updateViewportHeight)

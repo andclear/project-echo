@@ -97,8 +97,8 @@ describe('UserProfileReaderWriter 单元测试', () => {
     expect(assembledXml).toContain('<character-specific-user-profile>');
     expect(assembledXml).toContain('</character-specific-user-profile>');
 
-    expect(assembledXml).toContain('- 姓名：杨越');
-    expect(assembledXml).toContain('- 职业：独立开发者');
+    expect(assembledXml).toContain('- **姓名**：杨越');
+    expect(assembledXml).toContain('- **职业**：独立开发者');
     expect(assembledXml).toContain('- 用户对杨宁宁说话语气格外温和');
     expect(assembledXml).toContain('- 用户讨厌啰里吧嗦的代码解释');
   });

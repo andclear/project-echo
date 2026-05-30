@@ -25,6 +25,7 @@ import { SocialMediaService } from './services/SocialMediaService'
 import { SoulEvolutionService } from './services/SoulEvolutionService'
 import { MusicService } from './services/MusicService'
 import { NovelAiService } from './services/NovelAiService'
+import { UpdateService } from './services/UpdateService'
 
 // 完美解决 macOS 系统代理或 VPN 拦截导致的 Chromium 网络服务崩溃及本地 Dev 调试加载问题，确保开发服务器端口彻底绕过系统代理自检，且网络进程防崩
 app.commandLine.appendSwitch('proxy-bypass-list', '127.0.0.1;localhost;<local>;127.0.0.1:5173;localhost:5173;127.0.0.1:5174;localhost:5174;127.0.0.1:5175;localhost:5175')
@@ -158,6 +159,10 @@ function createWindow(): void {
 
   // 实例化并创建系统状态栏/系统托盘常驻图标，开启跨端关闭不退出常驻功能
   createSystemTray(win);
+
+  // 启动时自动检查更新（限制每天仅执行一次，避免频繁请求）
+  const db = getDatabaseService()
+  UpdateService.getInstance().startAutoCheck(win, db)
 }
 
 interface CreatorSession {
@@ -215,6 +220,29 @@ function cleanMarkdownBlock(text: string): string {
 
 // 注册主进程 IPC 监听器
 function registerIpcHandlers(): void {
+
+  // ====== 客户端自动检查更新 IPC 通道 ======
+  // 手动检查更新
+  ipcMain.handle('check-for-updates-manual', async () => {
+    try {
+      if (!mainWindow) return { success: false, error: '主窗口未初始化' }
+      const db = getDatabaseService()
+      const updateService = UpdateService.getInstance()
+      return await updateService.checkForUpdates(mainWindow, db, true)
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 重启并安装
+  ipcMain.handle('restart-and-install', async () => {
+    try {
+      const updateService = UpdateService.getInstance()
+      return updateService.restartAndInstall()
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
 
   // 0.0.1 获取用户个人配置 (包含钱包余额、昵称等)
   ipcMain.handle('get-user-profile', async () => {

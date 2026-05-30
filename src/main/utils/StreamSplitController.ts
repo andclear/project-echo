@@ -64,7 +64,7 @@ export class StreamSplitController {
         // 仅 trim 掉首尾的普通水平空白字符，若包含换行符则予以高保真显式保留传输
         let processed = sentence.replace(/^[ \t\r]+|[ \t\r]+$/g, '');
         
-        if (processed) {
+        if (processed && processed.trim() !== '') {
           onSentence(processed);
         }
         // 刷新缓冲区
@@ -84,7 +84,7 @@ export class StreamSplitController {
    */
   public flush(onSentence: (sentence: string) => void): void {
     let processed = this.buffer.replace(/^[ \t\r]+|[ \t\r]+$/g, '');
-    if (processed) {
+    if (processed && processed.trim() !== '') {
       onSentence(processed);
     }
     this.buffer = '';
