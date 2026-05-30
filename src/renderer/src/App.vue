@@ -15224,7 +15224,7 @@ onMounted(async () => {
             break
           }
           // B. 红包强力特征去重
-          if (broadcastRp && msgs[i].redPacket && msgs[i].sender_id === msg.sender_id) {
+          if (broadcastRp && msgs[i].redPacket) {
             const localAmount = parseFloat(msgs[i].redPacket.amount)
             const broadcastAmount = parseFloat(broadcastRp.amount)
             if (localAmount === broadcastAmount && msgs[i].redPacket.title === broadcastRp.title) {
@@ -15234,7 +15234,7 @@ onMounted(async () => {
             }
           }
           // C. 表情包强力特征去重：完美解决群发表情卡片后 receive-message 二次广播重叠导致的重复渲染 Bug
-          if (broadcastEmoji && msgs[i].customEmojiUrl && msgs[i].sender_id === msg.sender_id) {
+          if (broadcastEmoji && msgs[i].customEmojiUrl) {
             const localMeaning = msgs[i].content ? msgs[i].content.replace(/^\[表情:\s*/, '').replace(/\]$/, '').trim() : ''
             const broadcastMeaning = broadcastEmoji.meaning ? broadcastEmoji.meaning.trim() : ''
             if (localMeaning === broadcastMeaning) {
