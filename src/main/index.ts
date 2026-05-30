@@ -219,6 +219,33 @@ function cleanMarkdownBlock(text: string): string {
   return cleaned.trim()
 }
 
+// 物理清洗存盘的历史消息格式，把 wechat_custom_emoji/wechat_red_packet 等 JSON 格式清洗为对大模型友好的文本提示词，杜绝格式混乱
+function formatMessageContentForLLM(content: string): string {
+  if (!content) return ''
+  if (content.startsWith('[wechat_custom_emoji]:')) {
+    try {
+      const jsonStr = content.substring('[wechat_custom_emoji]:'.length)
+      const emoji = JSON.parse(jsonStr)
+      return `[表情: ${emoji.meaning}]`
+    } catch (_) {
+      return '[表情]'
+    }
+  }
+  if (content.startsWith('[wechat_red_packet]:')) {
+    try {
+      const jsonStr = content.substring('[wechat_red_packet]:'.length)
+      const rp = JSON.parse(jsonStr)
+      return `[微信红包: ${rp.amount}元 (附言: ${rp.title})]`
+    } catch (_) {
+      return '[微信红包]'
+    }
+  }
+  if (content.startsWith('[wechat_image_media]:')) {
+    return '[图片消息]'
+  }
+  return content
+}
+
 // 动态读取用户自定义大图表情包列表并拼装 Prompt 注入块，使得大模型能够完美感知用户的表情包资产
 function buildEmojiSystemPromptSuffix(chatMode?: string): string {
   if (chatMode === 'director') {
@@ -1839,7 +1866,7 @@ ${soulContent}
               const matched = aiMembers.find(member => member.id === m.sender_id)
               senderName = matched ? matched.name : 'Character'
             }
-            return `[${senderName}]: ${m.content}`
+            return `[${senderName}]: ${formatMessageContentForLLM(m.content)}`
           }).join('\n')
 
           const eligibleMembers = aiMembers.filter(m => m.id !== currentSpeakerId)
@@ -2705,7 +2732,7 @@ ${memoryContent}
 
       messages = [
         { role: 'system', content: systemPrompt },
-        ...history.map(m => ({ role: m.role as any, content: m.content }))
+        ...history.map(m => ({ role: m.role as any, content: formatMessageContentForLLM(m.content) }))
       ]
 
       if (!payload.isRegenerate) {
@@ -3064,8 +3091,8 @@ ${memoryContent}
 
     // A3. [自定义表情包动作决策] (仅在非导演模式下触发)
     let customEmojiSend: any = null
-    const emojiReg = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/i
-    const emojiRegGlobal = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/gi
+    const emojiReg = /`?\s*\[(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]\s*`?/i
+    const emojiRegGlobal = /`?\s*\[(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]\s*`?/gi
     const emojiMatch = chatMode !== 'director' ? finalResponse.match(emojiReg) : null
 
     if (emojiMatch) {
