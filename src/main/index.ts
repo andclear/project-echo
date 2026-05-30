@@ -4704,6 +4704,51 @@ Please output in exactly this XML format:
       } else {
         favorites = db.getFavoritesAll()
       }
+
+      // 🚀 核心注入：为收藏的朋友圈和论坛帖子自动关联并查询最新的实时互动数据
+      for (const fav of favorites) {
+        if (fav.type === 'moment') {
+          try {
+            const moment = db.db.prepare('SELECT * FROM Moments WHERE id = ?').get(fav.target_id) as any
+            if (moment) {
+              fav.likes = moment.likes
+              fav.liked = moment.liked
+              fav.likes_list = db.getMomentLikes(fav.target_id)
+              fav.comments = db.getMomentComments(fav.target_id)
+            } else {
+              fav.likes = 0
+              fav.liked = 0
+              fav.likes_list = []
+              fav.comments = []
+            }
+          } catch (e) {
+            console.error(`[Favorite-Moment] 获取关联朋友圈互动失败: ${fav.target_id}`, e)
+            fav.likes = 0
+            fav.liked = 0
+            fav.likes_list = []
+            fav.comments = []
+          }
+        } else if (fav.type === 'forum') {
+          try {
+            const post = db.db.prepare('SELECT * FROM ForumPosts WHERE id = ?').get(fav.target_id) as any
+            if (post) {
+              fav.views = post.views
+              fav.replies_count = post.replies_count
+              fav.comments = db.getForumComments(fav.target_id)
+            } else {
+              fav.views = 0
+              fav.replies_count = 0
+              fav.comments = []
+            }
+          } catch (e) {
+            console.error(`[Favorite-Forum] 获取关联帖子互动失败: ${fav.target_id}`, e)
+            fav.views = 0
+            fav.replies_count = 0
+            fav.comments = []
+          }
+        }
+      }
+
       return { success: true, favorites }
     } catch (e: any) {
       return { success: false, error: e.message || e }

@@ -1524,7 +1524,7 @@
                 <div
                   v-for="fav in favoritesList"
                   :key="fav.id"
-                  @click="selectedFavorite = fav"
+                  @click="selectFavoriteDetail(fav)"
                   class="p-3.5 rounded-xl border transition-all cursor-pointer space-y-2 select-none"
                   :class="selectedFavorite?.id === fav.id ? 'bg-primary/5 border-primary shadow-sm' : 'bg-surface border-outline-variant/50 hover:bg-surface-low hover:border-outline-variant'"
                 >
@@ -1588,9 +1588,117 @@
                       {{ selectedFavorite.title || '收藏内容预览' }}
                     </h2>
                     
-                    <div class="text-[11.5px] leading-relaxed text-on-surface whitespace-pre-wrap pl-0.5 select-text font-sans">
-                      {{ selectedFavorite.content }}
+                    <div class="text-[11.5px] leading-relaxed text-on-surface pl-0.5 select-text font-sans whitespace-pre-wrap">
+                      <template v-if="selectedFavorite.type === 'moment'">
+                        <div v-html="renderTextWithStickers(selectedFavorite.content)"></div>
+                      </template>
+                      <template v-else-if="selectedFavorite.type === 'forum'">
+                        <div class="markdown-body font-medium" v-html="replaceStickersOnly(renderMarkdown(selectedFavorite.content))"></div>
+                      </template>
+                      <template v-else>
+                        {{ selectedFavorite.content }}
+                      </template>
                     </div>
+
+                    <!-- 配图区：若检测到配图，则显示精美大图，支持无缝大图卡片预览 -->
+                    <div v-if="selectedFavorite.imageBase64" class="mt-4 max-w-md w-fit rounded-2xl overflow-hidden border border-outline-variant/30 active:scale-[0.99] transition-all cursor-zoom-in shadow-sm" @click="selectedFavorite.type === 'moment' ? openSocialImagePreview(selectedFavorite) : openForumImagePreview(selectedFavorite)">
+                      <img :src="selectedFavorite.imageBase64" class="max-w-full h-auto max-h-[500px] block hover:scale-[1.01] transition-transform duration-300 rounded-2xl" />
+                    </div>
+                  </div>
+
+                  <!-- 🚀 互动区域补齐（只在 moment 和 forum 类型下显示，直接渲染注入的实时数据） -->
+
+                  <!-- A. 朋友圈点赞与评论互动面板 -->
+                  <div v-if="selectedFavorite.type === 'moment'" class="space-y-4 select-text">
+                    <div class="text-xs font-black text-on-surface flex items-center space-x-1.5 pl-1 select-none">
+                      <HeartIcon class="w-3.5 h-3.5 text-red-500 fill-red-500 animate-pulse" />
+                      <span>朋友圈动态互动数据</span>
+                    </div>
+
+                    <!-- 点赞者头像与名单堆叠 -->
+                    <div v-if="selectedFavorite.likes_list && selectedFavorite.likes_list.length > 0" class="flex items-center p-3.5 bg-surface border border-outline-variant/50 rounded-2xl shadow-sm select-none">
+                      <div class="flex -space-x-1.5 mr-2">
+                        <template v-for="(liker, idx) in selectedFavorite.likes_list.slice(0, 6)" :key="liker.character_id">
+                          <div class="w-5 h-5 rounded-full border-2 border-surface overflow-hidden flex-shrink-0 shadow-sm relative transition-transform hover:scale-110 hover:z-10" :title="liker.author_name">
+                            <img v-if="liker.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                            <img v-else-if="characterAvatars[liker.character_id]" :src="characterAvatars[liker.character_id]" class="w-full h-full object-cover" />
+                            <div v-else class="w-full h-full bg-primary/20 flex items-center justify-center text-[7px] font-black text-primary">{{ liker.author_name?.[0] || '?' }}</div>
+                          </div>
+                        </template>
+                      </div>
+                      <span v-if="selectedFavorite.likes_list.length > 6" class="text-[9px] font-bold text-on-surface-variant/60 mr-1.5">+{{ selectedFavorite.likes_list.length - 6 }}</span>
+                      <span class="text-[9px] text-on-surface-variant/60 truncate flex-1">
+                        {{ selectedFavorite.likes_list.map((l: any) => l.author_name).join('、') }} 觉得很赞
+                      </span>
+                    </div>
+
+                    <!-- 评论流列表 -->
+                    <div class="space-y-3">
+                      <div v-if="!selectedFavorite.comments || selectedFavorite.comments.length === 0" class="text-center py-6 text-[10.5px] text-on-surface-variant/40 bg-surface/40 border border-outline-variant/20 rounded-xl">
+                        暂无互动评论数据 🐾
+                      </div>
+                      <div v-else class="space-y-2.5">
+                        <div v-for="c in selectedFavorite.comments" :key="c.id" class="p-3.5 rounded-xl bg-surface border border-outline-variant/50 shadow-sm space-y-1.5 flex items-start space-x-3">
+                          <div class="w-6 h-6 rounded-md overflow-hidden border border-outline-variant flex-shrink-0">
+                            <img v-if="c.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                            <img v-else-if="characterAvatars[c.character_id]" :src="characterAvatars[c.character_id]" class="w-full h-full object-cover" />
+                            <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant m-auto mt-1" />
+                          </div>
+                          <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between select-none">
+                              <span class="text-xs font-bold text-on-surface">{{ c.author_name }}</span>
+                              <span class="text-[8px] text-on-surface-variant/40 font-mono">{{ formatTime(c.timestamp) }}</span>
+                            </div>
+                            <p class="text-[11px] text-on-surface-variant mt-1 leading-relaxed select-text">
+                              <span v-if="c.reply_to_name" class="text-on-surface-variant/70 font-normal">回复 <span class="font-bold text-primary">{{ c.reply_to_name }}</span>：</span>
+                              <span v-html="renderTextWithStickers(c.content)"></span>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- B. 论坛帖子互动与浏览面板 -->
+                  <div v-else-if="selectedFavorite.type === 'forum'" class="space-y-4 select-text">
+                    <div class="text-xs font-black text-on-surface flex items-center justify-between pl-1 select-none">
+                      <div class="flex items-center space-x-1.5">
+                        <MessageSquareIcon class="w-3.5 h-3.5 text-primary" />
+                        <span>论坛帖子互动评论 ({{ selectedFavorite.comments?.length || 0 }})</span>
+                      </div>
+                      <!-- 阅读数显示 -->
+                      <div class="flex items-center space-x-1 text-[10px] text-on-surface-variant/50 font-mono font-normal">
+                        <EyeIcon class="w-3 h-3 text-on-surface-variant/40" />
+                        <span>总围观浏览量：{{ selectedFavorite.views || 0 }} 次</span>
+                      </div>
+                    </div>
+
+                    <!-- 楼中楼回复流 -->
+                    <div class="space-y-3">
+                      <div v-if="!selectedFavorite.comments || selectedFavorite.comments.length === 0" class="text-center py-6 text-[10.5px] text-on-surface-variant/40 bg-surface/40 border border-outline-variant/20 rounded-xl">
+                        此帖子暂无评论回复，静候角色互动吧 🐾
+                      </div>
+                      <div v-else class="space-y-2.5">
+                        <div v-for="c in selectedFavorite.comments" :key="c.id" class="p-3.5 rounded-xl bg-surface border border-outline-variant/50 shadow-sm space-y-1.5 flex items-start space-x-3">
+                          <div class="w-6 h-6 rounded-md overflow-hidden border border-outline-variant flex-shrink-0">
+                            <img v-if="c.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                            <img v-else-if="characterAvatars[c.character_id]" :src="characterAvatars[c.character_id]" class="w-full h-full object-cover" />
+                            <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant m-auto mt-1" />
+                          </div>
+                          <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between select-none">
+                              <span class="text-xs font-bold text-on-surface">{{ c.author_name }}</span>
+                              <span class="text-[8px] text-on-surface-variant/40 font-mono">{{ formatTime(c.timestamp) }}</span>
+                            </div>
+                            <p class="text-[11px] text-on-surface-variant mt-1 leading-relaxed select-text">
+                              <span v-if="c.reply_to_name" class="text-on-surface-variant/70 font-normal">回复 <span class="font-bold text-primary">{{ c.reply_to_name }}</span>：</span>
+                              <span v-html="renderTextWithStickers(c.content)"></span>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   </div>
                 </div>
               </template>
@@ -15703,6 +15811,37 @@ async function loadFavoritesList() {
     favoritesList.value = res.favorites
     // 默认不选中任何一个，防死锁
     selectedFavorite.value = null
+  }
+}
+
+async function selectFavoriteDetail(fav: any) {
+  selectedFavorite.value = fav
+
+  // 异步探测并加载该收藏项的配图大图 Base64 与元数据
+  const imgPath = getMomentImage(fav.content)
+  if (imgPath && !fav.imageBase64) {
+    const char = characterList.value.find(c => c.id === fav.character_id)
+    if (char) {
+      try {
+        const readRes = await window.api.invoke('read-image-media', {
+          folderName: char.folder_name,
+          mediaPath: imgPath
+        })
+        if (readRes.success) {
+          fav.imageBase64 = readRes.base64
+          if (readRes.meta) {
+            fav.imageMeta = readRes.meta
+          }
+          // 显式更新 selectedFavorite 的响应式字段以触发视图局部重新渲染
+          if (selectedFavorite.value && selectedFavorite.value.id === fav.id) {
+            selectedFavorite.value.imageBase64 = readRes.base64
+            selectedFavorite.value.imageMeta = readRes.meta || null
+          }
+        }
+      } catch (err) {
+        console.error('加载收藏配图失败:', err)
+      }
+    }
   }
 }
 

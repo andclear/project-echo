@@ -823,6 +823,37 @@ export class ModelAdapter {
     } catch (error) {
       console.error('[ModelAdapter] 注入现实时间戳失败:', error)
     }
+    return messages;
+  }
+
+  private preprocessRedPackets(messages: ChatMessage[]): ChatMessage[] {
+    try {
+      // 深度拷贝以避免修改外部消息对象
+      const cloned = JSON.parse(JSON.stringify(messages)) as ChatMessage[]
+      for (const msg of cloned) {
+        if (msg.content && msg.content.startsWith('[wechat_red_packet]:')) {
+          try {
+            const jsonStr = msg.content.replace('[wechat_red_packet]:', '')
+            const packet = JSON.parse(jsonStr)
+            const amount = packet.amount
+            const title = packet.title || '大吉大利'
+            
+            if (msg.role === 'user') {
+              // 用户发给角色的红包
+              msg.content = `[系统提示：用户向你发送了一个金额为 ${amount} 元的红包，红包附言："${title}"。]`
+            } else if (msg.role === 'assistant') {
+              // 角色发给用户的红包
+              msg.content = `[系统提示：你主动向用户发送了一个金额为 ${amount} 元的红包，红包附言："${title}"。]`
+            }
+          } catch (_) {
+            // 容错兜底
+          }
+        }
+      }
+      return cloned
+    } catch (error) {
+      console.error('[ModelAdapter] 红包消息预处理失败:', error)
+    }
     return messages
   }
 
@@ -833,7 +864,7 @@ export class ModelAdapter {
     messages: ChatMessage[],
     options?: ChatOptions
   ): Promise<ChatResponse> {
-    let processedMessages = messages
+    let processedMessages = this.preprocessRedPackets(messages)
     if (!options?.skipSystemInjection) {
       processedMessages = this.injectCurrentTimePrompt(processedMessages)
       processedMessages = this.injectGlobalPrompt(processedMessages)
@@ -863,7 +894,7 @@ export class ModelAdapter {
     messages: ChatMessage[],
     options?: ChatOptions
   ): AsyncGenerator<ChatChunk, void, unknown> {
-    let processedMessages = messages
+    let processedMessages = this.preprocessRedPackets(messages)
     if (!options?.skipSystemInjection) {
       processedMessages = this.injectCurrentTimePrompt(processedMessages)
       processedMessages = this.injectGlobalPrompt(processedMessages)
