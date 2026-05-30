@@ -5376,6 +5376,10 @@ function getContentType(filePath: string): string {
 let lanMappingServerInstance: http.Server | null = null;
 let currentLanMappingPort: number | null = null;
 
+// 局域网极简 IPC 桥接服务器全局实例与心跳定时器句柄
+let ipcBridgeServerInstance: http.Server | null = null;
+let ipcBridgeHeartbeatInterval: NodeJS.Timeout | null = null;
+
 // 实时开启/重启局域网映射静态服务器
 export function startLanMappingServer(port: number) {
   // 如果端口相同且已经在运行，直接返回
@@ -5498,113 +5502,137 @@ export function stopLanMappingServer() {
 
 // 启动局域网极简 IPC 桥接服务器 (Node 纯内置 http 模块，0 NPM 依赖)
 export function startIpcBridgeServer(port: number = 3000) {
-  const server = http.createServer((req, res) => {
-    // 1. 处理 CORS 跨域请求
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // 优雅停用老实例
+  stopIpcBridgeServer();
 
-    // 2. 预检请求 (OPTIONS)
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
+  try {
+    const server = http.createServer((req, res) => {
+      // 1. 处理 CORS 跨域请求
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    // 新增：GET /api/events 作为 SSE 持久推送通道
-    if (req.method === 'GET' && req.url === '/api/events') {
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*'
-      });
-      res.write(': sse-connected\n\n');
-      sseClients.add(res);
+      // 2. 预检请求 (OPTIONS)
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
 
-      req.on('close', () => {
-        sseClients.delete(res);
-      });
-      return;
-    }
+      // 新增：GET /api/events 作为 SSE 持久推送通道
+      if (req.method === 'GET' && req.url === '/api/events') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.write(': sse-connected\n\n');
+        sseClients.add(res);
 
-    // 3. 处理 /api/ipc POST 路由
-    if (req.method === 'POST' && req.url === '/api/ipc') {
-      let body = '';
-      req.on('data', (chunk) => {
-        body += chunk.toString();
-      });
-      req.on('end', async () => {
-        try {
-          const { channel, payload } = JSON.parse(body);
-          
-          // 从 Electron 的 ipcMain 内部 handlers Map 中寻找对应的 Channel 处理器
-          const handler = (ipcMain as any)._invokeHandlers?.get(channel);
-          if (handler) {
-            const mockEvent = {
-              sender: {
-                send: (ch: string, data: any) => {
-                  console.log(`[IPC Bridge Proxy send] channel: ${ch}`);
-                  broadcastToSse(ch, data);
+        req.on('close', () => {
+          sseClients.delete(res);
+        });
+        return;
+      }
+
+      // 3. 处理 /api/ipc POST 路由
+      if (req.method === 'POST' && req.url === '/api/ipc') {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+        req.on('end', async () => {
+          try {
+            const { channel, payload } = JSON.parse(body);
+            
+            // 从 Electron 的 ipcMain 内部 handlers Map 中寻找对应的 Channel 处理器
+            const handler = (ipcMain as any)._invokeHandlers?.get(channel);
+            if (handler) {
+              const mockEvent = {
+                sender: {
+                  send: (ch: string, data: any) => {
+                    console.log(`[IPC Bridge Proxy send] channel: ${ch}`);
+                    broadcastToSse(ch, data);
+                  }
                 }
-              }
-            };
-            const result = await handler(mockEvent, payload);
-            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(JSON.stringify(result));
-          } else {
-            console.warn(`[IPC Bridge Server] 未找到处理器: ${channel}`);
-            res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(JSON.stringify({ success: false, error: `IPC channel "${channel}" not found` }));
+              };
+              const result = await handler(mockEvent, payload);
+              res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+              res.end(JSON.stringify(result));
+            } else {
+              console.warn(`[IPC Bridge Server] 未找到处理器: ${channel}`);
+              res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+              res.end(JSON.stringify({ success: false, error: `IPC channel "${channel}" not found` }));
+            }
+          } catch (e: any) {
+            console.error(`[IPC Bridge Server] 请求处理异常:`, e);
+            res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ success: false, error: e.message || String(e) }));
           }
-        } catch (e: any) {
-          console.error(`[IPC Bridge Server] 请求处理异常:`, e);
-          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ success: false, error: e.message || String(e) }));
-        }
-      });
-      return;
-    }
-
-    // 其它路由返回 404
-    res.writeHead(404);
-    res.end();
-  });
-
-  server.on('error', (err: any) => {
-    console.error(`[IPC Bridge Server] 服务器底层网络捕获到致命异常:`, err);
-  });
-
-  server.listen(port, '0.0.0.0', () => {
-    console.log(`[IPC Bridge Server] 局域网桥接服务器已在 0.0.0.0:${port} 成功启动！🐾`);
-    
-    // 定时向所有连入的客户端发送心跳维持连接
-    setInterval(() => {
-      for (const client of sseClients) {
-        try {
-          client.write(': keepalive\n\n');
-        } catch (_) {
-          sseClients.delete(client);
-        }
+        });
+        return;
       }
-    }, 15000);
 
+      // 其它路由返回 404
+      res.writeHead(404);
+      res.end();
+    });
+
+    server.on('error', (err: any) => {
+      console.error(`[IPC Bridge Server] 服务器底层网络捕获到致命异常:`, err);
+    });
+
+    server.listen(port, '0.0.0.0', () => {
+      console.log(`[IPC Bridge Server] 局域网桥接服务器已在 0.0.0.0:${port} 成功启动！🐾`);
+      
+      // 定时向所有连入的客户端发送心跳维持连接
+      ipcBridgeHeartbeatInterval = setInterval(() => {
+        for (const client of sseClients) {
+          try {
+            client.write(': keepalive\n\n');
+          } catch (_) {
+            sseClients.delete(client);
+          }
+        }
+      }, 15000);
+
+      try {
+        console.log(`[IPC Bridge Server] ipcMain 自身属性:`, Object.getOwnPropertyNames(ipcMain));
+        const proto = Object.getPrototypeOf(ipcMain);
+        if (proto) {
+          console.log(`[IPC Bridge Server] ipcMain 原型属性:`, Object.getOwnPropertyNames(proto));
+        }
+        if ((ipcMain as any)._invokeHandlers) {
+          console.log(`[IPC Bridge Server] 诊断：已注册的处理器通道数 = ${(ipcMain as any)._invokeHandlers.size}`);
+          console.log(`[IPC Bridge Server] 诊断：所有已注册通道名称 =`, Array.from((ipcMain as any)._invokeHandlers.keys()));
+        } else {
+          console.log(`[IPC Bridge Server] 警告：未在 ipcMain 上找到 _invokeHandlers 映射！`);
+        }
+      } catch (e: any) {
+        console.error(`[IPC Bridge Server] 诊断执行失败:`, e);
+      }
+    });
+
+    ipcBridgeServerInstance = server;
+  } catch (e) {
+    console.error('[IPC Bridge Server] 启动局域网桥接服务器致命异常:', e);
+  }
+}
+
+// 优雅停用局域网极简 IPC 桥接服务器
+export function stopIpcBridgeServer() {
+  if (ipcBridgeHeartbeatInterval) {
+    clearInterval(ipcBridgeHeartbeatInterval);
+    ipcBridgeHeartbeatInterval = null;
+  }
+  if (ipcBridgeServerInstance) {
     try {
-      console.log(`[IPC Bridge Server] ipcMain 自身属性:`, Object.getOwnPropertyNames(ipcMain));
-      const proto = Object.getPrototypeOf(ipcMain);
-      if (proto) {
-        console.log(`[IPC Bridge Server] ipcMain 原型属性:`, Object.getOwnPropertyNames(proto));
-      }
-      if ((ipcMain as any)._invokeHandlers) {
-        console.log(`[IPC Bridge Server] 诊断：已注册的处理器通道数 = ${(ipcMain as any)._invokeHandlers.size}`);
-        console.log(`[IPC Bridge Server] 诊断：所有已注册通道名称 =`, Array.from((ipcMain as any)._invokeHandlers.keys()));
-      } else {
-        console.log(`[IPC Bridge Server] 警告：未在 ipcMain 上找到 _invokeHandlers 映射！`);
-      }
-    } catch (e: any) {
-      console.error(`[IPC Bridge Server] 诊断执行失败:`, e);
-    }
-  });
+      ipcBridgeServerInstance.close();
+      console.log('[IPC Bridge Server] 局域网桥接服务器已成功安全退役。🐾');
+    } catch (_) {}
+    ipcBridgeServerInstance = null;
+  }
 }
 
 app.whenReady().then(() => {
@@ -5723,6 +5751,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// 🚀 极致退役防死锁：应用退出前，百分之百强制关闭局域网自托管与桥接服务器并物理注销心跳定时器！
+// 这将彻底排空 Node.js 事件循环里的活跃网络监听和定时器句柄，确保进程能瞬间优雅自然释放，从根源上彻底斩断僵尸进程（Zombie Process）顽疾！
+app.on('before-quit', () => {
+  console.log('[App] 收到退出信号，开始物理销毁全局常驻组件及局域网桥接服务...')
+  stopLanMappingServer()
+  stopIpcBridgeServer()
 })
 
 // 自适应获取开发环境与生产环境下的 resources 物理资源目录，100% 绝对精确
