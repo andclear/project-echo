@@ -2672,9 +2672,14 @@
                       <PenLineIcon class="w-3.5 h-3.5" />
                     </button>
                   </h2>
-                  <p class="text-[10px] text-on-surface-variant mt-1.5 flex items-center space-x-1.5 opacity-80">
-                    <GlobeIcon class="w-3 h-3 text-primary opacity-70" />
-                    <span>角色专属目录：<code>characters/{{ characterList.find(c => c.id === selectedContactId)?.folder_name }}</code></span>
+                  <p 
+                    v-if="characterList.find(c => c.id === selectedContactId)?.folder_name"
+                    @click="openCharacterFolder(characterList.find(c => c.id === selectedContactId)?.folder_name)"
+                    class="text-[10px] text-on-surface-variant mt-1.5 flex items-center space-x-1.5 opacity-80 cursor-pointer hover:text-primary hover:opacity-100 transition-all select-none group"
+                    title="点击打开该角色的本地物理文件夹 📂"
+                  >
+                    <GlobeIcon class="w-3 h-3 text-primary opacity-70 group-hover:scale-110 transition-transform" />
+                    <span>角色专属目录：<code class="group-hover:border-primary/30 group-hover:bg-primary/5 transition-all">characters/{{ characterList.find(c => c.id === selectedContactId)?.folder_name }}</code></span>
                   </p>
                   <div class="flex items-center space-x-2 mt-2">
                     <span class="text-[9px] tracking-wider uppercase bg-primary/5 text-primary border border-primary/10 px-1.5 py-0.5 rounded font-bold font-mono">Soul Card</span>
@@ -4165,16 +4170,17 @@
                           <span class="text-sm shrink-0">{{ item.emoji }}</span>
                           <span class="opacity-90 font-bold text-[11px] text-primary truncate shrink-0">{{ item.label }}</span>
                           
-                          <!-- 数字型输入框 (只允许输入数字，并设限制) -->
+                          <!-- 数字型输入框 (支持整数与高精度小数) -->
                           <input 
                             type="number" 
                             :min="item.min ?? 0"
-                            :max="item.max ?? 100"
+                            :max="item.key === 'balance' ? 999999999999 : (item.max ?? 100)"
+                            :step="item.key === 'balance' ? '0.01' : '1'"
                             v-model.number="popoverValue" 
                             class="w-full px-2 py-1 text-[11px] rounded-lg bg-surface border border-outline-variant focus:outline-none focus:border-primary text-on-surface font-extrabold focus:ring-1 focus:ring-primary/20"
                             @keyup.enter="saveStateValue(item.key, popoverValue)"
                             @keyup.esc="activePopoverKey = null"
-                            @keypress="event => { if (!/[0-9]/.test(event.key)) event.preventDefault(); }"
+                            @keypress="event => { if (!/[0-9.]/.test(event.key)) event.preventDefault(); }"
                             placeholder="值"
                           />
                         </div>
@@ -4234,7 +4240,7 @@
                           <span class="opacity-90 font-medium">{{ item.label }}</span>
                         </div>
                         <div class="flex items-center space-x-1.5 min-w-0 ml-3" :class="{ 'flex-shrink-0': item.type !== 'text', 'flex-1 justify-end': item.type === 'text' }">
-                          <span class="font-extrabold break-all whitespace-normal text-right">{{ item.value }}</span>
+                          <span class="font-extrabold break-all whitespace-normal text-right">{{ item.key === 'balance' ? (isNaN(Number(item.value)) ? '0.00' : Number(item.value).toFixed(2)) : item.value }}</span>
                           <span v-if="item.key === 'intimacy'" class="text-[10px] opacity-75 font-normal flex-shrink-0">({{ getIntimacyPhaseText(item.value) }})</span>
                         </div>
                       </div>
@@ -9580,6 +9586,24 @@ async function openContactDiary() {
   showDiaryPanel.value = true
 }
 
+async function openCharacterFolder(folderName: string) {
+  if (!folderName) return
+  if (isMobile.value) {
+    showToast('由于您当前在移动端访问，无法在电脑上打开该物理目录。请在电脑客户端操作！📂')
+    return
+  }
+  try {
+    const res = await window.api.invoke('open-character-folder', { folderName })
+    if (res.success) {
+      showToast('已在系统管理器中打开该文件夹！📂')
+    } else {
+      showToast(`打开失败: ${res.error || '未找到该目录'}`)
+    }
+  } catch (err: any) {
+    showToast(`操作异常: ${err.message || String(err)}`)
+  }
+}
+
 async function doubleClickStartChat(charId: string) {
   await selectCharacter(charId)
   sideView.value = 'chat'
@@ -12921,7 +12945,10 @@ async function executeNovelAiImageGeneration(targetCharId?: string, targetFolder
         if (!allMessages[charId]) {
           allMessages[charId] = []
         }
-        allMessages[charId].push(restoreMessageProps(newImgMsg))
+        // 🚀 时序防重自愈：如果主进程存盘广播已抢先一步将该 ID 的消息追加，此处直接忽略以防双气泡
+        if (!allMessages[charId].some(m => m.id === newImgMsg.id)) {
+          allMessages[charId].push(restoreMessageProps(newImgMsg))
+        }
         
         // 🚀 极致细节：生图完成后，只有当用户当前视窗浏览的仍然是原绘图角色时，才静默强制滚动触底
         if (selectedCharacterId.value === charId) {
@@ -14139,48 +14166,60 @@ onMounted(async () => {
     const charId = msg.character_id
     if (!charId) return
 
-    // 🚀 微信分段打字与实时发送竞态过滤：
-    // 如果本地正好在进行该角色的仿真分段打字（在 activeTypingSessions 中存在该角色的活跃 session），
-    // 或者本地发送端正在等待该角色的流式/一次性回复返回（isStreaming.value 为 true 且 streamingCharacterId 为该角色），
-    // 主进程由 SQLite 存盘级联广播来的 receive-message 信号将 100% 被安全拦截并忽略。
-    // 这能彻底杜绝“在 Promise 返回前，主进程存盘广播抢先到达，被前端误判为非重复消息提前追加”的时序竞态 BUG！
-    const hasActiveTyping = Array.from(activeTypingSessions).some((key: string) => key.startsWith(charId + '_'))
-    const isWaitingResponse = isStreaming.value && streamingCharacterId.value === charId
-    if ((hasActiveTyping || isWaitingResponse) && msg.role === 'assistant') {
-      console.log(`[Sync Gate] 检测到本地正在进行或正在等待角色 ${charId} 的回复渲染，忽略后台级联同步广播以防双气泡`)
-      return
-    }
     // 更新对应会话的活跃时间戳
     conversationActiveTimes[charId] = msg.timestamp || Date.now()
     // 将消息追加到对应缓存
     if (!allMessages[charId]) allMessages[charId] = []
-    
-    // 智能去重自愈：如果本地已经存在与该广播消息 role 相同且 content 高度一致的消息（尤其是流式 assistant 回复），
-    // 则视为本地已经流式渲染过，我们只需补全其 id 和 token 数据，而绝不重复追加气泡。
     const msgs = allMessages[charId]
-    let isDuplicate = false
     
+    // 1. 智能去重自愈：如果本地已经存在与该广播消息 ID 相同，或 role 相同且内容高度一致的消息，则视为已渲染过。
+    let isDuplicate = false
     if (msg.role === 'assistant') {
-      // 倒序寻找最近的 3 条消息进行内容匹配
       for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 3); i--) {
         if (msgs[i].role === 'assistant' && (msgs[i].content === msg.content || msgs[i].id === msg.id)) {
-          // 找到高度雷同气泡，补齐 ID 和 Token
-          msgs[i].id = msg.id
-          if (msg.prompt_tokens) msgs[i].prompt_tokens = msg.prompt_tokens
-          if (msg.completion_tokens) msgs[i].completion_tokens = msg.completion_tokens
-          if (msg.cached_tokens) msgs[i].cached_tokens = msg.cached_tokens
           isDuplicate = true
           break
         }
       }
     } else if (msg.role === 'user') {
-      // user 消息做同理内容级去重自愈
       for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 3); i--) {
         if (msgs[i].role === 'user' && (msgs[i].content === msg.content || msgs[i].id === msg.id)) {
-          msgs[i].id = msg.id
           isDuplicate = true
           break
         }
+      }
+    }
+
+    const hasActiveTyping = Array.from(activeTypingSessions).some((key: string) => key.startsWith(charId + '_'))
+    const isWaitingResponse = isStreaming.value && streamingCharacterId.value === charId
+
+    if (isDuplicate) {
+      // 🚀 如果判定为重复消息，且本地正好处于该角色的流式打字或等待队列中，则安全过滤，防止双气泡
+      if (hasActiveTyping || isWaitingResponse) {
+        console.log(`[Sync Gate] 检测到重复气泡，且处于打字/等待状态中，过滤后台级联广播`)
+        
+        // 顺便在这里帮已有气泡补全一下 ID 和 Token 元数据
+        if (msg.role === 'assistant') {
+          for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 3); i--) {
+            if (msgs[i].role === 'assistant' && (msgs[i].content === msg.content || msgs[i].id === msg.id)) {
+              msgs[i].id = msg.id
+              if (msg.prompt_tokens) msgs[i].prompt_tokens = msg.prompt_tokens
+              if (msg.completion_tokens) msgs[i].completion_tokens = msg.completion_tokens
+              if (msg.cached_tokens) msgs[i].cached_tokens = msg.cached_tokens
+              break
+            }
+          }
+        }
+        return
+      }
+    } else {
+      // 🚀 如果并非重复消息，但本地仍处于等待该角色的流式回复状态，说明本地流式通道（SSE/Fetch）遭遇了严重的网络瞬断或丢包死锁
+      // 此时我们绝对不能过滤丢弃它，而是将其作为保底救命消息渲染出来，并立刻自动重置卡死状态，解除死锁！
+      if (isWaitingResponse && msg.role === 'assistant') {
+        console.warn(`[Sync Gate Self-Cure] 发现本地卡在等待状态，但从未收到此消息。判定流式信道丢包，触发保底自愈！`)
+        isStreaming.value = false
+        streamingCharacterId.value = ''
+        clearReplyTimeout()
       }
     }
 
@@ -15021,7 +15060,10 @@ async function forwardMessageToCharacter(targetChar: any) {
   if (!allMessages[targetChar.id]) {
     allMessages[targetChar.id] = []
   }
-  allMessages[targetChar.id].push(restoreMessageProps(userMsg))
+  // 🚀 时序防重自愈：防止主进程存盘广播抢先追加导致双气泡
+  if (!allMessages[targetChar.id].some(m => m.id === userMsg.id)) {
+    allMessages[targetChar.id].push(restoreMessageProps(userMsg))
+  }
   
   // 3. 自动跳转到该角色的聊天页！
   await selectCharacter(targetChar.folder_name)

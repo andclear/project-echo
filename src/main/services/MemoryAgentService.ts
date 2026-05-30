@@ -119,7 +119,7 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
             const meaningDesc = i.meaning ? ` (指标含义：${i.meaning})` : '';
             const ruleDesc = i.rule ? ` (AI更新规则：${i.rule})` : '';
             const minVal = i.min ?? 0;
-            const maxVal = i.max ?? 100;
+            const maxVal = i.key === 'balance' ? '无上限' : (i.max ?? 100);
             return `- ${i.label} (${i.key}): 当前值 ${i.value}${meaningDesc}${ruleDesc} (取值范围 ${minVal}-${maxVal}) ${i.emoji}`;
           })
           .join('\n');
@@ -158,6 +158,7 @@ ${currentMemoryContext}
 - 如果用户冷淡、挑剔、争吵或沉默：mood 降低 (-10 至 -20)，intimacy 降低 (-2 至 -5)，energy 降低 (-5)。
 - 每轮对话消耗角色的精力，因此 energy 通常减少 (-2 至 -5)，除非这次对话具有明显的治愈性或精力补充效果。
 - 遵循 State 列表中的 AI更新规则 评估自定义数值/文本状态。若文本状态（如 clothing）发生变化，请在 'value' 字段中提供更新后的文本（无需提供 'delta'）。
+- 针对钱包余额 (balance) 属性的变动更新，必须且仅能使用相对值形式 'delta' 进行增加或扣减（例如评估收到 100 元红包应输出 { "key": "balance", "delta": 100 }，若口头请客花掉 15 元应输出 { "key": "balance", "delta": -15 }），绝对禁止使用 'value' 进行直接覆盖重置！
 
 角色当前状态：
 ${stateContext}
@@ -301,16 +302,22 @@ Target JSON 格式：
 
         // D. 角色状态 (State.md) Delta 增量更新与物理落盘 (仅单聊)
         if (!isGroup && Array.isArray(parsed.state_updates) && parsed.state_updates.length > 0) {
-          StateReaderWriter.applyStateUpdates(statePath, parsed.state_updates);
-          console.log(`[MemoryAgentService] 物理状态增量更新落盘成功:`, parsed.state_updates);
+          // 🚀 核心过滤防线：物理拦截并过滤掉所有试图从后台 AI 反思更新钱包余额 'balance' 的指令，
+          // 因为钱包余额已在前台扣减/红包增减逻辑中进行了 100% 精确的规则级落盘，绝对不容许 AI 幻觉和格式错误进行覆盖篡改！
+          const filteredUpdates = parsed.state_updates.filter(u => u && u.key !== 'balance');
+          
+          if (filteredUpdates.length > 0) {
+            StateReaderWriter.applyStateUpdates(statePath, filteredUpdates);
+            console.log(`[MemoryAgentService] 物理状态增量更新落盘成功(已过滤 balance):`, filteredUpdates);
 
-          // 穿透广播给渲染进程前端以驱动仪表盘的动画浮动与数值更新
-          const windows = BrowserWindow.getAllWindows();
-          if (windows.length > 0) {
-            windows[0].webContents.send('character-state-updated', {
-              characterId: path.basename(path.dirname(memoryPath)),
-              updates: parsed.state_updates
-            });
+            // 穿透广播给渲染进程前端以驱动仪表盘的动画浮动与数值更新
+            const windows = BrowserWindow.getAllWindows();
+            if (windows.length > 0) {
+              windows[0].webContents.send('character-state-updated', {
+                characterId: path.basename(path.dirname(memoryPath)),
+                updates: filteredUpdates
+              });
+            }
           }
         }
       }

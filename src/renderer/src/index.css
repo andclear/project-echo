@@ -365,7 +365,11 @@ body {
    移动端长按手势防系统文字选择与 callout 干扰（黄金自愈）
    ===================================================================== */
 .user-chat-bubble,
-.ai-chat-bubble,
+.ai-chat-bubble {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .wechat-red-packet-card {
   user-select: none;
   -webkit-user-select: none;   /* 针对 iOS Safari 极速物理拦截 */

@@ -1560,8 +1560,8 @@ ${formattedHistory}
 
           // D. [回音红包动作决策] (扣减各自 State.md 的钱包余额)
           let redPacketSend: { amount: number; title: string; status: string } | null = null
-          const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/i
-          const sendRegGlobal = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
+          const sendReg = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/i
+          const sendRegGlobal = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/gi
           const sendMatch = finalResponse.match(sendReg)
 
           if (sendMatch) {
@@ -2444,8 +2444,8 @@ ${memoryContent}
 
     // A. 判定是否为角色主动发红包
     // 🚀 升级为超强容错正则，支持反单引号包裹、中文全角冒号/逗号、忽略大小写
-    const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/i
-    const sendRegGlobal = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
+    const sendReg = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/i
+    const sendRegGlobal = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/gi
     const sendMatch = accumulatedResponse.match(sendReg)
     if (sendMatch) {
       const amount = parseFloat(sendMatch[1])
@@ -3317,6 +3317,21 @@ ${memoryContent}
       mainWindow?.webContents.send('conversation-meta-updated', payload)
       
       return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 15.5 物理打开角色所在的本地专属配置文件夹
+  ipcMain.handle('open-character-folder', async (_, payload: { folderName: string }) => {
+    try {
+      const storageManager = new CharacterStorageManager()
+      const charDir = join(storageManager.getBaseDir(), payload.folderName)
+      if (fs.existsSync(charDir)) {
+        await shell.openPath(charDir)
+        return { success: true }
+      }
+      return { success: false, error: '本地角色专属文件夹未创建或已被移动' }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
@@ -4652,7 +4667,11 @@ ${soulContent}
           const val = Number(payload.value)
           const minVal = item.min ?? 0
           const maxVal = item.max ?? (payload.key === 'balance' ? 999999999 : 100)
-          item.value = isNaN(val) ? minVal : Math.max(minVal, Math.min(maxVal, val))
+          let finalVal = isNaN(val) ? minVal : Math.max(minVal, Math.min(maxVal, val))
+          if (payload.key === 'balance') {
+            finalVal = Math.round(finalVal * 100) / 100
+          }
+          item.value = finalVal
         }
         state.last_updated = new Date().toISOString().split('T')[0]
         StateReaderWriter.writeState(statePath, state)

@@ -192,18 +192,25 @@ ${state.items.map(item => {
           const maxVal = item.max ?? (item.key === 'balance' ? 9999999999999 : 100);
           const currentVal = typeof item.value === 'number' ? item.value : (Number(item.value) || 0);
           
+          let finalVal = currentVal;
           if (update.value !== undefined && update.value !== null && update.value !== '') {
             // 绝对值更新模式 (大模型直接指明当前绝对数值)
             const targetVal = Number(update.value);
             if (!isNaN(targetVal)) {
-              item.value = Math.max(minVal, Math.min(maxVal, targetVal));
+              finalVal = Math.max(minVal, Math.min(maxVal, targetVal));
             }
           } else if (update.delta !== undefined && update.delta !== null) {
             // 相对值更新模式 (大模型给出了 delta 增减值)
             const deltaVal = Number(update.delta);
             if (!isNaN(deltaVal)) {
-              item.value = Math.max(minVal, Math.min(maxVal, currentVal + deltaVal));
+              finalVal = Math.max(minVal, Math.min(maxVal, currentVal + deltaVal));
             }
+          }
+          
+          if (item.key === 'balance') {
+            item.value = Math.round(finalVal * 100) / 100;
+          } else {
+            item.value = finalVal;
           }
         }
       }
