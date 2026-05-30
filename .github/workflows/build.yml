@@ -47,23 +47,17 @@ jobs:
 
       - name: Build Electron Installers (macOS - Intel & Apple Silicon)
         if: matrix.os == 'macos-latest'
-        # macos-latest 会读取 electron-builder.yml 中配置 of x64 与 arm64 自动打出两套 dmg 包
-        run: npx electron-builder --mac
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # macos-latest 会读取 electron-builder.yml 中配置 of x64 与 arm64 自动打出两套 dmg 包，--publish never 禁用自动上传
+        run: npx electron-builder --mac --publish never
 
       - name: Build Electron Installers (Windows - x64)
         if: matrix.os == 'windows-latest'
-        run: npx electron-builder --win
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish never
 
       - name: Build Electron Installers (Linux - AppImage)
         if: matrix.os == 'ubuntu-latest'
         # 强制打包出全 Linux 主流发行版免安装通用的 .AppImage 包
-        run: npx electron-builder --linux AppImage
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux AppImage --publish never
 
       - name: Upload Temporary Build Artifacts
         # 🚀 将各平台编译产物以独立任务名上传，解耦编译阶段与统一推送阶段，零并发冲突
