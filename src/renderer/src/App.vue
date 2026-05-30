@@ -4382,9 +4382,19 @@
         <template v-else>
           <!-- 没有选中角色 / 导入视图 -->
           <template v-if="activeView === 'import'">
-          <div class="flex-1 flex flex-col items-center justify-center p-8">
-            <div class="max-w-md w-full">
-              <div class="text-lg font-bold text-on-surface mb-1">导入 AI 角色</div>
+            <div class="flex-1 flex flex-col items-center justify-center p-8">
+              <div class="max-w-md w-full">
+                <div class="flex items-center space-x-2.5 mb-2 select-none">
+                  <button 
+                    v-if="isMobile" 
+                    @click="activeView = 'chat'" 
+                    class="p-1.5 rounded-xl hover:bg-surface-high text-on-surface-variant active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+                    title="返回会话列表"
+                  >
+                    <ChevronLeftIcon class="w-5 h-5" />
+                  </button>
+                  <div class="text-lg font-bold text-on-surface">导入 AI 角色</div>
+                </div>
               <p class="text-xs text-on-surface-variant mb-6">导入 SillyTavern 格式的 PNG 角色卡或 JSON 角色人设数据，开始与角色对话。</p>
 
               <div
@@ -9156,7 +9166,7 @@ function handleTextareaFocus() {
 
 const isRightPanelActive = computed(() => {
   if (sideView.value === 'chat') {
-    return selectedCharacterId.value !== null
+    return selectedCharacterId.value !== null || activeView.value === 'import'
   }
   if (sideView.value === 'contacts') {
     return selectedContactId.value !== null
