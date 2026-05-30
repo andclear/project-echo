@@ -219,6 +219,33 @@ function cleanMarkdownBlock(text: string): string {
   return cleaned.trim()
 }
 
+// 动态读取用户自定义大图表情包列表并拼装 Prompt 注入块，使得大模型能够完美感知用户的表情包资产
+function buildEmojiSystemPromptSuffix(): string {
+  try {
+    const db = getDatabaseService()
+    const emojisStr = db.getSetting('echo_custom_emojis')
+    const customEmojis = emojisStr ? JSON.parse(emojisStr) : []
+    if (customEmojis.length === 0) {
+      return ''
+    }
+    const meaningList = customEmojis.map((e: any) => `- ${e.meaning}`).join('\n')
+    return `\n\n【微信自定义大图表情包库】
+用户当前添加了以下可供你选择发送的微信表情包名称列表：
+${meaningList}
+
+【特定发送格式规则】
+如果在与用户的聊天中，你觉得当前的【语义、对话语境或角色情绪】非常适合使用某个表情包，请严格选择上述列表中存在的名称，并在你的回复文本的最后输出以下特定格式的指令（单次发言限发一个表情指令）：
+👉 特定指令格式：[SEND_CUSTOM_EMOJI: 表情包名称]
+
+例如：如果你想对用户发出“开心”这个表情，可以在回复中包含：
+“太好啦！[SEND_CUSTOM_EMOJI: 开心]”
+（注意：这是一种用于后台转换的特定指令格式。发送后系统会自动为你匹配替换并以超精致的微信透明大图表情卡片展现给用户。请不要输出列表中不存在的表情包名称，也不要进行多余的代码层面的口头赘述。）`
+  } catch (err) {
+    console.error('[Emoji Prompt Injection Error]:', err)
+    return ''
+  }
+}
+
 // 注册主进程 IPC 监听器
 function registerIpcHandlers(): void {
 
@@ -1796,6 +1823,8 @@ ${soulContent}
             memberProfiles
           )
 
+          const groupSystemPromptFinal = systemPrompt + buildEmojiSystemPromptSuffix()
+
           // B. 拉取最近 25 条历史消息并格式化为剧本 RP 形式的大文本控制台
           const history = db.getChatHistory(groupId, 25)
           const formattedHistory = history.map((m: any) => {
@@ -1819,7 +1848,7 @@ ${formattedHistory}
 如果决定发送回音红包，请只在回复的最开头输出控制符：\`[SEND_RED_PACKET: 金额, 附言]\`（扣减你各自的钱包余额，附言限15字以内），正文中绝对不能提到“我发了钱/塞红包”等。`
 
           const chatMessages: ChatMessage[] = [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: groupSystemPromptFinal },
             { role: 'user', content: userPromptText }
           ]
 
@@ -2013,9 +2042,39 @@ ${formattedHistory}
             redPacketAction = 'return'
           }
 
-          // 物理擦除控制符
+          // I. [自定义表情包动作决策]
+          let customEmojiSend: any = null
+          const emojiReg = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/i
+          const emojiRegGlobal = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/gi
+          const emojiMatch = finalResponse.match(emojiReg)
+
+          if (emojiMatch) {
+            const targetMeaning = emojiMatch[1].trim()
+            try {
+              const emojisStr = db.getSetting('echo_custom_emojis')
+              const customEmojis = emojisStr ? JSON.parse(emojisStr) : []
+              // 🌟 语义高阶包含关系模糊匹配自愈
+              const matchedEmoji = customEmojis.find((e: any) => 
+                e.meaning === targetMeaning || 
+                targetMeaning.includes(e.meaning) || 
+                e.meaning.includes(targetMeaning)
+              )
+              if (matchedEmoji) {
+                customEmojiSend = {
+                  meaning: matchedEmoji.meaning,
+                  base64: matchedEmoji.base64
+                }
+                console.log(`[Group Custom Emoji] 成员 ${currentSpeaker.name} 根据语义匹配发送了表情包: [${matchedEmoji.meaning}]`)
+              }
+            } catch (err) {
+              console.error('[Group Custom Emoji Error]:', err)
+            }
+          }
+
+          // 物理擦除控制符与自定义表情包指令
           finalResponse = finalResponse
             .replace(sendRegGlobal, '')
+            .replace(emojiRegGlobal, '')
             .replace(/\[RECEIVE_RED_PACKET\]/g, '')
             .replace(/\[RETURN_RED_PACKET\]/g, '')
             .trim()
@@ -2041,6 +2100,18 @@ ${formattedHistory}
               role: 'assistant',
               content: `[wechat_red_packet]:${JSON.stringify(redPacketSend)}`,
               timestamp: Date.now() + 10,
+              token_usage: 0,
+              sender_id: currentSpeakerId
+            })
+          }
+
+          if (customEmojiSend) {
+            db.saveMessage({
+              id: crypto.randomUUID(),
+              character_id: groupId,
+              role: 'assistant',
+              content: `[wechat_custom_emoji]:${JSON.stringify(customEmojiSend)}`,
+              timestamp: Date.now() + 20,
               token_usage: 0,
               sender_id: currentSpeakerId
             })
@@ -2629,6 +2700,8 @@ ${memoryContent}
         globalPrompt
       )
 
+      systemPrompt += buildEmojiSystemPromptSuffix()
+
       // 🚀 组装高频变动的实时 Dynamic Context (只在最新一轮 user 消息中动态注入，让 systemPrompt 100% 绝对静止以获得 >90% 缓存命中)
       const dynamicContext = ContextAssembler.assembleDynamicContext(
         soulPath,
@@ -3008,6 +3081,35 @@ ${memoryContent}
       .replace(thinkTagsReg, '')
       .replace(halfThinkTagsReg, '')
 
+    // A3. [自定义表情包动作决策]
+    let customEmojiSend: any = null
+    const emojiReg = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/i
+    const emojiRegGlobal = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/gi
+    const emojiMatch = finalResponse.match(emojiReg)
+
+    if (emojiMatch) {
+      const targetMeaning = emojiMatch[1].trim()
+      try {
+        const emojisStr = db.getSetting('echo_custom_emojis')
+        const customEmojis = emojisStr ? JSON.parse(emojisStr) : []
+        // 🌟 语义高阶包含关系模糊匹配自愈
+        const matchedEmoji = customEmojis.find((e: any) => 
+          e.meaning === targetMeaning || 
+          targetMeaning.includes(e.meaning) || 
+          e.meaning.includes(targetMeaning)
+        )
+        if (matchedEmoji) {
+          customEmojiSend = {
+            meaning: matchedEmoji.meaning,
+            base64: matchedEmoji.base64
+          }
+          console.log(`[Single Custom Emoji] 角色 ${characterId} 根据语义匹配发送了表情包: [${matchedEmoji.meaning}]`)
+        }
+      } catch (err) {
+        console.error('[Single Custom Emoji Error]:', err)
+      }
+    }
+
     // 🚀 黄金开篇正文物理提取：如果内容中含有 <content>，说明是特化开局，只把 <content> 内部纯净正文落盘数据库，彻底防范项目重启后加载出 <cot> 思考段落及杂质文字
     if (finalResponse.includes('<content>')) {
       const startIdx = finalResponse.indexOf('<content>') + 9
@@ -3023,6 +3125,7 @@ ${memoryContent}
       .replace(/\[RECEIVE_RED_PACKET\]/g, '')
       .replace(/\[RETURN_RED_PACKET\]/g, '')
       .replace(sendRegGlobal, '')
+      .replace(emojiRegGlobal, '')
       
     // 🚀 降维干涉：如果已成功提取了红包 Payload，采取精准字面量强制擦除，100% 排除正则可能匹配不到的漏网情况
     if (sendMatch && sendMatch[0]) {
@@ -3178,6 +3281,25 @@ ${memoryContent}
         role: 'assistant',
         content: `[wechat_red_packet]:${JSON.stringify(redPacketSend)}`,
         timestamp: finalMsgTimestamp + 500, // 稍微延迟 500ms 确保排在文字气泡后面
+        token_usage: finalPromptTokens + finalCompletionTokens,
+        prompt_tokens: finalPromptTokens,
+        completion_tokens: finalCompletionTokens,
+        cached_tokens: finalCachedTokens
+      })
+    }
+
+    // 3. 如果存在主动发送自定义表情包，则再单独保存一条 [wechat_custom_emoji] 格式的消息，且排在文字气泡的最后面
+    if (customEmojiSend) {
+      let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
+      let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
+      let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
+
+      db.saveMessage({
+        id: crypto.randomUUID(),
+        character_id: characterId,
+        role: 'assistant',
+        content: `[wechat_custom_emoji]:${JSON.stringify(customEmojiSend)}`,
+        timestamp: finalMsgTimestamp + 600, // 稍微延迟 600ms 确保排在文字气泡后面
         token_usage: finalPromptTokens + finalCompletionTokens,
         prompt_tokens: finalPromptTokens,
         completion_tokens: finalCompletionTokens,
