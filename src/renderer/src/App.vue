@@ -8428,7 +8428,7 @@ function renderMarkdown(content: string) {
   const html = md.render(content)
   
   // 识别并包裹非对话内容（中英文括号与中括号里的动作或内心描写），物理防误伤 HTML 标签内部结构
-  return html.replace(/(<[^>]+>)|([^<]+)/g, (_, tag, text) => {
+  const processed = html.replace(/(<[^>]+>)|([^<]+)/g, (_, tag, text) => {
     if (tag) return tag
     
     let temp = text
@@ -8438,8 +8438,8 @@ function renderMarkdown(content: string) {
     temp = temp.replace(/\(([\s\S]*?)\)/g, "<span class='narrative-bracket'>($1)</span>")
     // 3. 替换中文中括号 【...】
     temp = temp.replace(/【([\s\S]*?)】/g, "<span class='narrative-bracket'>【$1】</span>")
-    // 4. 替换英文中括号 [...]
-    temp = temp.replace(/\[([\s\S]*?)\]/g, "<span class='narrative-bracket'>[$1]</span>")
+    // 4. 替换英文中括号 [...]，避开表情包标记 [表情: xxx]
+    temp = temp.replace(/\[(?!表情:\s*)([\s\S]*?)\]/g, "<span class='narrative-bracket'>[$1]</span>")
     // 5. 替换中文双引号 “...” (使用单引号属性且限定内部无HTML标签，防范二次吞噬)
     temp = temp.replace(/“([^”<>]*?)”/g, "<span class='dialogue-quote'>“$1”</span>")
     // 6. 替换英文双引号 "..." (使用单引号属性且限定内部无HTML标签，物理隔绝二次吞噬)
@@ -8447,6 +8447,9 @@ function renderMarkdown(content: string) {
     
     return temp
   })
+
+  // 🚀 将 [表情: 含义] 替换为真实的微信表情包图片
+  return replaceStickersOnly(processed)
 }
 
 function renderTextWithStickers(text: string) {
