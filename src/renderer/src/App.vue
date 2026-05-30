@@ -14720,6 +14720,11 @@ onMounted(async () => {
     }
 
     if (data.done) {
+      // 🚀 提前注册到 pendingDialogueContents，确保在 receive-message 广播到达前锁定，彻底斩断单聊/群聊重复气泡！
+      if (chatMode.value === 'dialogue' && data.content) {
+        pendingDialogueContents.add(data.content.replace(/\s+/g, '').slice(0, 80))
+      }
+
       const isGroupChat = groupChats.value.some(g => g.id === chunkCharId)
       const senderId = (data as any).senderId
       
@@ -14769,7 +14774,7 @@ onMounted(async () => {
         }
         // 🚀 强力修复：群聊渲染偶发卡住/不显示气泡的自愈防线
         // 在 done 为 true 时，将最新的权威全文覆盖到最后一条助理气泡中，若因网络延迟或丢包没能正常渲染，则作为兜底自动创建
-        if (data.content && senderId) {
+        if (data.content && senderId && chatMode.value !== 'dialogue') {
           const msgs = allMessages[chunkCharId] || []
           // 查找最后一条由该 senderId 发送的 assistant 消息
           let lastAssistantIdx = -1
@@ -14976,9 +14981,9 @@ onMounted(async () => {
       return
     }
 
-    // 🚀 响应取消流式诉求：如果当前不是群聊，直接拦截并静默丢弃所有单聊消息（含创角 Bot 文本），全部交由 Promise 决议和广播接管，从根本上消灭重复气泡！
+    // 🚀 响应取消流式诉求：如果当前不是群聊，或者处于纯文字对话（dialogue）模式，直接拦截并静默丢弃流式消息（含创角 Bot 文本），全部交由 Promise 决议和广播接管，从根本上消灭重复气泡！
     const isGroupChat = groupChats.value.some(g => g.id === chunkCharId)
-    if (!isGroupChat) {
+    if (!isGroupChat || chatMode.value === 'dialogue') {
       return
     }
 
@@ -15226,12 +15231,16 @@ onMounted(async () => {
         }
       }
       
-      // 🚀 纯文字对话模式精确去重：handleAssistantResponse 开始弹射时已将内容注册到 pendingDialogueContents
-      // receive-message 到达时直接比对，无需依赖时机，100% 可靠
+      // 🚀 纯文字对话模式精确去重：在 chat-chunk done 或 handleAssistantResponse 开始时已将内容注册到 pendingDialogueContents
+      // receive-message 到达时直接模糊+精确双重比对，彻底杜绝特殊控制符或空格微弱差异，100% 可靠去重
       if (!isDuplicate && chatMode.value === 'dialogue') {
-        if (pendingDialogueContents.has(normBroadcast.slice(0, 80))) {
-          isDuplicate = true
-          console.log('[Sync Gate] dialogue pendingContent 命中，精确拦截广播重复。')
+        const normBroadcastShort = normBroadcast.slice(0, 80)
+        for (const pending of pendingDialogueContents) {
+          if (pending.includes(normBroadcastShort) || normBroadcast.includes(pending.slice(0, 50))) {
+            isDuplicate = true
+            console.log('[Sync Gate] dialogue pendingContent 模糊/精确匹配成功，完美拦截广播重复。')
+            break
+          }
         }
       }
 
