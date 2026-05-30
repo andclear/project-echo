@@ -11838,29 +11838,42 @@ async function handleAssistantResponse(
     const msgs = allMessages[char.id] || []
     
     if (chatMode.value === 'descriptive' || chatMode.value === 'director') {
-      // B.1 包含描写模式/导演模式：直接向会话追加一条完整的助理回复气泡，瞬间呈现
+      // B.1 包含描写模式/导演模式：直接向会话追加或更新助理回复气泡，瞬间呈现
       
-      // 🚀 核心自愈去重：检查本地 msgs 中是否由于 receive-message 提前到达而已经存在了相同 id 或高度相同内容的消息！
-      const isAlreadyExist = msgs.some(m => m.id === messageId || (m.role === 'assistant' && m.content === content))
-      if (isAlreadyExist) {
-        console.log(`[Sync Gate] 瞬间呈现模式：本地已被 receive-message 提前写入，不再重复 push`)
+      // 🚀 流式自愈复用防线：如果最后一条消息是流式临时气泡，我们直接将其 id 与内容更新为物理权威数据，彻底杜绝重复生成 Bug
+      const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null
+      if (lastMsg && lastMsg.role === 'assistant' && lastMsg.id && String(lastMsg.id).startsWith('msg_stream_')) {
+        console.log(`[Sync Gate] 流式气泡复用更新，覆盖 ID: ${messageId}`)
+        lastMsg.id = messageId
+        lastMsg.content = content
+        if (promptTokens !== undefined) lastMsg.prompt_tokens = promptTokens
+        if (completionTokens !== undefined) lastMsg.completion_tokens = completionTokens
+        if (cachedTokens !== undefined) lastMsg.cached_tokens = cachedTokens
         isStreaming.value = false
-        nextTick(() => scrollToBottom())
+        nextTick(() => scrollToBottom('smooth', true))
       } else {
-        msgs.push({
-          role: 'assistant',
-          content: content,
-          id: messageId, // 🚀 瞬间呈现直接绑定真实物理 ID
-          created_at: new Date().toISOString(),
-          prompt_tokens: promptTokens,
-          completion_tokens: completionTokens,
-          cached_tokens: cachedTokens
-        })
-        isStreaming.value = false
-        nextTick(() => {
-          scrollToBottom('smooth', true)
-          setTimeout(() => scrollToBottom('smooth', true), 80)
-        })
+        // 🚀 核心自愈去重：检查本地 msgs 中是否由于 receive-message 提前到达而已经存在了相同 id 或高度相同内容的消息！
+        const isAlreadyExist = msgs.some(m => m.id === messageId || (m.role === 'assistant' && m.content === content))
+        if (isAlreadyExist) {
+          console.log(`[Sync Gate] 瞬间呈现模式：本地已被 receive-message 提前写入，不再重复 push`)
+          isStreaming.value = false
+          nextTick(() => scrollToBottom())
+        } else {
+          msgs.push({
+            role: 'assistant',
+            content: content,
+            id: messageId, // 🚀 瞬间呈现直接绑定真实物理 ID
+            created_at: new Date().toISOString(),
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            cached_tokens: cachedTokens
+          })
+          isStreaming.value = false
+          nextTick(() => {
+            scrollToBottom('smooth', true)
+            setTimeout(() => scrollToBottom('smooth', true), 80)
+          })
+        }
       }
     } else {
       // B.2 纯对话模式：采用高维微信级智能分句重组算法，进行有节奏的逐句打字弹射播放
@@ -15126,6 +15139,16 @@ onMounted(async () => {
       // 首先检查是否有 ID、原始物理内容、或红包属性直接相存的重复项
       for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 15); i--) {
         if (msgs[i].role === 'assistant') {
+          // 🚀 流式临时气泡前置匹配去重：如果本地存在 msg_stream_ 临时气泡，且内容高度重合，我们提前将其 id 修正为真正的物理 id 从而完美拦截广播
+          if (String(msgs[i].id).startsWith('msg_stream_')) {
+            const localClean = cleanStr(msgs[i].content)
+            if (localClean === normBroadcast || localClean.includes(normBroadcast) || normBroadcast.includes(localClean)) {
+              isDuplicate = true
+              msgs[i].id = msg.id // 提前原子替换为正式 ID，使之后 handleAssistantResponse 的 check 拦截达到 100% 精确度
+              break
+            }
+          }
+
           // A. 物理 ID 或 字符串内容完全匹配
           if (msgs[i].id === msg.id || cleanStr(msgs[i].content) === normBroadcast) {
             isDuplicate = true
