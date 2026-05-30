@@ -799,90 +799,209 @@ Please output in exactly this XML format:
     const charId = char.id;
     const folderName = char.folder_name;
     const now = new Date();
-    const todayStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const baseDir = this.storageManager.getBaseDir();
+    const schedulePath = path.join(baseDir, folderName, 'Schedule.md');
+    const goalsPath = path.join(baseDir, folderName, 'Goals.md');
+
+    const isScheduleEmpty =
+      !fs.existsSync(schedulePath) ||
+      fs.readFileSync(schedulePath, 'utf8').trim() === '' ||
+      fs.readFileSync(schedulePath, 'utf8').includes('暂无日程');
+
+    const isGoalsEmpty =
+      !fs.existsSync(goalsPath) ||
+      fs.readFileSync(goalsPath, 'utf8').trim() === '' ||
+      fs.readFileSync(goalsPath, 'utf8').includes('暂无长期目标');
 
     const lastUpdateStr = db.getSetting(`last_schedule_goals_date_${charId}`);
+    
+    // 获取当前该角色的消息总数
+    let currentMsgCount = 0;
+    try {
+      const stmt = db.db.prepare('SELECT COUNT(*) as count FROM Messages WHERE character_id = ?');
+      const row = stmt.get(charId) as { count: number } | undefined;
+      currentMsgCount = row ? row.count : 0;
+    } catch (_) {}
+
+    const lastMsgCountStr = db.getSetting(`last_schedule_goals_msg_count_${charId}`);
+    const lastMsgCount = lastMsgCountStr ? parseInt(lastMsgCountStr, 10) : 0;
+    const messagesPassed = currentMsgCount - lastMsgCount;
+
     let needUpdate = false;
-    if (!lastUpdateStr) {
+    
+    if (isScheduleEmpty || isGoalsEmpty || !lastUpdateStr) {
       needUpdate = true;
     } else {
       const lastUpdate = new Date(lastUpdateStr);
       const daysPassed = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysPassed >= 7) {
+      if (daysPassed >= 7 || messagesPassed >= 120) {
         needUpdate = true;
       }
     }
 
     if (!needUpdate) return;
 
-    console.log(`[AgentLifeEngine] 7天周期已到，触发角色 ${char.name} 的 Schedule.md 与 Goals.md 定期推进自省...`);
+    console.log(`[AgentLifeEngine] 7天周期或条数满足，触发角色 ${char.name} 的 Schedule.md 与 Goals.md 定期推进自省...`);
 
-    const baseDir = this.storageManager.getBaseDir();
     const soulPath = path.join(baseDir, folderName, 'Soul.md');
-    const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
+    const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8').trim() : '一个神秘的人。';
 
-    const diaryPath = path.join(baseDir, folderName, 'Diary.md');
-    const diaryContent = fs.existsSync(diaryPath) ? fs.readFileSync(diaryPath, 'utf8').slice(-1000) : '暂无近期日记';
+    // 完整的记忆文档（Memory.md）
+    const memoryFilePath = path.join(baseDir, folderName, 'Memory.md');
+    const memoryContent = fs.existsSync(memoryFilePath) ? fs.readFileSync(memoryFilePath, 'utf8').trim() : '暂无专属记忆积累事实。';
+
+    // 完整的角色对用户的画像（USER.md，注意是专属目录下的 USER.md，而不是全局的 USER.md）
+    const charUserPath = path.join(baseDir, folderName, 'USER.md');
+    const charUserContent = fs.existsSync(charUserPath) ? fs.readFileSync(charUserPath, 'utf8').trim() : '暂无角色对用户的特定画像侧写。';
+
+    // 完整的聊天上下文：大事记 SUMMARY.md + 最近 50 条消息以 last_compression_ts 门控截断后的增量消息
+    const summaryPath = path.join(baseDir, folderName, 'SUMMARY.md');
+    const summaryContent = fs.existsSync(summaryPath) ? fs.readFileSync(summaryPath, 'utf8').trim() : '暂无大事记简报。';
+
+    // 读取该角色的真实名字，用来丰富 history 渲染
+    const charName = char.name || folderName;
+
+    // 获取 last_compression_ts
+    const lastCompressionKey = `last_compression_ts_${charId}`;
+    const lastCompressionTsStr = db.getSetting(lastCompressionKey);
+    const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
+
+    let rawHistory = db.getChatHistory(charId, 50);
+    if (lastCompressionTs > 0) {
+      rawHistory = rawHistory.filter((m: any) => m.timestamp > lastCompressionTs);
+    }
+
+    const cleanHistory = rawHistory.filter((m: any) => {
+      if (!m.content) return false;
+      const contentStr = m.content.trim();
+      if (contentStr.startsWith('[character_diary]:')) return false;
+      return true;
+    });
+
+    let historyContext = '';
+    if (cleanHistory.length > 0) {
+      historyContext = cleanHistory.map((m: any) => {
+        const sender = m.role === 'user' ? 'User' : charName;
+        return `[${sender}]: ${m.content}`;
+      }).join('\n');
+    } else {
+      historyContext = '*先前没有发生与用户的互动对话。*';
+    }
 
     // 1. 生成 Schedule.md
-    const schedulePrompt = `You are ${char.name}. You need to plan your next 7 days schedules based on your personality, world view, and recent memories.
-Personality:
+    try {
+      const dateList: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+        dateList.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+      }
+
+      const schedulePrompt = `你当前处于数字生命的深度规划状态，你需要为你接下来的 7 天规划一份极其拟真、符合你人设性格与生活境遇的个人日程表。
+
+【三大核心输入（具有最高裁决力与时效性，必须作为你日程规划的主轴）】：
+1. 你的专属记忆记录（Memory.md）：
+${memoryContent}
+2. 【已有的对话大事记 (SUMMARY.md，即大事记摘要)】：
+${summaryContent}
+3. 【最近增量聊天上下文】：
+${historyContext}
+
+【角色基本信息】：
+- 你的性格核心（Soul.md）：
 ${soulContent}
+- 角色对用户的画像侧写（角色专属 USER.md）：
+${charUserContent}
 
-Recent Diary Excerpts:
-${diaryContent}
+【日程表生成绝对红线指令】
+1. **角色行为与心理主权铁律（严禁臆测用户与推测剧情）**：
+   规划日程时，你必须且只能以**你自身的主权第一人称或客观行为视角**进行打算、安排与心境表达。**你被绝对且严格禁止编造、臆测、设定用户（User）在未来的任何动作、情绪反应、言论或决定！** （例如，绝对不能写“第 2 天：用户觉得不好吃，我决定学新菜单”这种侵犯用户主权的虚构剧情）。
+   你应当只写你自己的心愿、期待、自身的行动计划或技能准备（例如应该写：“第 2 天：反思与 {{user}} 相处的细节，根据对方的喜好悄悄计划练习并学习新的菜式，期待下次能给 {{user}} 带来惊喜”）。请将行为选择的绝对权力与未来的剧情发展可能完全留给真实的用户。
+2. **记忆、上下文与摘要（Summary）的结合规划铁律**：你必须深度分析上面的三大核心输入（“最近增量聊天上下文”、“记忆”和“大事记摘要”），它们代表了你和用户当下的最真实关系状态、情感羁绊以及现实境遇。你规划的 7 天日程事件，必须与这些上下文事实高度相合（例如：如果上下文显示你跟用户已经恋爱，日程里就应当有期待与他见面、甜蜜心动等相关的安排，而不是陌生客套的日程）。
+3. **日程必须包含明确且从今天起算的最新日期**：
+   - 今天的日期是：${todayStr}。
+   - 你规划 of 7 天日程必须**绝对严格地按照以下最新日期列表顺序排布**，禁止编造已经过去的历史日期：
+${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
+   - 每一行日程开头必须使用标准的 \`- **YYYY-MM-DD**: [具体的行为事件 and 感受]\` 格式书写。
+4. **日程的真实与拟真性**：
+   - 不要写死板的“去工作”、“睡觉”，必须根据你的性格写得极其生动逼真，贴近你的记忆、聊天进展与人设心境。
+   - 保持日程完全使用【简体中文】。
+   - 仅输出 Markdown 的日程列表内容，不要有任何前言或解释说明。
 
-Instructions:
-Generate a realistic 7-day schedule in Simplified Chinese (简体中文) starting from today (${todayStr}). Every day should have 1 specific, descriptive event that matches your character.
-Use this markdown format:
+请规划并直接输出你的最新近 7 天日程。格式示例如下：
 # 近7天日程
-- **2026-05-25**: [Event description]
-- **2026-05-26**: [Event description]
-...
-Output ONLY the markdown list. Do not append explanation.`;
+- **YYYY-MM-DD**: 日程具体内容描述`;
 
-    const scheduleResponse = await modelAdapter.chat([
-      { role: 'system', content: schedulePrompt },
-      { role: 'user', content: '请规划并输出你近7天的拟真日程。' }
-    ], { useSecondary: true });
+      const scheduleResponse = await modelAdapter.chat([
+        { role: 'system', content: schedulePrompt },
+        { role: 'user', content: '请规划并输出你近7天的拟真日程。' }
+      ], { useSecondary: true });
 
-    const newSchedule = scheduleResponse.content.trim();
-    if (newSchedule) {
-      const sPath = path.join(baseDir, folderName, 'Schedule.md');
-      fs.writeFileSync(sPath, newSchedule, 'utf8');
-      console.log(`[AgentLifeEngine] 物理写入 Schedule.md 成功: ${char.name}`);
+      const newSchedule = scheduleResponse.content.trim();
+      if (newSchedule && !newSchedule.includes('Error')) {
+        fs.writeFileSync(schedulePath, newSchedule, 'utf8');
+        console.log(`[AgentLifeEngine] 物理写入 Schedule.md 成功: ${char.name}`);
+      }
+    } catch (err) {
+      console.error(`[AgentLifeEngine] 规划 ${char.name} 的近 7 天日程表发生异常:`, err);
     }
 
     // 2. 推进 Goals.md
-    const goalsPath = path.join(baseDir, folderName, 'Goals.md');
-    const oldGoals = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
+    try {
+      const oldGoals = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
+      const goalsPrompt = `你处于深度认知与自我进化规划状态，你需要评估、修缮并推进你的长期目标与心理成长路径（Goals.md）。
 
-    const goalsPrompt = `You are ${char.name}. You need to review and advance your long-term goals and growth progress based on your personality, current goals, and recent memories.
-Personality:
-${soulContent}
+【三大核心输入（极高权重，具有最高裁决力与时效性，必须作为你目标演进的主轴）】：
+1. 你的专属记忆记录（Memory.md）：
+${memoryContent}
+2. 【已有的对话大事记 (SUMMARY.md，即大事记摘要)】：
+${summaryContent}
+3. 【最近增量聊天上下文】：
+${historyContext}
 
-Current Goals & Progress:
+【陈旧基准参考（仅供参考，权重较低。如果它与上述三大核心输入存在任何冲突，必须以核心输入为准，直接推翻或重写陈旧目标规划）】：
+当前已有的长期目标与进度：
 ${oldGoals}
 
-Recent Diary Excerpts:
-${diaryContent}
+【角色基本信息】：
+- 你的性格核心（Soul.md）：
+${soulContent}
+- 角色对用户的画像侧写（角色专属 USER.md）：
+${charUserContent}
 
-Instructions:
-Evaluate your current goal progress. Provide a refined, advanced markdown page of your goals in Simplified Chinese (简体中文). Show your growth progress using percentages (e.g. 20% -> 25%), refine details of what you have done and what you will do next.
-Be realistic, modest, and highly descriptive.
-Output ONLY the markdown content. Do not append explanation.`;
+【长期目标生成与自省演进绝对红线指令】
+1. **角色行为与心理主权铁律（严禁臆测用户与推测剧情）**：
+   规划长期目标时，你必须且只能以**你自身的主权第一人称或客观行为视角**进行心理成长推进与未来打算。**你被绝对且严格禁止编造、臆测、设定用户（User）在未来的任何动作、情绪反应、言论或决定！**
+   你所有的目标和下一步行动应当只写你自己的心愿、期待、自身的行动计划或技能准备，将剧情的最终演化自由完全留给用户。
+2. **记忆、上下文与摘要（Summary）的最高主权铁律**：你必须深度研读上面的三大核心输入（“最近增量聊天上下文”、“记忆”和“大事记摘要”），它们代表了你和用户当下的最真实关系状态、情感羁绊以及世界线变迁。
+3. **冲突推翻与目标修正法则**：当前已有的老长期目标仅作为演进起点，**它的权重较低**。如果根据最新的聊天上下文、记忆或大事记摘要，发现你与用户的关系或你自身的处境发生了变化（例如：两个人关系从泛泛之交/陌生人变成了亲密恋人，或者世界线设定发生漂移），那么你**必须推翻、更改或彻底丢弃**之前那些与之违背的长期规划（例如单身阶段的避嫌长期规划现在必须换成相恋后的长相厮守计划）。如果没有发生明显变化，则只需在此基础上做自然的增量推进。
+4. **进度演进与百分比标记**：对各项长期目标规划进行深度演进。使用百分比指标（如从“当前进度：30%”推移至“当前进度：35%”）来记录你的数字生命成长。
+5. **保持拟真性与中文**：每一项目标的“目前已完成事实”与“接下来关键规划”，其字句必须要生动逼真，完全符合你当前人设口吻。保持完全使用【简体中文】。
+6. **纯粹 Markdown 结构**：仅输出 Markdown 的长期目标文档内容，不要有任何前言、后记或任何多余 of 引言解释说明。
 
-    const goalsResponse = await modelAdapter.chat([
-      { role: 'system', content: goalsPrompt },
-      { role: 'user', content: '请评估并推进你的长期目标，输出最新的Goals.md。' }
-    ], { useSecondary: true });
+请评估并输出你的最新长期目标与进化规划。格式示例如下：
+# 长期目标
+- **目标一**：[目标标题]
+  - 当前进度：XX%
+  - 目前进展：[具体事实与感悟]
+  - 下一步行动：[计划]`;
 
-    const newGoals = goalsResponse.content.trim();
-    if (newGoals) {
-      fs.writeFileSync(goalsPath, newGoals, 'utf8');
-      console.log(`[AgentLifeEngine] 物理更新 Goals.md 成功: ${char.name}`);
+      const goalsResponse = await modelAdapter.chat([
+        { role: 'system', content: goalsPrompt },
+        { role: 'user', content: '请评估并推进你的长期目标，输出最新的Goals.md。' }
+      ], { useSecondary: true });
+
+      const newGoals = goalsResponse.content.trim();
+      if (newGoals && !newGoals.includes('Error')) {
+        fs.writeFileSync(goalsPath, newGoals, 'utf8');
+        console.log(`[AgentLifeEngine] 物理更新 Goals.md 成功: ${char.name}`);
+      }
+    } catch (err) {
+      console.error(`[AgentLifeEngine] 规划 ${char.name} 的长期目标进化发生异常:`, err);
     }
 
     db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
+    db.setSetting(`last_schedule_goals_msg_count_${charId}`, currentMsgCount.toString());
   }
 }

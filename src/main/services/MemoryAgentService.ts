@@ -36,7 +36,7 @@ export class MemoryAgentService {
     assistantMessage: string,
     isGroup: boolean = false
   ): Promise<void> {
-    
+
     // 1. 获取非阻塞并发互斥锁，确保前台 Stream 对话没有任何卡顿
     await InferenceMutex.lock();
 
@@ -208,7 +208,7 @@ Target JSON 格式：
           stm_updates?: string[];
           state_updates?: { key: string; delta?: number; value?: any }[];
         };
-        
+
         // 4. 调用高精度物理写盘引擎，将合并与精炼后的数据安全落盘
         // A. 短期记忆 (STM) 增量更新
         if (Array.isArray(parsed.stm_updates) && parsed.stm_updates.length > 0) {
@@ -225,14 +225,14 @@ Target JSON 格式：
         if (parsed.ltm && typeof parsed.ltm === 'object') {
           const memory = MemoryReaderWriter.readMemory(memoryPath);
           const cleanedLtm: Record<string, string> = {};
-          
+
           for (const key of Object.keys(parsed.ltm)) {
             const val = parsed.ltm[key];
             if (typeof val === 'string' && val.trim() !== '') {
               cleanedLtm[key.trim()] = val.trim();
             }
           }
-          
+
           const newKeysCount = Object.keys(cleanedLtm).length;
           const oldKeysCount = Object.keys(currentLtm).length;
 
@@ -280,7 +280,7 @@ Target JSON 格式：
             };
 
             // 检查是否有真正的全新增 facts
-            const hasNewDryGoods = cleanedFacts.some(newFact => 
+            const hasNewDryGoods = cleanedFacts.some(newFact =>
               !currentCharFacts.some(oldFact => isSimilar(newFact, oldFact))
             );
 
@@ -290,7 +290,7 @@ Target JSON 格式：
             );
 
             const isIdentical = !hasNewDryGoods && !hasDeletedFacts;
-            
+
             if (isIdentical) {
               console.log('[MemoryAgentService] 专属画像 Facts 仅有同义词润色/字词微调，跳过物理写盘以完美保持前缀缓存。');
             } else {
@@ -305,7 +305,7 @@ Target JSON 格式：
           // 🚀 核心过滤防线：物理拦截并过滤掉所有试图从后台 AI 反思更新钱包余额 'balance' 的指令，
           // 因为钱包余额已在前台扣减/红包增减逻辑中进行了 100% 精确的规则级落盘，绝对不容许 AI 幻觉和格式错误进行覆盖篡改！
           const filteredUpdates = parsed.state_updates.filter(u => u && u.key !== 'balance');
-          
+
           if (filteredUpdates.length > 0) {
             StateReaderWriter.applyStateUpdates(statePath, filteredUpdates);
             console.log(`[MemoryAgentService] 物理状态增量更新落盘成功(已过滤 balance):`, filteredUpdates);
@@ -341,9 +341,11 @@ Target JSON 格式：
   /**
    * 检查并生成/推进 Schedule.md 和 Goals.md (拟真日程与长期目标)
    */
-  private async checkAndUpdateScheduleAndGoals(
+  public async checkAndUpdateScheduleAndGoals(
     memoryPath: string,
-    modelAdapter: ModelAdapter
+    modelAdapter: ModelAdapter,
+    force?: boolean,
+    target: 'schedule' | 'goals' | 'both' = 'both'
   ): Promise<void> {
     const db = getDatabaseService();
     const charDir = path.dirname(memoryPath);
@@ -367,14 +369,27 @@ Target JSON 格式：
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     const lastUpdateStr = db.getSetting(`last_schedule_goals_date_${charId}`);
+
+    // 获取当前该角色的消息总数
+    let currentMsgCount = 0;
+    try {
+      const stmt = db.db.prepare('SELECT COUNT(*) as count FROM Messages WHERE character_id = ?');
+      const row = stmt.get(charId) as { count: number } | undefined;
+      currentMsgCount = row ? row.count : 0;
+    } catch (_) { }
+
+    const lastMsgCountStr = db.getSetting(`last_schedule_goals_msg_count_${charId}`);
+    const lastMsgCount = lastMsgCountStr ? parseInt(lastMsgCountStr, 10) : 0;
+    const messagesPassed = currentMsgCount - lastMsgCount;
+
     let needUpdate = false;
-    
-    if (isScheduleEmpty || isGoalsEmpty || !lastUpdateStr) {
+
+    if (force || isScheduleEmpty || isGoalsEmpty || !lastUpdateStr) {
       needUpdate = true;
     } else {
       const lastUpdate = new Date(lastUpdateStr);
       const daysPassed = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysPassed >= 7) {
+      if (daysPassed >= 7 || messagesPassed >= 120) {
         needUpdate = true;
       }
     }
@@ -386,33 +401,91 @@ Target JSON 格式：
     const soulPath = path.join(charDir, 'Soul.md');
     const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8').trim() : '一个神秘的人。';
 
-    const diaryPath = path.join(charDir, 'Diary.md');
-    const diaryContent = fs.existsSync(diaryPath) ? fs.readFileSync(diaryPath, 'utf8').slice(-1000) : '暂无近期日记。';
+    // 完整的记忆文档（Memory.md）
+    const memoryFilePath = path.join(charDir, 'Memory.md');
+    const memoryContent = fs.existsSync(memoryFilePath) ? fs.readFileSync(memoryFilePath, 'utf8').trim() : '暂无专属记忆积累事实。';
+
+    // 完整的角色对用户的画像（USER.md，注意是专属目录下的 USER.md，而不是全局的 USER.md）
+    const charUserPath = path.join(charDir, 'USER.md');
+    const charUserContent = fs.existsSync(charUserPath) ? fs.readFileSync(charUserPath, 'utf8').trim() : '暂无角色对用户的特定画像侧写。';
+
+    // 完整的聊天上下文：大事记 SUMMARY.md + 最近 50 条消息以 last_compression_ts 门控截断后的增量消息
+    const summaryPath = path.join(charDir, 'SUMMARY.md');
+    const summaryContent = fs.existsSync(summaryPath) ? fs.readFileSync(summaryPath, 'utf8').trim() : '暂无大事记简报。';
+
+    // 读取该角色的真实名字，用来丰富 history 渲染
+    let charName = folderName;
+    try {
+      const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(charId) as { name: string } | undefined;
+      if (charRow) {
+        charName = charRow.name;
+      }
+    } catch (_) { }
+
+    // 获取 last_compression_ts
+    const lastCompressionKey = `last_compression_ts_${charId}`;
+    const lastCompressionTsStr = db.getSetting(lastCompressionKey);
+    const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
+
+    let rawHistory = db.getChatHistory(charId, 50);
+    if (lastCompressionTs > 0) {
+      rawHistory = rawHistory.filter((m: any) => m.timestamp > lastCompressionTs);
+    }
+
+    const cleanHistory = rawHistory.filter((m: any) => {
+      if (!m.content) return false;
+      const contentStr = m.content.trim();
+      if (contentStr.startsWith('[character_diary]:')) return false;
+      return true;
+    });
+
+    let historyContext = '';
+    if (cleanHistory.length > 0) {
+      historyContext = cleanHistory.map((m: any) => {
+        const sender = m.role === 'user' ? 'User' : charName;
+        return `[${sender}]: ${m.content}`;
+      }).join('\n');
+    } else {
+      historyContext = '*先前没有发生与用户的互动对话。*';
+    }
 
     // A. 推进并写回 Schedule.md
-    try {
-      const dateList: string[] = [];
-      for (let i = 0; i < 7; i++) {
-        const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-        dateList.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
-      }
+    if (target === 'schedule' || target === 'both') {
+      try {
+        const dateList: string[] = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+          dateList.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+        }
 
-      const schedulePrompt = `你当前处于数字生命的深度规划状态，你需要为你接下来的 7 天规划一份极其拟真、符合你人设性格与生活境遇的个人日程表。
+        const schedulePrompt = `你当前处于数字生命的深度规划状态，你需要为你接下来的 7 天规划一份极其拟真、符合你人设性格与生活境遇的个人日程表。
 
-你的性格核心（Soul.md）：
+【三大核心输入（具有最高裁决力与时效性，必须作为你日程规划的主轴）】：
+1. 你的专属记忆记录（Memory.md）：
+${memoryContent}
+2. 【已有的对话大事记 (SUMMARY.md，即大事记摘要)】：
+${summaryContent}
+3. 【最近增量聊天上下文】：
+${historyContext}
+
+【角色基本信息】：
+- 你的性格核心（Soul.md）：
 ${soulContent}
-
-你的近期心境与日记自省：
-${diaryContent}
+- 角色对用户的画像侧写（角色专属 USER.md）：
+${charUserContent}
 
 【日程表生成绝对红线指令】
-1. **日程必须包含明确且从今天起算的最新日期**：
+1. **角色行为与心理主权铁律（严禁臆测用户与推测剧情）**：
+   规划日程时，你必须且只能以**你自身的主权第一人称或客观行为视角**进行打算、安排与心境表达。**你被绝对且严格禁止编造、臆测、设定用户（User）在未来的任何动作、情绪反应、言论或决定！** （例如，绝对不能写“第 2 天：用户觉得不好吃，我决定学新菜单”这种侵犯用户主权的虚构剧情）。
+   你应当只写你自己的心愿、期待、自身的行动计划或技能准备（例如应该写：“第 2 天：反思与 {{user}} 相处的细节，根据对方的喜好悄悄计划练习并学习新的菜式，期待下次能给 {{user}} 带来惊喜”）。请将行为选择的绝对权力与未来的剧情发展可能完全留给真实的用户。
+2. **记忆、上下文与摘要（Summary）的结合规划铁律**：你必须深度分析上面的三大核心输入（“最近增量聊天上下文”、“记忆”和“大事记摘要”），它们代表了你和用户当下的最真实关系状态、情感羁绊以及现实境遇。你规划的 7 天日程事件，必须与这些上下文事实高度相合（例如：如果上下文显示你跟用户已经恋爱，日程里就应当有期待与他见面、甜蜜心动等相关的安排，而不是陌生客套的日程）。
+3. **日程必须包含明确且从今天起算的最新日期**：
    - 今天的日期是：${todayStr}。
-   - 你规划的 7 天日程必须**绝对严格地按照以下最新日期列表顺序排布**，禁止编造已经过去的历史日期：
+   - 你规划 of 7 天日程必须**绝对严格地按照以下最新日期列表顺序排布**，禁止编造已经过去的历史日期：
 ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
-   - 每一行日程开头必须使用标准的 \`- **YYYY-MM-DD**: [具体的行为事件和感受]\` 格式书写。
-2. **日程的真实与拟真性**：
-   - 不要写死板的“去工作”、“睡觉”，必须根据你的性格写得极其生动逼真。
+   - 每一行日程开头必须使用标准的 \`- **YYYY-MM-DD**: [具体的行为事件 and 感受]\` 格式书写。
+4. **日程的真实与拟真性**：
+   - 不要写死板的“去工作”、“睡觉”，必须根据你的性格写得极其生动逼真，贴近你的记忆、聊天进展与人设心境。
    - 保持日程完全使用【简体中文】。
    - 仅输出 Markdown 的日程列表内容，不要有任何前言或解释说明。
 
@@ -420,62 +493,82 @@ ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
 # 近7天日程
 - **YYYY-MM-DD**: 日程具体内容描述`;
 
-      const scheduleResponse = await modelAdapter.chat([
-        { role: 'system', content: schedulePrompt },
-        { role: 'user', content: '请规划并输出你最新近7天的拟真日程表。' }
-      ], { useSecondary: true });
+        const scheduleResponse = await modelAdapter.chat([
+          { role: 'system', content: schedulePrompt },
+          { role: 'user', content: '请规划并输出你最新近7天的拟真日程表。' }
+        ], { useSecondary: true });
 
-      const newSchedule = scheduleResponse.content.trim();
-      if (newSchedule && !newSchedule.includes('Error')) {
-        fs.writeFileSync(schedulePath, newSchedule, 'utf8');
-        console.log(`[MemoryAgentService] 物理覆写/生成 Schedule.md 成功: ${folderName}`);
+        const newSchedule = scheduleResponse.content.trim();
+        if (newSchedule && !newSchedule.includes('Error')) {
+          fs.writeFileSync(schedulePath, newSchedule, 'utf8');
+          console.log(`[MemoryAgentService] 物理覆写/生成 Schedule.md 成功: ${folderName}`);
+        }
+      } catch (err) {
+        console.error(`[MemoryAgentService] 规划 ${folderName} 的近 7 天日程表发生异常:`, err);
       }
-    } catch (err) {
-      console.error(`[MemoryAgentService] 规划 ${folderName} 的近 7 天日程表发生异常:`, err);
     }
 
     // B. 推进并写回 Goals.md
-    try {
-      const oldGoals = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
-      const goalsPrompt = `你处于深度认知与自我进化规划状态，你需要评估、修缮并推进你的长期目标与心理成长路径（Goals.md）。
+    if (target === 'goals' || target === 'both') {
+      try {
+        const oldGoals = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
+        const goalsPrompt = `你处于深度认知与自我进化规划状态，你需要评估、修缮并推进你的长期目标与心理成长路径（Goals.md）。
 
-你的性格核心（Soul.md）：
-${soulContent}
+【三大核心输入（极高权重，具有最高裁决力与时效性，必须作为你目标演进的主轴）】：
+1. 你的专属记忆记录（Memory.md）：
+${memoryContent}
+2. 【已有的对话大事记 (SUMMARY.md，即大事记摘要)】：
+${summaryContent}
+3. 【最近增量聊天上下文】：
+${historyContext}
 
+【陈旧基准参考（仅供参考，权重较低。如果它与上述三大核心输入存在任何冲突，必须以核心输入为准，直接推翻或重写陈旧目标规划）】：
 当前已有的长期目标与进度：
 ${oldGoals}
 
-近期日记自省片段：
-${diaryContent}
+【角色基本信息】：
+- 你的性格核心（Soul.md）：
+${soulContent}
+- 角色对用户的画像侧写（角色专属 USER.md）：
+${charUserContent}
 
-【长期目标生成绝对红线指令】
-1. 评估当前的目标进度：对各项长期目标规划进行深度演进。使用百分比指标（如从“当前进度：30%”推移至“当前进度：35%”）来记录你的数字生命成长。
-2. 保持拟真性：丰富每一项目标的“目前已完成事实”与“接下来关键规划”，字句要生动、符合你的人设口吻。
-3. 保持完全使用【简体中文】。
-4. 仅输出 Markdown 的长期目标文档内容，不要有任何前言或引言。
+【长期目标生成与自省演进绝对红线指令】
+1. **角色行为与心理主权铁律（严禁臆测用户与推测剧情）**：
+   规划长期目标时，你必须且只能以**你自身的主权第一人称或客观行为视角**进行心理成长推进与未来打算。**你被绝对且严格禁止编造、臆测、设定用户（User）在未来的任何动作、情绪反应、言论或决定！**
+   你所有的目标和下一步行动应当只写你自己的心愿、期待、自身的行动计划或技能准备，将剧情的最终演化自由完全留给用户。
+2. **记忆、上下文与摘要（Summary）的最高主权铁律**：你必须深度研读上面的三大核心输入（“最近增量聊天上下文”、“记忆”和“大事记摘要”），它们代表了你和用户当下的最真实关系状态、情感羁绊以及世界线变迁。
+3. **冲突推翻与目标修正法则**：当前已有的老长期目标仅作为演进起点，**它的权重较低**。如果根据最新的聊天上下文、记忆或大事记摘要，发现你与用户的关系或你自身的处境发生了变化（例如：两个人关系从泛泛之交/陌生人变成了亲密恋人，或者世界线设定发生漂移），那么你**必须推翻、更改或彻底丢弃**之前那些与之违背的长期规划（例如单身阶段的避嫌长期规划现在必须换成相恋后的长相枢守计划）。如果没有发生明显变化，则只需在此基础上做自然的增量推进。
+4. **进度演进与百分比标记**：对各项长期目标规划进行深度演进。使用百分比指标（如从“当前进度：30%”推移至“当前进度：35%”）来记录你的数字生命成长。
+5. **保持拟真性与中文**：每一项目标的“目前已完成事实”与“接下来关键规划”，其字句必须要生动逼真，完全符合你当前人设口吻。保持完全使用【简体中文】。
+6. **纯粹 Markdown 结构**：仅输出 Markdown 的长期目标文档内容，不要有任何前言、后记或任何多余 of 引言解释说明。
 
 请评估并输出你的最新长期目标与进化规划。格式示例如下：
-#长期目标
+# 长期目标
 - **目标一**：[目标标题]
   - 当前进度：XX%
   - 目前进展：[具体事实与感悟]
   - 下一步行动：[计划]`;
 
-      const goalsResponse = await modelAdapter.chat([
-        { role: 'system', content: goalsPrompt },
-        { role: 'user', content: '请评估并推进你的长期目标，输出最新的Goals.md。' }
-      ], { useSecondary: true });
+        const goalsResponse = await modelAdapter.chat([
+          { role: 'system', content: goalsPrompt },
+          { role: 'user', content: '请评估并推进你的长期目标，输出最新的Goals.md。' }
+        ], { useSecondary: true });
 
-      const newGoals = goalsResponse.content.trim();
-      if (newGoals && !newGoals.includes('Error')) {
-        fs.writeFileSync(goalsPath, newGoals, 'utf8');
-        console.log(`[MemoryAgentService] 物理覆写/生成 Goals.md 成功: ${folderName}`);
+        const newGoals = goalsResponse.content.trim();
+        if (newGoals && !newGoals.includes('Error')) {
+          fs.writeFileSync(goalsPath, newGoals, 'utf8');
+          console.log(`[MemoryAgentService] 物理覆写/生成 Goals.md 成功: ${folderName}`);
+        }
+      } catch (err) {
+        console.error(`[MemoryAgentService] 规划 ${folderName} 的长期目标进化发生异常:`, err);
       }
-    } catch (err) {
-      console.error(`[MemoryAgentService] 规划 ${folderName} 的长期目标进化发生异常:`, err);
     }
 
-    db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
+    // 只有在非 force 的自动轮询/对话自动触发，或者明确为 both 的全刷时，才覆写 7天基准时间戳和消息步数计数
+    if (!force || target === 'both') {
+      db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
+      db.setSetting(`last_schedule_goals_msg_count_${charId}`, currentMsgCount.toString());
+    }
   }
 
   /**
@@ -524,8 +617,8 @@ ${diaryContent}
 
       // 4. 格式化已有大事记与记忆上下文
       const currentSummaryContext = oldSummaryText ? oldSummaryText : '（暂无对话大事记）';
-      const currentLtmContext = Object.keys(currentLtm).length === 0 
-        ? '（暂无长期记忆）' 
+      const currentLtmContext = Object.keys(currentLtm).length === 0
+        ? '（暂无长期记忆）'
         : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n');
 
       // 5. 格式化待归并的 50 条历史对话文本 (群聊时获取真实 AI 成员名字)
@@ -657,7 +750,7 @@ Target JSON 格式：
         if (parsed.ltm && typeof parsed.ltm === 'object') {
           const memory = MemoryReaderWriter.readMemory(memoryPath);
           const cleanedLtm: Record<string, string> = {};
-          
+
           for (const key of Object.keys(parsed.ltm)) {
             const val = parsed.ltm[key];
             if (typeof val === 'string' && val.trim() !== '') {
@@ -689,5 +782,184 @@ Target JSON 格式：
       InferenceMutex.unlock();
       console.log('[MemoryAgentService] 后台归并压缩自省完毕，互斥锁已安全释放。');
     }
+  }
+
+  /**
+   * 手动一键整理/深度提炼专属千人千面画像 (USER.md)
+   * @param charUserPath 专属 USER.md 绝对物理路径
+   * @param charId 角色 ID
+   * @param folderName 专属文件夹名
+   * @param modelAdapter 大模型适配器
+   */
+  public async consolidateCharacterUserFacts(
+    charUserPath: string,
+    charId: string,
+    folderName: string,
+    modelAdapter: ModelAdapter
+  ): Promise<string> {
+    const db = getDatabaseService();
+    const currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
+
+    // 1. 获取近期聊天历史（提炼深度事实需要充足的上下文，这里取最多 100 条）
+    const history = db.getChatHistory(charId, 100);
+    const historyContext = history.length > 0
+      ? history.map((m: any) => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n')
+      : '（暂无聊天历史）';
+
+    // 2. 获取 Soul 性格核心
+    const charDir = path.dirname(charUserPath);
+    const soulPath = path.join(charDir, 'Soul.md');
+    const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8').trim() : '一个神秘的人。';
+
+    // 3. 构建 Prompt 让 AI 深度梳理专属画像，容量控制在 20 条以内
+    const systemPrompt = `你是一个 Echo 平台的后台“专属千人千面用户画像提炼与整理”智能体。
+你的任务是根据已有关于用户 {{user}} 的专属侧写事实列表（char_user_facts）以及最近 100 条的历史对话，重新深度整理、提炼出最核心、最持久且无冲突的客观用户事实列表。
+
+【专属画像提炼核心红线规则】
+1. 绝对真理源原则：
+   - 提取关于用户（User）的任何偏好、行为习惯、身份背景，必须严格基于用户在历史对话中亲口承认、表述、确认的事实！
+   - 绝对禁止将角色（Character）单方面口嗨、虚构或提及的背景直接当作真实画像事实！
+2. 统一且强制使用 {{user}} 与 {{char}} 占位符。在提取的所有侧写事实中，必须使用 {{user}} 代指用户，使用 {{char}} 代指角色，禁止出现任何真实姓名、我/你等代词。
+3. 剔除过期与冲突：
+   - 如果发现旧的事实与最新的聊天交互事实相冲突（例如以前关系是陌生人，最近聊天表明双方已深度交往或恋爱；或者用户改变了习惯），必须以最新对话事实为准，直接推翻或删去冲突的旧事实！
+   - 避免冗余和琐碎，总事实数必须严格控制在 20 条以内。只保留最具持久参考价值的个人习惯、生日背景、关系关键变迁事实。
+4. 撰写格式规范：
+   - 必须以第三人称客观陈述句撰写事实（例如：“\`{{user}}喜欢喝椰椰拿铁\`”、“\`{{user}}习惯在深夜写代码并由{{char}}陪伴\`”）。
+   - 所有事实必须使用【简体中文】。
+
+【已有的专属画像事实列表】
+${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentCharFacts.map((f, i) => `[画像 #${i + 1}] ${f}`).join('\n')}
+
+【最新 100 条历史交互对话】
+${historyContext}
+
+【输出格式要求】
+你必须且只能返回一个符合以下 JSON 格式要求的数组，不要用 \`\`\`markdown 等任何多余文字包裹，不要有任何前言或后记。
+
+Target JSON 格式：
+[
+  "事实1",
+  "事实2"
+]`;
+
+    const response = await modelAdapter.chat([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: '开启你的专属画像深度梳理反思，并输出最新、精炼合并后的事实 JSON 数组。' }
+    ], { useSecondary: true });
+
+    const raw = response.content.trim();
+    const match = raw.match(/\[[\s\S]*?\]/);
+    if (!match) {
+      throw new Error('AI 未能生成合法的 JSON 画像事实数组。');
+    }
+    const facts = JSON.parse(match[0]) as string[];
+
+    // 不直接物理落盘写入，而是组装成完整的 USER.md 大文本格式返回给前端，等待确认
+    const jsonData = { character_specific_facts: facts };
+    const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`;
+    let markdown = `${jsonComment}\n\n# 角色专属用户侧写\n\n`;
+    markdown += `> 本侧写由该 AI 角色在与您的互动交往中，自发通过做梦反思总结提炼生成，展现千人千面的默契。\n\n`;
+    markdown += `## 专属画像事实 (Facts)\n`;
+    if (facts.length === 0) {
+      markdown += `*暂无角色专属侧写事实*\n`;
+    } else {
+      facts.forEach((fact) => {
+        markdown += `- ${fact}\n`;
+      });
+    }
+    return markdown;
+  }
+
+  /**
+   * 手动一键整理/深度提炼双轨记忆长期记忆 (Memory.md)
+   * @param memoryPath 专属 Memory.md 绝对物理路径
+   * @param charId 角色 ID
+   * @param folderName 专属文件夹名
+   * @param modelAdapter 大模型适配器
+   */
+  public async consolidateCharacterMemoryFacts(
+    memoryPath: string,
+    charId: string,
+    folderName: string,
+    modelAdapter: ModelAdapter
+  ): Promise<string> {
+    const db = getDatabaseService();
+    const currentMemory = MemoryReaderWriter.readMemory(memoryPath);
+    const currentLtm = currentMemory.ltm;
+    const currentStm = currentMemory.stm;
+
+    // 1. 获取近期聊天历史
+    const history = db.getChatHistory(charId, 100);
+    const historyContext = history.length > 0
+      ? history.map((m: any) => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n')
+      : '（暂无聊天历史）';
+
+    // 2. 格式化已有长期记忆
+    const currentLtmContext = Object.keys(currentLtm).length === 0
+      ? '（暂无长期记忆）'
+      : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n');
+
+    // 3. 构建 Prompt 让 AI 整理长期记忆 LTM
+    const systemPrompt = `你是一个 Echo 平台的后台“自省记忆提炼与深度整理”智能体。
+你的任务是将角色（{{char}}）与用户（{{user}}）之间已有的长期记忆（LTM）键值对，结合最近 100 条的历史对话，重新进行深度的整理、精简与合并归纳。
+
+【记忆整理核心红线规则】
+1. LTM 长期记忆沉淀事实依据：
+   - 提取关于用户 {{user}} 的客观、结构化事实（如："职业": "程序员", "饮品偏好": "椰椰拿铁"），以键值对形式存储在 "ltm" 中。
+   - 仔细整合合并相关的键值对。如果发现偏好已经改变，或者新对话事实推翻了旧记忆，必须更新或删去失效的键值对。
+2. 统一且强制使用 {{user}} 与 {{char}} 占位符。禁止出现任何真实姓名。
+3. 剔除琐碎过滤流水账：
+   - 只记录最具长期持久参考价值的偏好与事实。
+   - 避免无意义的膨胀。如果已有记忆十分完善，请原样复制并返回，不要为了增加而编造无用信息！
+
+【已有的长期记忆 (Memory.md - LTM)】
+${currentLtmContext}
+
+【最新 100 条交互对话记录】
+${historyContext}
+
+【输出格式要求】
+你必须且只能返回一个符合以下格式要求的 JSON 对象，不要用 \`\`\`markdown 等任何多余文字包裹，不要有任何前言或后记。
+
+Target JSON 格式：
+{
+  "ltm": {
+    // 经过深度整理、合并与删改后的长期记忆键值对
+  }
+}`;
+
+    const response = await modelAdapter.chat([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: '开启你的双轨记忆深度梳理反思，并输出最新、整理后的 LTM 键值对 JSON 对象。' }
+    ], { useSecondary: true });
+
+    const raw = response.content.trim();
+    const match = raw.match(/\{[\s\S]*?\}/);
+    if (!match) {
+      throw new Error('AI 未能生成合法的 JSON 记忆对象。');
+    }
+    const parsed = JSON.parse(match[0]) as { ltm: Record<string, string> };
+    const cleanedLtm: Record<string, string> = {};
+    if (parsed && parsed.ltm) {
+      for (const key of Object.keys(parsed.ltm)) {
+        const val = parsed.ltm[key];
+        if (typeof val === 'string' && val.trim() !== '') {
+          cleanedLtm[key.trim()] = val.trim();
+        }
+      }
+    }
+
+    // 拼装出完整的 Memory.md 大文本格式返回给前端，等待确认
+    const stmContent = currentStm.length === 0 ? '暂无短期记忆。' : currentStm.map((f) => `- ${f}`).join('\n');
+    let ltmContent = '暂无长期记忆。';
+    if (Object.keys(cleanedLtm).length > 0) {
+      ltmContent = Object.entries(cleanedLtm).map(([k, v]) => `- **${k}**：${v}`).join('\n');
+    }
+
+    const jsonData = { stm: currentStm, ltm: cleanedLtm };
+    const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`;
+    const markdown = `${jsonComment}\n\n# 记忆存储区\n\n## 短期记忆 (Short-Term Memory)\n${stmContent}\n\n## 长期记忆 (Long-Term Memory)\n${ltmContent}`;
+
+    return markdown;
   }
 }

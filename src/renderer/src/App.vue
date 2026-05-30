@@ -2803,10 +2803,20 @@
                 <div v-else-if="contactActiveTab === 'user'" class="h-full flex-1 flex flex-col min-h-0">
                   <div class="flex items-center justify-between mb-2 flex-shrink-0 select-none">
                     <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">联系人专属千人千面侧写 (USER.md)</div>
-                    <button @click="contactEditModes.user = !contactEditModes.user" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
-                      <component :is="contactEditModes.user ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
-                      <span>{{ contactEditModes.user ? '预览侧写' : '修改侧写' }}</span>
-                    </button>
+                    <div class="flex items-center space-x-2 flex-shrink-0">
+                      <button 
+                        @click="tidyCharacterUser('contact')" 
+                        :disabled="isTidyingUser"
+                        class="flex items-center space-x-1.5 text-xs text-secondary border border-secondary/20 hover:border-secondary bg-secondary/5 hover:bg-secondary/10 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0 animate-fade-in"
+                      >
+                        <component :is="isTidyingUser ? Loader2Icon : SparklesIcon" class="w-3.5 h-3.5" :class="{ 'animate-spin': isTidyingUser }" />
+                        <span>{{ isTidyingUser ? '整理中...' : '整理画像' }}</span>
+                      </button>
+                      <button @click="contactEditModes.user = !contactEditModes.user" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                        <component :is="contactEditModes.user ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                        <span>{{ contactEditModes.user ? '预览侧写' : '修改侧写' }}</span>
+                      </button>
+                    </div>
                   </div>
                   <!-- 预览模式 -->
                   <div v-if="!contactEditModes.user" class="flex-1 p-4 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm" v-html="renderMarkdown(contactUserContent || '暂无专属偏好侧写记录。')"></div>
@@ -2820,8 +2830,20 @@
                 </div>
 
                 <!-- D. 近7天日程 Tab -->
-                <div v-else-if="contactActiveTab === 'schedule'" class="h-full flex-1 flex flex-col min-h-0 space-y-4">
-                  <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">近7天拟真日程表 (SCHEDULE.MD)</div>
+                <div v-else-if="contactActiveTab === 'schedule'" class="h-full flex-1 flex flex-col min-h-0">
+                  <div class="flex items-center justify-between mb-2 flex-shrink-0 select-none">
+                    <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">近7天拟真日程表 (SCHEDULE.MD)</div>
+                    <button 
+                      @click="forceUpdateSchedule" 
+                      :disabled="isUpdatingSchedule" 
+                      class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none"
+                      title="手动重新生成近7天拟真日程表"
+                    >
+                      <Loader2Icon v-if="isUpdatingSchedule" class="w-3.5 h-3.5 animate-spin" />
+                      <RefreshCwIcon v-else class="w-3.5 h-3.5" />
+                      <span>更新日程</span>
+                    </button>
+                  </div>
                   <div class="flex-1 p-5 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm relative">
                     <div class="absolute right-4 top-4 select-none pointer-events-none opacity-[0.03] dark:opacity-[0.05]">
                       <CalendarIcon class="w-20 h-20 text-primary" />
@@ -2831,8 +2853,20 @@
                 </div>
 
                 <!-- E. 长期成长目标 Tab -->
-                <div v-else-if="contactActiveTab === 'goals'" class="h-full flex-1 flex flex-col min-h-0 space-y-4">
-                  <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">长期成长目标进展 (GOALS.MD)</div>
+                <div v-else-if="contactActiveTab === 'goals'" class="h-full flex-1 flex flex-col min-h-0">
+                  <div class="flex items-center justify-between mb-2 flex-shrink-0 select-none">
+                    <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">长期成长目标进展 (GOALS.MD)</div>
+                    <button 
+                      @click="forceUpdateGoals" 
+                      :disabled="isUpdatingGoals" 
+                      class="flex items-center space-x-1 text-xs text-secondary border border-secondary/20 hover:border-secondary bg-secondary/5 hover:bg-secondary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none"
+                      title="手动重新生成长期成长目标进展"
+                    >
+                      <Loader2Icon v-if="isUpdatingGoals" class="w-3.5 h-3.5 animate-spin" />
+                      <RefreshCwIcon v-else class="w-3.5 h-3.5" />
+                      <span>更新目标</span>
+                    </button>
+                  </div>
                   <div class="flex-1 p-5 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm relative">
                     <div class="absolute right-4 top-4 select-none pointer-events-none opacity-[0.03] dark:opacity-[0.05] animate-pulse">
                       <SparklesIcon class="w-20 h-20 text-secondary" />
@@ -6184,6 +6218,37 @@
       </div>
     </div>
 
+    <!-- ========================= 专属画像 AI 整理确认大文本编辑器弹窗 ========================= -->
+    <div v-if="showUserTidyModal" class="modal-overlay" @click.self="showUserTidyModal = false">
+      <div class="modal-panel max-w-2xl w-full p-6 space-y-4 animate-fade-in shadow-2xl rounded-2xl border border-outline-variant bg-surface/85 backdrop-blur-md flex flex-col max-h-[85vh]">
+        <div class="flex items-center space-x-2 pb-2 border-b border-outline-variant flex-shrink-0">
+          <SparklesIcon class="w-5 h-5 text-secondary animate-pulse" />
+          <h4 class="text-sm font-bold text-on-surface">✨ 【{{ tidyCharName }}】的 AI 整理专属画像确认</h4>
+        </div>
+        
+        <p class="text-[11px] text-on-surface-variant leading-relaxed flex-shrink-0">
+          AI 已根据历史交互事实和记忆，对该角色的专属画像（USER.md）完成了提炼与优化。
+          请在下方核对。<strong>您也可以直接在框内进行任何手工编辑和修润</strong>。确认无误后点击下方按钮保存生效：
+        </p>
+        
+        <!-- 编辑文本域 -->
+        <textarea 
+          v-model="tidiedUserTempContent" 
+          class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-4 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner select-text min-h-[350px] leading-relaxed"
+        ></textarea>
+        
+        <div class="flex justify-end space-x-2.5 pt-2 border-t border-outline-variant flex-shrink-0 select-none">
+          <button @click="showUserTidyModal = false" class="btn-secondary text-xs py-2 px-5 rounded-xl">
+            取消
+          </button>
+          <button @click="saveTidiedUser" class="btn-primary text-xs py-2 px-5 font-bold rounded-xl flex items-center space-x-1.5 active:scale-95 transition-all">
+            <SaveIcon class="w-3.5 h-3.5" />
+            <span>确认并保存</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 全局拖拽图片遮罩提示层 (毛玻璃高档动效) -->
     <div
       v-if="isDraggingFile"
@@ -8134,6 +8199,11 @@ watch(() => generalConfig.value.enable_music, (newVal) => {
 const characterStates = ref<Record<string, any>>({})
 const contactScheduleContent = ref('')
 const contactGoalsContent = ref('')
+const isUpdatingSchedule = ref(false)
+const isUpdatingGoals = ref(false)
+const showUserTidyModal = ref(false)
+const tidiedUserTempContent = ref('')
+const isTidyingUser = ref(false)
 const stateDeltas = ref<Record<string, Record<string, string | number>>>({})
 
 // 自定义状态指标弹窗
@@ -12648,6 +12718,127 @@ async function loadContactGallery(folderName: string) {
     console.error('载入角色图库失败:', e)
   } finally {
     isLoadingGallery.value = false
+  }
+}
+
+async function forceUpdateSchedule() {
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+  isUpdatingSchedule.value = true
+  try {
+    const res = await window.api.invoke('force-update-schedule-goals', {
+      characterId: char.id,
+      folderName: char.folder_name,
+      target: 'schedule'
+    })
+    if (res.success) {
+      contactScheduleContent.value = res.scheduleContent || ''
+      contactGoalsContent.value = res.goalsContent || ''
+      showToast('近 7 天日程表更新成功 🌟')
+    } else {
+      showCustomAlert('更新失败', `${res.error || 'AI 更新日程失败，请重试。'}`, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('更新异常', `${err.message || String(err)}`, 'error')
+  } finally {
+    isUpdatingSchedule.value = false
+  }
+}
+
+async function forceUpdateGoals() {
+  const char = characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char) return
+  isUpdatingGoals.value = true
+  try {
+    const res = await window.api.invoke('force-update-schedule-goals', {
+      characterId: char.id,
+      folderName: char.folder_name,
+      target: 'goals'
+    })
+    if (res.success) {
+      contactScheduleContent.value = res.scheduleContent || ''
+      contactGoalsContent.value = res.goalsContent || ''
+      showToast('长期成长目标更新成功 🌟')
+    } else {
+      showCustomAlert('更新失败', `${res.error || 'AI 更新目标失败，请重试。'}`, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('更新异常', `${err.message || String(err)}`, 'error')
+  } finally {
+    isUpdatingGoals.value = false
+  }
+}
+
+async function tidyCharacterUser(source: 'brain' | 'contact') {
+  if (isTidyingUser.value) return
+  
+  let charId = ''
+  let folderName = ''
+  let charName = ''
+  
+  if (source === 'brain') {
+    if (!activeCharacter.value) return
+    charId = activeCharacter.value.id
+    folderName = activeCharacter.value.folder_name
+    charName = activeCharacter.value.name
+  } else {
+    // 通讯录模式
+    const char = characterList.value.find(c => c.id === selectedContactId.value)
+    if (!char) return
+    charId = char.id
+    folderName = char.folder_name
+    charName = char.name
+  }
+  
+  isTidyingUser.value = true
+  try {
+    const res = await window.api.invoke('consolidate-character-user', {
+      characterId: charId,
+      folderName: folderName
+    })
+    
+    if (res.success) {
+      tidyCharId.value = charId
+      tidyFolderName.value = folderName
+      tidyCharName.value = charName
+      tidiedUserTempContent.value = res.content
+      showUserTidyModal.value = true
+      
+      showCustomAlert('整理完成', `✨ 角色【${charName}】的专属画像整理已完成提炼！请在确认弹窗中核对或修润后保存。🐾`, 'success')
+    } else {
+      showCustomAlert('整理失败', `❌ ${res.error || '整理专属画像失败，请重试'}`, 'error')
+    }
+  } catch (err: any) {
+    console.error('[User Tidy] 整理失败:', err)
+    showCustomAlert('整理发生异常', `❌ ${err.message || err}`, 'error')
+  } finally {
+    isTidyingUser.value = false
+  }
+}
+
+async function saveTidiedUser() {
+  if (!tidyFolderName.value) return
+  
+  try {
+    const userRes = await window.api.invoke('save-char-user-md', {
+      folderName: tidyFolderName.value,
+      content: tidiedUserTempContent.value
+    })
+    
+    if (userRes.success) {
+      // 1. 同步更新通讯录中展示的侧写变量
+      if (selectedContactId.value === tidyCharId.value) {
+        contactUserContent.value = tidiedUserTempContent.value
+      }
+      
+      showUserTidyModal.value = false
+      showCustomAlert('保存成功', `✨ 角色【${tidyCharName.value}】的专属画像已成功保存并实时生效！`, 'success')
+    } else {
+      showCustomAlert('保存失败', `❌ 保存失败，请确保应用具有写入文件的权限。`, 'error')
+    }
+  } catch (err: any) {
+    console.error('[User Save] 保存失败:', err)
+    showCustomAlert('保存发生异常', `❌ ${err.message || err}`, 'error')
   }
 }
 

@@ -2967,6 +2967,9 @@ ${memoryContent}
 
       // F. 清除 SQLite 中跟此角色关联的所有 Settings 属性（如时间戳、朋友圈计数器、日记时间戳等）
       db.clearCharacterSettings(characterId)
+      try {
+        db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`last_schedule_goals_msg_count_${characterId}`)
+      } catch (_) {}
 
       console.log(`[IPC] 物理清空角色 [${folderName}] 的历史消息、记忆文件、State.md、画像和 Settings 参数完成！`)
 
@@ -2988,6 +2991,46 @@ ${memoryContent}
 
       return { success: true }
     } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 15.21 手动一键强行重新规划拟真日程与长期目标
+  ipcMain.handle('force-update-schedule-goals', async (_, payload: { characterId: string; folderName: string; target?: 'schedule' | 'goals' | 'both' }) => {
+    try {
+      const { characterId, folderName, target = 'both' } = payload
+      const db = getDatabaseService()
+
+      // 获取大模型配置
+      const settingsStr = db.getSetting('model_config')
+      if (!settingsStr) {
+        return { success: false, error: '未配置全局大模型参数' }
+      }
+      const modelConfig = JSON.parse(settingsStr)
+      const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary)
+
+      const storageManager = new CharacterStorageManager()
+      const baseDir = storageManager.getBaseDir()
+      const memoryPath = join(baseDir, folderName, 'Memory.md')
+
+      const memoryService = new MemoryAgentService(modelAdapter)
+      await memoryService.checkAndUpdateScheduleAndGoals(memoryPath, modelAdapter, true, target)
+
+      // 读取最新生成的日程和目标内容返回给前端，以便即时流畅渲染
+      const scheduleContent = fs.existsSync(join(baseDir, folderName, 'Schedule.md'))
+        ? fs.readFileSync(join(baseDir, folderName, 'Schedule.md'), 'utf8')
+        : '暂无日程'
+      const goalsContent = fs.existsSync(join(baseDir, folderName, 'Goals.md'))
+        ? fs.readFileSync(join(baseDir, folderName, 'Goals.md'), 'utf8')
+        : '暂无长期目标'
+
+      return {
+        success: true,
+        scheduleContent,
+        goalsContent
+      }
+    } catch (e: any) {
+      console.error('[IPC] 强制更新日程与目标失败:', e)
       return { success: false, error: e.message || e }
     }
   })
@@ -3187,6 +3230,72 @@ ${memoryContent}
       console.log(`[IPC] 角色专属 USER.md 手动保存成功: ${payload.folderName}`)
       return { success: true }
     } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 19.2 AI 手动提炼角色专属画像 (USER.md) IPC 通道
+  ipcMain.handle('consolidate-character-user', async (_, payload: { characterId: string; folderName: string }) => {
+    try {
+      const { characterId, folderName } = payload
+      const db = getDatabaseService()
+
+      // 获取大模型配置
+      const settingsStr = db.getSetting('model_config')
+      if (!settingsStr) {
+        return { success: false, error: '未配置全局大模型参数' }
+      }
+      const modelConfig = JSON.parse(settingsStr)
+      const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary)
+
+      const storageManager = new CharacterStorageManager()
+      const baseDir = storageManager.getBaseDir()
+      const charUserPath = join(baseDir, folderName, 'USER.md')
+
+      const memoryService = new MemoryAgentService(modelAdapter)
+      const content = await memoryService.consolidateCharacterUserFacts(
+        charUserPath,
+        characterId,
+        folderName,
+        modelAdapter
+      )
+
+      return { success: true, content }
+    } catch (e: any) {
+      console.error('[IPC] 提炼角色专属画像失败:', e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 19.3 AI 手动一键提炼记忆 (Memory.md) IPC 通道
+  ipcMain.handle('consolidate-character-memory', async (_, payload: { characterId: string; folderName: string }) => {
+    try {
+      const { characterId, folderName } = payload
+      const db = getDatabaseService()
+
+      // 获取大模型配置
+      const settingsStr = db.getSetting('model_config')
+      if (!settingsStr) {
+        return { success: false, error: '未配置全局大模型参数' }
+      }
+      const modelConfig = JSON.parse(settingsStr)
+      const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary)
+
+      const storageManager = new CharacterStorageManager()
+      const baseDir = storageManager.getBaseDir()
+      const memoryPath = join(baseDir, folderName, 'Memory.md')
+
+      const memoryService = new MemoryAgentService(modelAdapter)
+      const content = await memoryService.consolidateCharacterMemoryFacts(
+        memoryPath,
+        characterId,
+        folderName,
+        modelAdapter
+      )
+
+      return { success: true, content }
+    } catch (e: any) {
+      console.error('[IPC] 提炼角色记忆失败:', e)
       return { success: false, error: e.message || e }
     }
   })
