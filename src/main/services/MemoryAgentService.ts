@@ -934,7 +934,7 @@ Target JSON 格式：
     ], { useSecondary: true });
 
     const raw = response.content.trim();
-    const match = raw.match(/\{[\s\S]*?\}/);
+    const match = raw.match(/\{[\s\S]*\}/);
     if (!match) {
       throw new Error('AI 未能生成合法的 JSON 记忆对象。');
     }

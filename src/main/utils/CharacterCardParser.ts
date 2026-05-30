@@ -32,6 +32,25 @@ export class CharacterCardParser {
   public static parseFromBuffer(buffer: Buffer | Uint8Array): CharacterCardData {
     const dataBuffer = buffer instanceof Uint8Array ? Buffer.from(buffer) : buffer
 
+    // 🚀 核心升级：高度容错，自动识别并直接解析导入的 JSON 格式角色卡文件
+    try {
+      const text = dataBuffer.toString('utf8').trim()
+      if (text.startsWith('{') && text.endsWith('}')) {
+        const parsedJson = JSON.parse(text)
+        if (parsedJson) {
+          if (parsedJson.data && typeof parsedJson.data === 'object' && parsedJson.data.name) {
+            console.log(`[Parser] 成功直接解析 JSON 角色卡 (酒馆规格)，角色名称: ${parsedJson.data.name}`)
+            return parsedJson.data as CharacterCardData
+          } else if (parsedJson.name) {
+            console.log(`[Parser] 成功直接解析 JSON 角色卡 (标准规格)，角色名称: ${parsedJson.name}`)
+            return parsedJson as CharacterCardData
+          }
+        }
+      }
+    } catch (_) {
+      // 容错：如果解析失败或不是 JSON 格式，则平滑放行，继续走标准的 PNG 角色卡解析逻辑
+    }
+
     // 1. 验证 PNG 文件签名 (前 8 字节)
     const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
     if (dataBuffer.length < 8 || !dataBuffer.subarray(0, 8).equals(pngSignature)) {

@@ -1,11 +1,12 @@
 import './utils/AppUserDataLock'
-import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage } from 'electron'
-import { join, extname, basename } from 'path'
+import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog } from 'electron'
+import path, { join, extname, basename } from 'path'
 import fs from 'fs'
+import zlib from 'zlib'
 import * as http from 'http'
 import * as os from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { getDatabaseService } from './db/database'
+import { getDatabaseService, resetDatabaseService } from './db/database'
 import { ModelAdapter, ModelConfig, ChatMessage } from './models/ModelAdapter'
 import { CharacterCardParser } from './utils/CharacterCardParser'
 import { CharacterSummarizer } from './utils/CharacterSummarizer'
@@ -220,6 +221,267 @@ function cleanMarkdownBlock(text: string): string {
 
 // 注册主进程 IPC 监听器
 function registerIpcHandlers(): void {
+
+  // ====== 桌面挂载与搜索增强 IPC 通道 ======
+  // 聊天历史全局物理搜索
+  ipcMain.handle('search-chat-history', async (_, payload: { characterId: string; keyword: string }) => {
+    try {
+      const db = getDatabaseService()
+      const list = db.searchChatHistory(payload.characterId, payload.keyword)
+      return { success: true, list }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 时钟挂机挂件呼唤主窗口
+  ipcMain.handle('clock-open-main-window', () => {
+    if (mainWindow) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
+    return { success: true }
+  })
+
+  // 时钟挂机挂件平滑退出应用
+  ipcMain.handle('clock-quit-app', () => {
+    (app as any).isQuiting = true
+    app.quit()
+    return { success: true }
+  })
+
+  // ====== 核心数据导出与备份 IPC 通道 ======
+  ipcMain.handle('export-project-data', async () => {
+    try {
+      // 🚀 极致体验升级：点击后立刻（第 0 毫秒）让用户选择保存路径，不进行任何前期冗余打包，实现零迟滞瞬发响应！
+      const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
+      const result = await dialog.showSaveDialog(focusedWindow!, {
+        title: '导出核心备份数据',
+        defaultPath: `EchoBackup_${new Date().toISOString().slice(0, 10)}.echo`,
+        filters: [
+          { name: '回音系统备份文件', extensions: ['echo'] }
+        ]
+      })
+
+      if (result.canceled || !result.filePath) {
+        console.log('[Backup] 用户取消了备份导出')
+        return { success: false, error: '用户取消了保存', canceled: true }
+      }
+
+      const targetPath = result.filePath
+
+      // 用户确认好保存路径后，主进程才在后台极其迅捷地进行物理目录遍历、打包压缩与写入，完美节省 CPU 与内存开销
+      const userDataPath = app.getPath('userData')
+      const backupDirs = ['database', 'characters', 'config', 'groups', 'EchoMusicSources']
+      const filesToPack: Array<{ relativePath: string; content: string }> = []
+
+      // 递归读取目录中的所有文件
+      const traverseDirectory = (currentDir: string, relativeRoot: string) => {
+        if (!fs.existsSync(currentDir)) return
+        const items = fs.readdirSync(currentDir)
+        for (const item of items) {
+          const fullPath = path.join(currentDir, item)
+          const relPath = path.join(relativeRoot, item)
+          const stat = fs.statSync(fullPath)
+          
+          if (stat.isDirectory()) {
+            traverseDirectory(fullPath, relPath)
+          } else if (stat.isFile()) {
+            const contentBuffer = fs.readFileSync(fullPath)
+            filesToPack.push({
+              relativePath: relPath,
+              content: contentBuffer.toString('base64')
+            })
+          }
+        }
+      }
+
+      for (const dir of backupDirs) {
+        const fullDir = path.join(userDataPath, dir)
+        traverseDirectory(fullDir, dir)
+      }
+
+      // 组织备份 JSON 结构
+      const backupData = {
+        version: app.getVersion(),
+        timestamp: Date.now(),
+        files: filesToPack
+      }
+
+      const jsonStr = JSON.stringify(backupData)
+      // 使用内置 zlib 模块进行物理级压缩
+      const compressedBuffer = zlib.gzipSync(Buffer.from(jsonStr, 'utf-8'))
+
+      fs.writeFileSync(targetPath, compressedBuffer)
+      console.log(`[Backup] 数据已物理导出并压缩至用户选定路径: ${targetPath}, 共 ${filesToPack.length} 个文件`)
+
+      return { success: true, path: targetPath }
+    } catch (err: any) {
+      console.error('[Backup] 导出备份失败:', err)
+      return { success: false, error: err.message || String(err) }
+    }
+  })
+
+  // 🚀 核心升级：由主进程拉起系统原生文件选择窗口，精确获取备份文件的绝对路径，百分之百 0 兼容性故障！
+  ipcMain.handle('open-backup-file-dialog', async () => {
+    try {
+      const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
+      const result = await dialog.showOpenDialog(focusedWindow!, {
+        title: '选择回音系统备份文件 (.echo)',
+        properties: ['openFile'],
+        filters: [
+          { name: '回音系统备份文件', extensions: ['echo'] }
+        ]
+      })
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true }
+      }
+
+      const filePath = result.filePaths[0]
+      return {
+        success: true,
+        path: filePath,
+        name: path.basename(filePath)
+      }
+    } catch (err: any) {
+      console.error('[Backup] 打开备份文件选择窗口失败:', err)
+      return { success: false, error: err.message || String(err) }
+    }
+  })
+
+  ipcMain.handle('import-project-data', async (_, filePath: string) => {
+    try {
+      if (!filePath || !fs.existsSync(filePath)) {
+        return { success: false, error: '非法的物理备份文件路径' }
+      }
+
+      // 🚀 核心升级：直接由主进程通过路径在后台读取物理文件，IPC 通道只需传输极小路径字符串，彻底避开 FileReader 大文件 Base64 的跨进程卡顿与内存崩溃！
+      const compressedBuffer = fs.readFileSync(filePath)
+
+      // 解压数据
+      let decompressedData: string
+      try {
+        decompressedData = zlib.gunzipSync(compressedBuffer).toString('utf-8')
+      } catch (decompressErr) {
+        return { success: false, error: '解析备份文件失败，文件可能已损坏或格式不正确' }
+      }
+
+      // 解析 JSON
+      let backupObj: any
+      try {
+        backupObj = JSON.parse(decompressedData)
+      } catch (jsonErr) {
+        return { success: false, error: '备份数据格式不正确' }
+      }
+
+      if (!backupObj || !Array.isArray(backupObj.files)) {
+        return { success: false, error: '非法的备份文件结构，未找到有效的文件列表' }
+      }
+
+      const userDataPath = app.getPath('userData')
+      const backupDirs = ['database', 'characters', 'config', 'groups', 'EchoMusicSources']
+
+      // 🚀 物理重置数据库单例（释放 SQLite 文件句柄锁）
+      resetDatabaseService()
+
+      // 2. 将旧的文件夹重命名或移动到临时备份目录，做两阶段安全事务防灾
+      const backupTimestamp = Date.now()
+      const tempRestoreBackupDir = path.join(userDataPath, `temp_restore_backup_${backupTimestamp}`)
+      fs.mkdirSync(tempRestoreBackupDir, { recursive: true })
+
+      const movedDirs: string[] = []
+      try {
+        for (const dir of backupDirs) {
+          const oldDirPath = path.join(userDataPath, dir)
+          if (fs.existsSync(oldDirPath)) {
+            const destPath = path.join(tempRestoreBackupDir, dir)
+            fs.renameSync(oldDirPath, destPath)
+            movedDirs.push(dir)
+          }
+        }
+      } catch (moveErr: any) {
+        // 如果移动现有目录失败，进行灾难恢复，恢复原状
+        for (const dir of movedDirs) {
+          const tempPath = path.join(tempRestoreBackupDir, dir)
+          const oldDirPath = path.join(userDataPath, dir)
+          if (fs.existsSync(tempPath)) {
+            fs.renameSync(tempPath, oldDirPath)
+          }
+        }
+        return { success: false, error: `备份现有数据失败（请确保没有其他程序占用数据库）: ${moveErr.message}` }
+      }
+
+      // 3. 依次解密解压并物理覆盖写入所有备份的文件
+      try {
+        for (const fileItem of backupObj.files) {
+          if (!fileItem.relativePath || typeof fileItem.content !== 'string') continue
+          
+          // 路径防越界安全校验 (Path Traversal Protection)
+          const normalizedPath = path.normalize(fileItem.relativePath)
+          if (normalizedPath.startsWith('..') || path.isAbsolute(normalizedPath)) {
+            throw new Error(`非法的安全越界文件路径: ${fileItem.relativePath}`)
+          }
+
+          // 确认该文件属于允许导入的目录
+          const firstDir = normalizedPath.split(path.sep)[0]
+          if (!backupDirs.includes(firstDir)) {
+            continue // 忽略不属于备份目录的文件
+          }
+
+          const targetFilePath = path.join(userDataPath, normalizedPath)
+          const targetFileDir = path.dirname(targetFilePath)
+
+          // 确保父级文件夹目录存在
+          if (!fs.existsSync(targetFileDir)) {
+            fs.mkdirSync(targetFileDir, { recursive: true })
+          }
+
+          const fileBuffer = Buffer.from(fileItem.content, 'base64')
+          fs.writeFileSync(targetFilePath, fileBuffer)
+        }
+      } catch (writeErr: any) {
+        // 如果物理覆盖写入失败，必须进行绝对安全的灾难回滚还原
+        console.error('[Backup] 还原写入发生异常，触发灾难级回滚恢复中...', writeErr)
+        // 清理刚刚写入的不完整文件
+        for (const dir of backupDirs) {
+          const currentPath = path.join(userDataPath, dir)
+          if (fs.existsSync(currentPath)) {
+            fs.rmSync(currentPath, { recursive: true, force: true })
+          }
+        }
+        // 将临时备份还原回来
+        for (const dir of movedDirs) {
+          const tempPath = path.join(tempRestoreBackupDir, dir)
+          const oldDirPath = path.join(userDataPath, dir)
+          if (fs.existsSync(tempPath)) {
+            fs.renameSync(tempPath, oldDirPath)
+          }
+        }
+        // 清理临时目录
+        fs.rmSync(tempRestoreBackupDir, { recursive: true, force: true })
+        return { success: false, error: `写入恢复数据出错（数据已安全回滚至导入前状态）: ${writeErr.message || String(writeErr)}` }
+      }
+
+      // 恢复成功后，清理临时安全目录
+      try {
+        fs.rmSync(tempRestoreBackupDir, { recursive: true, force: true })
+      } catch (_) {}
+
+      console.log(`[Backup] 数据解包与覆盖还原成功，共解包恢复了 ${backupObj.files.length} 个文件！即将重启应用。`)
+
+      // 4. 延迟 1.5 秒后自动热重启应用，留足前端毛玻璃框渲染和声音提示的缓冲时间
+      setTimeout(() => {
+        app.relaunch()
+        app.exit(0)
+      }, 1500)
+
+      return { success: true }
+    } catch (err: any) {
+      console.error('[Backup] 导入还原失败:', err)
+      return { success: false, error: err.message || String(err) }
+    }
+  })
 
   // ====== 客户端自动检查更新 IPC 通道 ======
   // 手动检查更新

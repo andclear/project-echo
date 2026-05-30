@@ -4277,7 +4277,7 @@
           <div class="flex-1 flex flex-col items-center justify-center p-8">
             <div class="max-w-md w-full">
               <div class="text-lg font-bold text-on-surface mb-1">导入 AI 角色</div>
-              <p class="text-xs text-on-surface-variant mb-6">导入 SillyTavern 格式的 PNG 角色卡，开始与数字生命对话。</p>
+              <p class="text-xs text-on-surface-variant mb-6">导入 SillyTavern 格式的 PNG 角色卡或 JSON 角色人设数据，开始与角色对话。</p>
 
               <div
                 @dragover.prevent="dragOver = true"
@@ -4287,10 +4287,10 @@
                 :class="dragOver ? 'border-primary bg-primary/5 scale-[0.99]' : 'border-outline-variant hover:border-primary/50'"
                 @click="triggerFileInput"
               >
-                <input ref="fileInput" type="file" accept="image/png" class="hidden" @change="handleFileSelect" />
+                <input ref="fileInput" type="file" accept="image/png,application/json,.json" class="hidden" @change="handleFileSelect" />
                 <UploadIcon class="w-12 h-12 mb-4 text-primary/60" />
-                <p class="text-sm font-bold text-on-surface mb-1">拖拽 PNG 角色卡到这里</p>
-                <p class="text-xs text-on-surface-variant opacity-60">支持 SillyTavern V2 / V3 格式</p>
+                <p class="text-sm font-bold text-on-surface mb-1">拖拽角色卡 (PNG / JSON) 到这里</p>
+                <p class="text-xs text-on-surface-variant opacity-60">支持 SillyTavern 规格角色卡 / JSON 直接解析</p>
                 <p class="text-[10px] text-primary mt-4 font-mono font-bold">CLICK OR DRAG FILE HERE</p>
               </div>
 
@@ -6354,6 +6354,93 @@
       @cancel="onImportCancel"
       @show-alert="showCustomAlert"
     />
+    <!-- ========================= 全局自定义高保真数据备份还原模态框 ========================= -->
+    <div v-if="showImportModal" class="modal-overlay z-[99999]" @click.self="showImportModal = false">
+      <div class="modal-panel max-w-md w-full p-6 space-y-5 animate-fade-in shadow-2xl rounded-2xl border border-outline-variant/10 bg-surface/85 backdrop-blur-[30px] select-none text-on-surface">
+        
+        <!-- 弹窗标题 -->
+        <div class="flex items-center justify-between pb-1">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+              <RefreshCwIcon class="w-4 h-4" />
+            </div>
+            <div>
+              <h3 class="text-[13px] font-bold">全量导入备份还原</h3>
+              <p class="text-[10px] text-on-surface-variant mt-0.5">回音系统高保真物理级覆盖</p>
+            </div>
+          </div>
+          <button @click="showImportModal = false" class="text-on-surface-variant/60 hover:text-on-surface transition-colors cursor-pointer select-none">
+            <XIcon class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- 拖拽 & 点击文件上传区 -->
+        <div 
+          @dragenter.prevent="isDraggingBackupFile = true"
+          @dragover.prevent="isDraggingBackupFile = true"
+          @dragleave.prevent="isDraggingBackupFile = false"
+          @drop.prevent="onBackupFileDropped"
+          @click="triggerBackupFileInput"
+          class="border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer select-none transition-all duration-300 relative group"
+          :class="[
+            isDraggingBackupFile 
+              ? 'border-primary bg-primary/5 scale-[1.01] shadow-lg shadow-primary/5' 
+              : 'border-outline-variant/30 bg-surface-low/10 hover:border-primary/40 hover:bg-surface-low/30'
+          ]"
+        >
+
+          <!-- 状态 A：未选择文件 -->
+          <div v-if="!selectedFileName" class="text-center space-y-3 py-4">
+            <div class="w-12 h-12 rounded-full bg-surface-high/50 border border-outline-variant/10 flex items-center justify-center mx-auto group-hover:scale-110 transition-all duration-300">
+              <UploadCloudIcon class="w-6 h-6 text-on-surface-variant/80 group-hover:text-primary transition-colors" />
+            </div>
+            <div class="space-y-1">
+              <p class="text-[11px] font-medium">拖拽 <code class="font-mono px-1 py-0.5 bg-surface-high rounded text-primary text-[10px]">.echo</code> 备份文件到此释放</p>
+              <p class="text-[9px] text-on-surface-variant/70">或者点击此区域在文件管理器中浏览选择</p>
+            </div>
+          </div>
+
+          <!-- 状态 B：已选中文件 -->
+          <div v-else class="text-center space-y-3 py-4 w-full px-2">
+            <div class="w-12 h-12 rounded-2xl bg-green-500/10 border border-green-500/20 flex items-center justify-center mx-auto scale-105 animate-pulse">
+              <FileCheckIcon class="w-6 h-6 text-green-500" />
+            </div>
+            <div class="space-y-1">
+              <p class="text-[11px] font-bold text-green-500 truncate max-w-[280px] mx-auto">{{ selectedFileName }}</p>
+              <p class="text-[9px] text-on-surface-variant/70">备份包解析完毕 • 物理就绪</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 危险覆盖警示卡片 -->
+        <div class="bg-red-500/5 border border-red-500/10 p-3.5 rounded-xl flex items-start space-x-3 select-none">
+          <AlertOctagonIcon class="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+          <div class="space-y-1">
+            <h4 class="text-[10px] font-bold text-red-500">🔥 高危覆盖警示</h4>
+            <p class="text-[9px] text-on-surface-variant/90 leading-relaxed">
+              此项还原为【覆盖物理写入】性质。一旦执行，您当前现存的所有聊天记忆、人设卡片、自制朋友圈及偏好设置将【被永久连根删除】且绝对无法恢复！系统导入成功后会自动进行热重启以重新挂载数据。
+            </p>
+          </div>
+        </div>
+
+        <!-- 操作按钮组 -->
+        <div class="flex items-center space-x-3 pt-2">
+          <button 
+            @click="showImportModal = false" 
+            class="btn-secondary w-full py-2 px-4 rounded-xl text-xs font-semibold select-none cursor-pointer transition-all active:scale-95 text-center"
+          >
+            我再想想
+          </button>
+          <button 
+            @click="executeCustomImport" 
+            :disabled="!selectedFilePath"
+            class="btn-primary bg-red-500 border-red-600 hover:bg-red-600 text-white w-full py-2 px-4 rounded-xl text-xs font-semibold select-none cursor-pointer transition-all active:scale-95 disabled:opacity-30 disabled:pointer-events-none text-center shadow-lg shadow-red-500/10"
+          >
+            确认导入并热重启
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- ========================= 全局自定义高保真 Dialog 对话框 ========================= -->
     <div v-if="customDialog.visible" class="modal-overlay" @click.self="customDialog.visible = false">
@@ -8060,6 +8147,7 @@ const handleWindowControl = (action: 'minimize' | 'maximize' | 'close') => {
     window.api.invoke(`window-${action}`)
   }
 }
+
 import {
   MessageSquare as MessageSquareIcon,
   Users as UsersIcon,
@@ -8135,7 +8223,10 @@ import {
   ChevronDown as ChevronDownIcon,
   ChevronLeft as ChevronLeftIcon,
   History as HistoryIcon,
-  MoreHorizontal as MoreHorizontalIcon
+  MoreHorizontal as MoreHorizontalIcon,
+  UploadCloud as UploadCloudIcon,
+  FileCheck as FileCheckIcon,
+  AlertOctagon as AlertOctagonIcon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -8800,16 +8891,25 @@ function openSettingsPage() {
 const isExportingData = ref(false)
 const isImportingData = ref(false)
 
-// 一键导出核心数据
+// ── 导入还原自定义模态框相关响应式状态 ──
+const showImportModal = ref(false)
+const isDraggingBackupFile = ref(false)
+const selectedFileName = ref('')
+const selectedFilePath = ref('')
+
+// 一键导出核心数据 (直接写入选定路径，零内存风险)
 async function handleExportProjectData() {
   if (isExportingData.value) return
   isExportingData.value = true
   try {
     const res = await window.api.invoke('export-project-data')
-    if (res.success) {
-      showCustomAlert('导出成功', `核心数据备份已顺利打包并导出至:\n${res.path}`, 'success')
-    } else if (res.error && res.error !== '用户取消了导出') {
-      showCustomAlert('导出失败', `备份打包异常: ${res.error}`, 'error')
+    if (res.success && res.path) {
+      showCustomAlert('导出成功', `核心数据已成功打包并安全落盘！\n\n保存路径:\n${res.path}`, 'success')
+    } else if (res.canceled) {
+      // 用户主动取消保存，不做报错提示，静默放行
+      console.log('[Backup] 用户取消了备份保存')
+    } else {
+      showCustomAlert('导出失败', `备份打包异常: ${res.error || '未知错误'}`, 'error')
     }
   } catch (err: any) {
     showCustomAlert('导出失败', `物理导出遭遇致命错误: ${err.message || String(err)}`, 'error')
@@ -8818,31 +8918,82 @@ async function handleExportProjectData() {
   }
 }
 
-// 一键导入并全量覆盖核心数据
+// 开启自定义导入弹窗
 function handleImportProjectData() {
   if (isImportingData.value) return
   
-  showCustomConfirm(
-    '⚠️ 全量覆盖导入警示',
-    '数据导入为全量覆盖性质。导入后，您现有的全部聊天历史、朋友圈动态、自建角色人设及系统偏好设置将【彻底清空并覆盖】。导入成功后系统将自动强制热重启以重新装载数据。您确定要继续吗？',
-    async () => {
-      isImportingData.value = true
-      try {
-        const res = await window.api.invoke('import-project-data')
-        if (res.success) {
-          showCustomAlert('导入成功', '数据已完美解包并全量覆盖还原落盘！应用即将在 1 秒后自动热重启...', 'success')
-        } else if (res.error && res.error !== '用户取消了导入') {
-          showCustomAlert('导入失败', `备份还原异常: ${res.error}`, 'error')
-          isImportingData.value = false
-        } else {
-          isImportingData.value = false
-        }
-      } catch (err: any) {
-        showCustomAlert('导入失败', `物理导入遭遇致命错误: ${err.message || String(err)}`, 'error')
-        isImportingData.value = false
-      }
+  // 初始化模态框状态
+  selectedFileName.value = ''
+  selectedFilePath.value = ''
+  showImportModal.value = true
+}
+
+// 处理选中的备份文件 (直接提取绝对物理路径，零卡顿)
+function handleSelectedBackupFile(file: File) {
+  if (!file) return
+  if (!file.name.endsWith('.echo')) {
+    showCustomAlert('文件格式错误', '回音系统只支持导入以 .echo 结尾的专属备份包', 'error')
+    return
+  }
+  
+  // 🚀 核心升级：增加极强的防御性灾备机制
+  const pathVal = (file as any).path || ''
+  if (!pathVal) {
+    showCustomAlert(
+      '安全沙箱限制',
+      '检测到您当前使用的系统环境或沙箱限制，导致拖拽文件未能成功捕获绝对物理路径。\n\n请直接【点击该区域】，在弹出的原生文件管理器中重新选择此文件，即可百分之百完美恢复数据！',
+      'error'
+    )
+    selectedFileName.value = ''
+    selectedFilePath.value = ''
+    return
+  }
+  
+  selectedFileName.value = file.name
+  selectedFilePath.value = pathVal
+}
+
+// 物理触发自定义导入 (传递路径字符串)
+async function executeCustomImport() {
+  if (!selectedFilePath.value) return
+  showImportModal.value = false
+  isImportingData.value = true
+  
+  try {
+    const res = await window.api.invoke('import-project-data', selectedFilePath.value)
+    if (res.success) {
+      showCustomAlert('还原成功', '数据已完美解压并全量覆盖！应用即将在 1.5 秒后自动热重启...', 'success')
+    } else {
+      showCustomAlert('还原失败', `数据解包异常: ${res.error || '未知错误'}`, 'error')
+      isImportingData.value = false
     }
-  )
+  } catch (err: any) {
+    showCustomAlert('还原失败', `物理还原遭遇致命错误: ${err.message || String(err)}`, 'error')
+    isImportingData.value = false
+  }
+}
+
+// ── 导入还原自定义文件选择与拖拽事件处理 ──
+async function triggerBackupFileInput() {
+  try {
+    const res = await window.api.invoke('open-backup-file-dialog')
+    if (res.success && res.path) {
+      selectedFileName.value = res.name
+      selectedFilePath.value = res.path
+    } else if (res.error) {
+      showCustomAlert('选择失败', `拉起文件窗口异常: ${res.error}`, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('选择失败', `物理调取原生窗口遭遇致命错误: ${err.message || String(err)}`, 'error')
+  }
+}
+
+function onBackupFileDropped(e: DragEvent) {
+  isDraggingBackupFile.value = false
+  const files = e.dataTransfer?.files
+  if (files && files.length > 0) {
+    handleSelectedBackupFile(files[0])
+  }
 }
 
 
@@ -11159,11 +11310,14 @@ async function handleCardDrop(e: DragEvent) {
   dragOver.value = false
   const files = e.dataTransfer?.files
   if (files && files.length > 0) {
-    if (files[0].type !== 'image/png') {
-      parseError.value = '文件格式不正确，必须为 PNG 格式的角色卡！'
+    const file = files[0]
+    const isPng = file.type === 'image/png' || file.name.endsWith('.png')
+    const isJson = file.type === 'application/json' || file.name.endsWith('.json')
+    if (!isPng && !isJson) {
+      parseError.value = '文件格式不正确，只支持 PNG 格式或 JSON 格式的角色卡！'
       return
     }
-    await processUploadedFile(files[0])
+    await processUploadedFile(file)
   }
 }
 
@@ -11173,9 +11327,15 @@ async function processUploadedFile(file: File) {
   parseError.value = null
   isPreviewOpen.value = false
 
-  const localReader = new FileReader()
-  localReader.onload = () => { uploadedAvatarUrl.value = localReader.result as string }
-  localReader.readAsDataURL(file)
+  // 如果是 JSON 规格角色卡，由于没有图像二进制数据，不读取 Base64 头像，直接触发系统默认高保真文字头像
+  const isJson = file.type === 'application/json' || file.name.endsWith('.json')
+  if (isJson) {
+    uploadedAvatarUrl.value = ''
+  } else {
+    const localReader = new FileReader()
+    localReader.onload = () => { uploadedAvatarUrl.value = localReader.result as string }
+    localReader.readAsDataURL(file)
+  }
 
   const arrayReader = new FileReader()
   arrayReader.onload = async () => {

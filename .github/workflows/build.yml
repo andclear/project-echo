@@ -84,12 +84,42 @@ jobs:
         with:
           path: all-artifacts
 
-      - name: Consolidate and Flatten Installers
-        # 🚀 将分布式矩阵生成的不同后缀安装包，物理汇聚并平铺展开到单一分发路径
+      - name: Consolidate, Rename and Flatten Installers
+        # 🚀 将分布式矩阵生成的不同后缀安装包，物理汇聚、按规格重新命名并平铺展开到单一分发路径
         run: |
           mkdir -p release-dist
-          find all-artifacts/ -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" \) -exec cp {} release-dist/ \;
-          echo "=== Consolidate Successfully ==="
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+          echo "Current version extracted from tag: $VERSION"
+          
+          # 1. 物理重命名 Windows 安装包 (.exe)
+          EXE_FILE=$(find all-artifacts/ -type f -name "*.exe" | head -n 1)
+          if [ -n "$EXE_FILE" ]; then
+            cp "$EXE_FILE" "release-dist/echo-$VERSION-win.exe"
+            echo "Successfully renamed Windows: $EXE_FILE -> echo-$VERSION-win.exe"
+          fi
+          
+          # 2. 物理重命名 Mac Intel 安装包 (包含 x64 / intel)
+          MAC_X64_FILE=$(find all-artifacts/ -type f -name "*x64*.dmg" | head -n 1)
+          if [ -n "$MAC_X64_FILE" ]; then
+            cp "$MAC_X64_FILE" "release-dist/echo-$VERSION-intel.dmg"
+            echo "Successfully renamed Mac Intel: $MAC_X64_FILE -> echo-$VERSION-intel.dmg"
+          fi
+          
+          # 3. 物理重命名 Mac ARM 安装包 (包含 arm64 / arm)
+          MAC_ARM_FILE=$(find all-artifacts/ -type f -name "*arm64*.dmg" | head -n 1)
+          if [ -n "$MAC_ARM_FILE" ]; then
+            cp "$MAC_ARM_FILE" "release-dist/echo-$VERSION-arm.dmg"
+            echo "Successfully renamed Mac ARM: $MAC_ARM_FILE -> echo-$VERSION-arm.dmg"
+          fi
+          
+          # 4. 物理重命名 Linux 安装包 (.AppImage)
+          LINUX_FILE=$(find all-artifacts/ -type f -name "*.AppImage" | head -n 1)
+          if [ -n "$LINUX_FILE" ]; then
+            cp "$LINUX_FILE" "release-dist/echo-$VERSION-linux.appimage"
+            echo "Successfully renamed Linux: $LINUX_FILE -> echo-$VERSION-linux.appimage"
+          fi
+          
+          echo "=== Consolidate and Rename Successfully ==="
           ls -lh release-dist/
 
       - name: Create and Publish to GitHub Release
