@@ -247,15 +247,25 @@ export class DatabaseService {
       {
         version: 2,
         up: (db: Database.Database) => {
-          db.exec("ALTER TABLE ForumPosts ADD COLUMN board_id TEXT DEFAULT 'tech';")
+          // 🚀 核心防错：检查 board_id 列是否已物理存在，防止 duplicate column name 导致迁移事务崩溃回滚！
+          const pragma = db.pragma("table_info(ForumPosts)") as any[]
+          const hasBoardId = pragma.some(col => col.name === 'board_id')
+          if (!hasBoardId) {
+            db.exec("ALTER TABLE ForumPosts ADD COLUMN board_id TEXT DEFAULT 'tech';")
+          }
         }
       },
       {
         version: 3,
         up: (db: Database.Database) => {
+          // 🚀 核心防错：检查 Messages 表的各扩展列是否存在，避免覆盖安装时的冗余报错
+          const pragma = db.pragma("table_info(Messages)") as any[]
           const cols = ['prompt_tokens', 'completion_tokens', 'cached_tokens', 'sender_id']
           for (const col of cols) {
-            db.exec(`ALTER TABLE Messages ADD COLUMN ${col} INTEGER DEFAULT NULL;`)
+            const hasCol = pragma.some(c => c.name === col)
+            if (!hasCol) {
+              db.exec(`ALTER TABLE Messages ADD COLUMN ${col} INTEGER DEFAULT NULL;`)
+            }
           }
         }
       }
