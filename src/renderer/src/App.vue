@@ -9256,6 +9256,8 @@ const hasUnreadConversations = computed(() => {
 const allMessages = reactive<Record<string, any[]>>({})
 const chatMessages = computed(() => allMessages[selectedCharacterId.value || ''] || [])
 const activeTypingSessions = reactive(new Set<string>())
+// 追踪正在被 dialogue 模式弹射播放的消息内容（用于 receive-message 精确去重）
+const pendingDialogueContents = reactive(new Set<string>())
 
 // 历史消息分页加载状态
 const isLoadingMore = ref(false) // 防止重复并发拉取历史消息
@@ -11809,6 +11811,10 @@ async function handleAssistantResponse(
 ) {
   const sessionKey = char.id + '_' + content.slice(0, 15)
   activeTypingSessions.add(sessionKey)
+  // 在 dialogue 模式下，记录当前正在弹射的内容，供 receive-message 精确去重
+  if (chatMode.value === 'dialogue') {
+    pendingDialogueContents.add(content.replace(/\s+/g, '').slice(0, 80))
+  }
 
   try {
     // 🚀 一次完整回复只累加一次未读消息，避开分句与 SSE done 信号双重加成 Bug
@@ -11986,6 +11992,7 @@ async function handleAssistantResponse(
       if (diaryRes.success) activeDiary.value = diaryRes.content
     }, 1500)
   } finally {
+    pendingDialogueContents.delete(content.replace(/\s+/g, '').slice(0, 80))
     activeTypingSessions.delete(sessionKey)
   }
 }
@@ -15219,32 +15226,23 @@ onMounted(async () => {
         }
       }
       
-      // 🚀 纯文字对话模式活跃会话拦截：handleAssistantResponse 正在逐句异步弹射时广播到达
-      // 广播是分段气泡的整合体，弹射尚未完成时分段合并比对必然失败，用 activeTypingSessions 活跃标志直接拦截
-      if (!isDuplicate && chatMode.value === 'dialogue' && activeTypingSessions.size > 0) {
-        const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant' && m.content)
-        if (lastAssistant && normBroadcast.includes(cleanStr(lastAssistant.content))) {
+      // 🚀 纯文字对话模式精确去重：handleAssistantResponse 开始弹射时已将内容注册到 pendingDialogueContents
+      // receive-message 到达时直接比对，无需依赖时机，100% 可靠
+      if (!isDuplicate && chatMode.value === 'dialogue') {
+        if (pendingDialogueContents.has(normBroadcast.slice(0, 80))) {
           isDuplicate = true
-          console.log('[Sync Gate] dialogue 打字会话活跃期间广播到达，直接拦截防止重复。')
+          console.log('[Sync Gate] dialogue pendingContent 命中，精确拦截广播重复。')
         }
       }
 
-      // 🚀 分段合并去重兜底算法：当开启“纯文字对话模式”分句分段时，本地会被拆成多个气泡
-      // 将本地最后几个 assistant 气泡从后往前拼接，比对是否与广播整条一致
-      // 同时增加反向包含：广播包含本地某一段即拦截，应对弹射未完成时广播已到达的场景
+      // 🚀 分段合并去重兜底：弹射已完成（pendingDialogueContents 已清除）时，通过拼合本地分段比对
       if (!isDuplicate) {
         const recentAssistants = msgs.slice(-15).filter(m => m.role === 'assistant' && m.content)
         if (recentAssistants.length >= 1) {
           let combined = ''
           for (let i = recentAssistants.length - 1; i >= 0; i--) {
             combined = cleanStr(recentAssistants[i].content) + combined
-            // 完全相等：所有分段已全部 push 完毕
             if (combined === normBroadcast) {
-              isDuplicate = true
-              break
-            }
-            // 反向包含：广播包含本地这段内容，说明本地已在处理这条回复（弹射中）
-            if (normBroadcast.includes(cleanStr(recentAssistants[i].content)) && cleanStr(recentAssistants[i].content).length > 5) {
               isDuplicate = true
               break
             }
