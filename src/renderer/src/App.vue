@@ -6397,12 +6397,12 @@
         <div class="flex flex-col items-center mt-6 z-10 w-full">
           <!-- 发红包角色的头像 -->
           <div class="w-12 h-12 rounded-full border-2 border-[#fcedc4] bg-surface flex-shrink-0 flex items-center justify-center overflow-hidden shadow-md">
-            <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+            <img v-if="redPacketSender && (redPacketSender.id === 'user' ? redPacketSender.avatar : characterAvatars[redPacketSender.id])" :src="redPacketSender.id === 'user' ? redPacketSender.avatar : characterAvatars[redPacketSender.id]" class="w-full h-full object-cover" />
             <span v-else class="text-stone-800 text-sm font-bold">👤</span>
           </div>
 
           <!-- 角色名 + 提示 -->
-          <div class="text-xs font-bold text-[#fcedc4] mt-2.5 drop-shadow-sm">{{ activeCharacter.name }}</div>
+          <div class="text-xs font-bold text-[#fcedc4] mt-2.5 drop-shadow-sm">{{ redPacketSender?.name || '神秘成员' }}</div>
           <div class="text-[10px] text-white/80 mt-1">给你发了一个回音红包</div>
 
           <!-- 祝福附言 -->
@@ -12462,6 +12462,19 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
 // ===================== 红包 =====================
 const showReceiveRedPacketModal = ref(false)
 const activeReceivingRedPacketMsg = ref<any>(null)
+const redPacketSender = computed(() => {
+  const msg = activeReceivingRedPacketMsg.value
+  if (!msg) return null
+  const senderId = msg.sender_id || msg.character_id
+  if (senderId) {
+    const char = characterList.value.find(c => c.id === senderId)
+    if (char) return char
+    if (senderId === 'user') {
+      return { id: 'user', name: userProfile.nickname || '我', avatar: userProfile.avatarUrl }
+    }
+  }
+  return activeCharacter.value || { id: 'unknown', name: '神秘成员' }
+})
 const isOpeningRedPacket = ref(false)
 
 function openRedPacket() { showRedPacketModal.value = true }
@@ -15109,46 +15122,66 @@ onMounted(async () => {
     if (!allMessages[charId]) allMessages[charId] = []
     const msgs = allMessages[charId]
     
-    // 1. 智能去重自愈：如果本地已经存在与该广播消息 ID 相同，或 role 相同且内容高度一致的消息，则视为已渲染过。
+    // 1. 智能去重自愈：采用顶级空白忽略与分段合并自适应比对门禁，完美兼容 PC 端自己发自己收的去重以及复杂的微信级分段回复去重
     let isDuplicate = false
+    
+    // 物理去除内容中的所有换行、空白字符、特有标签用于高精准比对
+    const cleanStr = (s: string) => (s || '').replace(/\s+/g, '').replace(/\[wechat_image_media\]/g, '').replace(/\[image_desc\]/g, '')
+    
     if (msg.role === 'assistant') {
-      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 3); i--) {
-        if (msgs[i].role === 'assistant' && (msgs[i].content === msg.content || msgs[i].id === msg.id)) {
+      const normBroadcast = cleanStr(msg.content)
+      // 首先检查是否有 ID 或原始物理内容直接相存的重复项
+      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 4); i--) {
+        if (msgs[i].role === 'assistant' && (msgs[i].id === msg.id || cleanStr(msgs[i].content) === normBroadcast)) {
           isDuplicate = true
           break
         }
       }
+      
+      // 🚀 分段合并去重兜底算法：当开启“纯文字对话模式”分句分段时，本地会被拆成多个气泡
+      // 我们在此将本地最后几个 assistant 气泡从后往前剔除空白拼接，比对是否与广播的整条一致
+      if (!isDuplicate) {
+        const recentAssistants = msgs.slice(-4).filter(m => m.role === 'assistant' && m.content)
+        if (recentAssistants.length > 1) {
+          let combined = ''
+          for (let i = recentAssistants.length - 1; i >= 0; i--) {
+            combined = cleanStr(recentAssistants[i].content) + combined
+            if (combined === normBroadcast) {
+              isDuplicate = true
+              break
+            }
+          }
+        }
+      }
     } else if (msg.role === 'user') {
-      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 3); i--) {
-        if (msgs[i].role === 'user' && (msgs[i].content === msg.content || msgs[i].id === msg.id)) {
+      const normBroadcast = cleanStr(msg.content)
+      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 4); i--) {
+        if (msgs[i].role === 'user' && (msgs[i].id === msg.id || cleanStr(msgs[i].content) === normBroadcast)) {
           isDuplicate = true
           break
         }
       }
     }
 
-    const hasActiveTyping = Array.from(activeTypingSessions).some((key: string) => key.startsWith(charId + '_'))
     const isWaitingResponse = isStreaming.value && streamingCharacterId.value === charId
 
     if (isDuplicate) {
-      // 🚀 如果判定为重复消息，且本地正好处于该角色的流式打字或等待队列中，则安全过滤，防止双气泡
-      if (hasActiveTyping || isWaitingResponse) {
-        console.log(`[Sync Gate] 检测到重复气泡，且处于打字/等待状态中，过滤后台级联广播`)
-        
-        // 顺便在这里帮已有气泡补全一下 ID 和 Token 元数据
-        if (msg.role === 'assistant') {
-          for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 3); i--) {
-            if (msgs[i].role === 'assistant' && (msgs[i].content === msg.content || msgs[i].id === msg.id)) {
-              msgs[i].id = msg.id
-              if (msg.prompt_tokens) msgs[i].prompt_tokens = msg.prompt_tokens
-              if (msg.completion_tokens) msgs[i].completion_tokens = msg.completion_tokens
-              if (msg.cached_tokens) msgs[i].cached_tokens = msg.cached_tokens
-              break
-            }
+      console.log(`[Sync Gate] 拦截到重复气泡广播，予以丢弃过滤，安全避开双气泡。`)
+      
+      // 顺便在这里帮已有气泡（包括可能被分段的最后一个气泡或者匹配气泡）补全一下 ID 和 Token 元数据
+      if (msg.role === 'assistant') {
+        const normBroadcast = cleanStr(msg.content)
+        for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 4); i--) {
+          if (msgs[i].role === 'assistant' && (msgs[i].id === msg.id || normBroadcast.includes(cleanStr(msgs[i].content)))) {
+            msgs[i].id = msg.id
+            if (msg.prompt_tokens) msgs[i].prompt_tokens = msg.prompt_tokens
+            if (msg.completion_tokens) msgs[i].completion_tokens = msg.completion_tokens
+            if (msg.cached_tokens) msgs[i].cached_tokens = msg.cached_tokens
+            break
           }
         }
-        return
       }
+      return
     } else {
       // 🚀 如果并非重复消息，但本地仍处于等待该角色的流式回复状态，说明本地流式通道（SSE/Fetch）遭遇了严重的网络瞬断或丢包死锁
       // 此时我们绝对不能过滤丢弃它，而是将其作为保底救命消息渲染出来，并立刻自动重置卡死状态，解除死锁！
