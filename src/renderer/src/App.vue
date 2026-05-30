@@ -15219,15 +15219,32 @@ onMounted(async () => {
         }
       }
       
+      // 🚀 纯文字对话模式活跃会话拦截：handleAssistantResponse 正在逐句异步弹射时广播到达
+      // 广播是分段气泡的整合体，弹射尚未完成时分段合并比对必然失败，用 activeTypingSessions 活跃标志直接拦截
+      if (!isDuplicate && chatMode.value === 'dialogue' && activeTypingSessions.size > 0) {
+        const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant' && m.content)
+        if (lastAssistant && normBroadcast.includes(cleanStr(lastAssistant.content))) {
+          isDuplicate = true
+          console.log('[Sync Gate] dialogue 打字会话活跃期间广播到达，直接拦截防止重复。')
+        }
+      }
+
       // 🚀 分段合并去重兜底算法：当开启“纯文字对话模式”分句分段时，本地会被拆成多个气泡
-      // 我们在此将本地最后几个 assistant 气泡从后往前剔除空白拼接，比对是否与广播的整条一致（同样深挖最近15条）
+      // 将本地最后几个 assistant 气泡从后往前拼接，比对是否与广播整条一致
+      // 同时增加反向包含：广播包含本地某一段即拦截，应对弹射未完成时广播已到达的场景
       if (!isDuplicate) {
         const recentAssistants = msgs.slice(-15).filter(m => m.role === 'assistant' && m.content)
-        if (recentAssistants.length > 1) {
+        if (recentAssistants.length >= 1) {
           let combined = ''
           for (let i = recentAssistants.length - 1; i >= 0; i--) {
             combined = cleanStr(recentAssistants[i].content) + combined
+            // 完全相等：所有分段已全部 push 完毕
             if (combined === normBroadcast) {
+              isDuplicate = true
+              break
+            }
+            // 反向包含：广播包含本地这段内容，说明本地已在处理这条回复（弹射中）
+            if (normBroadcast.includes(cleanStr(recentAssistants[i].content)) && cleanStr(recentAssistants[i].content).length > 5) {
               isDuplicate = true
               break
             }
