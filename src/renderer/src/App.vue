@@ -2553,6 +2553,65 @@
                       </a>
                     </p>
                   </div>
+
+                  <!-- 🚀 官方推荐与社区生态（WOW极致奢华毛玻璃设计） -->
+                  <div class="pt-4 border-t border-outline-variant/10 select-none">
+                    <h3 class="text-xs font-bold text-on-surface uppercase tracking-wider font-mono mb-3">老婆宝推荐 与 社区生态</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <a
+                        href="https://moi.jiuwo.me"
+                        target="_blank"
+                        class="flex items-center space-x-3 p-3 rounded-xl bg-surface-low/30 border border-outline-variant/10 hover:border-primary/30 hover:bg-primary/5 transition-all duration-200 group cursor-pointer"
+                      >
+                        <div class="w-8 h-8 flex items-center justify-center group-hover:scale-105 transition-transform flex-shrink-0 overflow-hidden border border-outline-variant/10 p-1" style="border-radius: 6px !important; background-color: #ffffff;">
+                          <img :src="moiLogoSrc" class="w-full h-full object-contain" />
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <h4 class="text-xs font-bold text-on-surface group-hover:text-primary transition-colors truncate">
+                            MOI 角色卡创建工具
+                          </h4>
+                          <p class="text-[10px] text-on-surface-variant truncate mt-0.5">简单易用的沉浸式角色卡创作工具</p>
+                        </div>
+                      </a>
+
+                      <!-- 小酒窝论坛 -->
+                      <a
+                        href="https://jiuwo.me"
+                        target="_blank"
+                        class="flex items-center space-x-3 p-3 rounded-xl bg-surface-low/30 border border-outline-variant/10 hover:border-[#FF5B00]/30 hover:bg-[#FF5B00]/5 transition-all duration-200 group cursor-pointer"
+                      >
+                        <div class="w-8 h-8 flex items-center justify-center group-hover:scale-105 transition-transform overflow-hidden flex-shrink-0 border border-outline-variant/10" style="border-radius: 6px !important; background-color: #222222;">
+                          <!-- discourse 炫彩 SVG -->
+                          <svg class="w-5 h-5" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"><rect width="1024" height="1024" rx="160" ry="160" fill="#222222"></rect><path d="M386.56 765.44l-199.68 71.68L222.72 640c-25.6-40.96-43.52-87.04-51.2-138.24-20.48-174.08 102.4-330.24 273.92-350.72s330.24 102.4 350.72 273.92-102.4 330.24-273.92 350.72c-46.08 7.68-92.16 2.56-135.68-10.24z" fill="#E4001E"></path><path d="M399.36 811.52l-209.92 25.6 79.36-184.32c-17.92-43.52-23.04-94.72-17.92-145.92 17.92-174.08 174.08-299.52 348.16-281.6s299.52 174.08 281.6 348.16-174.08 299.52-348.16 281.6c-51.2-5.12-94.72-20.48-133.12-43.52z" fill="#00B0F5"></path><path d="M186.88 837.12l58.88-189.44c-20.48-43.52-33.28-92.16-33.28-143.36 0-174.08 140.8-314.88 314.88-314.88S844.8 330.24 844.8 504.32 704 819.2 529.92 819.2c-48.64 0-94.72-10.24-135.68-30.72l-207.36 48.64z" fill="#FF5B00"></path><path d="M186.88 837.12l79.36-184.32c-17.92-43.52-23.04-94.72-17.92-145.92 17.92-174.08 174.08-299.52 348.16-281.6 74.24 7.68 138.24 40.96 186.88 87.04 38.4 53.76 61.44 117.76 61.44 189.44C844.8 678.4 704 819.2 529.92 819.2c-48.64 0-94.72-10.24-135.68-30.72l-207.36 48.64z" fill="#00AD42"></path><path d="M186.88 837.12l79.36-184.32c-17.92-43.52-23.04-94.72-17.92-145.92 17.92-174.08 174.08-299.52 348.16-281.6 56.32 5.12 107.52 25.6 151.04 56.32 28.16 40.96 48.64 89.6 53.76 143.36 20.48 174.08-102.4 330.24-273.92 350.72-48.64 5.12-94.72 0-138.24-12.8l-202.24 74.24z" fill="#FFF9A4"></path></svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <h4 class="text-xs font-bold text-on-surface group-hover:text-[#FF5B00] transition-colors truncate">
+                            小酒窝论坛
+                          </h4>
+                          <p class="text-[10px] text-on-surface-variant truncate mt-0.5">老婆宝官方交流社区</p>
+                        </div>
+                      </a>
+
+                      <!-- Discord 社区 -->
+                      <a
+                        href="https://discord.gg/atsXVr7ve8"
+                        target="_blank"
+                        class="flex items-center space-x-3 p-3 rounded-xl bg-surface-low/30 border border-outline-variant/10 hover:border-[#738BD8]/30 hover:bg-[#738BD8]/5 transition-all duration-200 group cursor-pointer sm:col-span-2"
+                      >
+                        <div class="w-8 h-8 flex items-center justify-center group-hover:scale-105 transition-transform flex-shrink-0 border border-[#738BD8]/20" style="border-radius: 6px !important; background-color: #738BD8;">
+                          <!-- discord 炫彩 SVG -->
+                          <svg class="w-5 h-5" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"><rect width="1024" height="1024" rx="160" ry="160" fill="#738BD8"></rect><path d="M190.915 234.305h642.169v477.288H190.915z" fill="#FFFFFF"></path><path d="M698.157 932.274L157.288 862.85c-58.43-7.5-55.4-191.167-50.26-249.853l26.034-297.22c5.14-58.686 74.356-120.22 132.7-128.362l466.441-65.085c58.346-8.14 177.24 212.65 176.09 271.548l-8.677 445.108M512 300.373c-114.347 0-194.56 49.067-194.56 49.067 43.947-39.253 120.747-61.867 120.747-61.867l-7.254-7.253c-72.106 1.28-137.386 51.2-137.386 51.2-73.387 153.173-68.694 285.44-68.694 285.44 59.734 77.227 148.48 71.68 148.48 71.68l30.294-38.4c-53.334-11.52-87.04-58.88-87.04-58.88S396.8 645.973 512 645.973c115.2 0 195.413-54.613 195.413-54.613s-33.706 47.36-87.04 58.88l30.294 38.4s88.746 5.547 148.48-71.68c0 0 4.693-132.267-68.694-285.44 0 0-65.28-49.92-137.386-51.2l-7.254 7.253s76.8 22.614 120.747 61.867c0 0-80.213-49.067-194.56-49.067M423.68 462.08c27.733 0 50.347 24.32 49.92 54.187 0 29.44-22.187 54.186-49.92 54.186-27.307 0-49.493-24.746-49.493-54.186 0-29.867 21.76-54.187 49.493-54.187m177.92 0c27.733 0 49.92 24.32 49.92 54.187 0 29.44-22.187 54.186-49.92 54.186-27.307 0-49.493-24.746-49.493-54.186 0-29.867 21.76-54.187 49.493-54.187z" fill="#738BD8"></path></svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <h4 class="text-xs font-bold text-on-surface group-hover:text-[#738BD8] transition-colors flex items-center justify-between truncate">
+                            <span>Discord-小酒窝</span>
+                            <span class="text-[9px] font-normal px-1.5 py-0.5 rounded bg-[#738BD8]/10 text-[#738BD8] select-none scale-90 flex-shrink-0">官方海外社区</span>
+                          </h4>
+                          <p class="text-[10px] text-on-surface-variant truncate mt-0.5">小酒窝Discord海外社区</p>
+                        </div>
+                      </a>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -8071,6 +8130,10 @@ function replaceStickersOnly(html: string) {
 // @ts-ignore
 import defaultAvatarUrl from './assets/default-avatar.webp'
 const defaultAvatarSrc = defaultAvatarUrl
+// MOI 官方推荐 Logo (从 assets 引入)
+// @ts-ignore
+import moiLogoUrl from './assets/moi-logo.png'
+const moiLogoSrc = moiLogoUrl
 const DEFAULT_COVER = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><defs><radialGradient id="g" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="%236366f1" stop-opacity="0.3"/><stop offset="60%" stop-color="%234f46e5" stop-opacity="0.1"/><stop offset="100%" stop-color="%230f172a" stop-opacity="0.85"/></radialGradient></defs><rect width="300" height="300" fill="url(%23g)"/><circle cx="150" cy="150" r="110" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="6"/><circle cx="150" cy="150" r="80" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="4"/><circle cx="150" cy="150" r="50" fill="rgba(255,255,255,0.02)"/><path d="M150 110v50c-3.5-2.2-8.5-3-13-1.5-6.5 2.2-10.5 8.5-8.8 14 1.7 5.5 8.3 8.3 14.8 6 5.5-2 9-7.2 9-12.5v-36h22v-20h-24z" fill="rgba(255,255,255,0.4)"/></svg>'
 
 import { musicPlayerStore } from './utils/MusicPlayerStore'
@@ -9345,7 +9408,7 @@ function triggerCleanChoice() {
           allMessages[creatorBotId] = [
             {
               role: 'assistant',
-              content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。',
+              content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。您也可以通过 [✨ **MOI（https://moi.jiuwo.me）**](https://moi.jiuwo.me) 工具来创建角色卡。',
               created_at: Date.now()
             }
           ]
@@ -10481,7 +10544,7 @@ async function selectCharacter(charId: string) {
       allMessages[charId] = [
         {
           role: 'assistant',
-          content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。'
+          content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。您也可以通过 [✨ **MOI（https://moi.jiuwo.me）**](https://moi.jiuwo.me) 工具来创建角色卡。'
         }
       ]
     }
@@ -10818,7 +10881,7 @@ async function triggerCreateNewCharacter() {
     characterList.value.unshift({
       id: creatorBotId,
       name: '角色卡创建Bot',
-      first_mes: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。',
+      first_mes: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。您也可以通过 [✨ **MOI（https://moi.jiuwo.me）**](https://moi.jiuwo.me) 工具来创建角色卡。',
       created_at: Date.now()
     })
   }
@@ -10827,7 +10890,7 @@ async function triggerCreateNewCharacter() {
   allMessages[creatorBotId] = [
     {
       role: 'assistant',
-      content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。',
+      content: '欢迎使用角色卡创建Bot，请描述您想要创建的角色信息，请包含角色姓名。您也可以通过 [✨ **MOI（https://moi.jiuwo.me）**](https://moi.jiuwo.me) 工具来创建角色卡。',
       created_at: Date.now()
     }
   ]
@@ -14504,7 +14567,24 @@ onMounted(async () => {
     conversationActiveTimes[charId] = data.message?.timestamp || Date.now()
     // 将消息追加到对应缓存
     if (!allMessages[charId]) allMessages[charId] = []
-    allMessages[charId].push(restoreMessageProps(data.message))
+    
+    const msgs = allMessages[charId]
+    const msg = data.message
+    if (msg) {
+      // 🚀 智能去重自愈：如果本地已经存在相同 ID 或完全一致内容的消息，则拒绝重复追加
+      let isDuplicate = false
+      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 5); i--) {
+        if (msgs[i] && (msgs[i].id === msg.id || msgs[i].content === msg.content)) {
+          isDuplicate = true
+          break
+        }
+      }
+      if (!isDuplicate) {
+        msgs.push(restoreMessageProps(msg))
+      } else {
+        console.log('[Deduplication] proactive-chat-message 成功过滤并查杀重复消息:', msg.id)
+      }
+    }
     
     // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
     if (selectedCharacterId.value !== charId || !isChattingActive.value) {
