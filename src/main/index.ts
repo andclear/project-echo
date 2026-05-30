@@ -5761,12 +5761,9 @@ app.on('before-quit', () => {
   stopIpcBridgeServer()
 })
 
-// 自适应获取开发环境与生产环境下的 resources 物理资源目录，100% 绝对精确
 function getResourcesPath(): string {
-  if (app.isPackaged) {
-    return process.resourcesPath; // 打包后的 Contents/Resources
-  }
-  return join(__dirname, '../../resources'); // 开发环境下的 resources
+  // 无论是否打包，均统一通过相对路径访问 asar 包内或开发环境下的 resources 目录，确保 native 模块能顺畅读取
+  return join(__dirname, '../../resources');
 }
 
 // 物理实例化并创建系统状态栏/系统托盘常驻图标，打通跨端关闭不退出常驻功能
