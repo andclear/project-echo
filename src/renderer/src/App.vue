@@ -11718,11 +11718,11 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
       )
     }
 
-    // 🚀 双向红包神级同步：如果大模型主动发送了红包，在其文字气泡播放/接收完毕后，自动在聊天队列追加红包卡片气泡
-    if (res.redPacketSend && char.id === selectedCharacterId.value) {
+    // 🚀 双向红包神级同步：如果大模型主动发送了红包，且当前处于单聊模式下，在其文字气泡播放/接收完毕后，自动在聊天队列追加红包卡片气泡
+    if (!isGroupActive.value && res.redPacketSend && char.id === selectedCharacterId.value) {
       const msgs = allMessages[char.id] || []
       
-      // 倒序寻找前一个文字气泡，若存在则抹去其 token 统计（使其只展展现最后一个红包卡片上）
+      // 倒序寻找前一个文字气泡，若存在则抹去其 token 统计（使其只展现最后一个红包卡片上）
       let lastTextMsg = null
       for (let i = msgs.length - 1; i >= 0; i--) {
         if (msgs[i].role === 'assistant' && !msgs[i].redPacket) {
@@ -11740,8 +11740,8 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
         id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
         role: 'assistant',
         sender_id: char.id, // 🚀 补全发送人 ID 元数据，确保在任何混用或调度渲染场景下均有完美的头像与名字显示
-        // 🚀 注入标准的 content 控制符前缀，以便广播总线（receive-message）能够通过 content 完美匹配去重，彻底消除双红包气泡 Bug
-        content: `[wechat_red_packet]:${JSON.stringify(res.redPacketSend)}`,
+        // 🚀 使用已转换的高颜值中文格式作为 content，确保在会话中栏列表预览中完美、即时、保真显示，绝不显现 JSON 原始控制字符串
+        content: `[发送红包: ${res.redPacketSend.amount} 元, 附言: ${res.redPacketSend.title || '恭喜发财，大吉大利'}]`,
         redPacket: {
           amount: res.redPacketSend.amount,
           title: res.redPacketSend.title,
@@ -14721,29 +14721,6 @@ onMounted(async () => {
             }
           }
         }
-        
-        // AI 自主发出的红包卡片前台渲染
-        const rpSend = (data as any).redPacketSend
-        if (rpSend && senderId) {
-          const rpContent = `[wechat_red_packet]:${JSON.stringify(rpSend)}`
-          const msgs = allMessages[chunkCharId]
-          if (msgs && !msgs.some(m => m.content === rpContent)) {
-            msgs.push({
-              id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-              role: 'assistant',
-              sender_id: senderId,
-              content: rpContent,
-              redPacket: {
-                amount: rpSend.amount,
-                title: rpSend.title,
-                status: rpSend.status || 'waiting'
-              },
-              created_at: new Date().toISOString(),
-              timestamp: Date.now()
-            })
-          }
-        }
-
         // 🚀 强力修复：群聊渲染偶发卡住/不显示气泡的自愈防线
         // 在 done 为 true 时，将最新的权威全文覆盖到最后一条助理气泡中，若因网络延迟或丢包没能正常渲染，则作为兜底自动创建
         if (data.content && senderId) {
@@ -14779,18 +14756,21 @@ onMounted(async () => {
             .replace(halfBracketReg, '')
             .trim()
 
-          if (lastAssistantIdx !== -1) {
-            msgs[lastAssistantIdx].content = cleanedContent
-          } else {
-            // 如果没能流式输出气泡，在此执行强力自愈，兜底 push 一个
-            msgs.push({
-              id: 'msg_fh_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-              role: 'assistant',
-              sender_id: senderId,
-              content: cleanedContent,
-              created_at: new Date().toISOString(),
-              timestamp: Date.now()
-            })
+          // 🚀 仅当清洗后的实质文字正文内容非空时，才进行最后一条气泡的内容更新或兜底创建，从前端内存端完美解决空白头像气泡的生成 Bug
+          if (cleanedContent.trim().length > 0) {
+            if (lastAssistantIdx !== -1) {
+              msgs[lastAssistantIdx].content = cleanedContent
+            } else {
+              // 如果没能流式输出气泡，在此执行强力自愈，兜底 push 一个
+              msgs.push({
+                id: 'msg_fh_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                role: 'assistant',
+                sender_id: senderId,
+                content: cleanedContent,
+                created_at: new Date().toISOString(),
+                timestamp: Date.now()
+              })
+            }
           }
         }
 
