@@ -15299,8 +15299,29 @@ onMounted(async () => {
     }
 
     if (!isDuplicate && !msgs.some(m => m.id === msg.id)) {
-      const flattened = flattenMessages([msg], charId) // 🚀 同步广播到达时，也一律在前端进行 flatten 拆分铺平！
-      msgs.push(...flattened.map(m => restoreMessageProps(m)))
+      if (chatMode.value === 'dialogue' && msg.role === 'assistant') {
+        // 🚀 纯文字对话模式下，收到主动回复或搭讪消息（非时序重复）时，严禁直接扁平化瞬间 push 出来！
+        // 而是物理调用微信级仿真播放器 handleAssistantResponse 进行逐句延迟打字弹射播放，保障视觉与逻辑完全统一！
+        const char = characterList.value.find(c => c.id === charId)
+        if (char) {
+          handleAssistantResponse(
+            char,
+            msg.content,
+            null,
+            msg.prompt_tokens,
+            msg.completion_tokens,
+            msg.cached_tokens,
+            msg.id
+          )
+        } else {
+          // 极致兜底降级处理
+          const flattened = flattenMessages([msg], charId)
+          msgs.push(...flattened.map(m => restoreMessageProps(m)))
+        }
+      } else {
+        const flattened = flattenMessages([msg], charId)
+        msgs.push(...flattened.map(m => restoreMessageProps(m)))
+      }
     }
     
     // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
