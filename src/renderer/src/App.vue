@@ -11783,6 +11783,15 @@ async function handleAssistantResponse(
   activeTypingSessions.add(sessionKey)
 
   try {
+    // 🚀 一次完整回复只累加一次未读消息，避开分句与 SSE done 信号双重加成 Bug
+    if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
+      if (!conversationMeta[char.id]) {
+        conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
+      }
+      conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
+      window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
+    }
+
     // A. 处理红包决策状态更新与返款
     if (redPacketAction && char.id === selectedCharacterId.value) {
       const msgs = allMessages[char.id] || []
@@ -11850,15 +11859,6 @@ async function handleAssistantResponse(
           setTimeout(() => scrollToBottom('smooth', true), 80)
         })
       }
-
-      // 检查是否不在当前活跃会话或活跃窗口中
-      if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
-        if (!conversationMeta[char.id]) {
-          conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
-        }
-        conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
-        window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
-      }
     } else {
       // B.2 纯对话模式：采用高维微信级智能分句重组算法，进行有节奏的逐句打字弹射播放
       const paragraphs: string[] = []
@@ -11922,15 +11922,6 @@ async function handleAssistantResponse(
           cached_tokens: isLast ? cachedTokens : undefined
         })
         nextTick(() => scrollToBottom())
-
-        // 检查是否不在当前活跃会话或活跃窗口中
-        if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
-          if (!conversationMeta[char.id]) {
-            conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
-          }
-          conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
-          window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
-        }
 
         // 如果有下一句，微等 500ms 作为大脑思考打字间隔空隙，随后再次进入“对方正在输入”状态
         if (idx < paragraphs.length - 1) {
@@ -14877,15 +14868,6 @@ onMounted(async () => {
             last.cached_tokens = (data as any).cached_tokens
           }
         }
-      }
-
-      // 非当前活跃会话，在流式完毕时自动加未读数
-      if (chunkCharId !== selectedCharacterId.value || !isChattingActive.value) {
-        if (!conversationMeta[chunkCharId]) {
-          conversationMeta[chunkCharId] = { pinned: false, unread: 0, muted: false, hidden: false }
-        }
-        conversationMeta[chunkCharId].unread = (conversationMeta[chunkCharId].unread || 0) + 1
-        window.api.invoke('save-conversation-meta', { characterId: chunkCharId, ...conversationMeta[chunkCharId] })
       }
 
       // 🚀 局局网自愈桥接防线：在手机移动端上，由于大模型生成加存盘耗时长达十秒以上，
