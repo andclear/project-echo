@@ -22,126 +22,8 @@
         </div>
       </header>
 
-      <!-- 条款高颜值结构化排版区 (扁平极简主义，不要卡片，图标 100% 补齐显现) -->
-      <div class="flex-1 overflow-y-auto p-6 select-text space-y-6 bg-surface-low border-b border-outline-variant/20 mobile-select-text leading-relaxed">
-        <div class="text-[11.5px] text-on-surface/90 space-y-6 select-text leading-relaxed">
-          <!-- 核心免责置顶高亮公告 (扁平精致边框，无卡片底色) -->
-          <div class="p-3.5 border-l-3 border-error/50 space-y-1 select-text">
-            <div class="flex items-center space-x-1.5 text-error text-xs font-black select-none">
-              <AlertTriangleIcon class="w-4 h-4 flex-shrink-0" />
-              <span>重要免责与特别声明（核心条款）</span>
-            </div>
-            <p class="text-[10px] text-on-surface-variant font-semibold leading-relaxed">
-              本工具不提供任何内容生成服务，不预置接入任何大模型，不提供任何开放或封闭版权的音乐资源，仅供学习交流和研究使用。用户生成的任何内容、数据，使用的任何音乐资源均由用户自行负责，本工具不承担任何法律责任。
-            </p>
-          </div>
-
-          <!-- 一、定义与服务内容 -->
-          <div class="space-y-2">
-            <div class="flex items-center space-x-2 text-primary font-black select-none">
-              <BookOpenIcon class="w-4.5 h-4.5 text-primary flex-shrink-0" />
-              <span class="text-[11.5px] font-black">一、定义与服务内容</span>
-            </div>
-            <div class="text-[10.5px] text-on-surface-variant/90 space-y-1.5 pl-6.5 leading-relaxed">
-              <p>
-                <strong>Echo-回音</strong>（本软件）是一个用户与 AI 进行角色扮演对话的工具。它提供美观的对话界面、便捷的文本管理、智能的内容生成以及强大的多模型接入能力，旨在为用户提供沉浸式、个性化的角色扮演体验。
-              </p>
-              <p>主要功能包括但不限于：角色扮演对话、朋友圈、论坛、音乐等功能。</p>
-            </div>
-          </div>
-
-          <!-- 二、使用许可与限制 -->
-          <div class="space-y-2">
-            <div class="flex items-center space-x-2 text-primary font-black select-none">
-              <ShieldAlertIcon class="w-4.5 h-4.5 text-primary flex-shrink-0" />
-              <span class="text-[11.5px] font-black">二、使用许可与限制</span>
-            </div>
-            <div class="text-[10.5px] text-on-surface-variant/90 pl-6.5 space-y-2 leading-relaxed">
-              <p>本工具遵循“共享、交流”的原则发布，并严格遵守以下许可限制：</p>
-              
-              <ul class="list-none space-y-2">
-                <li class="p-1.5 rounded-lg bg-on-surface/5 border border-outline-variant/15 text-[10px]">
-                  <span class="font-bold text-on-surface">1. 仅限学习交流：</span> 您仅可将本工具用于个人学习、研究或技术交流目的。
-                </li>
-                <li class="p-1.5 rounded-lg bg-error/5 border border-error/15 text-[10px]">
-                  <span class="font-bold text-error">2. 严禁商用：</span> <strong>禁止</strong>将本工具或基于本工具修改后的衍生版本用于任何形式的商业用途（包括但不限于付费下载、付费会员制、广告盈利、推广引流、作为商业软件的一部分等）。
-                </li>
-                <li class="p-1.5 rounded-lg bg-on-surface/5 border border-outline-variant/15 text-[10px] space-y-1">
-                  <span class="font-bold text-on-surface">3. 开源与许可协议：</span> 本项目采用 <strong>CC BY-NC-SA 4.0</strong> 协议进行授权。
-                  <ul class="list-disc pl-4 space-y-0.5 text-[9.5px] text-on-surface-variant/80 mt-1">
-                    <li><strong>自由使用</strong>：您可以自由地复制、分发、修改本工具的源代码。</li>
-                    <li><strong>禁止商用</strong>：您不得将本工具或其任何衍生版本用于商业目的。</li>
-                    <li><strong>相同方式共享</strong>：如果您修改了本工具或基于本工具开发了新项目，您的项目必须同样采用 <strong>CC BY-NC-SA 4.0</strong> 协议开源，且必须包含本条禁止商用的限制。</li>
-                  </ul>
-                </li>
-              </ul>
-              <p class="text-[9.5px] opacity-70 italic">协议全文：https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en</p>
-            </div>
-          </div>
-
-          <!-- 三、用户行为规范与版权尊重 -->
-          <div class="space-y-2">
-            <div class="flex items-center space-x-2 text-primary font-black select-none">
-              <HeartHandshakeIcon class="w-4.5 h-4.5 text-primary flex-shrink-0" />
-              <span class="text-[11.5px] font-black">三、用户行为规范与版权尊重</span>
-            </div>
-            <div class="text-[10.5px] text-on-surface-variant/90 pl-6.5 space-y-2 leading-relaxed">
-              <p class="font-bold text-on-surface">本条款为本协议的核心，请务必严格遵守：</p>
-              
-              <div class="space-y-2">
-                <p><strong>1. 工具属性声明：</strong> 本工具本身不拥有、不提供、也不存储任何大模型生成的文本内容的版权。</p>
-                <div class="space-y-1">
-                  <p><strong>2. 尊重原作者权利：</strong></p>
-                  <ul class="list-disc pl-4 space-y-1 text-[9.5px]">
-                    <li><strong>严禁擅自二改</strong>：在导入他人创作的角色卡、提示词（Prompt）、世界书或图片进行编辑、修改或“二改”之前，<strong>您必须确认原作者明确授权允许此类操作</strong>。</li>
-                    <li><strong>关于酒馆角色卡</strong>：工具本身支持酒馆角色卡的导入，但<strong>绝对禁止</strong>导入作者声明<strong>仅可用于酒馆</strong>的角色卡，以免侵犯作者自身权益。推荐使用工具内置的“角色创建Bot”或 MOI 工具创建角色卡。</li>
-                    <li><strong>遵守原始协议</strong>：如果原作者在角色卡描述、发布页面或元数据中声明了“禁止二改”、“禁止转载”或“禁止用于AI训练”等限制，您必须严格遵守。</li>
-                    <li><strong class="text-error">后果自负</strong>：因您违反原作者规定擅自修改、分发或公开他人作品而产生的任何版权纠纷，<strong>由您个人承担全部责任</strong>，与本工具及本工具开发者无关。</li>
-                  </ul>
-                </div>
-                <p><strong>3. 导入内容的合法性：</strong> 您保证您导入本工具的所有数据（包括但不限于图片、文本、配置），您均拥有合法的使用权或版权。</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- 四、关于 AI 生成内容的免责 -->
-          <div class="space-y-2">
-            <div class="flex items-center space-x-2 text-primary font-black select-none">
-              <CpuIcon class="w-4.5 h-4.5 text-primary flex-shrink-0" />
-              <span class="text-[11.5px] font-black">四、关于 AI 生成内容的免责</span>
-            </div>
-            <div class="text-[10.5px] text-on-surface-variant/90 pl-6.5 space-y-1.5 leading-relaxed">
-              <p><strong>1. AI功能的来源：</strong> 本工具不提供任何AI能力，用户需要自行接入LLM（大语言模型）的API进行使用。</p>
-              <p><strong>2. 生成结果的不确定性：</strong> 本工具接入的 AI 生成的内容具有随机性和不可控性，开发者不对生成内容的准确性、逻辑性或价值做任何保证。</p>
-              <p><strong>3. 合规性责任：</strong> 您在使用 AI 生成功能时，必须遵守相关法律法规。不得利用本工具生成违反法律法规、违背公序良俗、色情、暴力、仇恨言论或侵犯他人权益的内容。</p>
-              <p><strong>4. AI 版权归属：</strong> 关于 AI 生成内容的版权归属，请遵循您所使用的 AI 模型服务商的服务条款。本工具开发者不对生成的作品主张任何版权，也不对因使用生成作品产生的版权纠纷负责。</p>
-            </div>
-          </div>
-
-          <!-- 五、免责声明 -->
-          <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
-            <div class="flex items-center space-x-2 text-primary font-black">
-              <FileTextIcon class="w-4 h-4 text-primary" />
-              <span class="text-xs font-black">五、免责声明</span>
-            </div>
-            <div class="text-[10.5px] text-on-surface-variant space-y-2 leading-relaxed">
-              <p><strong>1. “按原样”提供：</strong> 本工具按“现状”提供，不包含任何明示或暗示的保证（包括但不限于适销性、特定用途适用性或不侵权性）。</p>
-              <p><strong>2. 数据安全：</strong> 虽然本工具包含数据备份功能，但开发者不保证数据的绝对安全。<strong>请您务必自行定期备份重要数据。</strong> 因软件故障、操作失误或不可抗力导致的数据丢失、损坏，开发者不承担赔偿责任。</p>
-              <p><strong>3. 责任限制：</strong> 在法律允许的最大范围内，开发者不对因使用或无法使用本工具而引起的任何直接、间接、附带或惩罚性损害赔偿负责。</p>
-            </div>
-          </div>
-
-          <!-- 六、协议修改 -->
-          <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
-            <div class="flex items-center space-x-2 text-primary font-black">
-              <HelpCircleIcon class="w-4 h-4 text-primary" />
-              <span class="text-xs font-black">六、协议修改</span>
-            </div>
-            <div class="text-[10.5px] text-on-surface-variant leading-relaxed">
-              <p>开发者保留在任何时候修改本协议的权利。修改后的协议将在项目发布页面更新。如果您在协议更新后继续使用本工具，即表示您接受修改后的协议。</p>
-            </div>
-          </div>
-        </div>
+      <!-- 🚀 纯 Markdown 条款排版区 -->
+      <div class="flex-1 overflow-y-auto p-6 select-text bg-surface-low border-b border-outline-variant/20 mobile-select-text leading-relaxed markdown-body" v-html="renderMarkdown(agreementText)">
       </div>
 
       <!-- 底部操作按钮 -->
@@ -7537,126 +7419,8 @@
           </button>
         </header>
 
-        <!-- 条款高颜值结构化排版区 (mobile-select-text 确保触屏上顺畅局部选择复制) -->
-        <div class="flex-1 overflow-y-auto p-5 select-text space-y-4 bg-surface-low border-b border-outline-variant/20 mobile-select-text leading-relaxed">
-          <div class="text-xs text-on-surface/90 space-y-4 select-text leading-relaxed">
-            <!-- 核心免责置顶高亮公告 -->
-            <div class="p-3.5 rounded-2xl bg-error/5 border border-error/20 space-y-1.5 select-text">
-              <div class="flex items-center space-x-2 text-error text-xs font-black">
-                <AlertTriangleIcon class="w-4 h-4 flex-shrink-0" />
-                <span>重要免责与特别声明（核心条款）</span>
-              </div>
-              <p class="text-[10px] text-error/85 leading-relaxed font-semibold">
-                本工具不提供任何内容生成服务，不预置接入任何大模型，不提供任何开放或封闭版权的音乐资源，仅供学习交流和研究使用。用户生成的任何内容、数据，使用的任何音乐资源均由用户自行负责，本工具不承担任何法律责任。
-              </p>
-            </div>
-
-            <!-- 一、定义与服务内容 -->
-            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
-              <div class="flex items-center space-x-2 text-primary font-black">
-                <BookOpenIcon class="w-4 h-4 text-primary" />
-                <span class="text-xs font-black">一、定义与服务内容</span>
-              </div>
-              <div class="text-[10.5px] text-on-surface-variant space-y-2 leading-relaxed">
-                <p>
-                  <strong>Echo-回音</strong>（本软件）是一个用户与 AI 进行角色扮演对话的工具。它提供美观的对话界面、便捷的文本管理、智能的内容生成以及强大的多模型接入能力，旨在为用户提供沉浸式、个性化的角色扮演体验。
-                </p>
-                <p>主要功能包括但不限于：角色扮演对话、朋友圈、论坛、音乐等功能。</p>
-              </div>
-            </div>
-
-            <!-- 二、使用许可与限制 -->
-            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
-              <div class="flex items-center space-x-2 text-primary font-black">
-                <LockIcon class="w-4 h-4 text-primary" />
-                <span class="text-xs font-black">二、使用许可与限制</span>
-              </div>
-              <div class="text-[10.5px] text-on-surface-variant space-y-2.5">
-                <p>本工具遵循“共享、交流”的原则发布，并严格遵守以下许可限制：</p>
-                
-                <div class="pl-2.5 border-l-2 border-primary/20 space-y-2">
-                  <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] leading-relaxed">
-                    <span class="font-bold text-on-surface">1. 仅限学习交流：</span> 您仅可将本工具用于个人学习、研究或技术交流目的。
-                  </div>
-                  <div class="p-2 rounded-xl bg-error/5 border border-error/15 text-[10px] leading-relaxed">
-                    <span class="font-bold text-error">2. 严禁商用：</span> <strong>禁止</strong>将本工具或基于本工具修改后的衍生版本用于任何形式的商业用途（包括但不限于付费下载、付费会员制、广告盈利、推广引流、作为商业软件的一部分等）。
-                  </div>
-                  <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] space-y-1 leading-relaxed">
-                    <span class="font-bold text-on-surface">3. 开源与许可协议：</span> 本项目采用 <strong>CC BY-NC-SA 4.0</strong> 协议进行授权。
-                    <ul class="list-disc pl-4 space-y-0.5 text-[9.5px] text-on-surface-variant/80 mt-1">
-                      <li><strong>自由使用</strong>：您可以自由地复制、分发、修改本工具的源代码。</li>
-                      <li><strong>禁止商用</strong>：您不得将本工具或其任何衍生版本用于商业目的。</li>
-                      <li><strong>相同方式共享</strong>：如果您修改了本工具或基于本工具开发了新项目，您的项目必须同样采用 <strong>CC BY-NC-SA 4.0</strong> 协议开源，且必须包含本条禁止商用的限制。</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 三、用户行为规范与版权尊重 -->
-            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
-              <div class="flex items-center space-x-2 text-primary font-black">
-                <ShieldCheckIcon class="w-4 h-4 text-primary" />
-                <span class="text-xs font-black">三、用户行为规范与版权尊重</span>
-              </div>
-              <div class="text-[10.5px] text-on-surface-variant space-y-2.5">
-                <p class="font-bold text-on-surface">本条款为本协议的核心，请务必严格遵守：</p>
-                <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] leading-relaxed">
-                  <span class="font-bold">1. 工具属性声明：</span> 本工具本身不拥有、不提供、也不存储任何大模型生成的文本内容的版权。
-                </div>
-                <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] space-y-1.5 leading-relaxed">
-                  <span class="font-bold text-on-surface">2. 尊重原作者权利：</span>
-                  <ul class="list-disc pl-4 space-y-1 text-[9.5px]">
-                    <li><strong>严禁擅自二改</strong>：在导入他人创作的角色卡、提示词（Prompt）、世界书或图片进行编辑、修改或“二改”之前，<strong>您必须确认原作者明确授权允许此类操作</strong>。</li>
-                    <li><strong>关于酒馆角色卡</strong>：工具本身支持酒馆角色卡的导入，但<strong>绝对禁止</strong>导入作者声明<strong>仅可用于酒馆</strong>的角色卡，以免侵犯作者自身权益。推荐使用工具内置的“角色创建Bot”或 MOI 工具创建角色卡。</li>
-                    <li><strong>遵守原始协议</strong>：如果原作者在角色卡描述、发布页面或元数据中声明了“禁止二改”、“禁止转载”或“禁止用于AI训练”等限制，您必须严格遵守。</li>
-                    <li><strong class="text-error">后果自负</strong>：因您违反原作者规定擅自修改、分发或公开他人作品而产生的任何版权纠纷，<strong>由您个人承担全部责任</strong>，与本工具及本工具开发者无关。</li>
-                  </ul>
-                </div>
-                <div class="p-2 rounded-xl bg-surface-low border border-outline-variant/35 text-[10px] leading-relaxed">
-                  <span class="font-bold">3. 导入内容的合法性：</span> 您保证您导入本工具的所有数据（包括但不限于图片、文本、配置），您均拥有合法的使用权或版权。
-                </div>
-              </div>
-            </div>
-
-            <!-- 四、关于 AI 生成内容的免责 -->
-            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
-              <div class="flex items-center space-x-2 text-primary font-black">
-                <CpuIcon class="w-4 h-4 text-primary" />
-                <span class="text-xs font-black">四、关于 AI 生成内容的免责</span>
-              </div>
-              <div class="text-[10.5px] text-on-surface-variant space-y-2 leading-relaxed">
-                <p><strong>1. AI功能的来源：</strong> 本工具不提供任何AI能力，用户需要自行接入LLM（大语言模型）的API进行使用。</p>
-                <p><strong>2. 生成结果的不确定性：</strong> 本工具接入的 AI 生成的内容具有随机性和不可控性，开发者不对生成内容的准确性、逻辑性 or 价值做任何保证。</p>
-                <p><strong>3. 合规性责任：</strong> 您在使用 AI 生成功能时，必须遵守相关法律法规。不得利用本工具生成违反法律法规、违背公序良俗、色情、暴力、仇恨言论或侵犯他人权益的内容。</p>
-                <p><strong>4. AI 版权归属：</strong> 关于 AI 生成内容的版权归属，请遵循您所使用的 AI 模型服务商的服务条款。本工具开发者不对生成的作品主张任何版权，也不对因使用生成作品产生的版权纠纷负责。</p>
-              </div>
-            </div>
-
-            <!-- 五、免责声明 -->
-            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
-              <div class="flex items-center space-x-2 text-primary font-black">
-                <FileTextIcon class="w-4 h-4 text-primary" />
-                <span class="text-xs font-black">五、免责声明</span>
-              </div>
-              <div class="text-[10.5px] text-on-surface-variant space-y-2 leading-relaxed">
-                <p><strong>1. “按原样”提供：</strong> 本工具按“现状”提供，不包含任何明示或暗示的保证（包括但不限于适销性、特定用途适用性或不侵权性）。</p>
-                <p><strong>2. 数据安全：</strong> 虽然本工具包含数据备份功能，但开发者不保证数据的绝对安全。<strong>请您务必自行定期备份重要数据。</strong> 因软件故障、操作失误或不可抗力导致的数据丢失、损坏，开发者不承担赔偿责任。</p>
-                <p><strong>3. 责任限制：</strong> 在法律允许的最大范围内，开发者不对因使用或无法使用本工具而引起的任何直接、间接、附带或惩罚性损害赔偿负责。</p>
-              </div>
-            </div>
-
-            <!-- 六、协议修改 -->
-            <div class="p-4 rounded-2xl bg-surface border border-outline-variant/60 shadow-sm space-y-2.5">
-              <div class="flex items-center space-x-2 text-primary font-black">
-                <HelpCircleIcon class="w-4 h-4 text-primary" />
-                <span class="text-xs font-black">六、协议修改</span>
-              </div>
-              <div class="text-[10.5px] text-on-surface-variant leading-relaxed">
-                <p>开发者保留在任何时候修改本协议的权利。修改后的协议将在项目发布页面更新。如果您在协议更新后继续使用本工具，即表示您接受修改后的协议。</p>
-              </div>
-            </div>
-          </div>
+        <!-- 🚀 纯 Markdown 条款排版区 -->
+        <div class="flex-1 overflow-y-auto p-5 select-text bg-surface-low border-b border-outline-variant/20 mobile-select-text leading-relaxed markdown-body" v-html="renderMarkdown(agreementText)">
         </div>
 
         <footer class="p-4 flex items-center justify-end bg-surface select-none flex-shrink-0 border-t border-outline-variant/10">
@@ -8418,43 +8182,72 @@ let agreementTimer: any = null
 
 const agreementText = `## 一、定义与服务内容
 
+
 Echo-回音（本软件）是一个用户与AI进行角色扮演对话的工具。它提供美观的对话界面、便捷的文本管理、智能的内容生成以及强大的多模型接入能力，旨在为用户提供沉浸式、个性化的角色扮演体验。
+
 主要功能包括但不限于：角色扮演对话、朋友圈、论坛、音乐等功能。
+
 **本工具不提供任何内容生成服务，不预置接入任何大模型，不提供任何开放或封闭版权的音乐资源，仅供学习交流和研究使用，用户生成的任何内容、数据，使用的任何音乐资源均由用户自行负责，本工具不承担任何责任。**
+
 ---
+
 ## 二、使用许可与限制
+
 本工具遵循“共享、交流”的原则发布。
+
 1. **仅限学习交流：** 您仅可将本工具用于个人学习、研究或技术交流目的。
+
 2. **严禁商用：** **禁止**将本工具或基于本工具修改后的衍生版本用于任何形式的商业用途（包括但不限于付费下载、付费会员制、广告盈利、推广引流、作为商业软件的一部分等）。
-3. **开源与许可协议**：本项目采用 **CC BY-NC-SA 4.0 (署名-非商业性使用-相同方式共享 4.0 国际)** 协议进行授权。
+
+3. **开源与许可协议** 本项目采用 **CC BY-NC-SA 4.0 (署名-非商业性使用-相同方式共享 4.0 国际)** 协议进行授权。
    - **自由使用**：您可以自由地复制、分发、修改本工具的源代码。
    - **禁止商用**：您**不得**将本工具或其任何衍生版本用于商业目的（包括但不限于付费销售、通过广告盈利、作为商业产品的一部分）。
    - **相同方式共享**：如果您修改了本工具或基于本工具开发了新项目，您的项目必须同样采用 **CC BY-NC-SA 4.0** 协议开源，且**必须包含本条禁止商用的限制**。
 
    协议全文：https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en
+
 ---
+
 ## 三、用户行为规范与版权尊重
+
 **本条款为本协议的核心，请务必遵守。**
+
 1. **工具属性声明：** 本工具本身不拥有、不提供、也不存储任何大模型生成的文本内容的版权。
+
 2. **尊重原作者权利：**
    - **严禁擅自二改：** 在导入他人创作的角色卡、提示词（Prompt）、世界书或图片进行编辑、修改或“二改”之前，**您必须确认原作者明确授权允许此类操作**。
    - **关于酒馆角色卡** 工具本身支持酒馆角色卡的导入，但**绝对禁止**导入作者声明**仅可用于酒馆**的角色卡，以免侵犯作者自身权益。推荐使用工具内置的\`角色创建Bot\`或\`MOI(https://moi.jiuwo.me)\`工具创建角色卡
    - **遵守原始协议：** 如果原作者在角色卡描述、发布页面或元数据中声明了“禁止二改”、“禁止转载”或“禁止用于AI训练”等限制，您必须严格遵守。
    - **后果自负：** 因您违反原作者规定擅自修改、分发或公开他人作品而产生的任何版权纠纷，**由您个人承担全部责任**，与本工具及本工具开发者无关。
+
 3. **导入内容的合法性：** 您保证您导入本工具的所有数据（包括但不限于图片、文本、配置），您均拥有合法的使用权或版权。
+
 ---
+
 ## 四、关于 AI 生成内容的免责
+
 1. **AI功能的来源：** 本工具不提供任何AI能力，用户需要自行接入LLM（大语言模型）的API进行使用。
+
 2. **生成结果的不确定性：** 本工具接入的 AI 生成的内容具有随机性和不可控性，开发者不对生成内容的准确性、逻辑性或价值做任何保证。
+
 3. **合规性责任：** 您在使用 AI 生成功能时，必须遵守相关法律法规。不得利用本工具生成违反法律法规、违背公序良俗、色情、暴力、仇恨言论或侵犯他人权益的内容。
+
 4. **AI 版权归属：** 关于 AI 生成内容的版权归属，请遵循您所使用的 AI 模型服务商（如 OpenAI, Claude, Deepseek, 通义千问等）的服务条款。本工具开发者不对生成的作品主张任何版权，也不对因使用生成作品产生的版权纠纷负责。
+
 ---
+
 ## 五、免责声明
+
 1. **“按原样”提供：** 本工具按“现状”提供，不包含任何明示或暗示的保证（包括但不限于适销性、特定用途适用性或不侵权性）。
+
 2. **数据安全：** 虽然本工具包含数据备份功能，但开发者不保证数据的绝对安全。**请您务必自行定期备份重要数据。** 因软件故障、操作失误或不可抗力导致的数据丢失、损坏，开发者不承担赔偿责任。
+
 3. **责任限制：** 在法律允许的最大范围内，开发者不对因使用或无法使用本工具而引起的任何直接、间接、附带或惩罚性损害赔偿负责。
+
 ---
+
 ## 六、协议修改
+
 开发者保留在任何时候修改本协议的权利。修改后的协议将在项目发布页面更新。如果您在协议更新后继续使用本工具，即表示您接受修改后的协议。`
 
 const showSettingsModal = ref(false)

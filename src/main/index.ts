@@ -28,8 +28,10 @@ import { NovelAiService } from './services/NovelAiService'
 
 // 完美解决 macOS 系统代理或 VPN 拦截导致的 Chromium 网络服务崩溃及本地 Dev 调试加载问题，确保开发服务器端口彻底绕过系统代理自检，且网络进程防崩
 app.commandLine.appendSwitch('proxy-bypass-list', '127.0.0.1;localhost;<local>;127.0.0.1:5173;localhost:5173;127.0.0.1:5174;localhost:5174;127.0.0.1:5175;localhost:5175')
-app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess')
-app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox')
+// 🚀 注意：在较新版本的 Electron 中，启用 NetworkServiceInProcess 极易导致 Chromium 网络服务崩溃并触发自动重启（报 network_service_instance_impl.cc 错误）。
+// 故在现代版本中将其注释掉，使用默认的进程隔离网络服务以解决启动时的 Network service crashed 报错。
+// app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess')
+// app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox')
 
 // 🚀 至尊级多开防撞车金刚盾：获取单一实例锁 (Single Instance Lock)
 const gotTheLock = app.requestSingleInstanceLock()
