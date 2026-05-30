@@ -14818,9 +14818,8 @@ onMounted(async () => {
             // 🚀 立体防重比对：检查 msgs 尾部 5 条内是否已经存在同含义的自定义表情包气泡（防止 receive-message 广播由于网络先于 chunk done 到达而导致的重复追加）
             let hasEmoji = false
             for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 5); i--) {
-              if (msgs[i] && msgs[i].customEmojiUrl) {
-                const localMeaning = msgs[i].content ? msgs[i].content.replace(/^\[表情:\s*/, '').replace(/\]$/, '').trim() : ''
-                if (localMeaning === customEmojiSend.meaning.trim()) {
+              if (msgs[i] && msgs[i].customEmojiUrl && msgs[i].content) {
+                if (msgs[i].content.includes(customEmojiSend.meaning.trim())) {
                   hasEmoji = true
                   break
                 }
@@ -15265,10 +15264,8 @@ onMounted(async () => {
             }
           }
           // C. 表情包强力特征去重：完美解决群发表情卡片后 receive-message 二次广播重叠导致的重复渲染 Bug
-          if (broadcastEmoji && msgs[i].customEmojiUrl) {
-            const localMeaning = msgs[i].content ? msgs[i].content.replace(/^\[表情:\s*/, '').replace(/\]$/, '').trim() : ''
-            const broadcastMeaning = broadcastEmoji.meaning ? broadcastEmoji.meaning.trim() : ''
-            if (localMeaning === broadcastMeaning) {
+          if (broadcastEmoji && msgs[i].customEmojiUrl && msgs[i].content) {
+            if (msgs[i].content.includes(broadcastEmoji.meaning.trim())) {
               isDuplicate = true
               msgs[i].id = msg.id // 原子修正临时表情卡片的 ID 为物理正式 ID
               break
