@@ -14368,7 +14368,7 @@ async function loadMomentsList() {
 async function loadForumPostsList() {
   const res = await window.api.invoke('fetch-forum-posts', { limit: 50 })
   if (res.success) {
-    forumPostsList.value = res.posts
+    forumPostsList.value = res.posts.map((p: any) => ({ ...p, imageBase64: p.imageBase64 || '', imageMeta: p.imageMeta || null }))
   }
 }
 
@@ -14467,7 +14467,7 @@ async function refreshForum() {
   isRefreshingForum.value = false
 
   if (res.success) {
-    forumPostsList.value = res.posts
+    forumPostsList.value = res.posts.map((p: any) => ({ ...p, imageBase64: p.imageBase64 || '', imageMeta: p.imageMeta || null }))
     if (res.cached) {
       showToast(res.error || '已为您展示最新缓存')
     } else {
@@ -14502,7 +14502,7 @@ async function triggerImageDebug(type: 'moment' | 'forum') {
       momentsList.value = res.moments
       showToast(`调试成功！3 个角色已 100% 发布图文朋友圈 ✨`)
     } else {
-      forumPostsList.value = res.posts
+      forumPostsList.value = res.posts.map((p: any) => ({ ...p, imageBase64: p.imageBase64 || '', imageMeta: p.imageMeta || null }))
       showToast(`调试成功！3 个角色已 100% 发布图文帖子 💡`)
     }
   } else {
@@ -14622,7 +14622,7 @@ async function selectBoard(boardId: string) {
   selectedBoardId.value = boardId
   const res = await window.api.invoke('fetch-forum-posts', { boardId })
   if (res.success) {
-    forumPostsList.value = res.posts
+    forumPostsList.value = res.posts.map((p: any) => ({ ...p, imageBase64: p.imageBase64 || '', imageMeta: p.imageMeta || null }))
   }
 }
 
@@ -14665,6 +14665,11 @@ async function selectForumPostDetail(post: any) {
           post.imageBase64 = readRes.base64
           if (readRes.meta) {
             post.imageMeta = readRes.meta
+          }
+          // [PATCH] 如果当前选中的是此帖子，则显式更新 selectedForumPost.value 以触发完美的响应式视图更新
+          if (selectedForumPost.value && selectedForumPost.value.id === post.id) {
+            selectedForumPost.value.imageBase64 = readRes.base64
+            selectedForumPost.value.imageMeta = readRes.meta || null
           }
         }
       }).catch(err => {
