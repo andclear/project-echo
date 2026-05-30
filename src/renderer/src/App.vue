@@ -14940,6 +14940,13 @@ onMounted(async () => {
       return
     }
 
+    // 🚀 响应取消流式诉求：如果当前不是群聊，且不是创角 Bot，直接拦截并静默丢弃所有单聊流式碎片消息
+    // 这从物理源头上彻底防范了由于流式碎片导致的前端空气泡推入，实现单聊文字去重的 100% 精准度！
+    const isGroupChat = groupChats.value.some(g => g.id === chunkCharId)
+    if (!isGroupChat && chunkCharId !== creatorBotId) {
+      return
+    }
+
     const cleanContent = scrubber.scrub(data.content)
     if (cleanContent) {
       conversationActiveTimes[chunkCharId] = Date.now()

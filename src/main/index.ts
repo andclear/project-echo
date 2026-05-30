@@ -220,7 +220,10 @@ function cleanMarkdownBlock(text: string): string {
 }
 
 // 动态读取用户自定义大图表情包列表并拼装 Prompt 注入块，使得大模型能够完美感知用户的表情包资产
-function buildEmojiSystemPromptSuffix(): string {
+function buildEmojiSystemPromptSuffix(chatMode?: string): string {
+  if (chatMode === 'director') {
+    return '' // 🚀 导演模式下绝对不允许发送或注入表情包 Prompt 规则，保持纯净文学剧作
+  }
   try {
     const db = getDatabaseService()
     const emojisStr = db.getSetting('echo_custom_emojis')
@@ -1826,7 +1829,7 @@ ${soulContent}
             memberProfiles
           )
 
-          const groupSystemPromptFinal = systemPrompt + buildEmojiSystemPromptSuffix()
+          const groupSystemPromptFinal = systemPrompt + buildEmojiSystemPromptSuffix('descriptive')
 
           // B. 拉取最近 25 条历史消息并格式化为剧本 RP 形式的大文本控制台
           const history = db.getChatHistory(groupId, 25)
@@ -2703,7 +2706,7 @@ ${memoryContent}
         globalPrompt
       )
 
-      systemPrompt += buildEmojiSystemPromptSuffix()
+      systemPrompt += buildEmojiSystemPromptSuffix(chatMode)
 
       // 🚀 组装高频变动的实时 Dynamic Context (只在最新一轮 user 消息中动态注入，让 systemPrompt 100% 绝对静止以获得 >90% 缓存命中)
       const dynamicContext = ContextAssembler.assembleDynamicContext(
@@ -3084,11 +3087,11 @@ ${memoryContent}
       .replace(thinkTagsReg, '')
       .replace(halfThinkTagsReg, '')
 
-    // A3. [自定义表情包动作决策]
+    // A3. [自定义表情包动作决策] (仅在非导演模式下触发)
     let customEmojiSend: any = null
     const emojiReg = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/i
     const emojiRegGlobal = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/gi
-    const emojiMatch = finalResponse.match(emojiReg)
+    const emojiMatch = chatMode !== 'director' ? finalResponse.match(emojiReg) : null
 
     if (emojiMatch) {
       const targetMeaning = emojiMatch[1].trim()
