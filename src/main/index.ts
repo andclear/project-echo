@@ -1854,6 +1854,8 @@ ${formattedHistory}
           const sendRegGlobal = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/gi
           const sendMatch = finalResponse.match(sendReg)
 
+          let hasSentRedPacket = false
+
           if (sendMatch) {
             const amount = parseFloat(sendMatch[1])
             const title = sendMatch[3].trim()
@@ -1865,12 +1867,117 @@ ${formattedHistory}
                 const balanceItem = charState.items.find(i => i.key === 'balance')
                 const currentBalance = balanceItem ? Number(balanceItem.value) : 5200.0
 
-                if (!isNaN(amount) && amount > 0 && amount <= currentBalance) {
-                  StateReaderWriter.applyStateUpdates(charStatePath, [{ key: 'balance', delta: -amount }])
-                  redPacketSend = { amount, title, status: 'waiting' }
-                  console.log(`[Group Economy] 成员 ${currentSpeaker.name} 自主发送了群红包：金额 ${amount} 元`)
+                if (!isNaN(amount) && amount > 0) {
+                  // 🚀 群聊额度自愈裁剪：如果发出的红包大于当前余额，智能裁剪到最大可用余额，确保红包卡片一定能发出来！
+                  let finalAmount = amount
+                  if (finalAmount > currentBalance) {
+                    finalAmount = currentBalance
+                  }
+                  if (finalAmount >= 0.01) {
+                    StateReaderWriter.applyStateUpdates(charStatePath, [{ key: 'balance', delta: -finalAmount }])
+                    redPacketSend = { amount: finalAmount, title, status: 'waiting' }
+                    hasSentRedPacket = true
+                    console.log(`[Group Economy] 成员 ${currentSpeaker.name} 自主发送了群红包：金额 ${finalAmount} 元（原始申请 ${amount} 元）`)
+                  }
                 }
               } catch (_) {}
+            }
+          }
+
+          // 🚀 群聊 [System Auto-heal]：检测口头财务转账陈述，自动补发群红包，防止 AI 口头承诺而前台无卡片
+          if (!hasSentRedPacket) {
+            const isReceiveOrReturn = finalResponse.includes('[RECEIVE_RED_PACKET]') || finalResponse.includes('[RETURN_RED_PACKET]')
+            if (!isReceiveOrReturn) {
+              const hasTransferWord = /(?:转账|发红包|塞个红包|发个红包|钱转过去|转给你了|喏，?\s*转过去|发个小红包|给你转|给你发个)/i.test(finalResponse)
+              if (hasTransferWord) {
+                let amount = 8.8
+                const parsedTitle = '喏，群里的红包！'
+
+                const parseCnAmount = (cnStr: string): number => {
+                  let val = 0
+                  let temp = 0
+                  const cnNums: Record<string, number> = {
+                    '零': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9
+                  }
+                  const cnUnits: Record<string, number> = {
+                    '十': 10, '百': 100, '千': 1000, '万': 10000
+                  }
+                  if (cnStr === '两万' || cnStr === '二万') return 20000
+                  if (cnStr === '五万') return 50000
+                  if (cnStr === '十万') return 100000
+                  if (cnStr === '两千' || cnStr === '二千') return 2000
+                  if (cnStr === '五千') return 5000
+                  
+                  for (let i = 0; i < cnStr.length; i++) {
+                    const char = cnStr[i]
+                    if (cnNums[char] !== undefined) {
+                      temp = cnNums[char]
+                    } else if (cnUnits[char] !== undefined) {
+                      const unit = cnUnits[char]
+                      if (unit === 10000) {
+                        val = (val + (temp || 1)) * 10000
+                        temp = 0
+                      } else {
+                        val += (temp || 1) * unit
+                        temp = 0
+                      }
+                    }
+                  }
+                  val += temp
+                  return val
+                }
+
+                const matches = [...finalResponse.matchAll(/(?:([^\n，。？！（()]*?)(?:转账|转了|发了|塞了|给|付|转账成功，?)\s*((?:两|二|三|四|五|六|七|八|九|十|百|千|万|\d+(?:\.\d+)?)+)\s*(?:元|万|块)?)/gi)]
+                let currentActionAmount: number | null = null
+                const pastWords = ['昨天', '以前', '上周', '上次', '前天', '过去', '之前']
+
+                if (matches.length > 0) {
+                  for (let i = matches.length - 1; i >= 0; i--) {
+                    const prefixContext = matches[i][1] || ''
+                    const rawAmountStr = matches[i][2]
+                    const isPastNarrative = pastWords.some(word => prefixContext.includes(word))
+                    if (!isPastNarrative) {
+                      let val = 0
+                      if (/^\d+(?:\.\d+)?$/.test(rawAmountStr)) {
+                        val = parseFloat(rawAmountStr)
+                        if (matches[i][0].includes('万') || finalResponse.includes(`${rawAmountStr}万`)) {
+                          val = val * 10000
+                        }
+                      } else {
+                        val = parseCnAmount(rawAmountStr)
+                      }
+                      if (!isNaN(val) && val > 0) {
+                        currentActionAmount = val
+                        break
+                      }
+                    }
+                  }
+                }
+
+                if (currentActionAmount !== null) {
+                  amount = currentActionAmount
+                }
+
+                const charStatePath = join(speakerDir, 'State.md')
+                if (fs.existsSync(charStatePath)) {
+                  try {
+                    const charState = StateReaderWriter.readState(charStatePath)
+                    const balanceItem = charState.items.find(i => i.key === 'balance')
+                    const currentBalance = balanceItem ? Number(balanceItem.value) : 5200.0
+
+                    if (amount > 0) {
+                      if (amount > currentBalance) {
+                        amount = currentBalance
+                      }
+                      if (amount >= 0.01) {
+                        StateReaderWriter.applyStateUpdates(charStatePath, [{ key: 'balance', delta: -amount }])
+                        redPacketSend = { amount, title: parsedTitle, status: 'waiting' }
+                        console.log(`[Group Economy Autocure] 物理自愈：口头提到财务支出，已自动补发群红包：金额 ${amount} 元`)
+                      }
+                    }
+                  } catch (_) {}
+                }
+              }
             }
           }
 
