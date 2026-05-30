@@ -5053,8 +5053,13 @@
                     <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" @load="scrollToBottom('auto', false)" />
                   </div>
 
+                  <!-- 自定义表情包大图气泡 -->
+                  <div v-if="msg.customEmojiUrl" class="mb-1 max-w-[88px] max-h-[88px] rounded-xl overflow-hidden p-1 flex items-center justify-center select-none bg-transparent hover:scale-105 active:scale-95 transition-all">
+                    <img :src="msg.customEmojiUrl" class="w-full h-full object-contain select-none pointer-events-none" />
+                  </div>
+
                   <!-- 典雅日记手账本消息卡片 -->
-                  <div v-if="msg.diary" class="diary-card-bubble p-4 rounded-2xl bg-gradient-to-br from-[#f8f5eb] to-[#f0ebde] border border-[#d6cdb4] shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[240px] text-stone-800" @click="openDiaryForCharacter(msg.character_id || activeCharacter?.id)">
+                  <div v-else-if="msg.diary" class="diary-card-bubble p-4 rounded-2xl bg-gradient-to-br from-[#f8f5eb] to-[#f0ebde] border border-[#d6cdb4] shadow-md hover:shadow-lg transition-all hover:scale-[1.01] cursor-pointer select-none min-w-[240px] text-stone-800" @click="openDiaryForCharacter(msg.character_id || activeCharacter?.id)">
                     <div class="flex items-center space-x-2.5 mb-2.5 pb-2 border-b border-[#e6deca]/60">
                       <div class="w-8 h-8 rounded-full bg-[#8c7e63]/10 flex items-center justify-center flex-shrink-0 text-stone-700 shadow-inner">
                         <span>📓</span>
@@ -14805,6 +14810,34 @@ onMounted(async () => {
                 timestamp: Date.now()
               })
             }
+          }
+
+          // 🚀 同步表情包：如果大模型主动发送了表情包，在聊天队列追加对应的自定义表情包气泡
+          const customEmojiSend = (data as any).customEmojiSend
+          if (customEmojiSend && senderId) {
+            msgs.push({
+              id: 'msg_emoji_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+              role: 'assistant',
+              sender_id: senderId,
+              customEmojiUrl: customEmojiSend.base64,
+              content: `[表情: ${customEmojiSend.meaning}]`,
+              created_at: new Date().toISOString(),
+              timestamp: Date.now() + 20
+            })
+          }
+
+          // 🚀 同步红包：如果大模型主动发送了红包，在聊天队列追加对应的红包封面气泡
+          const redPacketSend = (data as any).redPacketSend
+          if (redPacketSend && senderId) {
+            msgs.push({
+              id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+              role: 'assistant',
+              sender_id: senderId,
+              redPacket: redPacketSend,
+              content: `[发送红包: ${redPacketSend.amount} 元, 附言: ${redPacketSend.title}]`,
+              created_at: new Date().toISOString(),
+              timestamp: Date.now() + 10
+            })
           }
         }
 

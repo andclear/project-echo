@@ -2157,7 +2157,8 @@ ${formattedHistory}
             done: true,
             senderId: currentSpeakerId,
             redPacketAction: redPacketAction,
-            redPacketSend: redPacketSend ? JSON.parse(JSON.stringify(redPacketSend)) : null
+            redPacketSend: redPacketSend ? JSON.parse(JSON.stringify(redPacketSend)) : null,
+            customEmojiSend: customEmojiSend ? JSON.parse(JSON.stringify(customEmojiSend)) : null
           })
 
           // G. 每一满 10 条消息时，异步触发群聊专属记忆提取与大事记合并压缩
