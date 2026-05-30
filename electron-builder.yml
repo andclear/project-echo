@@ -20,9 +20,6 @@ mac:
   target:
     # 🚀 将 target 精准限定为 dmg，避免产生多余的 zip 包，缩短 30% 以上的 Mac 平台 CI 打包耗时
     - target: dmg
-      arch:
-        - x64
-        - arm64
   icon: build/icon.icns
   category: public.app-category.productivity
 linux:

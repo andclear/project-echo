@@ -48,10 +48,19 @@ jobs:
       - name: Compile and Transpile Assets (Vite Build)
         run: npm run build
 
-      - name: Build Electron Installers (macOS - Intel & Apple Silicon)
+      - name: Build Electron Installers (macOS - Intel x64)
         if: matrix.os == 'macos-latest'
-        # macos-latest 会读取 electron-builder.yml 中配置 of x64 与 arm64 自动打出两套 dmg 包，--publish never 禁用自动上传
-        run: npx electron-builder --mac --publish never
+        # 显式针对 x64 架构编译原生依赖并打包 x64 客户端
+        run: |
+          npx electron-builder install-app-deps --arch x64
+          npx electron-builder --mac --x64 --publish never
+
+      - name: Build Electron Installers (macOS - Apple Silicon arm64)
+        if: matrix.os == 'macos-latest'
+        # 显式针对 arm64 架构编译原生依赖并打包 arm64 客户端
+        run: |
+          npx electron-builder install-app-deps --arch arm64
+          npx electron-builder --mac --arm64 --publish never
 
       - name: Build Electron Installers (Windows - x64)
         if: matrix.os == 'windows-latest'
