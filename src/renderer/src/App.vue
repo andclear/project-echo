@@ -11739,6 +11739,7 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
       msgs.push({
         id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
         role: 'assistant',
+        sender_id: char.id, // 🚀 补全发送人 ID 元数据，确保在任何混用或调度渲染场景下均有完美的头像与名字显示
         // 🚀 注入标准的 content 控制符前缀，以便广播总线（receive-message）能够通过 content 完美匹配去重，彻底消除双红包气泡 Bug
         content: `[wechat_red_packet]:${JSON.stringify(res.redPacketSend)}`,
         redPacket: {
@@ -15132,8 +15133,8 @@ onMounted(async () => {
     
     if (msg.role === 'assistant') {
       const normBroadcast = cleanStr(msg.content)
-      // 首先检查是否有 ID 或原始物理内容直接相存的重复项
-      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 4); i--) {
+      // 首先检查是否有 ID 或原始物理内容直接相存的重复项（深度扩大至最近15条，防止多角色连贯刷屏导致去重穿透）
+      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 15); i--) {
         if (msgs[i].role === 'assistant' && (msgs[i].id === msg.id || cleanStr(msgs[i].content) === normBroadcast)) {
           isDuplicate = true
           break
@@ -15141,9 +15142,9 @@ onMounted(async () => {
       }
       
       // 🚀 分段合并去重兜底算法：当开启“纯文字对话模式”分句分段时，本地会被拆成多个气泡
-      // 我们在此将本地最后几个 assistant 气泡从后往前剔除空白拼接，比对是否与广播的整条一致
+      // 我们在此将本地最后几个 assistant 气泡从后往前剔除空白拼接，比对是否与广播的整条一致（同样深挖最近15条）
       if (!isDuplicate) {
-        const recentAssistants = msgs.slice(-4).filter(m => m.role === 'assistant' && m.content)
+        const recentAssistants = msgs.slice(-15).filter(m => m.role === 'assistant' && m.content)
         if (recentAssistants.length > 1) {
           let combined = ''
           for (let i = recentAssistants.length - 1; i >= 0; i--) {
@@ -15157,7 +15158,7 @@ onMounted(async () => {
       }
     } else if (msg.role === 'user') {
       const normBroadcast = cleanStr(msg.content)
-      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 4); i--) {
+      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 15); i--) {
         if (msgs[i].role === 'user' && (msgs[i].id === msg.id || cleanStr(msgs[i].content) === normBroadcast)) {
           isDuplicate = true
           break
