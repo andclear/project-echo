@@ -9464,6 +9464,10 @@ function openSettingsPage() {
 const isExportingData = ref(false)
 const isImportingData = ref(false)
 
+// 🚀 智能自愈防抖锁：防范中文输入法上屏或极速打字退格瞬间的临时空值抢跑 Bug
+const inputEmptyTimersMap = reactive<Record<string, any>>({})
+let isSendingChatMessage = false // 发送拦截标志位
+
 // ── Docker 专属备份还原模块 ──
 const isDockerMode = computed(() => {
   return !window.electron || (window.api && (window.api as any).isIpcBridge);
@@ -10141,23 +10145,50 @@ watch(chatInputText, (newVal) => {
   const charId = selectedCharacterId.value
   if (!charId) return
 
+  // 🚀 如果是正在执行发送产生的清空，直接拦截，避开干扰
+  if (isSendingChatMessage) return
+
   if (trimmed.length > 0) {
+    // 🚀 清除删空确认定时器，代表这只是瞬间过渡态，用户仍在打字中
+    if (inputEmptyTimersMap[charId]) {
+      clearTimeout(inputEmptyTimersMap[charId])
+      inputEmptyTimersMap[charId] = null
+    }
+
     if (messageMergeTimersMap[charId]) {
       clearTimeout(messageMergeTimersMap[charId])
       messageMergeTimersMap[charId] = null
     }
   } else {
-    // 检测积压等待回复的队列是否非空
-    const pendingQueue = pendingUserMessagesMap[charId] || []
-    if (pendingQueue.length > 0 && !messageMergeTimersMap[charId] && !isStreaming.value) {
-      console.log(`[Typing reconciliation] 检测到用户删空了输入框且存在积压消息，将在 2.5 秒后自动恢复角色回复...`)
-      const char = characterList.value.find(c => c.id === charId)
-      if (char) {
-        messageMergeTimersMap[charId] = setTimeout(async () => {
-          await triggerMergedAiResponse(char)
-        }, 2500)
-      }
+    // 🚀 用户输入框变空：不立刻执行自愈，而是设立 500ms 缓冲确认期，以彻底过滤输入法上屏或秒删退格的抖动
+    if (inputEmptyTimersMap[charId]) {
+      clearTimeout(inputEmptyTimersMap[charId])
     }
+
+    inputEmptyTimersMap[charId] = setTimeout(() => {
+      // 500ms 确认期满，若输入框仍为空，则认定为真实清空
+      inputEmptyTimersMap[charId] = null
+
+      const pendingQueue = pendingUserMessagesMap[charId] || []
+      if (pendingQueue.length > 0 && !messageMergeTimersMap[charId] && !isStreaming.value) {
+        console.log(`[Typing reconciliation] 500ms 确认期满，用户确实删空了输入框，将在 2.5 秒后恢复角色回复...`)
+        const char = characterList.value.find(c => c.id === charId)
+        if (char) {
+          messageMergeTimersMap[charId] = setTimeout(async () => {
+            await triggerMergedAiResponse(char)
+          }, 2500)
+        }
+      } else if (pendingQueue.length === 0) {
+        // 🚀 极致自愈保障：当消息框清空，且后台没有任何待回复的积压消息时，
+        // 任何遗留的“对方正在输入...”或 isStreaming 锁定状态绝对属于异常死锁，必须无条件强力释放！
+        if (isStreaming.value && streamingCharacterId.value === charId) {
+          console.warn(`[Typing Safety] 消息框已清空且无挂起积压消息，但发现 isStreaming 仍为 true。触发强力自愈，解锁正在输入状态！`)
+          isStreaming.value = false
+          streamingCharacterId.value = ''
+          clearReplyTimeout()
+        }
+      }
+    }, 500)
   }
 })
 
@@ -12054,11 +12085,18 @@ async function sendChatMessage() {
   // 安全拦截：当 AI 正在回复（isStreaming 为 true）或者输入与图片均为空时，拦截不予发送
   if (!char || isStreaming.value || (!chatInputText.value.trim() && !pastedImageBase64.value)) return
 
+  isSendingChatMessage = true // 🚀 开启发送清空锁，通知 watch 拦截
+
   const userMsg = chatInputText.value.trim()
   const imageBase64 = pastedImageBase64.value
 
   chatInputText.value = ''
   pastedImageBase64.value = ''
+  
+  // 🚀 在下一 tick 释放标志位，确保当前微任务/同步清空产生的 watch 触发已被 100% 物理拦截
+  nextTick(() => {
+    isSendingChatMessage = false
+  })
   
   // 智能重置多端所有可能挂载的 textarea 高度为舒适的 40px
   const textareas = document.querySelectorAll('textarea')
@@ -12304,7 +12342,12 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
     clearReplyTimeout() // 🚀 发生异常，物理清除 30秒 超时定时器
     // 局域网 Web 客户端静默忽略 fetch 超时断连报错，因为后台大模型依然在完美生成，且 100% 最终会由 SSE 强力救活！
     if (!window.electron || (window.api && (window.api as any).isIpcBridge)) {
-      console.warn('[Web Bridge Fetch Handshake Disconnect] 局域网 Web 客户端握手超时/断开（属正常自愈范畴），静默移交 SSE 保活接管。');
+      console.warn('[Web Bridge Fetch Handshake Disconnect] 局域网 Web 客户端管手超时/断开（属正常自愈范畴），静默移交 SSE 保活接管。');
+      // 🚀 核心修复：局域网端虽然依赖 SSE，但如果是真实接口报错（非握手断连），必须释放正在输入锁定，杜绝卡死
+      if (err && err.message && !err.message.includes('handshake')) {
+        isStreaming.value = false
+        streamingCharacterId.value = ''
+      }
       return;
     }
     isStreaming.value = false
@@ -15262,13 +15305,17 @@ onMounted(async () => {
   window.api.receive('chat-chunk', (data: { characterId: string; content: string; done: boolean; isSystem?: boolean }) => {
     const chunkCharId = data.characterId || streamingCharacterId.value || selectedCharacterId.value || ''
 
-    // 🚀 只要流式吐字或处于流式交互中，就重置/清除 30秒超时定时器，只在真正停滞 30 秒以上时才超时自愈
+    // 🚀 只要流式吐字或处于流式交互中，就重置/清除超时定时器，只在真正停滞 35秒 以上时才超时自愈
     if (data.done) {
       clearReplyTimeout()
     } else {
       // 🚀 彻底去流式：如果是单聊（包括创角 Bot），直接屏蔽 done 为 false 的所有流式碎片，不进行追加渲染，瞬间回执
       const isGroup = groupChats.value.some(g => g.id === chunkCharId)
       if (!isGroup) {
+        // 🚀 单聊流式期间也有有效吐字，刷新超时定时器，防范超长回复误判超时
+        if (data.content) {
+          startReplyTimeout(chunkCharId)
+        }
         return
       }
       if (data.content) {
