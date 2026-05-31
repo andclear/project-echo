@@ -10183,12 +10183,13 @@ watch(chatInputText, (newVal) => {
 
       const pendingQueue = pendingUserMessagesMap[charId] || []
       if (pendingQueue.length > 0 && !messageMergeTimersMap[charId] && !isStreaming.value) {
-        console.log(`[Typing reconciliation] 500ms 确认期满，用户确实删空了输入框，将在 2.5 秒后恢复角色回复...`)
+        const mergeDelay = isMobile.value ? 4500 : 2500
+        console.log(`[Typing reconciliation] 500ms 确认期满，用户确实删空了输入框，将在 ${mergeDelay / 1000} 秒后恢复角色回复...`)
         const char = characterList.value.find(c => c.id === charId)
         if (char) {
           messageMergeTimersMap[charId] = setTimeout(async () => {
             await triggerMergedAiResponse(char)
-          }, 2500)
+          }, mergeDelay)
         }
       } else if (pendingQueue.length === 0) {
         // 🚀 极致自愈保障：当消息框清空，且后台没有任何待回复的积压消息时，
