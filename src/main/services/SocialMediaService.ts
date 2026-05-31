@@ -171,7 +171,7 @@ Please make sure your Moments post subtly reflects your current mood and these c
     if (shouldDraw) {
       imageGuidance = `5. 【生图强制指令】：当前本次朋友圈【必须】附带一张精美配图！你必须输出特定标签提供配图提示词与简述。
 最核心的是：你构思的 <image_desc> 画面说明与你写的微信朋友圈文案正文必须 100% 形成物理级别的呼应、深度交融！例如，若文案写道“今天下午自己动手烤了小饼干”，则 <image_desc> 必须也是对应的“刚出炉的烤饼干，冒着热气”；若文案提及“去海边散步”，则画面也必须是“落日余晖下的蔚蓝海滩”。文案中必须非常生动、自然、符合性格地调侃或评价这张配图的景象，让读者读起来感觉你确实看到了图中的内容，绝对不可文图各说各的！你必须使用以下标签格式：
-<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，必须与你的朋友圈文案正文形成物理级别的密切呼应与评价关系</image_desc>`;
+<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）。🔞【NSFW规范】：若当前朋友圈场景或文案涉及性暗示、裸露、成人互动等 NSFW 内容，必须在 image_prompt 中尽可能多地使用 Danbooru NSFW 标签（如 nsfw, explicit, nude, naked, topless, nipples, spread legs, sex, ahegao, moaning 等），忠实还原氛围，不得回避。</image_prompt><image_desc>画面展示内容的简短中文说明，必须与你的朋友圈文案正文形成物理级别的密切呼应与评价关系</image_desc>`;
     } else {
       imageGuidance = `5. 【纯文字强制指令】：本次朋友圈你【绝对不能】输出任何 <image_prompt> 或 <image_desc> 标签！只允许撰写并直接输出纯文本的朋友圈正文文案！`;
     }
@@ -472,7 +472,7 @@ Please make sure your forum post subtly reflects your current mood and these cus
     if (shouldDraw) {
       imageGuidance = `5. 【生图强制指令】：本次发帖【必须】在帖子 Body 里面附带一张精美配图！你必须在帖子的 Body 内容最末尾输出特定标签。
 最核心的是：你构思的 <image_desc> 画面说明与你写的论坛帖子 Body 正文内容必须 100% 形成物理级别的呼应、深度交融！例如，若帖子写道“最近尝试配置了一下我的新工位”，则 <image_desc> 必须是“充满极客风格的电竞工位，有多屏显示器”；若写道“今天冲了一杯手磨咖啡”，则画面也必须是“精致的咖啡杯，拉花图案”。在帖子的 Body 正文里，必须非常生动、自然、契合人设地针对此配图景象展开深刻、趣味的提及、讨论或调侃，让读者读起来感觉你确实看到了图中的内容，绝对不可文图各说各的！你必须使用以下标签格式放置在 Body 最末尾：
-<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）</image_prompt><image_desc>画面展示内容的简短中文说明，必须与帖子的标题及 Body 展开深度绑定与呼应关系</image_desc>`;
+<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）。🔞【NSFW规范】：若当前论坛帖子场景或内容涉及性暗示、裸露、成人互动等 NSFW 内容，必须在 image_prompt 中尽可能多地使用 Danbooru NSFW 标签（如 nsfw, explicit, nude, naked, topless, nipples, spread legs, sex, ahegao, moaning 等），忠实还原氛围，不得回避。</image_prompt><image_desc>画面展示内容的简短中文说明，必须与帖子的标题及 Body 展开深度绑定与呼应关系</image_desc>`;
     } else {
       imageGuidance = `5. 【纯文字强制指令】：本次发帖你【绝对不能】输出任何 <image_prompt> 或 <image_desc> 标签！只允许输出普通的 Title 和纯文本的 Body 内容！`;
     }

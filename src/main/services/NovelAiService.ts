@@ -1,5 +1,10 @@
 import zlib from 'zlib'
 
+export interface ArtistStringItem {
+  name?: string
+  value: string
+}
+
 export interface NovelAiConfig {
   apiKey: string
   baseUrl?: string
@@ -10,6 +15,8 @@ export interface NovelAiConfig {
   qualityPrompt?: string
   sampler?: string
   defaultDimensions?: 'portrait' | 'landscape' | 'square'
+  randomArtist?: boolean
+  artistStringList?: (string | ArtistStringItem)[]
 }
 
 export class NovelAiService {
@@ -106,6 +113,40 @@ export class NovelAiService {
         throw new Error('未配置 NovelAI 密钥 (API Key)，请先前往「AI 绘图」设置页面配置并保存。')
       }
 
+      // ⚡️ 1. 清洗输入提示词的前缀，防止外部已经拼接过的画师串造成重复拼接
+      let cleanPrompt = prompt.trim()
+      if (config.artistString?.trim()) {
+        const prefix = `${config.artistString.trim()},`
+        if (cleanPrompt.startsWith(prefix)) {
+          cleanPrompt = cleanPrompt.substring(prefix.length).trim()
+        }
+      }
+
+      // ⚡️ 2. 智能随机或单一画师串挑选算法
+      let activeArtist = ''
+      if (config.randomArtist && Array.isArray(config.artistStringList) && config.artistStringList.length > 0) {
+        const validList = config.artistStringList.map((item: any) => {
+          if (typeof item === 'string') return item.trim()
+          return (item.value || '').trim()
+        }).filter(val => val.length > 0)
+
+        if (validList.length > 0) {
+          const randomIndex = Math.floor(Math.random() * validList.length)
+          activeArtist = validList[randomIndex]
+          console.log(`[NovelAiService] 🎲 随机画师串分流命中 [#${randomIndex + 1}]: "${activeArtist}"`)
+        }
+      }
+
+      // 兜底逻辑：若未开启随机或列表有效内容全空，退化使用原本的唯一画师串
+      if (!activeArtist && config.artistString?.trim()) {
+        activeArtist = config.artistString.trim()
+      }
+
+      // ⚡️ 3. 组装最完美的最终生图 Prompt
+      const finalPrompt = activeArtist 
+        ? `${activeArtist}, ${cleanPrompt}`
+        : cleanPrompt
+
       const baseUrl = (config.baseUrl || 'https://image.novelai.net').replace(/\/$/, '')
       const url = `${baseUrl}/ai/generate-image`
 
@@ -177,7 +218,7 @@ export class NovelAiService {
 
         baseParams.v4_prompt = {
           caption: {
-            base_caption: prompt,
+            base_caption: finalPrompt,
             char_captions: []
           },
           use_coords: false,
@@ -196,7 +237,7 @@ export class NovelAiService {
       }
 
       const payload = {
-        input: prompt,
+        input: finalPrompt,
         model: modelName,
         action: 'generate',
         parameters: baseParams

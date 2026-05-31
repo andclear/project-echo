@@ -613,8 +613,14 @@ export class WeChatService {
   /**
    * /生图 (对接 NovelAI 物理生图，本地同步落盘并回发微信)
    */
+  /**
+   * /生图 (对接 NovelAI 物理生图，本地同步落盘并回发微信)
+   * 🚀 智能上下文情境提炼升级版：彻底阻断用户传参，AI 伴侣根据 15 条会话上下文进行高保真意境生图
+   */
   private async executeAIImageGeneration(fromUser: string, characterId: string, prompt: string, contextToken: string): Promise<void> {
     const db = getDatabaseService();
+    
+    // 1. 检测绘图配置
     const configStr = db.getSetting('novelai_config');
     if (!configStr) {
       await this.sendWeChatText(fromUser, '⚠️ 您的客户端尚未配置 NovelAI 接口参数，请前往 PC 客户端设置中心进行配置！', contextToken);
@@ -627,14 +633,24 @@ export class WeChatService {
       return;
     }
 
-    await this.sendWeChatText(fromUser, '🎨 正在为您绘制精美插画中，请稍候片刻...', contextToken);
+    // 2. 检测大模型配置并初始化 ModelAdapter
+    const modelConfigStr = db.getSetting('model_config');
+    if (!modelConfigStr) {
+      await this.sendWeChatText(fromUser, '⚠️ 客户端尚未配置全局大模型，无法进行会话上下文意境分析，请先在 PC 客户端保存设置！', contextToken);
+      return;
+    }
+    
+    await this.sendWeChatText(fromUser, '🎨 正在深入分析我们的聊天记忆，为你精心描绘当前情景中，请稍候片刻...', contextToken);
 
     try {
+      const modelSettings = JSON.parse(modelConfigStr);
+      const modelAdapter = new ModelAdapter(modelSettings.primary, modelSettings.secondary);
+
       const char = db.getAllCharacters().find(c => c.id === characterId)!;
       const folderName = char.folder_name;
       const storageManager = new CharacterStorageManager();
 
-      // 1. 读取角色外貌固定特征提示词
+      // 3. 读取角色外貌固定特征提示词
       let appearancePrompt = '';
       const appearanceContent = storageManager.readCharacterFile(folderName, 'Appearance.md');
       if (appearanceContent) {
@@ -644,16 +660,79 @@ export class WeChatService {
         }
       }
 
-      // 2. 拼接绘图提示词
-      const userPrompt = prompt?.trim() || '';
-      let finalPrompt = '';
-      if (appearancePrompt) {
-        finalPrompt = userPrompt ? `${appearancePrompt}, ${userPrompt}` : appearancePrompt;
-      } else {
-        finalPrompt = userPrompt || '1girl, masterpiece, very aesthetic, best quality';
+      // 4. 获取聊天记忆、长期记忆与性格灵魂
+      const baseDir = storageManager.getBaseDir();
+      const soulPath = join(baseDir, folderName, 'Soul.md');
+      const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
+      const memoryPath = join(baseDir, folderName, 'Memory.md');
+      const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无记忆';
+
+      const history = db.getChatHistory(characterId, 15);
+      const contextText = history.map(h => `${h.role === 'user' ? '用户' : '角色'}: ${h.content}`).join('\n');
+
+      // 5. 注入与 PC 客户端 100% 对称的 NovelAI 4.5 双角色隔离 Pipe 黄金指令
+      const systemPrompt = `你是一个非常专业且具有极高艺术审美的 NovelAI 4.5 Full 绘图提示词生成大师。
+请你仔细阅读并深度结合 AI 角色的性格设定 (Soul.md)、记忆系统 (Memory.md) 以及他们之间最近的聊天上下文对话内容，为当前场景构思并生成一副精美的文生图（T2I）提示词。
+
+你的核心目标是生成一个能反映【当前聊天气氛、角色动作、神情、周围环境以及画面细节】的 NovelAI 绘图 Prompt。
+
+【🔴 极其重要的 NovelAI 4.5 黄金生图规范】：
+1. 你的返回必须包含两个部分：
+   - 英文生图 Tags (英文逗号分隔的 NovelAI Danbooru 风格 Tag 提示词)。
+   - 中文画面内容描述 (一两句话简述画面中发生了什么，包括角色和 NPC 的互动细节)。
+2. 【Danbooru 标签层级】：提示词必须是以英文逗号分隔的 Danbooru Tag，单词权重从左到右递减。请严格遵循以下结构排列：
+   [主体数量 (Subject Count)], [角色特征/动作], [环境背景], [天气/时间], [光效/氛围], [画面视角/构图], [艺术画质 Tag]
+   - 主体数量必须作为第一个 Tag！例如："1girl"（单人）、"1boy, 1girl"（情侣）、"no humans"（风景/纯景物，此时必须在最前面加入 "background dataset" 标签，以及 "no humans" 开头）。
+3. 🔴【多角色 Pipe 分隔符 "|" 黄金语法】：当画面中出现 2 个及以上角色（例如你与用户、或与NPC）时，你必须使用 Pipe 分隔符 "|" 进行角色与其属性的物理强隔离！语法结构如下：
+   基础提示词（人数/环境/构图/氛围/画质标签） | 角色1类型, 角色名称/特征, 角色1表情服装, source#/[action] 动作 | 角色2类型, 特征, 角色2表情服装, target#/[action] 动作
+   - 【互动动作前缀】：多角色互动时，必须使用 source# (动作发起者)、target# (动作接受者) 或 mutual# (共同发生动作) 进行肢体姿态锚定，彻底解决肢体黏连和特征乱串问题！
+     - 拥抱：source#embrace 与 target#embrace
+     - 摸头：source#headpat 与 target#headpat
+     - 牵手：双方均使用 mutual#handholding
+     - 互相注视：source#looking at another 与 target#being looked at
+4. 【NovelAI 4.5 必加画质 Tag】：提示词尾部必须全量附加官方高画质标签："very aesthetic, masterpiece, best quality, highres, no text, no watermark"。
+5. 🔞【NSFW 场景强制规范】：仔细判断聊天上下文中是否存在性暗示、亲密接触、色情描写、裸露、成人互动等 NSFW 内容。若存在，则必须在生图提示词中尽可能多地使用 Danbooru NSFW 标签（例如：nsfw, explicit, nude, naked, topless, bottomless, nipples, pussy, penis, sex, vaginal, oral, cum, cum on body, orgasm, spread legs, missionary, doggy style, from behind, ahegao, moaning 等）来精准还原场景气氛。不得因为内容敏感就主动回避或弱化 NSFW 描写，忠实还原上下文是首要原则。
+6. 你的输出必须严格按照以下格式排版，请勿将输出内容包裹在任何 markdown 代码块中，直接以纯文本形式输出：
+### Image Prompt
+(在这里输出当前场景的生图 Tag)
+
+### Image Description
+(在这里用中文对画面做一个简述。)`;
+
+      const messages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `【角色设定 Soul.md】：\n${soulContent}\n\n【角色记忆 Memory.md】：\n${memoryContent}\n\n【最近聊天上下文】：\n${contextText}\n\n请帮我生成当前画面场景的生图 Prompt 和描述。` }
+      ];
+
+      // 调用副大模型进行意境推理提取
+      const response = await modelAdapter.chat(messages, { useSecondary: true, skipSystemInjection: true });
+      const raw = response.content.trim();
+
+      let extractedPrompt = '';
+      let extractedDesc = '';
+
+      const promptMatch = raw.match(/### Image Prompt\s*([\s\S]*?)(?:### Image Description|$)/i);
+      const descMatch = raw.match(/### Image Description\s*([\s\S]*)/i);
+
+      if (promptMatch) extractedPrompt = promptMatch[1].trim();
+      if (descMatch) extractedDesc = descMatch[1].trim();
+
+      // 智能兜底自愈防空
+      if (!extractedPrompt) {
+        extractedPrompt = raw.replace(/<\/?[^>]+(>|$)/g, "").trim() || '1girl, portrait, smiling';
+      }
+      if (!extractedDesc) {
+        extractedDesc = '这是我为你绘制的专属写真哦。';
       }
 
-      // 3. 注入画师串与质量后缀
+      // 6. 前置发送大模型精心构思出的中文画面描述气泡给微信端好友
+      await this.sendWeChatText(fromUser, `🎨 “${extractedDesc} 🐾”`, contextToken);
+
+      // 7. 黄金公式拼装生图 Tags：[画师风格] + [固定外貌] + [当前动作场景] + [质量词后缀]
+      let finalPrompt = appearancePrompt 
+        ? `${appearancePrompt}, ${extractedPrompt}`
+        : extractedPrompt;
+
       if (config.artistString?.trim()) {
         finalPrompt = `${config.artistString.trim()}, ${finalPrompt}`;
       }
@@ -663,10 +742,10 @@ export class WeChatService {
 
       const dims = config.defaultDimensions || 'portrait';
 
-      // 4. 调用现有的 NovelAiService.generateImage 生成二进制 buffer
+      // 8. 调用 NovelAiService 绘图生成二进制 Buffer
       const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, dims);
 
-      // 5. 双向物理同步：将图片写入对应角色的 media 目录
+      // 9. 物理同步至 media 目录
       const mediaDir = join(storageManager.getBaseDir(), folderName, 'media');
       if (!fs.existsSync(mediaDir)) {
         fs.mkdirSync(mediaDir, { recursive: true });
@@ -676,7 +755,19 @@ export class WeChatService {
       const localImgPath = join(mediaDir, filename);
       fs.writeFileSync(localImgPath, imageBuffer);
 
-      // 3. 将生图信息物理写入 Messages 表，方便 PC 客户端同步
+      // 保存元数据 .json 描述
+      const metaFilename = filename.replace('.png', '.json');
+      const metaFullPath = join(mediaDir, metaFilename);
+      const metadata = {
+        prompt: finalPrompt,
+        negativePrompt: config.negativePrompt || '',
+        dimensions: dims,
+        timestamp: Date.now(),
+        prefixType: 'chat'
+      };
+      fs.writeFileSync(metaFullPath, JSON.stringify(metadata, null, 2));
+
+      // 10. 将生图信息物理写入 Messages 表，PC 客户端秒级同步
       const newImgMsg = {
         id: `wechat_img_${Date.now()}`,
         character_id: characterId,
@@ -687,7 +778,7 @@ export class WeChatService {
       };
       db.saveMessage(newImgMsg);
 
-      // 4. 发送 IPC 同步给渲染层前端进行气泡极速渲染 (附加 base64)
+      // 广播给 PC 前端客户端
       const windows = BrowserWindow.getAllWindows();
       if (windows.length > 0 && !windows[0].webContents.isDestroyed()) {
         windows[0].webContents.send('receive-message', {
@@ -696,10 +787,10 @@ export class WeChatService {
         });
       }
 
-      // 5. 加密文件并利用 C2C CDN 回发给手机微信端好友
+      // 11. 加密图片并推送到微信 CDN C2C 通道，回发给手机微信端好友
       await this.uploadAndSendWeChatImage(fromUser, localImgPath, imageBuffer, contextToken);
     } catch (err: any) {
-      await this.sendWeChatText(fromUser, `❌ 绘图失败: ${err.message}`, contextToken);
+      await this.sendWeChatText(fromUser, `❌ 绘图失败: ${err.message || err}`, contextToken);
     }
   }
 

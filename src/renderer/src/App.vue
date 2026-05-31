@@ -2409,7 +2409,7 @@
                     <div class="form-group md:col-span-2">
                       <label class="form-label font-bold text-xs">API Key</label>
                       <div class="relative">
-                        <input v-model="novelai.apiKey" :type="showApiKey ? 'text' : 'password'" placeholder="输入您的 NovelAI API Key (以 pst- 开头)" class="form-input pr-10" />
+                        <input v-model="novelai.apiKey" :type="showApiKey ? 'text' : 'password'" placeholder="输入您的 NovelAI API Key (以 pst- 开头)" class="form-input pr-10" spellcheck="false" />
                         <button @click="showApiKey = !showApiKey" type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-primary transition-all">
                           <EyeIcon v-if="!showApiKey" class="w-4 h-4" />
                           <EyeOffIcon v-else class="w-4 h-4" />
@@ -2419,33 +2419,139 @@
 
                     <div class="form-group">
                       <label class="form-label font-bold text-xs">API Base URL</label>
-                      <input v-model="novelai.baseUrl" type="text" placeholder="https://image.novelai.net" class="form-input" />
+                      <input v-model="novelai.baseUrl" type="text" placeholder="https://image.novelai.net" class="form-input" spellcheck="false" />
                     </div>
 
                     <div class="form-group">
                       <label class="form-label font-bold text-xs">模型选择</label>
-                      <input v-model="novelai.model" type="text" placeholder="nai-diffusion-4-5-full" class="form-input font-mono" />
+                      <input v-model="novelai.model" type="text" placeholder="nai-diffusion-4-5-full" class="form-input font-mono" spellcheck="false" />
                       <div class="flex flex-wrap gap-1 mt-1.5">
                         <button type="button" @click="novelai.model = 'nai-diffusion-4-5-full'" class="px-2 py-0.5 rounded bg-surface border border-outline-variant hover:border-primary text-[10px]" :class="{ '!border-primary text-primary bg-primary/5': novelai.model === 'nai-diffusion-4-5-full' }">nai-diffusion-4-5-full</button>
                         <button type="button" @click="novelai.model = 'nai-diffusion-4-5-curated'" class="px-2 py-0.5 rounded bg-surface border border-outline-variant hover:border-primary text-[10px]" :class="{ '!border-primary text-primary bg-primary/5': novelai.model === 'nai-diffusion-4-5-curated' }">nai-diffusion-4-5-curated</button>
                       </div>
                     </div>
 
-                    <div class="form-group md:col-span-2">
-                      <label class="form-label font-bold text-xs">画师串</label>
-                      <textarea v-model="novelai.artistString" rows="3" placeholder="例如: artist:asakura, artist:shinkai" class="form-input font-mono text-xs resize-none"></textarea>
-                      <p class="text-[9px] text-on-surface-variant/70 mt-1">末尾不需要加","，生图时拼接在正向提示词的最前面，用于锁定画风</p>
+                    <!-- 画师串高级管理板块 -->
+                    <div class="form-group md:col-span-2 border border-outline-variant/30 bg-surface-container-low/30 p-4 rounded-2xl space-y-4">
+                      <!-- A. 随机选用控制头 -->
+                      <div class="flex items-center justify-between">
+                        <div>
+                          <label class="form-label font-bold text-xs">随机选用画师串</label>
+                          <p class="text-[9px] text-on-surface-variant/80 mt-0.5">开启后，每次生图将从下方预设列表中随机挑选一个画师串，避免生成画风过于单一。</p>
+                        </div>
+                        <button 
+                          type="button"
+                          @click="novelai.randomArtist = !novelai.randomArtist" 
+                          class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" 
+                          :class="novelai.randomArtist ? 'bg-primary' : 'bg-outline-variant'"
+                        >
+                          <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="novelai.randomArtist ? 'left-5.5' : 'left-0.5'"></span>
+                        </button>
+                      </div>
+
+                      <!-- B. 极简标签胶囊网格云 + 原位折叠滑出编辑器 (双模一体化常驻) -->
+                      <div class="space-y-4 animate-fade-in">
+                        <!-- 1. 胶囊标签网格 -->
+                        <div class="flex flex-wrap gap-2.5 items-center">
+                          <div 
+                            v-for="(item, idx) in novelai.artistStringList" 
+                            :key="idx"
+                            @click="handleTagClick(idx)"
+                            class="group relative inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold select-none cursor-pointer transition-all duration-200 border"
+                            :class="[
+                              // 判定是否激活高亮状态：
+                              // 开启随机时：展开编辑器者高亮
+                              // 关闭随机时：当前固定 Pin 锁定者高亮，或者当前展开编辑器者高亮
+                              (novelai.randomArtist ? activeArtistIndex === idx : (novelai.fixedArtistIndex === idx || activeArtistIndex === idx))
+                                ? 'bg-primary text-white border-primary shadow-[0_0_12px_rgba(70,72,212,0.4)] dark:shadow-[0_0_12px_rgba(78,222,163,0.35)] dark:bg-primary dark:text-black dark:border-primary' 
+                                : 'bg-surface-bright/70 text-on-surface hover:text-primary hover:border-primary/40 border-outline-variant/30 dark:bg-surface-container-lowest/80 opacity-70 hover:opacity-100'
+                            ]"
+                          >
+                            <!-- 📌 固定锁定 Pin 图标 (仅在关闭随机模式下选中时显示) -->
+                            <PinIcon 
+                              v-if="!novelai.randomArtist && novelai.fixedArtistIndex === idx" 
+                              class="w-3 h-3 text-white dark:text-black animate-pulse" 
+                            />
+                            
+                            <span class="opacity-60 text-[9px] font-mono" v-else>#{{ idx + 1 }}</span>
+                            <span>{{ item.name || ('画师串 ' + (idx + 1)) }}</span>
+                            
+                            <!-- 删除按钮 -->
+                            <button
+                              type="button"
+                              @click.stop="removeArtistString(idx)"
+                              :disabled="novelai.artistStringList.length <= 1"
+                              class="w-3.5 h-3.5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-error/15 hover:text-error disabled:opacity-0 disabled:pointer-events-none transition-all duration-150 ml-0.5"
+                              title="删除此项"
+                            >
+                              <XIcon class="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+
+                          <!-- ➕ 新增风格胶囊 -->
+                          <button
+                            type="button"
+                            @click="addArtistString"
+                            class="inline-flex items-center space-x-1 px-3.5 py-1.5 rounded-full border border-dashed border-primary/40 text-primary hover:bg-primary/5 active:scale-95 transition-all duration-200 text-xs font-bold"
+                          >
+                            <PlusIcon class="w-3 h-3" />
+                            <span>添加新画风</span>
+                          </button>
+                        </div>
+
+                        <!-- 2. 原位滑出编辑器 (Edit Drawer Panel) -->
+                        <Transition name="slide-up-fade">
+                          <div 
+                            v-if="activeArtistIndex !== null && novelai.artistStringList[activeArtistIndex]" 
+                            class="relative flex flex-col p-4 bg-surface-container-lowest border border-outline-variant/50 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_15px_40px_rgba(0,0,0,0.5)] border-t-2 border-t-primary/75 animate-fade-in"
+                          >
+                            <!-- 编辑面板头部 -->
+                            <div class="flex items-center justify-between border-b border-outline-variant/20 pb-2.5 mb-3.5">
+                              <div class="flex items-center space-x-2.5 w-3/4">
+                                <span class="text-[10px] font-mono font-bold text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-md">编辑中 #{{ activeArtistIndex + 1 }}</span>
+                                <input 
+                                  type="text" 
+                                  v-model="novelai.artistStringList[activeArtistIndex].name" 
+                                  class="bg-transparent border-0 border-b border-transparent focus:border-primary/40 focus:ring-0 text-xs font-bold text-on-surface p-0 pb-0.5 w-full placeholder:text-on-surface-variant/40 placeholder:font-normal outline-none transition-all duration-200" 
+                                  placeholder="✍_ 输入自定义风格别名（如: 赛博二次元，留空自动兜底）"
+                                  spellcheck="false"
+                                />
+                              </div>
+                              <button 
+                                type="button"
+                                @click="activeArtistIndex = null"
+                                class="text-on-surface-variant/60 hover:text-on-surface text-xs font-bold transition-all px-2.5 py-1.5 rounded-lg bg-surface hover:bg-surface-high border border-outline-variant/30 active:scale-95"
+                              >
+                                完成
+                              </button>
+                            </div>
+
+                            <!-- 编辑面板文本内容 -->
+                            <div class="space-y-1.5">
+                              <label class="text-[10px] font-bold text-on-surface-variant/70 block">画师提示词串 (Artist Tags)</label>
+                              <textarea 
+                                v-model="novelai.artistStringList[activeArtistIndex].value" 
+                                rows="3" 
+                                placeholder="输入该风格要调用的画师/画风 Tags。例如: 1.5::artistau(d_elete) ::, portrait, realistic..." 
+                                class="form-input font-mono text-xs resize-none bg-surface-high/15 focus:bg-surface-container-lowest"
+                                spellcheck="false"
+                              ></textarea>
+                              <p class="text-[9px] text-on-surface-variant/60">提示：修改上方别名或文本内容将实时反馈并自动保存。</p>
+                            </div>
+                          </div>
+                        </Transition>
+                      </div>
                     </div>
 
                     <div class="form-group md:col-span-2">
                       <label class="form-label font-bold text-xs">质量提示词</label>
-                      <textarea v-model="novelai.qualityPrompt" rows="3" placeholder="例如: masterpiece, best quality, highly detailed" class="form-input font-mono text-xs resize-none"></textarea>
+                      <textarea v-model="novelai.qualityPrompt" rows="3" placeholder="例如: masterpiece, best quality, highly detailed" class="form-input font-mono text-xs resize-none" spellcheck="false"></textarea>
                       <p class="text-[9px] text-on-surface-variant/70 mt-1">开头不需要加","，生图时拼接在正向提示词的最后面，用于增强细节</p>
                     </div>
 
                     <div class="form-group md:col-span-2">
                       <label class="form-label font-bold text-xs">默认负面提示词</label>
-                      <textarea v-model="novelai.negativePrompt" rows="3" placeholder="输入默认排除的 Tags" class="form-input font-mono text-xs resize-none"></textarea>
+                      <textarea v-model="novelai.negativePrompt" rows="3" placeholder="输入默认排除的 Tags" class="form-input font-mono text-xs resize-none" spellcheck="false"></textarea>
                     </div>
 
                     <div class="form-group md:col-span-2">
@@ -2477,8 +2583,13 @@
                         <label class="font-bold text-xs text-on-surface">手动生图确认模式</label>
                         <p class="text-[10px] text-on-surface-variant">开启后，点击聊天输入框的生图按钮会先弹窗预览并可编辑 Prompt 提示词</p>
                       </div>
-                      <button @click="novelai.confirmMode = !novelai.confirmMode" class="w-10 h-6 rounded-full transition-all relative flex items-center p-0.5 border" :class="novelai.confirmMode ? 'bg-primary border-primary' : 'bg-outline-variant/40 border-outline-variant/40'">
-                        <div class="w-4 h-4 rounded-full bg-white transition-all shadow-sm" :class="novelai.confirmMode ? 'translate-x-4' : 'translate-x-0'"></div>
+                      <button 
+                        type="button"
+                        @click="novelai.confirmMode = !novelai.confirmMode" 
+                        class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" 
+                        :class="novelai.confirmMode ? 'bg-primary' : 'bg-outline-variant'"
+                      >
+                        <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="novelai.confirmMode ? 'left-5.5' : 'left-0.5'"></span>
                       </button>
                     </div>
                   </div>
@@ -8865,6 +8976,63 @@ if (typeof window !== 'undefined' && !(window as any).api) {
   } catch (sseErr) {
     console.error('[Polyfill SSE Init Error] 初始化 SSE 长连接失败:', sseErr);
   }
+
+  // ── iOS 后台保活：无声音频 Audio Session 技术 ──────────────────────────
+  // iOS Safari 在标签页有活跃 AudioContext（哪怕完全静音）时，不会将其挂起。
+  // 我们用 Web Audio API 生成一段 0.5 秒的全静音缓冲区循环播放，用户完全听不到，
+  // 但 iOS 系统会把该标签页视为"正在播放音频"，从而保持 SSE 连接活跃。
+  // 注意：AudioContext 必须在用户交互（触摸/点击）后才能启动（浏览器自动播放策略）。
+  (function initSilentAudioKeepAlive() {
+    // 仅在移动端 iOS/Android 上启用（桌面端无此问题）
+    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isAndroid = /android/i.test(navigator.userAgent);
+    if (!isIos && !isAndroid) return;
+    if (typeof AudioContext === 'undefined' && typeof (window as any).webkitAudioContext === 'undefined') return;
+
+    let audioCtx: AudioContext | null = null;
+    let silentSource: AudioBufferSourceNode | null = null;
+    let isRunning = false;
+
+    function startSilentLoop() {
+      if (isRunning) return;
+      try {
+        const Ctx = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
+        audioCtx = new Ctx();
+
+        // 创建 0.5 秒长度的静音缓冲区（全零样本，100% 无声）
+        const bufferSize = audioCtx.sampleRate * 0.5;
+        const silentBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        // createBuffer 默认已填充零，无需额外操作
+
+        function scheduleNext() {
+          if (!audioCtx) return;
+          silentSource = audioCtx.createBufferSource();
+          silentSource.buffer = silentBuffer;
+          silentSource.connect(audioCtx.destination);
+          silentSource.onended = scheduleNext; // 循环
+          silentSource.start();
+        }
+
+        scheduleNext();
+        isRunning = true;
+        console.log('[SilentAudio] iOS 后台保活无声音频会话已启动 🔇');
+      } catch (e) {
+        console.warn('[SilentAudio] 无声音频保活启动失败:', e);
+      }
+    }
+
+    // 等待用户第一次触摸，激活 AudioContext（一次性）
+    document.addEventListener('touchstart', function onFirstTouch() {
+      document.removeEventListener('touchstart', onFirstTouch);
+      startSilentLoop();
+    }, { once: true, passive: true });
+
+    // 兜底：用户点击也可以触发
+    document.addEventListener('click', function onFirstClick() {
+      document.removeEventListener('click', onFirstClick);
+      startSilentLoop();
+    }, { once: true });
+  })();
 }
 
 const md = new MarkdownIt({
@@ -9570,14 +9738,69 @@ const novelai = reactive({
   artistString: '',
   qualityPrompt: '',
   sampler: 'k_euler_ancestral',
-  defaultDimensions: 'portrait'
+  defaultDimensions: 'portrait',
+  randomArtist: false,
+  artistStringList: [] as Array<{ name?: string, value: string }>,
+  fixedArtistIndex: 0
 })
 const anlasPoints = ref(0)
 const isLoadingAnlas = ref(false)
+const activeArtistIndex = ref<number | null>(null)
 
 function openSettingsPage() {
   sideView.value = 'settings'
   activeSettingsTab.value = 'general'
+}
+
+function addArtistString() {
+  if (!novelai.artistStringList) {
+    novelai.artistStringList = []
+  }
+  novelai.artistStringList.push({ name: '', value: '' })
+  // 🚀 体验自愈：新增画风标签后，自动将焦点置于新创建的项上，触发滑出式编辑器
+  activeArtistIndex.value = novelai.artistStringList.length - 1
+}
+
+function removeArtistString(index: number) {
+  if (novelai.artistStringList && novelai.artistStringList.length > 1) {
+    novelai.artistStringList.splice(index, 1)
+    
+    // 🚀 体验自愈：若删除的是当前编辑项，清空焦点；若删除的在编辑项之前，将焦点往前挪一位
+    if (activeArtistIndex.value === index) {
+      activeArtistIndex.value = null
+    } else if (activeArtistIndex.value !== null && activeArtistIndex.value > index) {
+      activeArtistIndex.value--
+    }
+
+    // 📌 Pin 锁定指针安全退防自愈
+    if (novelai.fixedArtistIndex === index) {
+      novelai.fixedArtistIndex = 0
+    } else if (novelai.fixedArtistIndex > index) {
+      novelai.fixedArtistIndex--
+    }
+    // 兜底防护：防范空数组或异常越界
+    if (novelai.fixedArtistIndex >= novelai.artistStringList.length) {
+      novelai.fixedArtistIndex = novelai.artistStringList.length - 1
+    }
+
+    // 自动同步当前 Pin 锁定的值到旧有 artistString，防范生图崩溃
+    const currentPin = novelai.artistStringList[novelai.fixedArtistIndex]
+    if (currentPin) {
+      novelai.artistString = currentPin.value || ''
+    }
+  }
+}
+
+function handleTagClick(index: number) {
+  if (!novelai.randomArtist) {
+    // 📌 关闭随机时，点击胶囊即 Pin 锁定此风格
+    novelai.fixedArtistIndex = index
+    if (novelai.artistStringList && novelai.artistStringList[index]) {
+      novelai.artistString = novelai.artistStringList[index].value || ''
+    }
+  }
+  // 无论何种模式，点击都代表拉开/折叠原位编辑器
+  activeArtistIndex.value = activeArtistIndex.value === index ? null : index
 }
 
 // ===================== 数据备份与迁移逻辑 =====================
@@ -14231,6 +14454,17 @@ const showApiKey = ref(false)
 async function saveNovelAiConfig() {
   saving.value = true
   try {
+    // ⚡️ 兼容同步自愈：如果 artistStringList 存在，自动同步当前 Pin 锁定项的提示词内容到旧有的单 artistString 字段中
+    if (Array.isArray(novelai.artistStringList) && novelai.artistStringList.length > 0) {
+      const idx = novelai.fixedArtistIndex || 0
+      if (novelai.artistStringList[idx]) {
+        novelai.artistString = novelai.artistStringList[idx].value || ''
+      } else {
+        // 如果越界则兜底使用第一项
+        novelai.artistString = novelai.artistStringList[0].value || ''
+      }
+    }
+
     const res = await window.api.invoke('save-novelai-config', toRaw(novelai))
     if (res.success) {
       showSettingsModal.value = false
@@ -15367,6 +15601,26 @@ async function initializeCoreApp() {
     const naiRes = await window.api.invoke('get-novelai-config')
     if (naiRes.success && naiRes.config) {
       Object.assign(novelai, naiRes.config)
+
+      // ⚡️ 老配置迁移自愈：如果 artistStringList 为空或不是数组，将其自愈为含有一个对象的数组
+      if (!Array.isArray(novelai.artistStringList) || novelai.artistStringList.length === 0) {
+        novelai.artistStringList = [{ name: '', value: novelai.artistString || '' }]
+      } else {
+        // 如果是老版本里保存的旧字符串数组，自愈转换为对象数组
+        novelai.artistStringList = novelai.artistStringList.map((item: any) => {
+          if (typeof item === 'string') {
+            return { name: '', value: item }
+          }
+          return { name: item.name || '', value: item.value || '' }
+        })
+      }
+
+      // 📌 锁定指针自愈防空与防越界
+      novelai.fixedArtistIndex = typeof novelai.fixedArtistIndex === 'number' ? novelai.fixedArtistIndex : 0
+      if (novelai.fixedArtistIndex >= novelai.artistStringList.length || novelai.fixedArtistIndex < 0) {
+        novelai.fixedArtistIndex = 0
+      }
+
       if (novelai.apiKey) {
         // 🚀 延迟 3.5 秒静默刷新余额
         setTimeout(() => refreshAnlas(true), 3500)

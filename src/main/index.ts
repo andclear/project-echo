@@ -1392,7 +1392,8 @@ function registerIpcHandlers(): void {
      - 牵手：双方均使用 mutual#handholding
      - 互相注视：source#looking at another 与 target#being looked at
 4. 【NovelAI 4.5 必加画质 Tag】：提示词尾部必须全量附加官方高画质标签："very aesthetic, masterpiece, best quality, highres, no text, no watermark"。
-5. 你的输出必须严格按照以下格式排版，请勿将输出内容包裹在任何 markdown 代码块中，直接以纯文本形式输出：
+5. 🔞【NSFW 场景强制规范】：仔细判断聊天上下文中是否存在性暗示、亲密接触、色情描写、裸露、成人互动等 NSFW 内容。若存在，则必须在生图提示词中尽可能多地使用 Danbooru NSFW 标签（例如：nsfw, explicit, nude, naked, topless, bottomless, nipples, pussy, penis, sex, vaginal, oral, cum, cum on body, orgasm, spread legs, missionary, doggy style, from behind, ahegao, moaning 等）来精准还原场景气氛。不得因为内容敏感就主动回避或弱化 NSFW 描写，忠实还原上下文是首要原则。
+6. 你的输出必须严格按照以下格式排版，请勿将输出内容包裹在任何 markdown 代码块中，直接以纯文本形式输出：
 ### Image Prompt
 (在这里输出当前场景的生图 Tag。例如单人：1girl, bedroom, upper body, long black hair, white nightgown, smiling, morning sunlight, soft shadows, very aesthetic, masterpiece, best quality, highres, no text, no watermark。例如双人：1boy, 1girl, living room, close-up, very aesthetic, masterpiece, best quality, highres, no text, no watermark | girl, emilia (re:zero), long silver hair, white dress, flushed cheeks, source#embrace, arms around neck, smiling | boy, short black hair, casual shirt, target#embrace, hands on waist, looking down at her)
 
@@ -5880,22 +5881,37 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
     return true;
   }
 
-  // 新增：GET /api/events 作为 SSE 持久推送通道
+  // GET /api/events — SSE 持久推送通道
   if (req.method === 'GET' && req.url && req.url.startsWith('/api/events')) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',   // 防止 nginx/反向代理缓冲 SSE 数据包
       'Access-Control-Allow-Origin': '*'
     });
     res.write(': sse-connected\n\n');
     sseClients.add(res);
 
+    // 每 20 秒发送一次 SSE comment 心跳包（": ping"），防止路由器/NAT/iOS 系统因 TCP 长时间无活动而强制回收连接
+    // 浏览器收到 comment 行会直接丢弃，不触发 onmessage，对业务完全透明
+    const heartbeatTimer = setInterval(() => {
+      try {
+        res.write(': ping\n\n');
+      } catch (_) {
+        // 写入失败说明连接已断，清理资源
+        clearInterval(heartbeatTimer);
+        sseClients.delete(res);
+      }
+    }, 20000);
+
     req.on('close', () => {
+      clearInterval(heartbeatTimer);
       sseClients.delete(res);
     });
     return true;
   }
+
 
   // ====== 新增：GET /api/music/download 内存零落地音乐流式下载接口 ======
   if (req.method === 'GET' && req.url && req.url.startsWith('/api/music/download')) {
