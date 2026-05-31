@@ -2558,7 +2558,9 @@
                     >
                       <Loader2Icon v-if="isImportingData" class="w-3.5 h-3.5 animate-spin text-error" />
                       <RefreshCwIcon v-else class="w-3.5 h-3.5 text-error" />
-                      <span :class="{ 'text-error': !isImportingData }">{{ isImportingData ? '正在全量还原并重启...' : '全量覆盖导入 (.echo)' }}</span>
+                      <span :class="{ 'text-error': !isImportingData }">
+                        {{ isImportingData ? (isDockerMode ? `正在流式上传恢复 (${importProgress}%)...` : '正在全量还原并重启...') : '全量覆盖导入 (.echo)' }}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -6796,53 +6798,8 @@
           </button>
         </div>
 
-        <!-- Docker 模式专属：已备份文件列表点选区 -->
-        <div v-if="isDockerMode" class="space-y-4">
-          <div class="flex items-center justify-between select-none">
-            <span class="text-[10px] font-bold text-on-surface-variant/80 uppercase tracking-wider">backups 目录下已扫描到的备份 ({{ dockerBackupList.length }} 个)</span>
-            <button @click="loadDockerBackups" :disabled="isLoadingDockerBackups" class="text-[9px] text-primary font-bold hover:underline flex items-center space-x-1 cursor-pointer">
-              <RefreshCwIcon class="w-3.5 h-3.5" :class="{'animate-spin': isLoadingDockerBackups}" />
-              <span>刷新列表</span>
-            </button>
-          </div>
-
-          <div class="max-h-[180px] overflow-y-auto space-y-2 pr-1 select-none">
-            <div v-if="isLoadingDockerBackups" class="flex flex-col items-center justify-center py-8 text-on-surface-variant/40 space-y-2">
-              <Loader2Icon class="w-6 h-6 animate-spin text-primary" />
-              <span class="text-[10px]">正在智能扫描 backups 卷映射文件夹...</span>
-            </div>
-            <div v-else-if="dockerBackupList.length === 0" class="border border-dashed border-outline-variant/30 rounded-xl p-6 flex flex-col items-center justify-center text-center space-y-2 bg-surface-low/10">
-              <UploadCloudIcon class="w-8 h-8 text-on-surface-variant/50" />
-              <p class="text-[10px] font-bold">暂无可用备份包</p>
-              <p class="text-[9px] text-on-surface-variant/70 leading-relaxed max-w-[280px]">
-                如需还原，请将您的 <code class="font-mono bg-surface-high px-1 rounded text-primary text-[10px]">.echo</code> 备份文件放入宿主机挂载的 <code class="font-mono text-primary bg-surface-high px-1 text-[10px]">echo-data/backups</code> 目录下，然后点击右上角“刷新列表”。
-              </p>
-            </div>
-            <div 
-              v-else
-              v-for="backup in dockerBackupList" 
-              :key="backup.name"
-              @click="selectedFilePath = backup.path; selectedFileName = backup.name"
-              class="border rounded-xl p-3 flex items-center justify-between cursor-pointer transition-all hover:bg-surface-high/30 select-none relative"
-              :class="[selectedFilePath === backup.path ? 'border-primary bg-primary/5 shadow-inner' : 'border-outline-variant/30 bg-surface-low/10']"
-            >
-              <div class="space-y-1 truncate pr-3 flex-1">
-                <p class="text-[10.5px] font-bold truncate" :class="[selectedFilePath === backup.path ? 'text-primary' : 'text-on-surface']">{{ backup.name }}</p>
-                <div class="flex items-center space-x-3 text-[9px] text-on-surface-variant/60 font-mono">
-                  <span>大小: {{ (backup.size / 1024 / 1024).toFixed(2) }} MB</span>
-                  <span>时间: {{ new Date(backup.createdAt).toLocaleString() }}</span>
-                </div>
-              </div>
-              <div v-if="selectedFilePath === backup.path" class="w-4 h-4 rounded-full bg-primary flex items-center justify-center text-white scale-110 animate-scale-in">
-                <CheckIcon class="w-2.5 h-2.5" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 桌面客户端模式：拖拽 & 点击文件上传区 -->
+        <!-- 统一的拖拽 & 点击文件上传区 -->
         <div 
-          v-else
           @dragenter.prevent="isDraggingBackupFile = true"
           @dragover.prevent="isDraggingBackupFile = true"
           @dragleave.prevent="isDraggingBackupFile = false"
@@ -6855,14 +6812,27 @@
               : 'border-outline-variant/30 bg-surface-low/10 hover:border-primary/40 hover:bg-surface-low/30'
           ]"
         >
+          <!-- 浏览器/Docker模式下隐藏的原生文件上传 Input 触发器 -->
+          <input 
+            type="file" 
+            id="docker-backup-file-input" 
+            accept=".echo" 
+            class="hidden" 
+            @change="onDockerFileSelected" 
+          />
+
           <!-- 状态 A：未选择文件 -->
           <div v-if="!selectedFileName" class="text-center space-y-3 py-4">
             <div class="w-12 h-12 rounded-full bg-surface-high/50 border border-outline-variant/10 flex items-center justify-center mx-auto group-hover:scale-110 transition-all duration-300">
               <UploadCloudIcon class="w-6 h-6 text-on-surface-variant/80 group-hover:text-primary transition-colors" />
             </div>
             <div class="space-y-1">
-              <p class="text-[11px] font-medium">拖拽 <code class="font-mono px-1 py-0.5 bg-surface-high rounded text-primary text-[10px]">.echo</code> 备份文件到此释放</p>
-              <p class="text-[9px] text-on-surface-variant/70">或者点击此区域在文件管理器中浏览选择</p>
+              <p class="text-[11px] font-medium">
+                {{ isDockerMode ? '拖拽本地 .echo 备份包到此释放' : '拖拽 .echo 备份文件到此释放' }}
+              </p>
+              <p class="text-[9px] text-on-surface-variant/70">
+                {{ isDockerMode ? '或者点击此区域在本地设备中浏览选择' : '或者点击此区域在文件管理器中浏览选择' }}
+              </p>
             </div>
           </div>
 
@@ -9545,25 +9515,34 @@ const showImportModal = ref(false)
 const isDraggingBackupFile = ref(false)
 const selectedFileName = ref('')
 const selectedFilePath = ref('')
+const selectedFileRaw = ref<File | null>(null)
+const importProgress = ref(0)
 
 // 一键导出核心数据 (直接写入选定路径，零内存风险)
 async function handleExportProjectData() {
   if (isExportingData.value) return
+  
+  if (isDockerMode.value) {
+    isExportingData.value = true
+    try {
+      showToast('正在极速流式生成核心数据备份，请稍后...🐾')
+      // 🚀 Docker 部署/VPS 环境下：直接请求流式下载 API，完美拉起浏览器原生保存文件位置窗口！
+      window.location.href = `${window.location.protocol}//${window.location.host}/api/backups/export`
+      setTimeout(() => {
+        isExportingData.value = false
+      }, 5000)
+    } catch (e: any) {
+      isExportingData.value = false
+      showCustomAlert('导出失败', `备份流式传输异常: ${e.message || e}`, 'error')
+    }
+    return
+  }
+
   isExportingData.value = true
   try {
     const res = await window.api.invoke('export-project-data')
     if (res.success) {
-      if (res.isDocker) {
-        showCustomAlert(
-          '备份导出成功',
-          `数据已全量打包！备份已安全落盘至宿主机映射卷。\n\n备份文件名: ${res.filename}\n路径: backups/${res.filename}\n\n您无需进行任何物理拷贝，可以直接在宿主机 backups 目录中复制、迁移该文件。`,
-          'success'
-        )
-        // 刷新 Docker 备份列表
-        loadDockerBackups()
-      } else {
-        showCustomAlert('导出成功', `核心数据已成功打包并安全落盘！\n\n保存路径:\n${res.path}`, 'success')
-      }
+      showCustomAlert('导出成功', `核心数据已成功打包并安全落盘！\n\n保存路径:\n${res.path}`, 'success')
     } else if (res.canceled) {
       // 用户主动取消保存，不做报错提示，静默放行
       console.log('[Backup] 用户取消了备份保存')
@@ -9581,18 +9560,10 @@ async function handleExportProjectData() {
 function handleImportProjectData() {
   if (isImportingData.value) return
   
-  if (isDockerMode.value) {
-    // 🚀 Docker 模式下：自动载入备份列表并打开弹窗
-    loadDockerBackups()
-    selectedFileName.value = ''
-    selectedFilePath.value = ''
-    showImportModal.value = true
-    return
-  }
-
-  // 初始化模态框状态
+  // 初始化模态框状态，与桌面端共用流式导入拖拽框，不再显示服务器 backups 目录点选列表
   selectedFileName.value = ''
   selectedFilePath.value = ''
+  selectedFileRaw.value = null
   showImportModal.value = true
 }
 
@@ -9604,29 +9575,97 @@ function handleSelectedBackupFile(file: File) {
     return
   }
   
-  // 🚀 核心升级：增加极强的防御性灾备机制
-  const pathVal = (file as any).path || ''
-  if (!pathVal) {
-    showCustomAlert(
-      '安全沙箱限制',
-      '检测到您当前使用的系统环境或沙箱限制，导致拖拽文件未能成功捕获绝对物理路径。\n\n请直接【点击该区域】，在弹出的原生文件管理器中重新选择此文件，即可百分之百完美恢复数据！',
-      'error'
-    )
-    selectedFileName.value = ''
-    selectedFilePath.value = ''
-    return
+  if (isDockerMode.value) {
+    // 🚀 Docker/Web 模式下：物理持有原生 File 二进制句柄，绕过浏览器的物理路径沙箱限制
+    selectedFileName.value = file.name
+    selectedFileRaw.value = file
+    selectedFilePath.value = 'docker-virtual-path'
+  } else {
+    // 🚀 桌面客户端模式：获取物理绝对路径
+    const pathVal = (file as any).path || ''
+    if (!pathVal) {
+      showCustomAlert(
+        '安全沙箱限制',
+        '检测到您当前使用的系统环境或沙箱限制，导致拖拽文件未能成功捕获绝对物理路径。\n\n请直接【点击该区域】，在弹出的原生文件管理器中重新选择此文件，即可百分之百完美恢复数据！',
+        'error'
+      )
+      selectedFileName.value = ''
+      selectedFilePath.value = ''
+      selectedFileRaw.value = null
+      return
+    }
+    selectedFileName.value = file.name
+    selectedFilePath.value = pathVal
+    selectedFileRaw.value = null
   }
-  
-  selectedFileName.value = file.name
-  selectedFilePath.value = pathVal
 }
 
-// 物理触发自定义导入 (传递路径字符串)
+// 物理触发自定义导入 (流式网络上传或物理路径导入)
 async function executeCustomImport() {
   if (!selectedFilePath.value) return
   showImportModal.value = false
   isImportingData.value = true
+  importProgress.value = 0
   
+  if (isDockerMode.value) {
+    if (!selectedFileRaw.value) {
+      isImportingData.value = false
+      return
+    }
+    
+    try {
+      const file = selectedFileRaw.value
+      console.log(`[Backup Import] 开始向 VPS 流式上传备份包: ${file.name}, 大小: ${(file.size / 1024).toFixed(2)} KB`);
+      
+      const xhr = new XMLHttpRequest()
+      
+      // 流式上传进度监听
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percent = Math.round((e.loaded / e.total) * 100)
+          importProgress.value = percent
+          console.log(`[Backup Import] 备份包流式上传进度: ${percent}%`);
+        }
+      })
+      
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            try {
+              const res = JSON.parse(xhr.responseText)
+              if (res.success) {
+                // 成功，通过 SSE 或者这里直接提示
+                showCustomAlert('还原成功', '备份已成功流式上传并物理写入！容器正在自动热重启中...', 'success')
+              } else {
+                showCustomAlert('还原失败', `数据解包异常: ${res.error || '未知错误'}`, 'error')
+                isImportingData.value = false
+              }
+            } catch (e: any) {
+              showCustomAlert('还原失败', `解析服务器响应失败: ${e.message || e}`, 'error')
+              isImportingData.value = false
+            }
+          } else {
+            showCustomAlert('还原失败', `上传数据包服务器网络异常 (HTTP ${xhr.status})`, 'error')
+            isImportingData.value = false
+          }
+        }
+      }
+      
+      xhr.open('POST', `${window.location.protocol}//${window.location.host}/api/backups/import`)
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+      
+      // 裸发 ArrayBuffer 流，极大节约内存占用，防止大文件 Base64 造成堆栈溢出！
+      const arrayBuffer = await file.arrayBuffer()
+      xhr.send(arrayBuffer)
+      
+    } catch (err: any) {
+      showCustomAlert('还原失败', `流式上传备份遭遇致命错误: ${err.message || String(err)}`, 'error')
+      isImportingData.value = false
+    }
+    return
+  }
+
+  // 桌面客户端模式原有逻辑
   try {
     const res = await window.api.invoke('import-project-data', selectedFilePath.value)
     if (res.success) {
@@ -9643,17 +9682,35 @@ async function executeCustomImport() {
 
 // ── 导入还原自定义文件选择与拖拽事件处理 ──
 async function triggerBackupFileInput() {
+  if (isDockerMode.value) {
+    // 🚀 Docker/Web 端下：直接触发隐藏的 HTML5 file input，拉起原生浏览器选择器！
+    document.getElementById('docker-backup-file-input')?.click()
+    return
+  }
+
   try {
     const res = await window.api.invoke('open-backup-file-dialog')
     if (res.success && res.path) {
       selectedFileName.value = res.name
       selectedFilePath.value = res.path
+      selectedFileRaw.value = null
     } else if (res.error) {
       showCustomAlert('选择失败', `拉起文件窗口异常: ${res.error}`, 'error')
     }
   } catch (err: any) {
     showCustomAlert('选择失败', `物理调取原生窗口遭遇致命错误: ${err.message || String(err)}`, 'error')
   }
+}
+
+// 浏览器专属：通过原生 input 选择文件后的回调处理器
+function onDockerFileSelected(e: Event) {
+  const target = e.target as HTMLInputElement
+  const files = target.files
+  if (files && files.length > 0) {
+    handleSelectedBackupFile(files[0])
+  }
+  // 清空 value 确保同名文件可重复点选触发 change
+  target.value = ''
 }
 
 function onBackupFileDropped(e: DragEvent) {

@@ -5887,6 +5887,222 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
     return true;
   }
 
+  // ====== 新增：GET /api/backups/export 内存零落地打包流式下载接口 ======
+  if (req.method === 'GET' && req.url && req.url.startsWith('/api/backups/export')) {
+    try {
+      console.log('[Backup Server] 收到跨网流式备份导出请求，正在扫描核心物理目录...');
+      const userDataPath = app.getPath('userData');
+      const backupDirs = ['database', 'characters', 'config', 'groups', 'EchoMusicSources'];
+      const filesToPack: Array<{ relativePath: string; content: string }> = [];
+
+      // 递归读取核心目录
+      const traverseDirectory = (currentDir: string, relativeRoot: string) => {
+        if (!fs.existsSync(currentDir)) return;
+        const items = fs.readdirSync(currentDir);
+        for (const item of items) {
+          const fullPath = path.join(currentDir, item);
+          const relPath = path.join(relativeRoot, item);
+          const stat = fs.statSync(fullPath);
+          
+          if (stat.isDirectory()) {
+            traverseDirectory(fullPath, relPath);
+          } else if (stat.isFile()) {
+            const contentBuffer = fs.readFileSync(fullPath);
+            filesToPack.push({
+              relativePath: relPath,
+              content: contentBuffer.toString('base64')
+            });
+          }
+        }
+      };
+
+      for (const dir of backupDirs) {
+        const fullDir = path.join(userDataPath, dir);
+        traverseDirectory(fullDir, dir);
+      }
+
+      const backupData = {
+        version: app.getVersion(),
+        timestamp: Date.now(),
+        files: filesToPack
+      };
+
+      console.log(`[Backup Server] 扫描完毕，共打包 ${filesToPack.length} 个文件。正在执行内存 Gzip 压缩...`);
+      const jsonStr = JSON.stringify(backupData);
+      const compressedBuffer = zlib.gzipSync(Buffer.from(jsonStr, 'utf-8'));
+
+      console.log(`[Backup Server] 压缩顺利完成！大小: ${(compressedBuffer.length / 1024 / 1024).toFixed(2)} MB。正在写入流式 Response 附件...`);
+      
+      const safeDateStr = new Date().toISOString().slice(0, 10);
+      res.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="EchoBackup_${safeDateStr}.echo"`,
+        'Content-Length': compressedBuffer.length,
+        'Cache-Control': 'no-cache'
+      });
+      res.end(compressedBuffer);
+      console.log('[Backup Server] 备份文件流式输出完毕，Perfect！🐾');
+    } catch (err: any) {
+      console.error('[Backup Server] 导出备份流发生致命异常:', err);
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: false, error: err.message || String(err) }));
+    }
+    return true;
+  }
+
+  // ====== 新增：POST /api/backups/import 跨网流式备份包上传恢复接口 ======
+  if (req.method === 'POST' && req.url && req.url.startsWith('/api/backups/import')) {
+    console.log('[Backup Server] 收到跨网流式备份导入请求，正在接收数据流...');
+    const chunks: Buffer[] = [];
+    
+    req.on('data', (chunk) => {
+      chunks.push(chunk);
+    });
+
+    req.on('end', async () => {
+      try {
+        const fileBuffer = Buffer.concat(chunks);
+        console.log(`[Backup Server] 二进制数据流接收成功，共 ${(fileBuffer.length / 1024).toFixed(2)} KB。开始执行内存 Gzip 解压...`);
+
+        let decompressedData: string;
+        try {
+          decompressedData = zlib.gunzipSync(fileBuffer).toString('utf-8');
+        } catch (decompressErr) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: '解压备份数据包失败，文件可能已损坏或格式不正确' }));
+          return;
+        }
+
+        let backupObj: any;
+        try {
+          backupObj = JSON.parse(decompressedData);
+        } catch (jsonErr) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: '解析备份包配置文件 JSON 格式错误' }));
+          return;
+        }
+
+        if (!backupObj || !Array.isArray(backupObj.files)) {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: '非法的备份文件结构，未找到有效的文件列表' }));
+          return;
+        }
+
+        console.log(`[Backup Server] 验证成功！备份包含 ${backupObj.files.length} 个文件。开始执行物理级灾备覆盖写盘...`);
+
+        const userDataPath = app.getPath('userData');
+        const backupDirs = ['database', 'characters', 'config', 'groups', 'EchoMusicSources'];
+
+        // 🚀 物理重置数据库单例（释放 SQLite 文件句柄锁）
+        resetDatabaseService();
+
+        // 两阶段安全事务防灾：重命名现有文件夹到临时备份
+        const backupTimestamp = Date.now();
+        const tempRestoreBackupDir = path.join(userDataPath, `temp_restore_backup_${backupTimestamp}`);
+        fs.mkdirSync(tempRestoreBackupDir, { recursive: true });
+
+        const movedDirs: string[] = [];
+        try {
+          for (const dir of backupDirs) {
+            const oldDirPath = path.join(userDataPath, dir);
+            if (fs.existsSync(oldDirPath)) {
+              const destPath = path.join(tempRestoreBackupDir, dir);
+              fs.renameSync(oldDirPath, destPath);
+              movedDirs.push(dir);
+            }
+          }
+        } catch (moveErr: any) {
+          // 移动现有目录失败，回滚
+          for (const dir of movedDirs) {
+            const tempPath = path.join(tempRestoreBackupDir, dir);
+            const oldDirPath = path.join(userDataPath, dir);
+            if (fs.existsSync(tempPath)) {
+              fs.renameSync(tempPath, oldDirPath);
+            }
+          }
+          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: `备份现有数据失败（物理文件可能被占用）: ${moveErr.message}` }));
+          return;
+        }
+
+        // 依次解密并写入物理文件
+        try {
+          for (const fileItem of backupObj.files) {
+            if (!fileItem.relativePath || typeof fileItem.content !== 'string') continue;
+            
+            // 路径安全防越界校验
+            const normalizedPath = path.normalize(fileItem.relativePath);
+            if (normalizedPath.startsWith('..') || path.isAbsolute(normalizedPath)) {
+              throw new Error(`非法的安全越界文件路径: ${fileItem.relativePath}`);
+            }
+
+            const firstDir = normalizedPath.split(path.sep)[0];
+            if (!backupDirs.includes(firstDir)) {
+              continue; // 忽略不属于备份目录的文件
+            }
+
+            const targetFilePath = path.join(userDataPath, normalizedPath);
+            const targetFileDir = path.dirname(targetFilePath);
+
+            if (!fs.existsSync(targetFileDir)) {
+              fs.mkdirSync(targetFileDir, { recursive: true });
+            }
+
+            const outBuffer = Buffer.from(fileItem.content, 'base64');
+            fs.writeFileSync(targetFilePath, outBuffer);
+          }
+        } catch (writeErr: any) {
+          console.error('[Backup Server] 写入物理文件异常，触发防灾级回滚恢复中...', writeErr);
+          // 清理写入的不完整文件夹
+          for (const dir of backupDirs) {
+            const currentPath = path.join(userDataPath, dir);
+            if (fs.existsSync(currentPath)) {
+              fs.rmSync(currentPath, { recursive: true, force: true });
+            }
+          }
+          // 恢复原有的临时备份
+          for (const dir of movedDirs) {
+            const tempPath = path.join(tempRestoreBackupDir, dir);
+            const oldDirPath = path.join(userDataPath, dir);
+            if (fs.existsSync(tempPath)) {
+              fs.renameSync(tempPath, oldDirPath);
+            }
+          }
+          fs.rmSync(tempRestoreBackupDir, { recursive: true, force: true });
+
+          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: `写入恢复数据出错（数据已安全回退还原）: ${writeErr.message || String(writeErr)}` }));
+          return;
+        }
+
+        // 成功，清理临时安全防灾文件夹
+        try {
+          fs.rmSync(tempRestoreBackupDir, { recursive: true, force: true });
+        } catch (_) {}
+
+        console.log('[Backup Server] 数据解压缩与物理还原覆盖全面成功！向前端广播重启...');
+        
+        // 广播通知前端
+        broadcastToSse('docker-restore-success', { success: true });
+
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ success: true, message: '备份还原成功！服务器即将在 1.5 秒后完成热重启！🐾' }));
+
+        // 延迟 1.5 秒自动执行热重启
+        setTimeout(() => {
+          app.relaunch();
+          app.exit(0);
+        }, 1500);
+
+      } catch (err: any) {
+        console.error('[Backup Server] 流式上传备份处理发生致命崩溃:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ success: false, error: err.message || String(err) }));
+      }
+    });
+    return true;
+  }
+
   // 3. 处理 /api/ipc POST 路由
   if (req.method === 'POST' && req.url && req.url.startsWith('/api/ipc')) {
     let body = '';
