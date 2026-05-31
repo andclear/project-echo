@@ -690,6 +690,61 @@ class MusicPlayerStore {
 
   // ====== 音乐物理下载与进度追踪 ======
   public async downloadSong(song: Song) {
+    const isDocker = typeof window !== 'undefined' && window.location.protocol.startsWith('http')
+    
+    if (isDocker) {
+      try {
+        console.log('[MusicStore] 检测到运行于 Docker/Web 沙箱环境，正在流式拉取直链并触发原生下载...');
+        
+        // 1. 获取音频直链
+        const resUrl = await (window as any).api.invoke('get-music-url', {
+          songmid: song.songmid,
+          name: song.name,
+          singer: song.singer,
+          durationSec: song.durationSec || 240,
+          quality: this.state.quality,
+          source: song.source || 'wy'
+        })
+
+        if (!resUrl.success || !resUrl.url) {
+          alert('无法获取该歌曲的下载播放链接')
+          return
+        }
+
+        // 2. 获取歌词
+        let lyricText = ''
+        const lrcRes = await (window as any).api.invoke('wy-get-lyric', song.songmid)
+        if (lrcRes.success && lrcRes.lyric) {
+          lyricText = lrcRes.lyric
+        }
+
+        // 3. 构建流式下载 Query 参数并跳转触发原生另存为
+        const query = new URLSearchParams({
+          songmid: song.songmid,
+          name: song.name,
+          singer: song.singer,
+          albumName: song.albumName || '',
+          quality: this.state.quality,
+          imgUrl: song.img || '',
+          lyricText,
+          url: resUrl.url
+        })
+
+        let targetHost = window.location.host
+        if (window.location.port === '5173') {
+          // 开发热重载调试环境下，强行纠正并重定向至 Express 主进程真实服务的 6868 端口
+          targetHost = `${window.location.hostname}:6868`
+        }
+
+        window.location.href = `${window.location.protocol}//${targetHost}/api/music/download?${query.toString()}`
+        console.log('[MusicStore] 流式附件另存为触发成功，Perfect！🐾')
+      } catch (err: any) {
+        console.error('[MusicStore] 流式下载发生崩溃:', err)
+        alert(`流式下载失败: ${err.message || err}`)
+      }
+      return
+    }
+
     try {
       // 首先获取该品质下的下载链接 (不让自动换源，优先网易云，若下架则在主进程自动换源)
       const resUrl = await (window as any).api.invoke('get-music-url', {

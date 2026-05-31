@@ -1,4 +1,26 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+// 注入高精度 Mock 隔离 Electron 运行依赖与 C++ 数据库文件句柄
+const mockDbService = {
+  getSetting: vi.fn().mockReturnValue(null),
+  recordModelCall: vi.fn(),
+  getAllCharacters: vi.fn().mockReturnValue([])
+}
+
+vi.mock('../src/main/db/database', () => {
+  return {
+    getDatabaseService: () => mockDbService
+  }
+})
+
+vi.mock('electron', () => {
+  return {
+    app: {
+      getPath: vi.fn().mockReturnValue('/tmp/echo-tests-mock')
+    }
+  }
+})
+
 import {
   ModelAdapter,
   ModelConfig,

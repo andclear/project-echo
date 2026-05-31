@@ -497,46 +497,46 @@
           <div class="flex-1 overflow-y-auto py-2 space-y-1 select-none">
             <!-- 歌单推荐 -->
             <button 
-              @click="activeMusicTab = 'recommend'; loadRecommendPlaylists(); currentDetailPlaylistSongs = [];"
+              @click="showMusicSearchResultsView = false; activeMusicTab = 'recommend'; loadRecommendPlaylists(); currentDetailPlaylistSongs = [];"
               class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
               :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'recommend' || activeMusicTab === 'playlist_detail' }"
             >
               <GlobeIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'recommend' || activeMusicTab === 'playlist_detail' }" />
               <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">歌单推荐</span>
             </button>
-
+ 
             <!-- 排行榜 -->
             <button 
-              @click="activeMusicTab = 'leaderboard'; loadLeaderboardList(activeBangId);"
+              @click="showMusicSearchResultsView = false; activeMusicTab = 'leaderboard'; loadLeaderboardList(activeBangId);"
               class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
               :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'leaderboard' }"
             >
               <ActivityIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'leaderboard' }" />
               <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">排行榜</span>
             </button>
-
+ 
             <!-- 播放列表 -->
             <button 
-              @click="activeMusicTab = 'playlist'; musicStore.loadPlaylistSongs(musicStore.state.activePlaylistId); currentDetailPlaylistSongs = [];"
+              @click="showMusicSearchResultsView = false; activeMusicTab = 'playlist'; musicStore.loadPlaylistSongs(musicStore.state.activePlaylistId); currentDetailPlaylistSongs = [];"
               class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
               :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'playlist' }"
             >
               <MusicIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'playlist' }" />
               <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">自建播放列表</span>
             </button>
-
+ 
             <!-- 自建列表展开项 -->
             <div v-if="activeMusicTab === 'playlist' && !currentDetailPlaylistSongs.length" class="pl-6 pr-2 space-y-1">
               <!-- “我的收藏”列表 -->
               <button 
-                @click="musicStore.loadPlaylistSongs('love')"
+                @click="showMusicSearchResultsView = false; musicStore.loadPlaylistSongs('love')"
                 class="w-full px-3 py-2 rounded-xl hover:bg-surface-high text-[11px] flex items-center justify-between text-left"
                 :class="musicStore.state.activePlaylistId === 'love' ? 'text-primary font-bold bg-primary/5' : 'text-on-surface-variant'"
               >
                 <span class="truncate">❤️ 我的收藏</span>
                 <span class="text-[9px] font-mono opacity-50">({{ musicStore.state.favoriteSongs.length }})</span>
               </button>
-
+ 
               <!-- 其他自建列表 -->
               <div 
                 v-for="lst in musicStore.state.playlists" 
@@ -545,7 +545,7 @@
                 :class="musicStore.state.activePlaylistId === lst.id ? 'text-primary font-bold bg-primary/5' : 'text-on-surface-variant'"
               >
                 <button 
-                  @click="musicStore.loadPlaylistSongs(lst.id)"
+                  @click="showMusicSearchResultsView = false; musicStore.loadPlaylistSongs(lst.id)"
                   class="flex-1 text-left truncate cursor-pointer"
                 >
                   📁 {{ lst.name }}
@@ -559,20 +559,20 @@
                 </button>
               </div>
             </div>
-
+ 
             <!-- 下载 -->
             <button 
-              @click="activeMusicTab = 'download';"
+              @click="showMusicSearchResultsView = false; activeMusicTab = 'download';"
               class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
               :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'download' }"
             >
               <DownloadIcon class="w-4 h-4 text-on-surface-variant group-hover:scale-110 transition-transform" :class="{ '!text-primary': activeMusicTab === 'download' }" />
               <span class="text-xs text-on-surface font-semibold text-left flex-1 truncate">下载中心</span>
             </button>
-
+ 
             <!-- 设置 -->
             <button 
-              @click="activeMusicTab = 'settings';"
+              @click="showMusicSearchResultsView = false; activeMusicTab = 'settings';"
               class="w-full px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
               :class="{ 'bg-surface-high/80 text-primary font-bold': activeMusicTab === 'settings' }"
             >
@@ -3585,15 +3585,8 @@
 
             <!-- 0. 搜索结果专属主视图 (优先级最高) -->
             <div v-if="showMusicSearchResultsView" class="flex-1 overflow-y-auto p-6 min-h-0 space-y-6 animate-fade-in select-text">
-              <!-- 返回/退出搜索按钮 -->
-              <button 
-                @click="exitMusicSearch"
-                class="px-3.5 py-1.5 rounded-xl border border-outline-variant/60 hover:bg-surface-high text-xs font-bold text-on-surface select-none cursor-pointer flex items-center space-x-1.5 transition-colors focus:outline-none"
-              >
-                <span>◀</span> <span>返回 / 退出搜索</span>
-              </button>
 
-              <!-- 搜索 Tab 栏 (单曲 / 歌单) -->
+              <!-- 搜索 Tab 栏 (单曲 / 歌单 / 歌手) -->
               <div class="flex items-center space-x-1.5 border-b border-outline-variant/30 pb-2 select-none">
                 <button 
                   @click="changeSearchTab('song')"
@@ -3613,11 +3606,20 @@
                 >
                   歌单
                 </button>
+                <button 
+                  @click="changeSearchTab('singer')"
+                  class="px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer focus:outline-none"
+                  :class="musicSearchType === 'singer' 
+                    ? (isDark ? 'bg-emerald-400 text-zinc-950 shadow-sm font-black' : 'bg-primary text-white shadow-sm font-black') 
+                    : (isDark ? 'text-zinc-400 hover:text-white hover:bg-white/5' : 'text-on-surface-variant hover:bg-primary/5')"
+                >
+                  歌手
+                </button>
               </div>
 
               <div class="flex items-center justify-between select-none">
                 <h3 class="text-sm font-extrabold text-on-surface flex items-center space-x-2">
-                  <span>🔍</span> <span>“{{ musicSearchKeyword }}” 的搜索结果 ({{ musicSearchType === 'song' ? musicSearchResults.length : musicSearchPlaylistsResults.length }})</span>
+                  <span>🔍</span> <span>“{{ musicSearchKeyword }}” 的搜索结果 ({{ musicSearchType === 'song' ? musicSearchResults.length : (musicSearchType === 'playlist' ? musicSearchPlaylistsResults.length : musicSearchSingersResults.length) }})</span>
                 </h3>
               </div>
 
@@ -3628,7 +3630,7 @@
               </div>
 
               <!-- 空数据 -->
-              <div v-else-if="musicSearchType === 'song' ? !musicSearchResults.length : !musicSearchPlaylistsResults.length" class="py-24 text-center text-on-surface-variant/60 dark:text-zinc-400 text-xs select-none">
+              <div v-else-if="musicSearchType === 'song' ? !musicSearchResults.length : (musicSearchType === 'playlist' ? !musicSearchPlaylistsResults.length : !musicSearchSingersResults.length)" class="py-24 text-center text-on-surface-variant/60 dark:text-zinc-400 text-xs select-none">
                 没有找到相关的结果，换个词试试吧 🐾
               </div>
 
@@ -3670,7 +3672,15 @@
                             网易
                           </span>
                         </td>
-                        <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">{{ song.singer }}</td>
+                        <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">
+                          <span 
+                            @click.stop="triggerSearchSingerSongs(song.singer)"
+                            class="hover:text-primary hover:underline cursor-pointer transition-colors"
+                            title="查看该歌手的所有歌曲"
+                          >
+                            {{ song.singer }}
+                          </span>
+                        </td>
                         <td class="py-2.5 px-4 text-on-surface-variant truncate max-w-[120px]">{{ song.albumName || '-' }}</td>
                         <td class="py-2.5 px-4 text-center select-none">
                           <span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[8.5px] font-black uppercase font-mono">320K</span>
@@ -3710,7 +3720,7 @@
               </div>
 
               <!-- 搜索结果歌单网格 (当选歌单 Tab 时) -->
-              <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 select-none">
+              <div v-else-if="musicSearchType === 'playlist'" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 select-none">
                 <div 
                   v-for="p in musicSearchPlaylistsResults" 
                   :key="p.id"
@@ -3737,6 +3747,42 @@
                     <div class="text-[8.5px] text-on-surface-variant/50 font-black mt-2.5">
                       共 {{ p.trackCount || 0 }} 首歌曲
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 搜索结果歌手列表 (当选歌手 Tab 时) -->
+              <div v-else-if="musicSearchType === 'singer'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div 
+                  v-for="artist in musicSearchSingersResults" 
+                  :key="artist.id"
+                  @click="loadArtistDetailSongs(artist)"
+                  class="flex items-center space-x-4 p-4 rounded-2xl bg-surface-low border border-outline-variant/60 hover:border-primary/50 hover:bg-surface-high/60 hover:shadow-lg transition-all cursor-pointer group/card select-none"
+                >
+                  <!-- 歌手圆形头像 -->
+                  <div class="relative w-14 h-14 rounded-full overflow-hidden border border-outline-variant/40 group-hover/card:scale-105 group-hover/card:rotate-2 transition-transform duration-300">
+                    <img 
+                      v-if="artist.img" 
+                      :src="artist.img" 
+                      class="w-full h-full object-cover" 
+                      alt="歌手头像" 
+                    />
+                    <div v-else class="w-full h-full bg-primary/10 text-primary flex items-center justify-center font-extrabold text-sm">
+                      {{ artist.name.slice(0, 1) }}
+                    </div>
+                  </div>
+                  <!-- 歌手描述 -->
+                  <div class="flex-1 min-w-0">
+                    <h4 class="font-extrabold text-sm text-on-surface group-hover/card:text-primary transition-colors truncate font-sans">
+                      {{ artist.name }}
+                    </h4>
+                    <p class="text-[10px] text-on-surface-variant/70 font-bold mt-1">
+                      {{ artist.trackCount }} 首单曲 · {{ artist.albumCount }} 张专辑
+                    </p>
+                  </div>
+                  <!-- 查阅小按钮 -->
+                  <div class="w-7 h-7 rounded-full bg-surface-high border border-outline-variant/30 flex items-center justify-center text-on-surface-variant group-hover/card:bg-primary group-hover/card:text-white group-hover/card:border-primary transition-all scale-90 group-hover/card:scale-100">
+                    <ChevronRightIcon class="w-4 h-4" />
                   </div>
                 </div>
               </div>
@@ -4303,7 +4349,7 @@
                 </div>
 
                 <!-- 第三部分：下载存放目录 -->
-                <div class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-3.5">
+                <div v-if="!isDockerMode" class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-3.5">
                   <h4 class="text-xs font-black text-on-surface flex items-center space-x-1.5">
                     <span>📂</span> <span>默认下载存储路径</span>
                   </h4>
@@ -4389,7 +4435,7 @@
                 </div>
 
                 <!-- 第五部分：桌面歌词自定义背景与文字颜色设置 -->
-                <div class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-4 select-none">
+                <div v-if="!isDockerMode" class="p-5 rounded-2xl bg-surface-low border border-outline-variant/60 shadow-sm space-y-4 select-none">
                   <h4 class="text-xs font-black text-on-surface flex items-center space-x-1.5">
                     <span>🎨</span> <span>桌面歌词个性化主题</span>
                   </h4>
@@ -7243,7 +7289,7 @@
 
     <!-- ====== 音乐底栏播放控制栏 ====== -->
     <div 
-      v-if="generalConfig.enable_music"
+      v-if="!isMobile && generalConfig.enable_music"
       class="h-20 bg-surface-low border-t border-outline-variant/60 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] px-6 flex items-center justify-between z-40 select-none flex-shrink-0"
     >
       <!-- 左侧：封面、歌名、歌手 -->
@@ -7324,14 +7370,16 @@
           </button>
 
           <!-- 桌面歌词 -->
-          <button 
-            @click="musicStore.toggleDesktopLyric()" 
-            class="p-1 rounded text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
-            :class="{ 'text-primary font-bold': musicStore.state.enableDesktopLyric }"
-            title="词 (桌面歌词)"
-          >
-            <span class="text-[11px] font-black font-sans">词</span>
-          </button>
+          <template v-if="!isDockerMode">
+            <button 
+              @click="musicStore.toggleDesktopLyric()" 
+              class="p-1 rounded text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
+              :class="{ 'text-primary font-bold': musicStore.state.enableDesktopLyric }"
+              title="词 (桌面歌词)"
+            >
+              <span class="text-[11px] font-black font-sans">词</span>
+            </button>
+          </template>
         </div>
 
         <!-- 进度条 -->
@@ -8153,16 +8201,6 @@
         <span class="text-[9px] scale-90 font-semibold tracking-tighter">收藏</span>
       </button>
 
-      <!-- 6. 音乐 (可选) -->
-      <button 
-        v-if="generalConfig.enable_music"
-        @click="sideView = 'music'; isMobileMusicActive = false" 
-        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
-        :class="{ 'text-primary font-bold': sideView === 'music' }"
-      >
-        <MusicIcon class="w-5 h-5" />
-        <span class="text-[9px] scale-90 font-semibold tracking-tighter">音乐</span>
-      </button>
 
       <!-- 7. 设置 -->
       <button 
@@ -8680,6 +8718,7 @@ import {
   Check as CheckIcon,
   ChevronDown as ChevronDownIcon,
   ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
   History as HistoryIcon,
   MoreHorizontal as MoreHorizontalIcon,
   UploadCloud as UploadCloudIcon,
@@ -9037,7 +9076,8 @@ const musicSearchKeyword = ref('')
 const musicSearchSuggestions = ref<any[]>([])
 const musicSearchResults = ref<any[]>([])
 const musicSearchPlaylistsResults = ref<any[]>([])
-const musicSearchType = ref('song') // 'song' | 'playlist'
+const musicSearchSingersResults = ref<any[]>([])
+const musicSearchType = ref('song') // 'song' | 'playlist' | 'singer'
 const showMusicSearchSuggestions = ref(false)
 const showMusicSearchResultsView = ref(false)
 const isLoadingMusicSearchResults = ref(false)
@@ -14971,6 +15011,11 @@ async function triggerMusicSearch() {
       if (res.success) {
         musicSearchResults.value = res.songs
       }
+    } else if (musicSearchType.value === 'singer') {
+      const res = await window.api.invoke('wy-search-singers', val)
+      if (res.success) {
+        musicSearchSingersResults.value = res.artists
+      }
     } else {
       const res = await window.api.invoke('wy-search-playlists', val)
       if (res.success) {
@@ -14981,6 +15026,39 @@ async function triggerMusicSearch() {
     console.error('执行正式搜索发生异常:', err)
   } finally {
     isLoadingMusicSearchResults.value = false
+  }
+}
+
+async function triggerSearchSingerSongs(singerName: string) {
+  // 极速重设关键字并一键穿透切换至“单曲”Tab进行秒级级联搜索
+  musicSearchKeyword.value = singerName
+  musicSearchType.value = 'song'
+  await triggerMusicSearch()
+}
+
+async function loadArtistDetailSongs(artist: any) {
+  isLoadingPlaylistDetails.value = true
+  try {
+    const res = await window.api.invoke('wy-get-artist-songs', {
+      id: artist.id,
+      name: artist.name,
+      source: artist.source
+    })
+    if (res.success) {
+      currentDetailPlaylistSongs.value = res.list || []
+      currentDetailPlaylistName.value = `“${artist.name}” 的热门单曲`
+      playlistDetailsBackTab.value = 'search'
+      
+      // 隐去搜索结果主视图，并强力激活专属歌手/歌单单曲列表详情大视图！
+      showMusicSearchResultsView.value = false
+      activeMusicTab.value = 'playlist_detail'
+    } else {
+      alert(`获取歌手热门单曲失败: ${res.error}`)
+    }
+  } catch (err: any) {
+    console.error('拉取歌手热门作品异常:', err)
+  } finally {
+    isLoadingPlaylistDetails.value = false
   }
 }
 
@@ -15000,6 +15078,7 @@ function exitMusicSearch() {
   musicSearchKeyword.value = ''
   musicSearchResults.value = []
   musicSearchPlaylistsResults.value = []
+  musicSearchSingersResults.value = []
   musicSearchType.value = 'song'
 }
 

@@ -4,6 +4,7 @@ import path, { join, extname, basename } from 'path'
 import fs from 'fs'
 import zlib from 'zlib'
 import * as http from 'http'
+import * as https from 'https'
 import * as os from 'os'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { getDatabaseService, resetDatabaseService } from './db/database'
@@ -24,7 +25,7 @@ import { UserProfileReaderWriter } from './utils/UserProfileReaderWriter'
 import { StateReaderWriter, StateItem } from './utils/StateReaderWriter'
 import { SocialMediaService } from './services/SocialMediaService'
 import { SoulEvolutionService } from './services/SoulEvolutionService'
-import { MusicService } from './services/MusicService'
+import { MusicService, Mp3Id3Writer } from './services/MusicService'
 import { NovelAiService } from './services/NovelAiService'
 import { UpdateService } from './services/UpdateService'
 import { WeChatService } from './services/WeChatService'
@@ -5883,6 +5884,112 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
 
     req.on('close', () => {
       sseClients.delete(res);
+    });
+    return true;
+  }
+
+  // ====== 新增：GET /api/music/download 内存零落地音乐流式下载接口 ======
+  if (req.method === 'GET' && req.url && req.url.startsWith('/api/music/download')) {
+    (async () => {
+      try {
+        console.log('[Music Server] 收到网页端音乐流式下载请求，正在解析元数据...');
+        const parsedUrl = new URL(req.url!, `http://${req.headers.host}`);
+        const songmid = parsedUrl.searchParams.get('songmid') || '';
+        const name = parsedUrl.searchParams.get('name') || '未知歌曲';
+        const singer = parsedUrl.searchParams.get('singer') || '群星';
+        const albumName = parsedUrl.searchParams.get('albumName') || '';
+        const imgUrl = parsedUrl.searchParams.get('imgUrl') || '';
+        const lyricText = parsedUrl.searchParams.get('lyricText') || '';
+        const playUrl = parsedUrl.searchParams.get('url') || '';
+        const quality = parsedUrl.searchParams.get('quality') || '320k';
+
+        if (!playUrl) {
+          throw new Error('未提供有效音频源链接，下载终止。');
+        }
+
+        console.log(`[Music Server] 准备下载: ${singer} - ${name}，音质: ${quality}，图片: ${imgUrl}`);
+
+        const downloadBuffer = (urlStr: string): Promise<Buffer> => {
+          return new Promise((resolve, reject) => {
+            if (!urlStr || !urlStr.startsWith('http')) {
+              reject(new Error('非法的网络下载 URL'));
+              return;
+            }
+            const client = urlStr.startsWith('https') ? https : http;
+            client.get(urlStr, (downloadRes: any) => {
+              if (downloadRes.statusCode === 302 || downloadRes.statusCode === 301) {
+                downloadBuffer(downloadRes.headers.location!).then(resolve).catch(reject);
+                return;
+              }
+              if (downloadRes.statusCode !== 200) {
+                reject(new Error(`下载请求失败，HTTP Code ${downloadRes.statusCode}`));
+                return;
+              }
+              const chunks: Buffer[] = [];
+              downloadRes.on('data', (c: any) => chunks.push(c));
+              downloadRes.on('end', () => resolve(Buffer.concat(chunks)));
+            }).on('error', reject);
+          });
+        };
+
+        // 1. 并发流式拉取音频 Buffer 与图片 Buffer
+        console.log('[Music Server] 正在从 CDN 流式拉取音频原始二进制数据...');
+        const audioPromise = downloadBuffer(playUrl);
+        const picPromise = imgUrl ? downloadBuffer(imgUrl).catch(() => undefined) : Promise.resolve(undefined);
+
+        const [audioBuffer, picBuffer] = await Promise.all([audioPromise, picPromise]);
+        console.log(`[Music Server] 音频抓取成功！大小: ${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+
+        // 2. 物理零残存中转：在宿主机的临时文件夹下写入元数据，随后读取输出并物理删除
+        const tempFolder = app.getPath('temp');
+        const ext = quality === 'flac' ? '.flac' : '.mp3';
+        const tempFilename = `echo_music_temp_${Date.now()}_${Math.floor(Math.random() * 1000)}${ext}`;
+        const tempPath = path.join(tempFolder, tempFilename);
+
+        fs.writeFileSync(tempPath, audioBuffer);
+
+        // 3. 对 MP3 格式无损注入 ID3v2 标签元数据
+        if (ext === '.mp3') {
+          console.log('[Music Server] 正在向 MP3 物理注入歌手、歌词、专辑名与高清封面元数据...');
+          Mp3Id3Writer.write(tempPath, {
+            title: name,
+            artist: singer,
+            album: albumName,
+            lyrics: lyricText || undefined,
+            picBuffer: picBuffer || undefined
+          });
+        }
+
+        // 4. 读取写入完成 of the final tagged audio
+        const taggedBuffer = fs.readFileSync(tempPath);
+        
+        // 5. 异步删除临时文件
+        try {
+          fs.unlinkSync(tempPath);
+        } catch (_) {}
+
+        // 6. 流式输出音频附件
+        const sanitizedFilename = `${singer} - ${name}${ext}`.replace(/[\\/:*?"<>|]/g, '');
+        const encodedFilename = encodeURIComponent(sanitizedFilename);
+
+        console.log(`[Music Server] 注入打标成功！正在向用户客户端流式输出附件: ${sanitizedFilename}`);
+        
+        res.writeHead(200, {
+          'Content-Type': ext === '.flac' ? 'audio/flac' : 'audio/mpeg',
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodedFilename}`,
+          'Content-Length': taggedBuffer.length,
+          'Cache-Control': 'no-cache'
+        });
+        res.end(taggedBuffer);
+        console.log('[Music Server] 音乐文件附件网络流输出完毕！Perfect！🐾');
+
+      } catch (err: any) {
+        console.error('[Music Server] 流式下载音频发生致命崩溃异常:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ success: false, error: err.message || String(err) }));
+      }
+    })().catch(e => {
+      console.error('[Music Server] 异步自执行任务内部崩溃:', e);
     });
     return true;
   }
