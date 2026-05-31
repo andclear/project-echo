@@ -15305,7 +15305,7 @@ onMounted(async () => {
   window.api.receive('chat-chunk', (data: { characterId: string; content: string; done: boolean; isSystem?: boolean }) => {
     const chunkCharId = data.characterId || streamingCharacterId.value || selectedCharacterId.value || ''
 
-    // 🚀 只要流式吐字或处于流式交互中，就重置/清除超时定时器，只在真正停滞 35秒 以上时才超时自愈
+    // 🚀 只要流式吐字或处于流式交互中，就重置/清除超时定时器，只在真正停滞 10分钟 以上时才超时自愈
     if (data.done) {
       clearReplyTimeout()
     } else {
