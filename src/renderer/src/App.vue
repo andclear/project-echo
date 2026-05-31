@@ -15192,6 +15192,8 @@ onMounted(async () => {
   // 🚀 手机端输入法物理折叠状态高度精密监测与 Done 自愈解锁防线
   if (window.visualViewport) {
     let baseHeight = window.visualViewport.height
+    let keyboardHasOpened = false // 🚀 状态机核心：键盘成功弹起的物理标记，阻断弹起瞬时过渡态误杀
+    
     // 监听窗口尺寸变化，动态修正基准视口高度（优雅适配手机横竖屏切换）
     window.addEventListener('resize', () => {
       if (!isInputFocused.value && window.visualViewport) {
@@ -15203,9 +15205,10 @@ onMounted(async () => {
       if (!isMobile.value || !window.visualViewport) return
       
       const currentHeight = window.visualViewport.height
-      // 🚀 如果当前可视高度极其接近基准高度（差值在 80px 以内，说明输入法软键盘已被彻底折叠收起）
+      // 🚀 键盘收起判定：只有当键盘曾成功弹起过（keyboardHasOpened 为 true），且当前可视区域高度恢复到基准高度 80px 以内时，才认定为真正的收起！
       if (currentHeight >= baseHeight - 80) {
-        if (isInputFocused.value) {
+        if (keyboardHasOpened) {
+          keyboardHasOpened = false
           isInputFocused.value = false
           // 🚀 核心自愈：主动让输入框失焦，完美干掉 iOS 点击 Done/完成 键盘收起后输入框光标残留与不触发 blur 的 Bug！
           if (document.activeElement && (document.activeElement === chatTextarea.value || document.activeElement.tagName === 'TEXTAREA')) {
@@ -15213,7 +15216,8 @@ onMounted(async () => {
           }
         }
       } else if (currentHeight < baseHeight - 120) {
-        // 🚀 如果可视高度比基准高度骤降了 120px 以上，说明输入法软件盘绝对已经弹起！
+        // 🚀 键盘弹起判定：可视高度比基准骤降 120px 以上，说明软件盘已真实弹起！
+        keyboardHasOpened = true
         isInputFocused.value = true
       }
     })
