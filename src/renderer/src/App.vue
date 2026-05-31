@@ -5523,9 +5523,12 @@
                     @keydown="handleKeyDown"
                     @paste="handlePaste"
                     @input="e => { adjustTextareaHeight(e); handleInputAtMention(e) }"
+                    @focus="isInputFocused = true"
+                    @blur="isInputFocused = false"
                     placeholder="发送消息..."
                     rows="1"
-                    class="w-full py-2 px-3 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text max-h-[40vh] shadow-inner"
+                    style="max-height: 120px;"
+                    class="w-full py-2 px-3 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text shadow-inner"
                   ></textarea>
 
                   <!-- 粘贴图片预览 (绝对定位在输入框上方) -->
@@ -5597,7 +5600,8 @@
 
                   <!-- 最右侧：发送按钮 -->
                   <button
-                    @click="sendChatMessage"
+                    @pointerdown.prevent="sendChatMessage"
+                    @click.prevent
                     :disabled="isStreaming || (!chatInputText.trim() && !pastedImageBase64)"
                     class="flex items-center justify-center w-9 h-9 rounded-xl bg-primary text-on-primary disabled:opacity-40 transition-all active:scale-95 cursor-pointer shadow-sm"
                     title="发送"
@@ -5814,7 +5818,8 @@
                 <div class="flex justify-between items-center mt-1.5 flex-shrink-0">
                   <span class="text-[9px] text-on-surface-variant/35 font-medium tracking-wide">Enter 发送，Shift+Enter 换行</span>
                   <button
-                    @click="sendChatMessage"
+                    @pointerdown.prevent="sendChatMessage"
+                    @click.prevent
                     :disabled="isStreaming || (!chatInputText.trim() && !pastedImageBase64)"
                     class="px-3.5 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-bold disabled:opacity-40 hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-sm active:scale-95"
                   >
@@ -8114,7 +8119,8 @@
     <!-- 移动端精致底部导航栏 -->
     <div 
       v-if="isMobile" 
-      class="flex md:hidden h-16 w-full bg-sidebar/85 backdrop-blur-xl border-t border-sidebar-border/30 flex-shrink-0 items-center justify-around px-1 z-40 select-none pb-safe"
+      v-show="!isInputFocused"
+      class="flex md:hidden h-16 w-full bg-sidebar/85 backdrop-blur-xl border-t border-sidebar-border/30 flex-shrink-0 items-center justify-around px-1 z-40 select-none pb-safe transition-all duration-300"
     >
       <!-- 1. 对话 -->
       <button 
@@ -11196,6 +11202,7 @@ const uploadStep = ref<'idle' | 'parsing' | 'summarizing'>('idle')
 const parseError = ref<string | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const isPreviewOpen = ref(false)
+const isInputFocused = ref(false)
 
 // 智能检测当前是否真正处于可以与角色发送消息的“聊天会话界面”中
 const isChattingActive = computed(() => {
@@ -12093,9 +12100,10 @@ async function sendChatMessage() {
   chatInputText.value = ''
   pastedImageBase64.value = ''
   
-  // 🚀 在下一 tick 释放标志位，确保当前微任务/同步清空产生的 watch 触发已被 100% 物理拦截
+  // 🚀 在下一 tick 释放标志位并强力重新聚焦，确保当前微任务/同步清空产生的 watch 触发已被 100% 物理拦截且输入法一直常驻不折叠
   nextTick(() => {
     isSendingChatMessage = false
+    chatTextarea.value?.focus()
   })
   
   // 智能重置多端所有可能挂载的 textarea 高度为舒适的 40px
