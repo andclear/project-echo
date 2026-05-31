@@ -5523,7 +5523,7 @@
                     @keydown="handleKeyDown"
                     @paste="handlePaste"
                     @input="e => { adjustTextareaHeight(e); handleInputAtMention(e) }"
-                    @focus="isInputFocused = true"
+                    @focus="isInputFocused = true; nextTick(() => { scrollToBottom('auto', true); setTimeout(() => scrollToBottom('auto', true), 80); })"
                     @blur="isInputFocused = false"
                     @compositionstart="handleCompositionStart"
                     @compositionend="handleCompositionEnd"
@@ -15214,11 +15214,27 @@ onMounted(async () => {
           if (document.activeElement && (document.activeElement === chatTextarea.value || document.activeElement.tagName === 'TEXTAREA')) {
             (document.activeElement as HTMLElement)?.blur()
           }
+
+          // 🚀 黄金微操：手机键盘彻底折叠收起后，立即触发平滑向下滚动到底部，消息气泡像流水般优美沉底，绝不留出大片空白！
+          nextTick(() => {
+            scrollToBottom('smooth', true)
+            // 多重防抖延迟：iOS/Android 系统级软键盘折叠可能有物理动画过渡，额外加上微小延迟强力锚定触底
+            setTimeout(() => scrollToBottom('smooth', true), 80)
+            setTimeout(() => scrollToBottom('smooth', true), 220)
+          })
         }
       } else if (currentHeight < baseHeight - 120) {
         // 🚀 键盘弹起判定：可视高度比基准骤降 120px 以上，说明软件盘已真实弹起！
         keyboardHasOpened = true
         isInputFocused.value = true
+
+        // 🚀 黄金微操：软键盘成功弹出、视口高度骤缩的瞬间，立即强力瞬间将消息气泡推向最底部，最后一条消息绝不被键盘遮挡！
+        nextTick(() => {
+          scrollToBottom('auto', true)
+          // 物理动画过渡期多重延迟兜底
+          setTimeout(() => scrollToBottom('auto', true), 60)
+          setTimeout(() => scrollToBottom('auto', true), 150)
+        })
       }
     })
   }
