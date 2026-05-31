@@ -15154,6 +15154,36 @@ onMounted(async () => {
     })
   }
   fetchWeChatStatus()
+  
+  // 🚀 手机端输入法物理折叠状态高度精密监测与 Done 自愈解锁防线
+  if (window.visualViewport) {
+    let baseHeight = window.visualViewport.height
+    // 监听窗口尺寸变化，动态修正基准视口高度（优雅适配手机横竖屏切换）
+    window.addEventListener('resize', () => {
+      if (!isInputFocused.value && window.visualViewport) {
+        baseHeight = window.visualViewport.height
+      }
+    })
+
+    window.visualViewport.addEventListener('resize', () => {
+      if (!isMobile.value || !window.visualViewport) return
+      
+      const currentHeight = window.visualViewport.height
+      // 🚀 如果当前可视高度极其接近基准高度（差值在 80px 以内，说明输入法软键盘已被彻底折叠收起）
+      if (currentHeight >= baseHeight - 80) {
+        if (isInputFocused.value) {
+          isInputFocused.value = false
+          // 🚀 核心自愈：主动让输入框失焦，完美干掉 iOS 点击 Done/完成 键盘收起后输入框光标残留与不触发 blur 的 Bug！
+          if (document.activeElement && (document.activeElement === chatTextarea.value || document.activeElement.tagName === 'TEXTAREA')) {
+            (document.activeElement as HTMLElement)?.blur()
+          }
+        }
+      } else if (currentHeight < baseHeight - 120) {
+        // 🚀 如果可视高度比基准高度骤降了 120px 以上，说明输入法软件盘绝对已经弹起！
+        isInputFocused.value = true
+      }
+    })
+  }
 
   // 注册客户端版本更新通知监听
   if (window.electron && window.electron.ipcRenderer) {
