@@ -314,7 +314,7 @@ export class WeChatService {
         console.error('[WeChatService] 增量长轮询发生网络异常，5秒后自动重载重试:', err.message);
         try {
           db.setSetting('wechat_last_error', `${new Date().toISOString()}: ${err.message}\nStack: ${err.stack}`);
-        } catch (_) {}
+        } catch (_) { }
         await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
@@ -464,10 +464,10 @@ export class WeChatService {
     switch (command) {
       case '/help':
         const helpText = `💡【Echo 微信接入斜杠命令指南】💡\n\n` +
-          `👉 /选秀 : 查看数字生命角色列表\n` +
-          `👉 /选秀 [序号] : 选择并绑定该角色进行对话\n` +
+          `👉 /选秀 : 查看角色列表\n` +
+          `👉 /选秀 [序号] : 选择并绑定该角色进行对话，不需要输入[]\n` +
           `👉 /清除记忆 : 物理彻底清空当前绑定角色的历史与记忆\n` +
-          `👉 /生图 : 绘制当前角色专属精美写真(可在命令后空格叠加自定义场景词，如: /生图 泳装 户外)\n` +
+          `👉 /生图 : 触发当前角色的AI绘图功能\n` +
           `👉 /help : 显示本命令指南`;
         await this.sendWeChatText(fromUser, helpText, contextToken);
         break;
@@ -574,7 +574,7 @@ export class WeChatService {
 
     try {
       console.log(`[WeChatService] 正在根据微信指令 /清除记忆 物理重置角色 [${char.name}]...`);
-      
+
       // A. 清空 SQLite 对话历史
       db.deleteChatHistory(characterId);
       db.setSetting('clear_chat_at_' + characterId, '0');
@@ -619,7 +619,7 @@ export class WeChatService {
    */
   private async executeAIImageGeneration(fromUser: string, characterId: string, prompt: string, contextToken: string): Promise<void> {
     const db = getDatabaseService();
-    
+
     // 1. 检测绘图配置
     const configStr = db.getSetting('novelai_config');
     if (!configStr) {
@@ -639,7 +639,7 @@ export class WeChatService {
       await this.sendWeChatText(fromUser, '⚠️ 客户端尚未配置全局大模型，无法进行会话上下文意境分析，请先在 PC 客户端保存设置！', contextToken);
       return;
     }
-    
+
     await this.sendWeChatText(fromUser, '🎨 正在深入分析我们的聊天记忆，为你精心描绘当前情景中，请稍候片刻...', contextToken);
 
     try {
@@ -729,7 +729,7 @@ export class WeChatService {
       await this.sendWeChatText(fromUser, `🎨 “${extractedDesc} 🐾”`, contextToken);
 
       // 7. 黄金公式拼装生图 Tags：[画师风格] + [固定外貌] + [当前动作场景] + [质量词后缀]
-      let finalPrompt = appearancePrompt 
+      let finalPrompt = appearancePrompt
         ? `${appearancePrompt}, ${extractedPrompt}`
         : extractedPrompt;
 
@@ -921,7 +921,7 @@ ${soulContent}
    */
   public async requestQRAndStartLogin(): Promise<string> {
     const db = getDatabaseService();
-    
+
     // 强制复位，清除原先可能残留的所有会话配置，严格执行 1 次绑定限制
     db.setSetting('wechat_token', '');
     db.setSetting('wechat_sync_buf', '');
@@ -934,7 +934,7 @@ ${soulContent}
         // 在本地毫秒级将微信真正用于授权绑定的 qrcode_img_content 官方跳转链接转换成完美兼容的高保真 Base64 PNG 图片，彻底切断外网 SSL 握手阻碍
         const localQRBase64 = await QRCode.toDataURL(data.qrcode_img_content, { margin: 1.5, width: 220 });
         db.setSetting('wechat_qrcode_url', localQRBase64);
-        
+
         // 物理锁定当前的活动二维码游标
         this.currentQR = data.qrcode;
 
@@ -968,7 +968,7 @@ ${soulContent}
 
     while (tick < 30) { // 微信扫码有效期限额 5 分钟 (约 30 次)
       if (this.shutdownSignal) break;
-      
+
       // 物理死锁防线：检测到当前活动的扫码二维码已发生更新，立刻无痛退出旧协程，拒绝多路并发限流
       if (qrcode !== this.currentQR) {
         console.log('[WeChatService] 检测到最新的绑定二维码生成，主动销毁注销旧的扫码协程:', qrcode);

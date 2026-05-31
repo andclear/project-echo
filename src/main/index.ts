@@ -64,7 +64,12 @@ export const sseClients = new Set<any>()
 export const LastAssistantRawResponse: Record<string, string> = {}
 
 // SSE 消息环形缓冲区（最近 50 条），用于断线重连后的消息补偿
-interface SseBufferedMsg { id: number; raw: string; }
+interface SseBufferedMsg {
+  id: number;
+  channel: string;
+  data: any;
+  raw: string;
+}
 const sseMessageBuffer: SseBufferedMsg[] = []
 let sseMessageIdCounter = 0
 const SSE_BUFFER_MAX = 50
@@ -76,7 +81,7 @@ export function broadcastToSse(channel: string, data: any) {
   const raw = `id: ${id}\ndata: ${payload}\n\n`
 
   // 存入环形缓冲区（淘汰最旧条目）
-  sseMessageBuffer.push({ id, raw })
+  sseMessageBuffer.push({ id, channel, data, raw })
   if (sseMessageBuffer.length > SSE_BUFFER_MAX) {
     sseMessageBuffer.shift()
   }
@@ -5915,13 +5920,41 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
     // 补发断线期间错过的消息：仅补发 id > lastReceivedId（严格大于，杜绝重复）
     if (lastReceivedId >= 0 && sseMessageBuffer.length > 0) {
       const missed = sseMessageBuffer.filter(m => m.id > lastReceivedId)
-      for (const m of missed) {
-        try {
-          res.write(m.raw)
-        } catch (_) {}
+
+      // 🚀 核心自愈去重折叠：对于同一条聊天消息（相同的 data.id），在极速重连时只需补发最新、最完整的一条，
+      // 彻底消除客户端在短时间内同时收到同一条消息的多段流式片段而引发的“包含误杀去重”和“异步队列时序错乱”的重大BUG！
+      const collapsed: SseBufferedMsg[] = []
+      const seenMsgIds = new Set<string>()
+
+      // 从后往前遍历，确保对同一个 data.id 只保留最新（即自增 id 最大）的那一条
+      for (let i = missed.length - 1; i >= 0; i--) {
+        const item = missed[i]
+        const msgId = item.data?.id
+
+        if (item.channel === 'receive-message' && msgId) {
+          if (seenMsgIds.has(msgId)) {
+            // 已经是较旧的流式段落，直接丢弃
+            continue
+          }
+          seenMsgIds.add(msgId)
+        }
+        collapsed.unshift(item)
       }
-      if (missed.length > 0) {
-        console.log(`[SSE] 断线重连补偿: 补发 ${missed.length} 条消息 (id > ${lastReceivedId})`)
+
+      if (collapsed.length > 0) {
+        // 🚀 极致仿真时延与防沾包：开启后台异步协程发送补偿队列，每条消息之间加上 60ms 的物理延迟，
+        // 物理切分并避免 TCP 沾包，确保前端 EventSource 有序、间隔触发 onmessage，完美配合 dialogue 播放队列模拟真人多气泡连续发送体验！
+        (async () => {
+          for (const m of collapsed) {
+            try {
+              res.write(m.raw)
+              await new Promise(resolve => setTimeout(resolve, 60))
+            } catch (_) {
+              break // 连接若被切断，安全退出
+            }
+          }
+          console.log(`[SSE] 断线重连折叠补偿发送完成: 原始 ${missed.length} 条, 折叠后补发 ${collapsed.length} 条 (id > ${lastReceivedId})`)
+        })()
       }
     }
 
@@ -6535,22 +6568,12 @@ app.whenReady().then(() => {
     
     // 级联事件广播总线：当有任何新消息保存到 SQLite 数据库时，秒级同步广播给电脑前端和局域网手机端
     db.registerOnMessageSaved((msg) => {
-      // 1. 广播给电脑软件前端
+      // 1. 广播给电脑软件前端（电脑端拦截后会自动通过 SSE 广播并打上自增 id）
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('receive-message', msg)
-      }
-      
-      // 2. 广播给局域网连接中的所有手机浏览器前端 (SSE 通道)
-      const payload = {
-        channel: 'receive-message',
-        data: msg
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(payload)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
+      } else {
+        // 2. 🚀 体验与功能防线：若电脑端主窗口不存在（如 headless 模式或 docker 环境），直接调用 SSE 广播并写入环形缓冲区
+        broadcastToSse('receive-message', msg)
       }
     })
     const customPortStr = db.getSetting('ipc_bridge_port')
