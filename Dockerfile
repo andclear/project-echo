@@ -4,12 +4,12 @@ FROM node:20-bullseye
 # 安装 Xvfb、sqlite3 以及 Electron 运行所需的全部底层 Linux 系统依赖库
 RUN apt-get update && apt-get install -y \
     xvfb \
-    libxss1 \
-    libgconf-2-4 \
     libnss3 \
     libasound2 \
     libatk-bridge2.0-0 \
     libgtk-3-0 \
+    libgbm1 \
+    libxkbcommon0 \
     sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
