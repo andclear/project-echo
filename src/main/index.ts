@@ -389,6 +389,59 @@ function registerIpcHandlers(): void {
   // ====== 核心数据导出与备份 IPC 通道 ======
   ipcMain.handle('export-project-data', async () => {
     try {
+      const userDataPath = app.getPath('userData')
+      
+      // 🚀 Docker 部署环境下：直接将打包的备份文件静默输出到 backups 映射目录下，不拉起物理保存窗口
+      if (process.env.DOCKER_MODE === 'true') {
+        const backupDir = path.join(userDataPath, 'backups')
+        if (!fs.existsSync(backupDir)) {
+          fs.mkdirSync(backupDir, { recursive: true })
+        }
+        const backupFilename = `EchoBackup_${new Date().toISOString().slice(0, 10)}.echo`
+        const targetPath = path.join(backupDir, backupFilename)
+
+        const backupDirs = ['database', 'characters', 'config', 'groups', 'EchoMusicSources']
+        const filesToPack: Array<{ relativePath: string; content: string }> = []
+
+        const traverseDirectory = (currentDir: string, relativeRoot: string) => {
+          if (!fs.existsSync(currentDir)) return
+          const items = fs.readdirSync(currentDir)
+          for (const item of items) {
+            const fullPath = path.join(currentDir, item)
+            const relPath = path.join(relativeRoot, item)
+            const stat = fs.statSync(fullPath)
+            
+            if (stat.isDirectory()) {
+              traverseDirectory(fullPath, relPath)
+            } else if (stat.isFile()) {
+              const contentBuffer = fs.readFileSync(fullPath)
+              filesToPack.push({
+                relativePath: relPath,
+                content: contentBuffer.toString('base64')
+              })
+            }
+          }
+        }
+
+        for (const dir of backupDirs) {
+          const fullDir = path.join(userDataPath, dir)
+          traverseDirectory(fullDir, dir)
+        }
+
+        const backupData = {
+          version: app.getVersion(),
+          timestamp: Date.now(),
+          files: filesToPack
+        }
+
+        const jsonStr = JSON.stringify(backupData)
+        const compressedBuffer = zlib.gzipSync(Buffer.from(jsonStr, 'utf-8'))
+        fs.writeFileSync(targetPath, compressedBuffer)
+        console.log(`[Backup] Docker 模式自动导出备份文件成功: ${targetPath}`)
+
+        return { success: true, path: targetPath, filename: backupFilename, isDocker: true }
+      }
+
       // 🚀 极致体验升级：点击后立刻（第 0 毫秒）让用户选择保存路径，不进行任何前期冗余打包，实现零迟滞瞬发响应！
       const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
       const result = await dialog.showSaveDialog(focusedWindow!, {
@@ -407,7 +460,6 @@ function registerIpcHandlers(): void {
       const targetPath = result.filePath
 
       // 用户确认好保存路径后，主进程才在后台极其迅捷地进行物理目录遍历、打包压缩与写入，完美节省 CPU 与内存开销
-      const userDataPath = app.getPath('userData')
       const backupDirs = ['database', 'characters', 'config', 'groups', 'EchoMusicSources']
       const filesToPack: Array<{ relativePath: string; content: string }> = []
 
@@ -458,9 +510,43 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // 🚀 Docker 模式专属：获取已备份包列表 IPC 通道
+  ipcMain.handle('get-docker-backups', async () => {
+    try {
+      const userDataPath = app.getPath('userData')
+      const backupDir = path.join(userDataPath, 'backups')
+      if (!fs.existsSync(backupDir)) {
+        fs.mkdirSync(backupDir, { recursive: true })
+        return { success: true, list: [] }
+      }
+      const files = fs.readdirSync(backupDir)
+      const list = files
+        .filter(file => file.endsWith('.echo'))
+        .map(file => {
+          const fullPath = path.join(backupDir, file)
+          const stat = fs.statSync(fullPath)
+          return {
+            name: file,
+            path: fullPath,
+            size: stat.size,
+            createdAt: stat.mtimeMs
+          }
+        })
+        .sort((a, b) => b.createdAt - a.createdAt)
+      return { success: true, list }
+    } catch (e: any) {
+      return { success: false, error: e.message || String(e) }
+    }
+  })
+
   // 🚀 核心升级：由主进程拉起系统原生文件选择窗口，精确获取备份文件的绝对路径，百分之百 0 兼容性故障！
   ipcMain.handle('open-backup-file-dialog', async () => {
     try {
+      // 🚀 Docker 部署环境下：直接返回 Docker 模式警告，引导前端切换至自适应备份点选界面
+      if (process.env.DOCKER_MODE === 'true') {
+        return { success: false, error: 'Docker模式下请直接在备份列表中选择文件进行恢复', isDocker: true }
+      }
+
       const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
       const result = await dialog.showOpenDialog(focusedWindow!, {
         title: '选择回音系统备份文件 (.echo)',
@@ -492,6 +578,17 @@ function registerIpcHandlers(): void {
         return { success: false, error: '非法的物理备份文件路径' }
       }
 
+      const userDataPath = app.getPath('userData')
+      
+      // 🚀 Docker 模式路径越界安全防御
+      if (process.env.DOCKER_MODE === 'true') {
+        const backupDir = path.join(userDataPath, 'backups')
+        const normalizedPath = path.normalize(filePath)
+        if (!normalizedPath.startsWith(backupDir)) {
+          return { success: false, error: '安全拦截：只允许导入 backups 目录下的备份文件' }
+        }
+      }
+
       // 🚀 核心升级：直接由主进程通过路径在后台读取物理文件，IPC 通道只需传输极小路径字符串，彻底避开 FileReader 大文件 Base64 的跨进程卡顿与内存崩溃！
       const compressedBuffer = fs.readFileSync(filePath)
 
@@ -515,7 +612,6 @@ function registerIpcHandlers(): void {
         return { success: false, error: '非法的备份文件结构，未找到有效的文件列表' }
       }
 
-      const userDataPath = app.getPath('userData')
       const backupDirs = ['database', 'characters', 'config', 'groups', 'EchoMusicSources']
 
       // 🚀 物理重置数据库单例（释放 SQLite 文件句柄锁）
@@ -5760,6 +5856,79 @@ let ipcBridgeServerInstance: http.Server | null = null;
 let ipcBridgeHeartbeatInterval: NodeJS.Timeout | null = null;
 
 // 实时开启/重启局域网映射静态服务器
+// 统一的 IPC 桥接与 SSE 网络请求拦截分流处理器，实现单端口 6868 闭环
+function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  // 1. 处理 CORS 跨域请求（同源模式下可作为安全兼容项保留）
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // 2. 预检请求 (OPTIONS)
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return true;
+  }
+
+  // 新增：GET /api/events 作为 SSE 持久推送通道
+  if (req.method === 'GET' && req.url && req.url.startsWith('/api/events')) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.write(': sse-connected\n\n');
+    sseClients.add(res);
+
+    req.on('close', () => {
+      sseClients.delete(res);
+    });
+    return true;
+  }
+
+  // 3. 处理 /api/ipc POST 路由
+  if (req.method === 'POST' && req.url && req.url.startsWith('/api/ipc')) {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+    });
+    req.on('end', async () => {
+      try {
+        const { channel, payload } = JSON.parse(body);
+        
+        // 从 Electron 的 ipcMain 内部 handlers Map 中寻找对应的 Channel 处理器
+        const handler = (ipcMain as any)._invokeHandlers?.get(channel);
+        if (handler) {
+          const mockEvent = {
+            sender: {
+              send: (ch: string, data: any) => {
+                console.log(`[IPC Bridge Proxy send] channel: ${ch}`);
+                broadcastToSse(ch, data);
+              }
+            }
+          };
+          const result = await handler(mockEvent, payload);
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify(result));
+        } else {
+          console.warn(`[IPC Bridge Server] 未找到处理器: ${channel}`);
+          res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: `IPC channel "${channel}" not found` }));
+        }
+      } catch (e: any) {
+        console.error(`[IPC Bridge Server] 请求处理异常:`, e);
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ success: false, error: e.message || String(e) }));
+      }
+    });
+    return true;
+  }
+
+  return false;
+}
+
+// 实时开启/重启局域网映射静态服务器
 export function startLanMappingServer(port: number) {
   // 如果端口相同且已经在运行，直接返回
   if (lanMappingServerInstance && currentLanMappingPort === port) {
@@ -5771,6 +5940,13 @@ export function startLanMappingServer(port: number) {
 
   try {
     const server = http.createServer((req, res) => {
+      // 🚀 核心自适应：如果请求是以 /api/ 开头的 API 接口，直接由 IPC 桥接处理器进行拦截和分流处理，完美融合为一个端口！
+      if (req.url && req.url.startsWith('/api/')) {
+        if (handleIpcBridgeRequest(req, res)) {
+          return;
+        }
+      }
+
       // 允许跨域 CORS
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -5886,70 +6062,7 @@ export function startIpcBridgeServer(port: number = 3000) {
 
   try {
     const server = http.createServer((req, res) => {
-      // 1. 处理 CORS 跨域请求
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-      // 2. 预检请求 (OPTIONS)
-      if (req.method === 'OPTIONS') {
-        res.writeHead(204);
-        res.end();
-        return;
-      }
-
-      // 新增：GET /api/events 作为 SSE 持久推送通道
-      if (req.method === 'GET' && req.url === '/api/events') {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'Access-Control-Allow-Origin': '*'
-        });
-        res.write(': sse-connected\n\n');
-        sseClients.add(res);
-
-        req.on('close', () => {
-          sseClients.delete(res);
-        });
-        return;
-      }
-
-      // 3. 处理 /api/ipc POST 路由
-      if (req.method === 'POST' && req.url === '/api/ipc') {
-        let body = '';
-        req.on('data', (chunk) => {
-          body += chunk.toString();
-        });
-        req.on('end', async () => {
-          try {
-            const { channel, payload } = JSON.parse(body);
-            
-            // 从 Electron 的 ipcMain 内部 handlers Map 中寻找对应的 Channel 处理器
-            const handler = (ipcMain as any)._invokeHandlers?.get(channel);
-            if (handler) {
-              const mockEvent = {
-                sender: {
-                  send: (ch: string, data: any) => {
-                    console.log(`[IPC Bridge Proxy send] channel: ${ch}`);
-                    broadcastToSse(ch, data);
-                  }
-                }
-              };
-              const result = await handler(mockEvent, payload);
-              res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-              res.end(JSON.stringify(result));
-            } else {
-              console.warn(`[IPC Bridge Server] 未找到处理器: ${channel}`);
-              res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-              res.end(JSON.stringify({ success: false, error: `IPC channel "${channel}" not found` }));
-            }
-          } catch (e: any) {
-            console.error(`[IPC Bridge Server] 请求处理异常:`, e);
-            res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-            res.end(JSON.stringify({ success: false, error: e.message || String(e) }));
-          }
-        });
+      if (handleIpcBridgeRequest(req, res)) {
         return;
       }
 
@@ -6101,16 +6214,30 @@ app.whenReady().then(() => {
     console.error('[Main] 常驻生命引擎启动异常:', err)
   }
 
-  // 启动局域网静态文件托管 Web 服务器（由常规设置中的局域网映射设定启动）
+  // 启动局域网静态文件托管 Web 服务器（由常规设置中的局域网映射设定启动，Docker下强制在6868启动）
   try {
     const db = getDatabaseService()
     const genConfigStr = db.getSetting('general_config')
+    let lanPort = 6868
+    let lanEnabled = false
     if (genConfigStr) {
-      const config = JSON.parse(genConfigStr)
-      if (config.lan_mapping_enabled) {
-        const port = Number(config.lan_mapping_port) || 6868
-        startLanMappingServer(port)
-      }
+      try {
+        const config = JSON.parse(genConfigStr)
+        if (config.lan_mapping_enabled) {
+          lanPort = Number(config.lan_mapping_port) || 6868
+          lanEnabled = true
+        }
+      } catch (_) {}
+    }
+    
+    // 🚀 Docker 部署环境下：强制启动局域网托管静态服务，端口固定为 6868
+    if (process.env.DOCKER_MODE === 'true') {
+      lanEnabled = true
+      lanPort = 6868
+    }
+
+    if (lanEnabled) {
+      startLanMappingServer(lanPort)
     }
   } catch (err) {
     console.error('[Main] 局域网静态服务器启动异常:', err)

@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  project-echo:
+    build: .
+    container_name: project-echo-server
+    restart: unless-stopped
+    ports:
+      - "6868:6868"  # 网页前端与 API SSE 桥接融合的单端口服务
+    volumes:
+      # 物理映射卷：将聊天历史、人设卡片、朋友圈及 backups 自动子卷映射至宿主机 ./echo-data 目录
+      - ./echo-data:/root/.config/project-echo
+    environment:
+      - NODE_ENV=production

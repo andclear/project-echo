@@ -1998,7 +1998,7 @@
                     </div>
 
                     <!-- 开启局域网映射 -->
-                    <div class="py-3 flex flex-col space-y-2.5 last:pb-0">
+                    <div v-if="!isDockerMode" class="py-3 flex flex-col space-y-2.5 last:pb-0">
                       <div class="flex items-center justify-between">
                         <div class="flex items-start space-x-3.5">
                           <div class="p-1.5 rounded-xl bg-surface border border-outline-variant/40 text-on-surface-variant flex-shrink-0">
@@ -6776,7 +6776,7 @@
             </div>
             <div>
               <h3 class="text-[13px] font-bold">全量导入备份还原</h3>
-              <p class="text-[10px] text-on-surface-variant mt-0.5">回音系统高保真物理级覆盖</p>
+              <p class="text-[10px] text-on-surface-variant mt-0.5">{{ isDockerMode ? 'Docker 云端映射智能备份导入' : '回音系统高保真物理级覆盖' }}</p>
             </div>
           </div>
           <button @click="showImportModal = false" class="text-on-surface-variant/60 hover:text-on-surface transition-colors cursor-pointer select-none">
@@ -6784,8 +6784,53 @@
           </button>
         </div>
 
-        <!-- 拖拽 & 点击文件上传区 -->
+        <!-- Docker 模式专属：已备份文件列表点选区 -->
+        <div v-if="isDockerMode" class="space-y-4">
+          <div class="flex items-center justify-between select-none">
+            <span class="text-[10px] font-bold text-on-surface-variant/80 uppercase tracking-wider">backups 目录下已扫描到的备份 ({{ dockerBackupList.length }} 个)</span>
+            <button @click="loadDockerBackups" :disabled="isLoadingDockerBackups" class="text-[9px] text-primary font-bold hover:underline flex items-center space-x-1 cursor-pointer">
+              <RefreshCwIcon class="w-3.5 h-3.5" :class="{'animate-spin': isLoadingDockerBackups}" />
+              <span>刷新列表</span>
+            </button>
+          </div>
+
+          <div class="max-h-[180px] overflow-y-auto space-y-2 pr-1 select-none">
+            <div v-if="isLoadingDockerBackups" class="flex flex-col items-center justify-center py-8 text-on-surface-variant/40 space-y-2">
+              <Loader2Icon class="w-6 h-6 animate-spin text-primary" />
+              <span class="text-[10px]">正在智能扫描 backups 卷映射文件夹...</span>
+            </div>
+            <div v-else-if="dockerBackupList.length === 0" class="border border-dashed border-outline-variant/30 rounded-xl p-6 flex flex-col items-center justify-center text-center space-y-2 bg-surface-low/10">
+              <UploadCloudIcon class="w-8 h-8 text-on-surface-variant/50" />
+              <p class="text-[10px] font-bold">暂无可用备份包</p>
+              <p class="text-[9px] text-on-surface-variant/70 leading-relaxed max-w-[280px]">
+                如需还原，请将您的 <code class="font-mono bg-surface-high px-1 rounded text-primary text-[10px]">.echo</code> 备份文件放入宿主机挂载的 <code class="font-mono text-primary bg-surface-high px-1 text-[10px]">echo-data/backups</code> 目录下，然后点击右上角“刷新列表”。
+              </p>
+            </div>
+            <div 
+              v-else
+              v-for="backup in dockerBackupList" 
+              :key="backup.name"
+              @click="selectedFilePath = backup.path; selectedFileName = backup.name"
+              class="border rounded-xl p-3 flex items-center justify-between cursor-pointer transition-all hover:bg-surface-high/30 select-none relative"
+              :class="[selectedFilePath === backup.path ? 'border-primary bg-primary/5 shadow-inner' : 'border-outline-variant/30 bg-surface-low/10']"
+            >
+              <div class="space-y-1 truncate pr-3 flex-1">
+                <p class="text-[10.5px] font-bold truncate" :class="[selectedFilePath === backup.path ? 'text-primary' : 'text-on-surface']">{{ backup.name }}</p>
+                <div class="flex items-center space-x-3 text-[9px] text-on-surface-variant/60 font-mono">
+                  <span>大小: {{ (backup.size / 1024 / 1024).toFixed(2) }} MB</span>
+                  <span>时间: {{ new Date(backup.createdAt).toLocaleString() }}</span>
+                </div>
+              </div>
+              <div v-if="selectedFilePath === backup.path" class="w-4 h-4 rounded-full bg-primary flex items-center justify-center text-white scale-110 animate-scale-in">
+                <CheckIcon class="w-2.5 h-2.5" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 桌面客户端模式：拖拽 & 点击文件上传区 -->
         <div 
+          v-else
           @dragenter.prevent="isDraggingBackupFile = true"
           @dragover.prevent="isDraggingBackupFile = true"
           @dragleave.prevent="isDraggingBackupFile = false"
@@ -6798,7 +6843,6 @@
               : 'border-outline-variant/30 bg-surface-low/10 hover:border-primary/40 hover:bg-surface-low/30'
           ]"
         >
-
           <!-- 状态 A：未选择文件 -->
           <div v-if="!selectedFileName" class="text-center space-y-3 py-4">
             <div class="w-12 h-12 rounded-full bg-surface-high/50 border border-outline-variant/10 flex items-center justify-center mx-auto group-hover:scale-110 transition-all duration-300">
@@ -8668,13 +8712,19 @@ function isEmojiOnly(content?: string): boolean {
 if (typeof window !== 'undefined' && !(window as any).api) {
   const listeners: Record<string, ((data: any) => void)[]> = {};
 
+  // 🚀 自适应端口计算：开发环境（5173 等端口）下默认穿透到 3000 网关；
+  // 生产/Docker 部署（6868 端口）下走同源同端口（即 window.location.port 比如 6868），消除多端口暴露与跨域
+  const hostname = window.location.hostname || 'localhost';
+  const currentPort = window.location.port || '80';
+  const isDevPort = ['5173', '5174', '5175'].includes(currentPort);
+  const targetPort = isDevPort ? '3000' : currentPort;
+  const baseUrl = `http://${hostname}${targetPort ? `:${targetPort}` : ''}`;
+
   (window as any).api = {
     isIpcBridge: true,
     invoke: async (channel: string, payload?: any) => {
       try {
-        const hostname = window.location.hostname || 'localhost';
-        // 动态根据访问域名/IP拼接 3000 端口网关服务进行 HTTP IPC 穿透
-        const response = await fetch(`http://${hostname}:3000/api/ipc`, {
+        const response = await fetch(`${baseUrl}/api/ipc`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -8700,8 +8750,7 @@ if (typeof window !== 'undefined' && !(window as any).api) {
 
   // 在局域网手机端初始化 SSE 双向主动推送连接
   try {
-    const hostname = window.location.hostname || 'localhost';
-    const eventSource = new EventSource(`http://${hostname}:3000/api/events`);
+    const eventSource = new EventSource(`${baseUrl}/api/events`);
     
     eventSource.onmessage = (event) => {
       try {
@@ -9415,6 +9464,29 @@ function openSettingsPage() {
 const isExportingData = ref(false)
 const isImportingData = ref(false)
 
+// ── Docker 专属备份还原模块 ──
+const isDockerMode = computed(() => {
+  return !window.electron || (window.api && (window.api as any).isIpcBridge);
+})
+const dockerBackupList = ref<Array<{ name: string; path: string; size: number; createdAt: number }>>([])
+const isLoadingDockerBackups = ref(false)
+
+// 加载 Docker 下已备份的文件列表
+async function loadDockerBackups() {
+  if (!isDockerMode.value) return
+  isLoadingDockerBackups.value = true
+  try {
+    const res = await window.api.invoke('get-docker-backups')
+    if (res.success && res.list) {
+      dockerBackupList.value = res.list
+    }
+  } catch (err) {
+    console.error('加载Docker备份列表失败:', err)
+  } finally {
+    isLoadingDockerBackups.value = false
+  }
+}
+
 // ── 导入还原自定义模态框相关响应式状态 ──
 const showImportModal = ref(false)
 const isDraggingBackupFile = ref(false)
@@ -9427,8 +9499,18 @@ async function handleExportProjectData() {
   isExportingData.value = true
   try {
     const res = await window.api.invoke('export-project-data')
-    if (res.success && res.path) {
-      showCustomAlert('导出成功', `核心数据已成功打包并安全落盘！\n\n保存路径:\n${res.path}`, 'success')
+    if (res.success) {
+      if (res.isDocker) {
+        showCustomAlert(
+          '备份导出成功',
+          `数据已全量打包！备份已安全落盘至宿主机映射卷。\n\n备份文件名: ${res.filename}\n路径: backups/${res.filename}\n\n您无需进行任何物理拷贝，可以直接在宿主机 backups 目录中复制、迁移该文件。`,
+          'success'
+        )
+        // 刷新 Docker 备份列表
+        loadDockerBackups()
+      } else {
+        showCustomAlert('导出成功', `核心数据已成功打包并安全落盘！\n\n保存路径:\n${res.path}`, 'success')
+      }
     } else if (res.canceled) {
       // 用户主动取消保存，不做报错提示，静默放行
       console.log('[Backup] 用户取消了备份保存')
@@ -9446,6 +9528,15 @@ async function handleExportProjectData() {
 function handleImportProjectData() {
   if (isImportingData.value) return
   
+  if (isDockerMode.value) {
+    // 🚀 Docker 模式下：自动载入备份列表并打开弹窗
+    loadDockerBackups()
+    selectedFileName.value = ''
+    selectedFilePath.value = ''
+    showImportModal.value = true
+    return
+  }
+
   // 初始化模态框状态
   selectedFileName.value = ''
   selectedFilePath.value = ''
