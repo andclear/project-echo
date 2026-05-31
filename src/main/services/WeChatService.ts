@@ -374,19 +374,63 @@ export class WeChatService {
     const db = getDatabaseService();
     db.setSetting(`wechat_context_token_${fromUser}`, contextToken || '');
 
-    // 3. 提取好友文本
+    // 3. 提取好友文本与媒体消息
     let textContent = '';
-    const textItem = itemList.find((item: any) => item.type === 1);
-    if (textItem) {
-      textContent = (textItem.text_item?.text || '').trim();
+    let imageItem = null;
+
+    for (const item of itemList) {
+      if (item.type === 1) {
+        textContent = (item.text_item?.text || '').trim();
+      } else if (item.type === 2) {
+        imageItem = item.image_item;
+      }
     }
 
-    if (!textContent) return;
+    const mappings = this.getFriendMappings();
+    const boundCharId = mappings[fromUser];
+    let finalUserMessage = textContent;
+
+    if (imageItem && imageItem.media) {
+      const encryptQueryParam = imageItem.media.encrypt_query_param;
+      const aesKeyBase64 = imageItem.media.aes_key;
+
+      if (encryptQueryParam && aesKeyBase64) {
+        try {
+          console.log('[WeChatService] 收到微信好友图片消息，正在尝试从 CDN 下载并解密...');
+          const imageBuffer = await this.client.downloadAndDecryptMedia(encryptQueryParam, aesKeyBase64);
+
+          // 获取当前绑定的角色 folder_name 用于保存图片到 media 目录
+          if (boundCharId) {
+            const charRow = db.db.prepare('SELECT folder_name FROM Characters WHERE id = ?').get(boundCharId) as { folder_name: string } | undefined;
+            if (charRow) {
+              const storageManager = new CharacterStorageManager();
+              const mediaDir = join(storageManager.getBaseDir(), charRow.folder_name, 'media');
+              if (!fs.existsSync(mediaDir)) {
+                fs.mkdirSync(mediaDir, { recursive: true });
+              }
+              const filename = `wechat_recv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
+              const fullPath = join(mediaDir, filename);
+              fs.writeFileSync(fullPath, imageBuffer);
+
+              finalUserMessage = `[wechat_image_media]:media/${filename}`;
+              console.log('[WeChatService] 微信图片消息成功下载解密并保存至:', fullPath);
+            }
+          } else {
+            // 兜底降级：未绑定角色时，将图片消息设为普通文字以触发选秀引导
+            finalUserMessage = '[图片消息]';
+          }
+        } catch (err: any) {
+          console.error('[WeChatService] 下载解密微信图片消息失败:', err);
+        }
+      }
+    }
+
+    if (!finalUserMessage) return;
 
     // 4. 路由微信斜杠命令
-    if (textContent.startsWith('/')) {
+    if (finalUserMessage.startsWith('/')) {
       try {
-        await this.routeSlashCommand(fromUser, textContent, contextToken);
+        await this.routeSlashCommand(fromUser, finalUserMessage, contextToken);
       } catch (err: any) {
         console.error('[WeChatService] 路由并执行微信命令发生异常:', err);
         await this.sendWeChatText(fromUser, `❌ 指令执行异常: ${err.message || err}`, contextToken);
@@ -395,9 +439,6 @@ export class WeChatService {
     }
 
     // 5. 普通对话消息处理
-    const mappings = this.getFriendMappings();
-    const boundCharId = mappings[fromUser];
-
     if (!boundCharId) {
       // 【先导提示】：新好友未绑定时，拦截一切对话，展示角色列表引导选秀
       await this.sendCharacterListMenu(fromUser, contextToken);
@@ -405,7 +446,7 @@ export class WeChatService {
     }
 
     // 6. 执行核心对话流与 PC 客户端气泡同步
-    await this.processConversationFlow(fromUser, boundCharId, textContent, contextToken);
+    await this.processConversationFlow(fromUser, boundCharId, finalUserMessage, contextToken);
   }
 
   /**
@@ -699,8 +740,17 @@ export class WeChatService {
       const history = db.getChatHistory(characterId, 15);
       const chatMessages: ChatMessage[] = [
         { role: 'system', content: this.buildSystemPrompt(characterId) },
-        ...history.map(m => ({ role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.content })),
-        { role: 'user', content: userMessage }
+        ...history.map(m => {
+          let content = m.content;
+          if (content.startsWith('[wechat_image_media]:')) {
+            content = '（用户发来了一张图片）';
+          }
+          return {
+            role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+            content: content
+          };
+        }),
+        { role: 'user', content: userMessage.startsWith('[wechat_image_media]:') ? '（用户发来了一张图片）' : userMessage }
       ];
 
       const response = await modelAdapter.chat(chatMessages, { usePrimary: true });

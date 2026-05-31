@@ -5510,7 +5510,7 @@
                     v-model="chatInputText"
                     @keydown="handleKeyDown"
                     @paste="handlePaste"
-                    @input="e => { adjustTextareaHeight(); handleInputAtMention(e) }"
+                    @input="e => { adjustTextareaHeight(e); handleInputAtMention(e) }"
                     placeholder="发送消息..."
                     rows="1"
                     class="w-full py-2 px-3 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text max-h-[40vh] shadow-inner"
@@ -8657,6 +8657,7 @@ if (typeof window !== 'undefined' && !(window as any).api) {
   const listeners: Record<string, ((data: any) => void)[]> = {};
 
   (window as any).api = {
+    isIpcBridge: true,
     invoke: async (channel: string, payload?: any) => {
       try {
         const hostname = window.location.hostname || 'localhost';
@@ -9029,12 +9030,23 @@ const showAddMenu = ref(false)
 const showAddCharacterMenu = ref(false)
 const showTopMoreMenu = ref(false)
 const showMobilePlusMenu = ref(false)
-const textareaHeight = ref('36px')
+const textareaHeight = ref('40px')
 
-function adjustTextareaHeight() {
-  const el = chatTextarea.value
-  if (el) {
-    el.style.height = '36px' // 重设为单行高度，以便字数减少时能随之收缩
+function adjustTextareaHeight(event?: Event) {
+  let elements: HTMLTextAreaElement[] = []
+  if (event && event.target) {
+    elements = [event.target as HTMLTextAreaElement]
+  } else {
+    const all = document.querySelectorAll('textarea')
+    all.forEach(el => {
+      if (el.placeholder && el.placeholder.includes('发送消息')) {
+        elements.push(el as HTMLTextAreaElement)
+      }
+    })
+  }
+
+  elements.forEach(el => {
+    el.style.height = '40px' // 重设为单行高度，以便字数减少时能随之收缩
     const scrollHeight = el.scrollHeight
     const maxHeight = window.innerHeight * 0.4
     if (scrollHeight > maxHeight) {
@@ -9042,7 +9054,7 @@ function adjustTextareaHeight() {
     } else {
       el.style.height = `${scrollHeight}px`
     }
-  }
+  })
 }
 
 // ===================== 朋友圈 & 论坛 & 状态 & 成长线相关响应式数据 =====================
@@ -9616,6 +9628,12 @@ const chatMessages = computed(() => allMessages[selectedCharacterId.value || '']
 const activeTypingSessions = reactive(new Set<string>())
 // 追踪正在被 dialogue 模式弹射播放的消息内容（用于 receive-message 精确去重）
 const pendingDialogueContents = reactive(new Set<string>())
+// 极致物理防并发冲突重叠锁，保障任何网络延时下的手机/局域网端去重 100% 成功
+const activeTypingLocks = reactive(new Set<string>())
+
+// 局域网 Web 端消息仿真播放串行队列与等待播放的 ID 缓存
+let playbackChain = Promise.resolve()
+const pendingPlaybackMessageIds = reactive(new Set<string>())
 
 // 历史消息分页加载状态
 const isLoadingMore = ref(false) // 防止重复并发拉取历史消息
@@ -11908,7 +11926,15 @@ async function sendChatMessage() {
 
   chatInputText.value = ''
   pastedImageBase64.value = ''
-  if (chatTextarea.value) chatTextarea.value.style.height = '36px'
+  
+  // 智能重置多端所有可能挂载的 textarea 高度为舒适的 40px
+  const textareas = document.querySelectorAll('textarea')
+  textareas.forEach(el => {
+    if (el.placeholder && el.placeholder.includes('发送消息')) {
+      (el as HTMLTextAreaElement).style.height = '40px'
+    }
+  })
+  
   showEmojiPanel.value = false
 
   // 生成唯一的消息ID，用于在 SQLite 数据库中独立持久化该条消息气泡
@@ -12082,11 +12108,11 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
 
     if (!res.success) throw new Error(res.error || '连接断开')
 
-    // 🚀 移动端局域网双通道分流拦截：
-    // 在手机端，为了彻底杜绝局域网 fetch 耗时长延迟返回与 SSE 长连接 done 信号撞车造成的双份消息 BUG，
-    // 手机发送端的 fetch 回调直接静默 return 拦截，100% 交由绝对不超时、高保真的 SSE done 接收器去触发唯一一次的分段仿真渲染！
-    if (isMobile.value) {
-      clearReplyTimeout() // 移动端交由 SSE 保活，此处清除 fetch 定时器
+    // 🚀 局域网 Web 双通道分流拦截：
+    // 在任何局域网连入的 Web 客户端上（含手机、平板及电脑浏览器），为了彻底杜绝局域网 fetch 回调延迟返回与 SSE 广播撞车造成的双份消息 BUG，
+    // 发送端的 fetch 回调直接静默 return 拦截，100% 交由绝对不超时、高保真的 SSE done / receive-message 接收器去触发唯一一次的分段仿真渲染！
+    if (!window.electron || (window.api && (window.api as any).isIpcBridge)) {
+      clearReplyTimeout() // 局域网端交由 SSE 保活，此处清除 fetch 定时器
       return
     }
 
@@ -12143,9 +12169,9 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
 
   } catch (err: any) {
     clearReplyTimeout() // 🚀 发生异常，物理清除 30秒 超时定时器
-    // 移动端静默忽略 fetch 超时断连报错，因为后台大模型依然在完美生成，且 100% 最终会由 SSE 强力救活！
-    if (isMobile.value) {
-      console.warn('[Mobile Fetch Handshake Disconnect] 移动端局域网握手超时/断开（属正常自愈范畴），静默移交 SSE 保活接管。');
+    // 局域网 Web 客户端静默忽略 fetch 超时断连报错，因为后台大模型依然在完美生成，且 100% 最终会由 SSE 强力救活！
+    if (!window.electron || (window.api && (window.api as any).isIpcBridge)) {
+      console.warn('[Web Bridge Fetch Handshake Disconnect] 局域网 Web 客户端握手超时/断开（属正常自愈范畴），静默移交 SSE 保活接管。');
       return;
     }
     isStreaming.value = false
@@ -12167,6 +12193,17 @@ async function handleAssistantResponse(
   cachedTokens?: number,
   messageId?: string
 ) {
+  // 极致物理防重锁：物理清洗掉一切可能因中英文标点、特殊标记、空格或换行等差异引起的误伤，取正文前 30 字紧凑串作为唯一比对锁
+  const cleanLockStr = content.replace(/\s+/g, '').replace(/[\[\]\(\)\s［］（）:：,，\/]/g, '').slice(0, 30)
+  if (cleanLockStr) {
+    const lockKey = char.id + '_' + cleanLockStr
+    if (activeTypingLocks.has(lockKey)) {
+      console.warn('[Sync Gate] 拦截到并发打字弹射冲突，此内容正在播放中，静默丢弃：', cleanLockStr)
+      return
+    }
+    activeTypingLocks.add(lockKey)
+  }
+
   const sessionKey = char.id + '_' + content.slice(0, 15)
   activeTypingSessions.add(sessionKey)
   // 在 dialogue 模式下，记录当前正在弹射的内容，供 receive-message 精确去重
@@ -12350,6 +12387,9 @@ async function handleAssistantResponse(
       if (diaryRes.success) activeDiary.value = diaryRes.content
     }, 1500)
   } finally {
+    if (cleanLockStr) {
+      activeTypingLocks.delete(char.id + '_' + cleanLockStr)
+    }
     pendingDialogueContents.delete(content.replace(/\s+/g, '').slice(0, 80))
     activeTypingSessions.delete(sessionKey)
   }
@@ -14284,11 +14324,47 @@ async function executeNovelAiImageGeneration(targetCharId?: string, targetFolder
 }
 
 function copyText(text: string) {
-  navigator.clipboard.writeText(text).then(() => {
-    showToast('已复制到剪贴板 📋')
-  }).catch(() => {
-    showToast('复制失败 😢')
-  })
+  if (!text) return;
+  
+  // 1. 优先尝试现代 clipboard API
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('已成功复制到剪贴板！📋')
+    }).catch(() => {
+      // 降级到 execCommand 物理复制
+      fallbackCopy(text)
+    })
+  } else {
+    // 降级到 execCommand 物理复制
+    fallbackCopy(text)
+  }
+}
+
+// 物理降级复制辅助函数，无 Secure Context 限制，局域网全平台通用
+function fallbackCopy(text: string) {
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.top = '-9999px'
+    textarea.style.left = '-9999px'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    
+    textarea.select()
+    textarea.setSelectionRange(0, 99999) // 兼容 iOS 选区
+    const success = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    
+    if (success) {
+      showToast('已成功复制到剪贴板！📋')
+    } else {
+      showToast('复制失败，请手动长按选区复制 😢')
+    }
+  } catch (err) {
+    console.error('[Fallback Copy Error] 复制异常:', err)
+    showToast('复制失败，请手动长按选区复制 😢')
+  }
 }
 
 function showComingSoon(name: string) {
@@ -15234,7 +15310,7 @@ onMounted(async () => {
       }
 
       // 🚀 核心自愈优化：仅在移动端或群聊等需要流式更新/打字机同步的场景下，将最后一条 assistant 消息内容一次性覆盖为包含完美换行符的权威全文；在 PC 端单聊（非流式）下则完全无需且不应覆盖，以防篡改历史气泡
-      if (data.content && (chatMode.value === 'descriptive' || chatMode.value === 'director') && (isMobile.value || isGroupChat)) {
+      if (data.content && (chatMode.value === 'descriptive' || chatMode.value === 'director') && (!window.electron || (window.api && (window.api as any).isIpcBridge) || isGroupChat)) {
         const charId = chunkCharId
         if (charId && allMessages[charId]) {
           const msgs = allMessages[charId]
@@ -15276,55 +15352,23 @@ onMounted(async () => {
         }
       }
 
-      // 无论什么聊天模式，都将最新的 Token 使用及缓存命中率实时更新到最后一个气泡
-      const charId = chunkCharId
-      if (charId && allMessages[charId]) {
-        const msgs = allMessages[charId]
-        if (msgs.length > 0) {
-          const last = msgs[msgs.length - 1]
-          if (last.role === 'assistant') {
-            last.prompt_tokens = (data as any).prompt_tokens
-            last.completion_tokens = (data as any).completion_tokens
-            last.cached_tokens = (data as any).cached_tokens
+      // 无论什么聊天模式，都将最新的 Token 使用及缓存命中率实时更新到最后一个气泡（局域网 Web 端除外，局域网分段打字时会在最后一段气泡中自然绑定，以防错绑到首个气泡上）
+      if (!(!window.electron || (window.api && (window.api as any).isIpcBridge))) {
+        const charId = chunkCharId
+        if (charId && allMessages[charId]) {
+          const msgs = allMessages[charId]
+          if (msgs.length > 0) {
+            const last = msgs[msgs.length - 1]
+            if (last.role === 'assistant') {
+              last.prompt_tokens = (data as any).prompt_tokens
+              last.completion_tokens = (data as any).completion_tokens
+              last.cached_tokens = (data as any).cached_tokens
+            }
           }
         }
       }
 
-      // 🚀 局局网自愈桥接防线：在手机移动端上，由于大模型生成加存盘耗时长达十秒以上，
-      // fetch 的长轮询 POST 请求在手机浏览器中极易被静默断开或丢弃。
-      // 我们在此处利用长驻、绝对不会断线超时的 SSE 信道接收到的全量 done 信号进行自愈补偿！
-      if (isMobile.value && data.content) {
-        if (chunkCharId === selectedCharacterId.value) {
-          const char = activeCharacter.value
-          if (char) {
-            const msgs = allMessages[char.id] || []
-            // 全量内容的头部 15 个字作为检索防重标识，查验是否已经渲染过
-            const lookup = data.content.slice(0, 15)
-            const hasReceived = msgs.some(m => m.role === 'assistant' && m.content && m.content.includes(lookup))
-            const lockKey = char.id + '_' + lookup
-            if (activeTypingSessions.has(lockKey)) {
-              // 说明当前打字机已经成功被唤起且正在后台吐字播放中，自愈静默退出，100% 排除重复渲染 BUG
-              return
-            }
-            if (!hasReceived) {
-              // 自愈补偿成功！接管并调起微信级仿真分段播放器将回复弹射发出来，圆满解除输入转圈
-              handleAssistantResponse(char, data.content, null)
-            }
-          }
-        } else {
-          const msgs = allMessages[chunkCharId] || []
-          const lookup = data.content.slice(0, 15)
-          const hasReceived = msgs.some(m => m.role === 'assistant' && m.content && m.content.includes(lookup))
-          if (!hasReceived) {
-            const last = msgs[msgs.length - 1]
-            if (last && last.role === 'assistant') {
-              last.content = data.content
-            } else {
-              msgs.push({ role: 'assistant', content: data.content, created_at: new Date().toISOString() })
-            }
-          }
-        }
-      }
+      // 🚀 局局网自愈桥接防线：在局域网 Web 端，我们废除在 done 信号处的重复渲染补偿，大模型回复有且仅由 receive-message 存盘广播唯一触发，彻底封杀并发撞车。
 
       // 重新读取角色文件以刷新记忆/日记展示
       setTimeout(async () => {
@@ -15537,6 +15581,10 @@ onMounted(async () => {
     
     // 1. 智能去重自愈：采用顶级空白忽略与分段合并自适应比对门禁，完美兼容 PC 端自己发自己收的去重以及复杂的微信级分段回复去重
     let isDuplicate = false
+
+    if (msg.id && pendingPlaybackMessageIds.has(msg.id)) {
+      isDuplicate = true
+    }
     
     // 物理去除内容中的所有换行、空白字符、特有标签用于高精准比对
     const cleanStr = (s: string) => (s || '').replace(/\s+/g, '').replace(/\[wechat_image_media\]/g, '').replace(/\[image_desc\]/g, '')
@@ -15681,15 +15729,36 @@ onMounted(async () => {
         // 而是物理调用微信级仿真播放器 handleAssistantResponse 进行逐句延迟打字弹射播放，保障视觉与逻辑完全统一！
         const char = characterList.value.find(c => c.id === charId)
         if (char) {
-          handleAssistantResponse(
-            char,
-            msg.content,
-            null,
-            msg.prompt_tokens,
-            msg.completion_tokens,
-            msg.cached_tokens,
-            msg.id
-          )
+          const isWebClient = !window.electron || (window.api && (window.api as any).isIpcBridge);
+          if (isWebClient) {
+            const msgId = msg.id;
+            pendingPlaybackMessageIds.add(msgId);
+            playbackChain = playbackChain.then(async () => {
+              try {
+                await handleAssistantResponse(
+                  char,
+                  msg.content,
+                  null,
+                  msg.prompt_tokens,
+                  msg.completion_tokens,
+                  msg.cached_tokens,
+                  msg.id
+                )
+              } finally {
+                pendingPlaybackMessageIds.delete(msgId)
+              }
+            })
+          } else {
+            handleAssistantResponse(
+              char,
+              msg.content,
+              null,
+              msg.prompt_tokens,
+              msg.completion_tokens,
+              msg.cached_tokens,
+              msg.id
+            )
+          }
         } else {
           // 极致兜底降级处理
           const flattened = flattenMessages([msg], charId)
@@ -16409,8 +16478,7 @@ function openMessageContextMenu(e: MouseEvent, msg: any) {
 function ctxCopyMessage() {
   const content = contextMenu.message?.content
   if (content) {
-    navigator.clipboard.writeText(content)
-    showToast('消息文本复制成功！📋')
+    copyText(content)
   }
   contextMenu.visible = false
 }
@@ -16429,8 +16497,8 @@ function ctxOpenSelectCopy() {
 // 🚀 手机端选择复制内：一键复制全文
 function selectCopyAll() {
   if (selectCopyText.value) {
-    navigator.clipboard.writeText(selectCopyText.value)
-    showToast('全文已成功复制到剪贴板！📋')
+    copyText(selectCopyText.value)
+    showSelectCopyModal.value = false // 复制成功后，顺便优雅关闭弹窗
   }
 }
 
@@ -16742,11 +16810,13 @@ onUnmounted(() => {
 
 /* ===== 聊天气泡 ===== */
 .user-chat-bubble {
-  @apply px-3.5 py-2.5 rounded-2xl rounded-br-md bg-user-bubble text-user-bubble-text text-sm leading-relaxed shadow-sm;
+  @apply px-3.5 py-2.5 rounded-2xl rounded-br-md bg-user-bubble text-user-bubble-text text-sm leading-relaxed shadow-sm w-fit;
+  width: fit-content;
 }
 .ai-chat-bubble {
-  @apply px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-ai-bubble text-ai-bubble-text text-sm leading-relaxed shadow-sm border;
+  @apply px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-ai-bubble text-ai-bubble-text text-sm leading-relaxed shadow-sm border w-fit;
   border-color: var(--chat-border);
+  width: fit-content;
 }
 .emoji-only-bubble {
   width: fit-content !important;
