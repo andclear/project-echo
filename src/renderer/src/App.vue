@@ -4804,7 +4804,7 @@
                           
                           <!-- 物理删除该自定义指标 (基础预置指标绝对不可删除) -->
                           <button 
-                            v-if="!['intimacy', 'mood', 'energy'].includes(item.key)"
+                            v-if="!['intimacy', 'mood'].includes(item.key)"
                             @click.stop="deleteCustomState(item.key)"
                             class="p-1 rounded-md text-red-500 hover:bg-red-500/10 hover:text-red-600 transition-all flex items-center justify-center cursor-pointer"
                             title="彻底删除该状态指标"
@@ -4851,6 +4851,19 @@
                           <span class="text-sm shrink-0">{{ item.emoji }}</span>
                           <span class="opacity-90 font-bold text-[11px] text-primary truncate shrink-0">{{ item.label }}</span>
                           
+                          <!-- 亲密度快/慢切换小按钮 (点击爱心打开的亲密度状态栏上) -->
+                          <button
+                            v-if="item.key === 'intimacy'"
+                            @click.stop="toggleIntimacySpeed"
+                            class="px-2 py-0.5 rounded-md text-[9px] font-bold select-none cursor-pointer transition-all border flex items-center space-x-1 shrink-0 ml-1 mr-0.5 animate-fade-in"
+                            :class="intimacySpeed === 'slow' 
+                              ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20' 
+                              : 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20'"
+                            :title="intimacySpeed === 'slow' ? '当前为慢速成长模式' : '当前为快速成长模式'"
+                          >
+                            <span>{{ intimacySpeed === 'slow' ? '🐢 慢' : '⚡ 快' }}</span>
+                          </button>
+
                           <!-- 数字型输入框 (支持整数与高精度小数) -->
                           <input 
                             type="number" 
@@ -4870,7 +4883,7 @@
                         <div class="flex items-center space-x-1 shrink-0">
                           <!-- 物理删除该自定义指标 (基础预置指标绝对不可删除) -->
                           <button 
-                            v-if="!['intimacy', 'mood', 'energy'].includes(item.key)"
+                            v-if="!['intimacy', 'mood'].includes(item.key)"
                             @click.stop="deleteCustomState(item.key)"
                             class="p-1 rounded-md text-red-500 hover:bg-red-500/10 hover:text-red-600 transition-all flex items-center justify-center cursor-pointer"
                             title="彻底删除该状态指标"
@@ -4912,7 +4925,6 @@
                         :class="[
                           item.key === 'intimacy' ? 'bg-rose-500/5 border-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/12' :
                           item.key === 'mood' ? 'bg-amber-500/5 border-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/12' :
-                          item.key === 'energy' ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/12' :
                           'bg-indigo-500/5 border-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/12'
                         ]"
                       >
@@ -9616,6 +9628,24 @@ const showEditGroupNameModal = ref(false)
 const editGroupNameVal = ref('')
 const activeEditingGroupId = ref<string>('')
 
+const intimacySpeed = ref<'slow' | 'fast'>('slow')
+
+async function toggleIntimacySpeed() {
+  const speed = intimacySpeed.value === 'slow' ? 'fast' : 'slow'
+  intimacySpeed.value = speed
+  if (selectedCharacterId.value) {
+    try {
+      await window.api.invoke('save-intimacy-speed', {
+        characterId: selectedCharacterId.value,
+        speed
+      })
+      showToast(`亲密度成长速率已调整为：${speed === 'slow' ? '慢' : '快'} 🐾`)
+    } catch (err) {
+      console.error('保存亲密度成长速率失败:', err)
+    }
+  }
+}
+
 // 会话元数据（置顶/未读/免打扰/隐藏）
 const conversationMeta = reactive<Record<string, { pinned?: boolean; unread?: number; muted?: boolean; hidden?: boolean }>>({})
 const hasUnreadConversations = computed(() => {
@@ -9685,10 +9715,22 @@ function getIntimacyPhaseText(val: number | string): string {
 }
 
 // 监听当前激活角色的切换，实时拉取其内心状态 (配置为 immediate 触发)
-watch(selectedCharacterId, () => {
+watch(selectedCharacterId, async (newVal) => {
   activePopoverKey.value = null
   showStatesDropdown.value = false // 切换角色时关闭内心下拉框
   fetchActiveCharacterStates()
+  if (newVal) {
+    try {
+      const res = await window.api.invoke('get-intimacy-speed', { characterId: newVal })
+      if (res && res.success) {
+        intimacySpeed.value = res.speed || 'slow'
+      } else {
+        intimacySpeed.value = 'slow'
+      }
+    } catch (_) {
+      intimacySpeed.value = 'slow'
+    }
+  }
 }, { immediate: true })
 
 // 移动端音乐与设置流转监听
@@ -9750,7 +9792,7 @@ async function handleAddCustomState() {
 // 物理删除特定自定义属性：拉起自定义警告 Modal 弹窗
 function deleteCustomState(key: string) {
   if (!activeCharacter.value) return
-  if (['intimacy', 'mood', 'energy'].includes(key)) return // 安全防御
+  if (['intimacy', 'mood'].includes(key)) return // 安全防御
   pendingDeleteKey.value = key
   showDeleteConfirmModal.value = true
 }

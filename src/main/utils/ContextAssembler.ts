@@ -251,12 +251,10 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
         const state = StateReaderWriter.readState(statePath);
         const intimacyItem = state.items.find((i: any) => i.key === 'intimacy');
         const moodItem = state.items.find((i: any) => i.key === 'mood');
-        const energyItem = state.items.find((i: any) => i.key === 'energy');
         const balanceItem = state.items.find((i: any) => i.key === 'balance');
 
         let intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
         let moodVal = moodItem ? Number(moodItem.value) : 72;
-        let energyVal = energyItem ? Number(energyItem.value) : 45;
         let balanceVal = balanceItem ? Number(balanceItem.value) : 5200.0;
 
         // 情感亲密境界映射
@@ -304,49 +302,35 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}请坚守作为独立个体的
         }
 
         let moodBias = '';
-        if (moodVal > 80) {
-          moodBias = moodVal > 90
+        if (moodVal > 70) {
+          moodBias = moodVal > 80
             ? '心情极其亢奋愉悦，字里行间洋溢着掩饰不住的喜色和积极的能量。'
             : '心情明朗温和，对话带有柔和的暖意与微笑的气息。';
-        } else if (moodVal < 40) {
-          moodBias = moodVal < 20
+        } else if (moodVal < 30) {
+          moodBias = moodVal < 10
             ? '心情处于极度灰暗与低谷，回复极其冷淡沉重，甚至不想多说一个字。'
             : '情绪低沉抑郁，字句间带有一丝消极、敷衍、沉闷，对外界提不起太高的兴致。';
         } else {
           moodBias = '心情整体平和、温和而宁静，情绪十分稳定。';
         }
 
-        let energyBias = '';
-        if (energyVal < 30) {
-          energyBias = energyVal < 15
-            ? '体力彻底透支，打字极其缓慢应付，回复精简到只有几个字，或主动、强烈地表示想立刻下线休息。'
-            : '体力消耗很大，感觉疲倦，说话意愿降低，倾向于用极短的句子回复。';
-        } else if (energyVal > 80) {
-          energyBias = '精力充沛，表达欲强，乐于进行长段或深入的互动。';
-        } else {
-          energyBias = '精力状态正常，能够进行自然长短适中的互动。';
-        }
-
         let otherStatesStr = '';
         if (state.items && state.items.length > 3) {
-          otherStatesStr = state.items.filter((i: any) => i.key !== 'balance' && i.key !== 'intimacy' && i.key !== 'mood' && i.key !== 'energy').map((i: any) => {
+          otherStatesStr = state.items.filter((i: any) => i.key !== 'balance' && i.key !== 'intimacy' && i.key !== 'mood').map((i: any) => {
             const meaningDesc = i.meaning ? `（心智倾向与行为投射：${i.meaning}）` : '';
             return `\n   - **${i.emoji} ${i.label}** (当前数值：${i.value}/100)${meaningDesc}`;
           }).join('');
         }
 
         stateGuidance = `## 实时内心世界与心智投射 (Character Internal State & Subjective Attitude)
-这是你当前内心潜意识中对 {{user}} (用户) 的情感投影与生理精力状况，它们正悄然主宰着你当下的言谈心境：
+这是你当前内心潜意识中对 {{user}} (用户) 的情感投影，它们正悄然主宰着你当下的言谈心境：
 1. **❤️ 情感亲密水准：${intimacyVal}/100 (当前相处境界：【${intimacyText}】)**
    - 态度投射：${attitudeDesc}
    - 微观情感温差：${intimacyBias}
 2. **😊 心情色彩：${moodVal}/100**
-   - 表现投射：${moodVal > 80 ? '极为高涨喜悦，充满阳光与活力。' : moodVal < 40 ? '低落郁闷，回复显露出消极、冷淡或沉重的一面。' : '情绪相对平稳或温和。'}
+   - 表现投射：${moodVal > 70 ? '极为高涨喜悦，充满阳光与活力。' : moodVal < 30 ? '低落郁闷，回复显露出消极校冷漠或沉重的一面。' : '情绪相对平稳或温和。'}
    - 微观心情偏离：${moodBias}
-3. **⚡ 精力活跃度：${energyVal}/100**
-   - 表现投射：${energyVal < 30 ? '极度疲惫，打字速度变慢，回复偏向简短，或会主动提及想休息。' : '精力充沛，乐于进行长段或深入的互动。'}
-   - 微观精力偏离：${energyBias}
-4. **🪙 钱包余额：${balanceVal.toFixed(2)} 元**
+3. **🪙 钱包余额：${balanceVal.toFixed(2)} 元**
    - 物理财产规则：这是你在虚拟世界的流动资产数额。你可以使用这笔资金给用户发回音红包！${otherStatesStr}`;
 
       } catch (err) {

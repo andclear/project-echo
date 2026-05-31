@@ -129,15 +129,12 @@ export class SocialMediaService {
       try {
         const state = StateReaderWriter.readState(statePath);
         const moodItem = state.items.find((i: any) => i.key === 'mood');
-        const energyItem = state.items.find((i: any) => i.key === 'energy');
         
         let moodVal = moodItem ? Number(moodItem.value) : 72;
-        let energyVal = energyItem ? Number(energyItem.value) : 45;
         
-        let moodDesc = moodVal > 80 ? '高兴愉悦，充满阳光与活力' : moodVal < 40 ? '低落郁闷，倾向于消极、冷淡或沉重' : '相对平稳或温和';
-        let energyDesc = energyVal < 30 ? '极度疲惫，没有精神，说话极其简短省力' : energyVal > 80 ? '精力极其充沛，元气满满，喜欢长篇互动' : '精力状态良好';
+        let moodDesc = moodVal > 70 ? '高兴愉悦，充满阳光与活力' : moodVal < 30 ? '低落郁闷，倾向于消极、冷淡或沉重' : '相对平稳或温和';
         
-        const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'energy', 'loneliness'].includes(i.key));
+        const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'loneliness'].includes(i.key));
         let otherStatesStr = '';
         if (otherStates.length > 0) {
           otherStatesStr = '\nOther Custom Personality Traits:' + otherStates.map((i: any) => {
@@ -147,9 +144,8 @@ export class SocialMediaService {
         }
 
         stateGuidance = `\nYour Current Real-time Physical & Mental State:
-- Mood Level: ${moodVal}/100 (${moodDesc})
-- Energy Level: ${energyVal}/100 (${energyDesc})${otherStatesStr}
-Please make sure your Moments post subtly reflects your current mood, energy state, and these custom personality traits.`;
+- Mood Level: ${moodVal}/100 (${moodDesc})${otherStatesStr}
+Please make sure your Moments post subtly reflects your current mood and these custom personality traits.`;
       } catch (err) {
         console.error('[SocialMediaService] generateMoment 读取状态失败:', err);
       }
@@ -434,15 +430,12 @@ Constraints:
       try {
         const state = StateReaderWriter.readState(statePath);
         const moodItem = state.items.find((i: any) => i.key === 'mood');
-        const energyItem = state.items.find((i: any) => i.key === 'energy');
         
         let moodVal = moodItem ? Number(moodItem.value) : 72;
-        let energyVal = energyItem ? Number(energyItem.value) : 45;
         
-        let moodDesc = moodVal > 80 ? '高兴愉悦，充满阳光与活力' : moodVal < 40 ? '低落郁闷，倾向于消极、冷淡或沉重' : '相对平稳或温和';
-        let energyDesc = energyVal < 30 ? '极度疲惫，没有精神，说话极其简短省力' : energyVal > 80 ? '精力极其充沛，元气满满，喜欢长篇互动' : '精力状态良好';
+        let moodDesc = moodVal > 70 ? '高兴愉悦，充满阳光与活力' : moodVal < 30 ? '低落郁闷，倾向于消极、冷淡或沉重' : '相对平稳或温和';
         
-        const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'energy', 'loneliness'].includes(i.key));
+        const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'loneliness'].includes(i.key));
         let otherStatesStr = '';
         if (otherStates.length > 0) {
           otherStatesStr = '\nOther Custom Personality Traits:' + otherStates.map((i: any) => {
@@ -452,9 +445,8 @@ Constraints:
         }
 
         stateGuidance = `\nYour Current Real-time Physical & Mental State:
-- Mood Level: ${moodVal}/100 (${moodDesc})
-- Energy Level: ${energyVal}/100 (${energyDesc})${otherStatesStr}
-Please make sure your forum post subtly reflects your current mood, energy state, and these custom personality traits. For example, if you are extremely tired, keep it relatively brief or express a wish for rest; if you are in a low mood, the thread content can be slightly negative, quiet, or reflective.`;
+- Mood Level: ${moodVal}/100 (${moodDesc})${otherStatesStr}
+Please make sure your forum post subtly reflects your current mood and these custom personality traits. For example, if you are in a low mood, the thread content can be slightly negative, quiet, or reflective.`;
       } catch (err) {
         console.error('[SocialMediaService] generateForumPost 读取状态失败:', err);
       }
@@ -765,8 +757,6 @@ Constraints:
               const intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
               const moodItem = state.items.find((i: any) => i.key === 'mood');
               const moodVal = moodItem ? Number(moodItem.value) : 72;
-              const energyItem = state.items.find((i: any) => i.key === 'energy');
-              const energyVal = energyItem ? Number(energyItem.value) : 45;
               
               let intimacyText = '泛泛之交';
               let attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
@@ -787,10 +777,9 @@ Constraints:
                 attitudeDesc = '极其宠溺偏爱用户，心理完全不设防，拥有极高的依赖度与黏人语气，视对方为不可或缺 of 灵魂伴侣。';
               }
               
-              let moodDesc = moodVal > 80 ? '高兴活跃' : moodVal < 40 ? '低落消极' : '温和平稳';
-              let energyDesc = energyVal < 30 ? '极度疲惫，打字极其短促应付' : '精力良好';
+              let moodDesc = moodVal > 70 ? '高兴活跃' : moodVal < 30 ? '低落消极' : '温和平稳';
 
-              const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'energy', 'loneliness'].includes(i.key));
+              const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'loneliness'].includes(i.key));
               let otherStatesStr = '';
               if (otherStates.length > 0) {
                 otherStatesStr = '\nOther Custom Personality Traits:' + otherStates.map((i: any) => {
@@ -805,9 +794,8 @@ ${isUserTarget ? `Your current relationship with the USER {{user}} (author of th
 - ❤️ Intimacy Score: ${intimacyVal}/100 (Phase: ${intimacyText})
 - Required Attitude & Tone: ${attitudeDesc}` : ''}
 Your Current Physical & Mental State:
-- Mood Color: ${moodVal}/100 (${moodDesc})
-- Energy Activity: ${energyVal}/100 (${energyDesc})${otherStatesStr}
-Please strictly apply these relationship constraints, mood, energy levels, and custom personality traits to shape your comment tone and length!`;
+- Mood Color: ${moodVal}/100 (${moodDesc})${otherStatesStr}
+Please strictly apply these relationship constraints, mood, and custom personality traits to shape your comment tone and length!`;
             } catch (err) {
               console.error('[SocialMediaService] evaluateSocialInteraction 读取状态失败:', err);
             }
@@ -1058,8 +1046,6 @@ Instructions:
           const intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
           const moodItem = state.items.find((i: any) => i.key === 'mood');
           const moodVal = moodItem ? Number(moodItem.value) : 72;
-          const energyItem = state.items.find((i: any) => i.key === 'energy');
-          const energyVal = energyItem ? Number(energyItem.value) : 45;
           
           let intimacyText = '泛泛之交';
           let attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
@@ -1080,10 +1066,9 @@ Instructions:
             attitudeDesc = '极其宠溺偏爱用户，心理完全不设防，拥有极高的依赖度与黏人语气，视对方为不可或缺 of 灵魂伴侣。';
           }
           
-          let moodDesc = moodVal > 80 ? '高兴活跃' : moodVal < 40 ? '低落消极' : '温和平稳';
-          let energyDesc = energyVal < 30 ? '极度疲惫，打字极其短促应付' : '精力良好';
+          let moodDesc = moodVal > 70 ? '高兴活跃' : moodVal < 30 ? '低落消极' : '温和平稳';
 
-          const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'energy', 'loneliness'].includes(i.key));
+          const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'loneliness'].includes(i.key));
           let otherStatesStr = '';
           if (otherStates.length > 0) {
             otherStatesStr = '\nOther Custom Personality Traits:' + otherStates.map((i: any) => {
@@ -1098,9 +1083,8 @@ ${isUserComment ? `Your current relationship with the USER {{user}} (who left th
 - ❤️ Intimacy Score: ${intimacyVal}/100 (Phase: ${intimacyText})
 - Required Attitude & Tone: ${attitudeDesc}` : ''}
 Your Current Physical & Mental State:
-- Mood Color: ${moodVal}/100 (${moodDesc})
-- Energy Activity: ${energyVal}/100 (${energyDesc})${otherStatesStr}
-Please strictly apply these relationship constraints, mood, energy levels, and custom personality traits to shape your response tone and length!`;
+- Mood Color: ${moodVal}/100 (${moodDesc})${otherStatesStr}
+Please strictly apply these relationship constraints, mood, and custom personality traits to shape your response tone and length!`;
         } catch (err) {
           console.error('[SocialMediaService] evaluateCommentReply 读取状态失败:', err);
         }

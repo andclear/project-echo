@@ -46,7 +46,6 @@ describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () =
   "items": [
     { "key": "intimacy", "label": "亲密度", "value": 85, "emoji": "❤️", "min": 0, "max": 100, "type": "number" },
     { "key": "mood", "label": "心情", "value": 90, "emoji": "😊", "min": 0, "max": 100, "type": "number" },
-    { "key": "energy", "label": "精力", "value": 95, "emoji": "⚡", "min": 0, "max": 100, "type": "number" },
     { "key": "balance", "label": "钱包余额", "value": 1314.0, "emoji": "🪙", "min": 0, "type": "number" }
   ],
   "last_updated": "2026-05-23"

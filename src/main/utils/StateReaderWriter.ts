@@ -88,7 +88,6 @@ export class StateReaderWriter {
       items: [
         { key: "intimacy",   label: "亲密度", value: 20, emoji: "❤️", min: 0, max: 100, type: 'number' },
         { key: "mood",       label: "心情",   value: 72, emoji: "😊", min: 0, max: 100, type: 'number' },
-        { key: "energy",     label: "精力",   value: 45, emoji: "⚡", min: 0, max: 100, type: 'number' },
         { 
           key: "balance",    
           label: "钱包余额", 
@@ -123,6 +122,17 @@ export class StateReaderWriter {
       const match = raw.match(/<!--\s*([\s\S]*?)\s*-->/);
       if (match) {
         const state = JSON.parse(match[1]);
+
+        // 极致无感向下兼容：物理过滤掉任何已有的 energy 属性项，实现彻底的精力值退役
+        state.items = state.items.filter((i: any) => i.key !== 'energy');
+
+        // 向后兼容补齐：若读取的 State 中缺少 mood 字段，自动为其补齐
+        let hasMood = state.items.some((i: any) => i.key === 'mood');
+        if (!hasMood) {
+          state.items.push({ key: "mood", label: "心情", value: 72, emoji: "😊", min: 0, max: 100, type: 'number' });
+          this.writeState(filePath, state);
+        }
+
         // 向后兼容补齐：若读取的 State 中缺少 balance 字段，自动为其补齐
         let hasBalance = state.items.some((i: any) => i.key === 'balance');
         if (!hasBalance) {

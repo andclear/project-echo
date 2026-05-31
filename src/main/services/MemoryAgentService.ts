@@ -155,8 +155,7 @@ ${currentMemoryContext}
 【角色当前状态更新评估】
 请审查角色当前状态，它们的含义（“指标含义”）以及自定义更新规则（“AI更新规则”），并评估最新对话对这些状态的影响：
 - 如果用户表达温暖、关心、支持或赞美：mood 增加 (+5 至 +10)，intimacy 增加 (+1 至 +3)。
-- 如果用户冷淡、挑剔、争吵或沉默：mood 降低 (-10 至 -20)，intimacy 降低 (-2 至 -5)，energy 降低 (-5)。
-- 每轮对话消耗角色的精力，因此 energy 通常减少 (-2 至 -5)，除非这次对话具有明显的治愈性或精力补充效果。
+- 如果用户冷淡、挑剔、争吵或沉默：mood 降低 (-10 至 -20)，intimacy 降低 (-2 至 -5)。
 - 遵循 State 列表中的 AI更新规则 评估自定义数值/文本状态。若文本状态（如 clothing）发生变化，请在 'value' 字段中提供更新后的文本（无需提供 'delta'）。
 - 针对钱包余额 (balance) 属性的变动更新，必须且仅能使用相对值形式 'delta' 进行增加或扣减（例如评估收到 100 元红包应输出 { "key": "balance", "delta": 100 }，若口头请客花掉 15 元应输出 { "key": "balance", "delta": -15 }），绝对禁止使用 'value' 进行直接覆盖重置！
 
@@ -304,11 +303,35 @@ Target JSON 格式：
         if (!isGroup && Array.isArray(parsed.state_updates) && parsed.state_updates.length > 0) {
           // 🚀 核心过滤防线：物理拦截并过滤掉所有试图从后台 AI 反思更新钱包余额 'balance' 的指令，
           // 因为钱包余额已在前台扣减/红包增减逻辑中进行了 100% 精确的规则级落盘，绝对不容许 AI 幻觉和格式错误进行覆盖篡改！
-          const filteredUpdates = parsed.state_updates.filter(u => u && u.key !== 'balance');
+          let filteredUpdates = parsed.state_updates.filter(u => u && u.key !== 'balance');
 
           if (filteredUpdates.length > 0) {
+            // 🚀 物理级“慢”成长速率精准干涉门禁
+            const charId = path.basename(path.dirname(memoryPath));
+            const db = getDatabaseService();
+            const intimacySpeed = db.getSetting(`intimacy_speed_${charId}`) || 'slow';
+
+            if (intimacySpeed === 'slow') {
+              filteredUpdates = filteredUpdates.map(u => {
+                if (u.key === 'intimacy') {
+                  if (u.delta !== undefined && u.delta !== null) {
+                    const deltaVal = Number(u.delta);
+                    if (!isNaN(deltaVal)) {
+                      if (deltaVal > 0) {
+                        return { ...u, delta: 1 };
+                      } else if (deltaVal < 0) {
+                        // 限制下降在 -2 至 -5 之间
+                        return { ...u, delta: Math.max(-5, Math.min(-2, deltaVal)) };
+                      }
+                    }
+                  }
+                }
+                return u;
+              });
+            }
+
             StateReaderWriter.applyStateUpdates(statePath, filteredUpdates);
-            console.log(`[MemoryAgentService] 物理状态增量更新落盘成功(已过滤 balance):`, filteredUpdates);
+            console.log(`[MemoryAgentService] 物理状态增量更新落盘成功(已过滤 balance 且对 intimacy 进行了速率干涉):`, filteredUpdates);
 
             // 穿透广播给渲染进程前端以驱动仪表盘的动画浮动与数值更新
             const windows = BrowserWindow.getAllWindows();
