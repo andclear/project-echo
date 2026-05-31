@@ -2,22 +2,20 @@ version: '3.8'
 
 services:
   project-echo:
-    # 🚀 直接拉取经过 actions 预编译 better-sqlite3 的极速免编译公开镜像，避免低配 VPS 编译时内存溢出死机
     image: ghcr.io/andclear/project-echo:latest
     container_name: echo
     restart: unless-stopped
     ports:
-      - "6868:6868"  # 网页前端与 API SSE 桥接融合的单端口服务
+      - "6868:6868"
     volumes:
       # 物理映射卷：将聊天历史、人设卡片、朋友圈及 backups 自动子卷映射至宿主机 ./echo-data 目录
       - ./echo-data:/root/.config/project-echo
-      # 🚀 救急热挂载：强行使用宿主机最新修复的 entrypoint 脚本覆盖容器内部，解决 npx 交互卡死，实现原地秒级通航！
       - ./docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
     environment:
       - NODE_ENV=production
       - DOCKER_MODE=true
       - TZ=Asia/Shanghai
-    # 🚀 官方推荐：终极日志抗膨胀物理防线，将总日志体积死死按在最大 30MB 牢笼里！
+    # 防止日志无限膨胀
     logging:
       driver: "json-file"
       options:
