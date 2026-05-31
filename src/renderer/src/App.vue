@@ -5526,7 +5526,7 @@
                     @keydown="handleKeyDown"
                     @paste="handlePaste"
                     @input="e => { adjustTextareaHeight(e); handleInputAtMention(e) }"
-                    @focus="isInputFocused = true; nextTick(() => { scrollToBottom('auto', true); setTimeout(() => scrollToBottom('auto', true), 80); })"
+                    @focus="handleTextareaFocus"
                     @blur="isInputFocused = false"
                     @compositionstart="handleCompositionStart"
                     @compositionend="handleCompositionEnd"
@@ -9662,21 +9662,27 @@ function updateViewportHeight() {
 }
 
 function handleTextareaFocus() {
+  isInputFocused.value = true
   if (isMobile.value) {
     // 极其关键：瞬间强行重置 iOS 因软键盘聚焦弹出导致的 html/body 默认全局滚动
     nextTick(() => {
       window.scrollTo(0, 0)
       document.body.scrollTop = 0
       document.documentElement.scrollTop = 0
-      scrollToBottom('auto')
+      scrollToBottom('auto', true)
     })
-    // 50ms 再次进行双保险锁定，防止有些 iOS 键盘动画异步上推
+    // 60ms 和 150ms 再次进行多重保险触底锁定，防止移动端键盘弹出动画导致的滚动条滞后与消息遮挡！
     setTimeout(() => {
       window.scrollTo(0, 0)
       document.body.scrollTop = 0
       document.documentElement.scrollTop = 0
-      scrollToBottom('auto')
-    }, 50)
+      scrollToBottom('auto', true)
+    }, 60)
+    setTimeout(() => {
+      scrollToBottom('auto', true)
+    }, 150)
+  } else {
+    nextTick(() => scrollToBottom('auto'))
   }
 }
 
