@@ -95,6 +95,44 @@ export function broadcastToSse(channel: string, data: any) {
   }
 }
 
+// 级联反向流式拼合器：将数据库中连续的、时间相近的角色分段气泡，融合成单条高密度大消息
+export function mergeChatHistory(history: any[]): any[] {
+  if (!history || history.length === 0) return []
+
+  const merged: any[] = []
+  let currentMsg: any = null
+
+  // 逆向排序为从旧到新进行合并
+  const sorted = [...history].reverse()
+
+  for (const msg of sorted) {
+    if (!currentMsg) {
+      currentMsg = { ...msg }
+    } else if (
+      currentMsg.role === msg.role &&
+      msg.role === 'assistant' &&
+      (msg.timestamp - currentMsg.timestamp < 15000) // 15秒内连续的多气泡，判定为同一条消息的分段
+    ) {
+      // 融合成单条消息并换行拼接
+      currentMsg.content = currentMsg.content + '\n' + msg.content
+      currentMsg.timestamp = msg.timestamp // 保持最新时间戳
+      if (msg.token_usage) {
+        currentMsg.token_usage = (currentMsg.token_usage || 0) + msg.token_usage
+      }
+    } else {
+      merged.push(currentMsg)
+      currentMsg = { ...msg }
+    }
+  }
+
+  if (currentMsg) {
+    merged.push(currentMsg)
+  }
+
+  // 反转回原汁原味的从新到旧的顺序
+  return merged.reverse()
+}
+
 function createWindow(): void {
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
@@ -2061,8 +2099,13 @@ ${soulContent}
 
           const groupSystemPromptFinal = systemPrompt + buildEmojiSystemPromptSuffix('descriptive')
 
-          // B. 拉取最近 25 条历史消息并格式化为剧本 RP 形式的大文本控制台
-          const history = db.getChatHistory(groupId, 25)
+          // B. 拉取历史消息并格式化为剧本 RP 形式的大文本控制台（自适应群聊多气泡膨胀）
+          const chatMode = payload.chatMode || 'descriptive'
+          const isDialogue = chatMode === 'dialogue'
+          const limit = isDialogue ? 200 : 60
+          const rawHistory = db.getChatHistory(groupId, limit)
+          const history = mergeChatHistory(rawHistory)
+
           const formattedHistory = history.map((m: any) => {
             let senderName = 'User'
             if (m.sender_id !== 'user') {
@@ -2775,18 +2818,28 @@ ${formattedHistory}
       fs.writeFileSync(charUserPath, '[]', 'utf8')
     }
 
+    // 组装 System Prompt (至尊三层前缀保温排布)
+    // 支持 chatMode 参数：含描写模式 vs 纯对话模式
+    const chatMode = payload.chatMode || 'descriptive'
+    const globalPrompt = settings.globalPrompt || ''
+
     // 读取逻辑时间戳门控，只拉取上一次压缩以后的增量历史消息作为大模型上下文
     const lastCompressionKey = `last_compression_ts_${characterId}`
     const lastCompressionTsStr = db.getSetting(lastCompressionKey)
     const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0
 
-    // 提取最近 50 条消息历史记录作为上下文
-    let history = db.getChatHistory(characterId, 50)
+    // 🚀 自适应双门限阈值逻辑与反向流式合并（解决文字模式多气泡稀释）
+    const isDialogue = chatMode === 'dialogue'
+    const limit = isDialogue ? 160 : 60
+    let rawHistory = db.getChatHistory(characterId, limit)
 
-    // 增量逻辑物理截断：只保留上一次压缩之后的新消息，大模型侧的历史条数重回 0~50 条滚动，完美对齐缓存哈希！
+    // 增量逻辑物理截断：只保留上一次压缩之后的新消息，完美对齐缓存哈希！
     if (lastCompressionTs > 0) {
-      history = history.filter((m: any) => m.timestamp > lastCompressionTs)
+      rawHistory = rawHistory.filter((m: any) => m.timestamp > lastCompressionTs)
     }
+
+    // 内存级反向流式合并，恢复高保真上下文
+    const history = mergeChatHistory(rawHistory)
 
     // 🚀 极致缓存前缀保温还原：大模型底层完美对齐上一轮吐出的原始动作和控制符，彻底打通滚雪球缓存哈希
     if (history.length > 0) {
@@ -2800,11 +2853,6 @@ ${formattedHistory}
         }
       }
     }
-
-    // 组装 System Prompt (至尊三层前缀保温排布)
-    // 支持 chatMode 参数：含描写模式 vs 纯对话模式
-    const chatMode = payload.chatMode || 'descriptive'
-    const globalPrompt = settings.globalPrompt || ''
 
     // 🚀 识别导演模式下黄金开局专属斜杠命令
     const isOpeningCommand = chatMode === 'director' && (
@@ -3582,7 +3630,11 @@ ${memoryContent}
       const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
 
       const reviewService = new BackgroundReviewService()
-      const recentHistory = db.getChatHistory(characterId, 5)
+      const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive'
+      const isDialogue = chatMode === 'dialogue'
+      const limit = isDialogue ? 20 : 5
+      const rawHistory = db.getChatHistory(characterId, limit)
+      const recentHistory = isDialogue ? mergeChatHistory(rawHistory).slice(0, 5) : rawHistory
       await reviewService.reviewAndPatch(folderName, characterId, recentHistory, modelAdapter)
       return { success: true }
     } catch (e: any) {
@@ -4250,7 +4302,11 @@ ${memoryContent}
       const soulPath = join(charDir, 'Soul.md')
       const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : ''
       
-      const history = db.getChatHistory(payload.characterId, 10)
+      const chatMode = db.getSetting(`chat_mode_${payload.characterId}`) || 'descriptive'
+      const isDialogue = chatMode === 'dialogue'
+      const limit = isDialogue ? 30 : 10
+      const rawHistory = db.getChatHistory(payload.characterId, limit)
+      const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory
       let historyContext = ''
       if (history.length > 0) {
         historyContext = history.map(m => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n')

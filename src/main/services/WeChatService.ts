@@ -5,6 +5,7 @@ import { getDatabaseService } from '../db/database';
 import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { WeChatClient } from './WeChatClient';
+import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { NovelAiService } from './NovelAiService';
 import crypto from 'crypto';
 import QRCode from 'qrcode';
@@ -667,7 +668,12 @@ export class WeChatService {
       const memoryPath = join(baseDir, folderName, 'Memory.md');
       const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无记忆';
 
-      const history = db.getChatHistory(characterId, 15);
+      // 🚀 微信生图意境自省自适应提取合并
+      const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive';
+      const isDialogue = chatMode === 'dialogue';
+      const limit = isDialogue ? 45 : 15;
+      const rawHistory = db.getChatHistory(characterId, limit);
+      const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
       const contextText = history.map(h => `${h.role === 'user' ? '用户' : '角色'}: ${h.content}`).join('\n');
 
       // 5. 注入与 PC 客户端 100% 对称的 NovelAI 4.5 双角色隔离 Pipe 黄金指令
@@ -827,8 +833,12 @@ export class WeChatService {
     this.sendWeChatTyping(fromUser, contextToken, true);
 
     try {
-      // 3. 构建历史记忆并调用大模型推理
-      const history = db.getChatHistory(characterId, 15);
+      // 3. 构建历史记忆并调用大模型推理 (自适应双门限合并还原)
+      const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive';
+      const isDialogue = chatMode === 'dialogue';
+      const limit = isDialogue ? 45 : 15;
+      const rawHistory = db.getChatHistory(characterId, limit);
+      const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
       const chatMessages: ChatMessage[] = [
         { role: 'system', content: this.buildSystemPrompt(characterId) },
         ...history.map(m => {
@@ -847,8 +857,7 @@ export class WeChatService {
       const response = await modelAdapter.chat(chatMessages, { usePrimary: true });
       const finalAIResponse = response.content.trim();
 
-      // 4. 【特化发信解耦】：微信端根据对话模式决定发信策略
-      const chatMode = settings.chatMode || 'descriptive';
+      // 4. 【特化发信解耦】：微信端根据对话模式决定发信策略 (重用已获取的专属 chatMode)
 
       // 关闭微信输入态
       this.sendWeChatTyping(fromUser, contextToken, false);

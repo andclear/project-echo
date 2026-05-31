@@ -8,6 +8,7 @@ import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { SocialMediaService } from './SocialMediaService';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { NovelAiService } from './NovelAiService';
+import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 
 export interface WakeContext {
   wakeAgent: boolean;
@@ -423,8 +424,12 @@ export class AgentLifeEngine {
     const goalsPath = path.join(baseDir, folderName, 'Goals.md');
     const goalsContent = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
 
-    // 读出聊天的最近 20 条历史消息快照并精细清洗非对话系统消息
-    const rawHistory = db.getChatHistory(charId, 20);
+    // 读出聊天的最近 20 条历史消息快照并精细清洗非对话系统消息 (自适应双门限合并还原)
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const isDialogue = chatMode === 'dialogue';
+    const limit = isDialogue ? 60 : 20;
+    const dbHistory = db.getChatHistory(charId, limit);
+    const rawHistory = mergeChatHistory(dbHistory);
     // 过滤掉日记卡片等非直接对话文本
     const cleanHistory = rawHistory.filter(m => {
       if (!m.content) return false;
@@ -870,12 +875,17 @@ Please output in exactly this XML format:
     const lastCompressionTsStr = db.getSetting(lastCompressionKey);
     const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
 
-    let rawHistory = db.getChatHistory(charId, 50);
+    // 自适应双门限合并还原
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const isDialogue = chatMode === 'dialogue';
+    const limit = isDialogue ? 160 : 60;
+    let rawHistory = db.getChatHistory(charId, limit);
     if (lastCompressionTs > 0) {
       rawHistory = rawHistory.filter((m: any) => m.timestamp > lastCompressionTs);
     }
+    const mergedHistory = mergeChatHistory(rawHistory);
 
-    const cleanHistory = rawHistory.filter((m: any) => {
+    const cleanHistory = mergedHistory.filter((m: any) => {
       if (!m.content) return false;
       const contentStr = m.content.trim();
       if (contentStr.startsWith('[character_diary]:')) return false;

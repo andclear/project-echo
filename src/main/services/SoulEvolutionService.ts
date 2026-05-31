@@ -4,6 +4,7 @@ import { getDatabaseService } from '../db/database';
 import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { BrowserWindow } from 'electron';
+import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 
 export class SoulEvolutionService {
   private storageManager: CharacterStorageManager;
@@ -78,8 +79,12 @@ export class SoulEvolutionService {
     const dreamPath = path.join(baseDir, folderName, 'DREAM.md');
     const dreamContent = fs.existsSync(dreamPath) ? fs.readFileSync(dreamPath, 'utf8') : '';
 
-    // 最近对话
-    const history = db.getChatHistory(characterId, 20);
+    // 最近对话 (自适应双门限合并还原)
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive';
+    const isDialogue = chatMode === 'dialogue';
+    const limit = isDialogue ? 80 : 30;
+    const rawHistory = db.getChatHistory(characterId, limit);
+    const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
     const chatContext = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
 
     const systemPrompt = `You are the ultimate personality evolution curator of the AI Character "${char.name}".

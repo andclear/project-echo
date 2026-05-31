@@ -8,6 +8,7 @@ import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { StateReaderWriter } from '../utils/StateReaderWriter';
 import { getDatabaseService } from '../db/database';
 import { SummaryReaderWriter } from '../utils/SummaryReaderWriter';
+import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 
 /**
  * MemoryAgentService
@@ -412,7 +413,11 @@ Target JSON 格式：
     } else {
       const lastUpdate = new Date(lastUpdateStr);
       const daysPassed = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysPassed >= 7 || messagesPassed >= 120) {
+      // 🚀 日程更新自省自适应双门限
+      const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+      const isDialogue = chatMode === 'dialogue';
+      const stepLimit = isDialogue ? 240 : 100;
+      if (daysPassed >= 7 || messagesPassed >= stepLimit) {
         needUpdate = true;
       }
     }
@@ -450,12 +455,17 @@ Target JSON 格式：
     const lastCompressionTsStr = db.getSetting(lastCompressionKey);
     const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
 
-    let rawHistory = db.getChatHistory(charId, 50);
+    // 🚀 日程更新自省历史拉取拼合
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const isDialogue = chatMode === 'dialogue';
+    const limit = isDialogue ? 160 : 60;
+    let rawHistory = db.getChatHistory(charId, limit);
     if (lastCompressionTs > 0) {
       rawHistory = rawHistory.filter((m: any) => m.timestamp > lastCompressionTs);
     }
+    const mergedHistory = mergeChatHistory(rawHistory);
 
-    const cleanHistory = rawHistory.filter((m: any) => {
+    const cleanHistory = mergedHistory.filter((m: any) => {
       if (!m.content) return false;
       const contentStr = m.content.trim();
       if (contentStr.startsWith('[character_diary]:')) return false;
@@ -610,13 +620,19 @@ ${charUserContent}
     const lastCompressionTsStr = db.getSetting(lastCompressionKey);
     const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
 
-    let activeHistory = db.getChatHistory(characterId, 100);
+    // 🚀 活跃大事记压缩阈值自适应物理门限与拉取量
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive';
+    const isDialogue = chatMode === 'dialogue';
+    const compressThreshold = isDialogue ? 160 : 60;
+    const limit = isDialogue ? 200 : 100;
+
+    let activeHistory = db.getChatHistory(characterId, limit);
     if (lastCompressionTs > 0) {
       activeHistory = activeHistory.filter((m: any) => m.timestamp > lastCompressionTs);
     }
 
-    if (activeHistory.length < 50) {
-      console.log(`[MemoryAgentService] 活跃历史条数为 ${activeHistory.length}，未达 50 条阈值，暂不触发归并压缩。`);
+    if (activeHistory.length < compressThreshold) {
+      console.log(`[MemoryAgentService] 活跃历史条数为 ${activeHistory.length}，未达 ${compressThreshold} 物理条阈值，暂不触发归并压缩。`);
       return;
     }
 
@@ -644,8 +660,9 @@ ${charUserContent}
         ? '（暂无长期记忆）'
         : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n');
 
-      // 5. 格式化待归并的 50 条历史对话文本 (群聊时获取真实 AI 成员名字)
-      const chatTranscript = activeHistory.map((m: any) => {
+      // 5. 格式化待归并的历史对话文本 (群聊时获取真实 AI 成员名字)并流式反向拼合
+      const mergedActiveHistory = mergeChatHistory(activeHistory);
+      const chatTranscript = mergedActiveHistory.map((m: any) => {
         let name = m.role === 'user' ? 'User' : 'Character';
         if (isGroup && m.sender_id) {
           if (m.sender_id === 'user') {
@@ -823,8 +840,12 @@ Target JSON 格式：
     const db = getDatabaseService();
     const currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
 
-    // 1. 获取近期聊天历史（提炼深度事实需要充足的上下文，这里取最多 100 条）
-    const history = db.getChatHistory(charId, 100);
+    // 1. 获取近期聊天历史（提炼深度事实需要充足的上下文，这里取最多 100 条且自适应合并）
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const isDialogue = chatMode === 'dialogue';
+    const limit = isDialogue ? 200 : 100;
+    const rawHistory = db.getChatHistory(charId, limit);
+    const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
     const historyContext = history.length > 0
       ? history.map((m: any) => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n')
       : '（暂无聊天历史）';
@@ -911,8 +932,12 @@ Target JSON 格式：
     const currentLtm = currentMemory.ltm;
     const currentStm = currentMemory.stm;
 
-    // 1. 获取近期聊天历史
-    const history = db.getChatHistory(charId, 100);
+    // 1. 获取近期聊天历史并进行自适应双门限合并还原
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const isDialogue = chatMode === 'dialogue';
+    const limit = isDialogue ? 200 : 100;
+    const rawHistory = db.getChatHistory(charId, limit);
+    const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
     const historyContext = history.length > 0
       ? history.map((m: any) => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n')
       : '（暂无聊天历史）';

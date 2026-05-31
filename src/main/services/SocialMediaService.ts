@@ -5,6 +5,7 @@ import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { StateReaderWriter } from '../utils/StateReaderWriter';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
+import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { NovelAiService } from './NovelAiService';
 
 export class SocialMediaService {
@@ -104,7 +105,12 @@ export class SocialMediaService {
     const memoryPath = path.join(baseDir, folderName, 'Memory.md');
     const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
 
-    const history = db.getChatHistory(char.id, 5);
+    // 🚀 自适应双门限合并还原
+    const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+    const isDialogue = chatMode === 'dialogue';
+    const limit = isDialogue ? 60 : 20;
+    const rawHistory = db.getChatHistory(char.id, limit);
+    const history = mergeChatHistory(rawHistory).slice(0, 20);
     const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
 
     const soulPath = path.join(baseDir, folderName, 'Soul.md');
@@ -724,7 +730,12 @@ Constraints:
 
           let memoryInjection = `\n\nYour Long-term Memory & Personal Profile on User (Memory.md):\n${memoryContent}`;
           if (isUserTarget) {
-            const history = db.getChatHistory(char.id, 5);
+            // 🚀 自适应双门限合并还原
+            const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+            const isDialogue = chatMode === 'dialogue';
+            const limit = isDialogue ? 60 : 20;
+            const rawHistory = db.getChatHistory(char.id, limit);
+            const history = mergeChatHistory(rawHistory).slice(0, 20);
             const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
             
             const { app } = require('electron');
@@ -993,7 +1004,12 @@ Instructions:
       const memoryPath = path.join(baseDir, char.folder_name, 'Memory.md');
       const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
 
-      const history = db.getChatHistory(char.id, 5);
+      // 🚀 自适应双门限合并还原
+      const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+      const isDialogue = chatMode === 'dialogue';
+      const limit = isDialogue ? 60 : 20;
+      const rawHistory = db.getChatHistory(char.id, limit);
+      const history = mergeChatHistory(rawHistory).slice(0, 20);
       const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
 
       // 检测全局常规设置并进行 60% 物理概率 NSFW 触发判定
@@ -1324,7 +1340,12 @@ You current relationship with {{user}} ({{user}} explicitly @mentioned you in pu
       const memoryPath = path.join(baseDir, char.folder_name, 'Memory.md');
       const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
 
-      const history = db.getChatHistory(char.id, 5);
+      // 🚀 自适应双门限合并还原
+      const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+      const isDialogue = chatMode === 'dialogue';
+      const limit = isDialogue ? 60 : 20;
+      const rawHistory = db.getChatHistory(char.id, limit);
+      const history = mergeChatHistory(rawHistory).slice(0, 20);
       const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
 
       // 提取该帖子/朋友圈动态内已有的所有历史评论互动作为“社媒上下文讨论记忆”
