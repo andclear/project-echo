@@ -262,6 +262,10 @@ export class UpdateService {
 
     const platform = process.platform
 
+    // 🚀 核心修复：强制开启 app.isQuiting 标志门锁，彻底打通与菜单栏“退出”一致的彻底、物理级退场通道！
+    // 完美绕过 win.on('close') 拦截器将其误杀转为“后台隐藏”的重大 Electron 生命周期死锁 Bug！
+    (app as any).isQuiting = true
+
     if (platform === 'win32') {
       // Windows: 静默或者唤起 NSIS 安装包，并退出主程序防占位
       const child = spawn(filePath, [], {

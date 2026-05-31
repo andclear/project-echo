@@ -8327,68 +8327,118 @@
       </div>
     </div>
 
-    <!-- 🚀 全局版本升级就绪毛玻璃炫彩 Modal -->
-    <div v-if="showUpdateModal" class="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-md animate-fade-in select-text">
-      <div class="w-full max-w-[460px] bg-surface-low/90 backdrop-blur-2xl rounded-[28px] border border-outline-variant shadow-2xl flex flex-col overflow-hidden animate-scale-in relative select-text">
-        <!-- 炫彩色流光背景遮罩 -->
-        <div class="absolute -top-24 -left-24 w-48 h-48 rounded-full bg-primary/20 blur-3xl pointer-events-none"></div>
-        <div class="absolute -bottom-24 -right-24 w-48 h-48 rounded-full bg-secondary/20 blur-3xl pointer-events-none"></div>
+    <!-- 🚀 全局版本升级就绪高级拟真自适应 Modal -->
+    <div v-if="showUpdateModal" class="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/30 dark:bg-black/75 backdrop-blur-[16px] animate-fade-in select-text">
+      <div class="w-full max-w-[420px] bg-white/95 dark:bg-[#0c0c0d] border border-white/60 dark:border-[#202022] shadow-[0_24px_60px_-15px_rgba(0,0,0,0.12)] dark:shadow-[0_30px_70px_-15px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden animate-scale-in relative rounded-[28px] dark:rounded-[12px] select-text">
+        
+        <!-- 亮色模式下的背景微弱七彩流光模糊晕染 -->
+        <div class="absolute -top-32 -left-32 w-64 h-64 rounded-full bg-gradient-to-tr from-primary/8 via-secondary/4 to-transparent blur-3xl pointer-events-none"></div>
+        <div class="absolute -bottom-32 -right-32 w-64 h-64 rounded-full bg-gradient-to-tr from-secondary/5 via-primary/5 to-transparent blur-3xl pointer-events-none"></div>
 
-        <header class="p-6 border-b border-outline-variant/30 flex flex-col items-center select-none flex-shrink-0 relative">
-          <!-- 升级火箭动画容器 -->
-          <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-primary/20 to-secondary/20 border border-primary/30 flex items-center justify-center text-primary mb-3 shadow-inner relative overflow-hidden group">
-            <!-- 闪光流线 -->
-            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shine"></div>
-            <RefreshCwIcon class="w-6 h-6 animate-spin text-primary" />
+        <!-- 🚀 暗色模式专用：极其克制的“翠绿激光二极管”极细发光线条 -->
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-[2px] bg-gradient-to-r from-transparent via-[#4edea3] to-transparent blur-[0.5px] dark:opacity-90 pointer-events-none"></div>
+
+        <!-- 头部设计：极精致云端升级图标与标题 -->
+        <header class="pt-8 pb-3 px-6 flex flex-col items-center select-none flex-shrink-0 relative">
+          <!-- 升级指示图标：极简高保真云端同步徽章 -->
+          <div class="w-12 h-12 rounded-2xl dark:rounded-[8px] bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary dark:text-[#4edea3] mb-3.5 shadow-inner">
+            <svg class="w-6 h-6 animate-pulse" style="animation-duration: 2s;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+            </svg>
           </div>
-          <h3 class="text-sm font-black text-on-surface tracking-wide text-center">
-            {{ isDockerUpdate ? '新版本回音 (Docker 镜像) 已就绪！' : '新版本回音 (Echo) 已准备就绪！' }}
+          
+          <h3 class="text-base font-extrabold text-on-surface tracking-tight text-center dark:text-[#e5e2e1]">
+            {{ isDockerUpdate ? '新版本回音已就绪' : '发现新版本回音' }}
           </h3>
-          <p class="text-[10px] text-primary font-mono font-bold mt-1 bg-primary/10 px-2 py-0.5 rounded-full select-none">最新版本: {{ latestVersion }}</p>
+          <p class="text-[10px] text-on-surface-variant/60 dark:text-[#bbcabf]/50 mt-1 select-none font-sans dark:font-mono">
+            数字生命扮演系统 · 精益升级
+          </p>
         </header>
 
-        <!-- 更新日志区域 -->
-        <div class="flex-1 overflow-y-auto p-6 select-text max-h-[260px] leading-relaxed border-b border-outline-variant/10">
-          <h4 class="text-xs font-bold text-on-surface mb-2 select-none flex items-center space-x-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-            <span>本次升级内容：</span>
-          </h4>
-          <div class="text-[11px] text-on-surface-variant font-sans whitespace-pre-line bg-surface-high/30 border border-outline-variant/10 rounded-2xl p-4 min-h-[100px] max-h-[220px] overflow-y-auto leading-relaxed shadow-inner">
-            {{ updateChangelog || '1. 客户端稳定性升级与日常缺陷修复。\n2. 数据库安全迁移机制上线。' }}
+        <!-- 🚀 版本比对卡片组件 (Version Comparison Widget - 极简极奢款) -->
+        <div class="px-6 pb-2 flex-shrink-0 select-none">
+          <div class="flex items-center justify-center space-x-3.5 py-2 px-4 bg-surface-low/30 dark:bg-[#1a1a1a]/30 border border-outline-variant/10 dark:border-[#202022] rounded-[18px] dark:rounded-[6px] max-w-[290px] mx-auto shadow-sm">
+            <div class="flex flex-col items-center">
+              <span class="text-[8px] text-on-surface-variant/40 dark:text-[#bbcabf]/30 font-bold tracking-wider uppercase font-mono">Current</span>
+              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v1.0.0</span>
+            </div>
+            
+            <!-- 指示箭头带极精密虚线 -->
+            <div class="flex-1 flex items-center justify-center text-primary/30 dark:text-[#4edea3]/30 min-w-[60px] relative">
+              <div class="w-full border-t border-dashed border-current scale-y-[0.5] opacity-40"></div>
+              <div class="absolute p-0.5 rounded-full bg-white dark:bg-[#121214] border border-outline-variant/5 dark:border-[#202022]">
+                <ChevronRightIcon class="w-3.5 h-3.5 text-primary dark:text-[#4edea3]" />
+              </div>
+            </div>
+            
+            <div class="flex flex-col items-center">
+              <span class="text-[8px] text-primary/60 dark:text-[#4edea3]/60 font-bold tracking-wider uppercase font-mono">Latest</span>
+              <span class="text-[11px] font-extrabold text-primary dark:text-[#4edea3] font-mono select-text mt-0.5">v{{ latestVersion }}</span>
+            </div>
           </div>
         </div>
 
-        <footer class="p-5 flex items-center justify-end space-x-3 bg-surface-low select-none flex-shrink-0">
+        <!-- 更新日志区域 (空气感无界面板) -->
+        <div class="flex-1 overflow-y-auto pt-3 pb-5 px-6 select-text max-h-[220px] leading-relaxed">
+          <h4 class="text-[11px] font-bold text-on-surface/80 dark:text-[#e5e2e1]/80 mb-2.5 select-none tracking-wide">
+            本次升级内容：
+          </h4>
+          
+          <div class="space-y-3 px-1">
+            <div 
+              v-for="(item, index) in parsedChangelog" 
+              :key="index" 
+              class="flex items-start space-x-3 text-left animate-fade-in"
+              :style="{ animationDelay: `${index * 50}ms` }"
+            >
+              <!-- 精致微型高光图标前置点缀 -->
+              <div class="w-4.5 h-4.5 rounded-full bg-primary/8 dark:bg-[#4edea3]/10 flex items-center justify-center text-primary dark:text-[#4edea3] flex-shrink-0 mt-0.5">
+                <CheckIcon class="w-2.5 h-2.5 stroke-[3]" />
+              </div>
+              <span class="text-[11px] text-on-surface-variant/90 dark:text-[#bbcabf]/90 leading-relaxed font-sans dark:font-mono select-text">
+                {{ item.replace(/^\d+[\.\s、]+/, '') }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部控制栏：右侧高保真高度对称排列，无生硬线 -->
+        <footer class="pb-6 pt-2 px-6 flex items-center justify-end space-x-3 select-none flex-shrink-0 bg-transparent">
+          <!-- A. 稍后更新幽灵按钮 (解决 Tailwind 编译透明度失效 Bug，高宽圆角完全对称) -->
           <button
             @click="showUpdateModal = false"
-            class="px-5 py-2.5 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-all active:scale-95 cursor-pointer"
+            class="px-6 py-2.5 rounded-xl dark:rounded-[4px] bg-surface-low hover:bg-surface-high text-xs font-bold text-on-surface-variant/80 dark:text-[#e5e2e1] transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 cursor-pointer text-center font-sans dark:font-mono"
           >
             {{ isDockerUpdate ? '稍后更新' : '稍后安装' }}
           </button>
           
-          <!-- A. Docker 专属一键极速复制指令按钮 -->
+          <!-- B. Docker 专属一键极速复制指令按钮 -->
           <button
             v-if="isDockerUpdate"
             @click="handleCopyDockerCommand"
             :class="[
-              'px-6 py-2.5 rounded-xl text-xs font-black text-white transition-all active:scale-95 shadow-md flex items-center space-x-1.5 cursor-pointer relative overflow-hidden group',
-              copiedDockerCmd ? 'bg-success hover:brightness-110' : 'bg-gradient-to-r from-primary to-secondary hover:brightness-110'
+              'px-6 py-2.5 rounded-xl dark:rounded-[4px] text-xs font-bold transition-all duration-200 hover:-translate-y-[1px] active:translate-y-0 shadow-sm flex items-center justify-center space-x-1.5 cursor-pointer relative overflow-hidden group font-sans dark:font-mono',
+              copiedDockerCmd 
+                ? 'bg-emerald-600 dark:bg-[#4edea3] text-white dark:text-[#050505] shadow-[0_4px_12px_rgba(16,185,129,0.2)] dark:shadow-[0_0_12px_var(--primary)]' 
+                : 'bg-primary dark:bg-[#e5e5e5] text-white dark:text-[#050505] hover:brightness-105 shadow-sm dark:hover:shadow-[0_0_12px_var(--primary)]'
             ]"
           >
+            <!-- 闪光特效 -->
+            <div class="absolute inset-0 w-1/2 h-full bg-white/15 dark:bg-black/10 skew-x-12 -translate-x-full group-hover:animate-shine"></div>
             <CheckIcon v-if="copiedDockerCmd" class="w-3.5 h-3.5" />
             <CopyIcon v-else class="w-3.5 h-3.5" />
             <span>{{ copiedDockerCmd ? '指令已复制！' : '复制 Docker 更新指令' }}</span>
           </button>
 
-          <!-- B. 常规电脑客户端重启安装按钮 -->
+          <!-- C. 常规电脑客户端重启安装按钮 -->
           <button
             v-else
             @click="handleRestartAndInstall"
-            class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary hover:brightness-110 text-xs font-black text-white transition-all active:scale-95 shadow-md flex items-center space-x-1.5 cursor-pointer relative overflow-hidden group"
+            class="px-6 py-2.5 rounded-xl dark:rounded-[4px] bg-gradient-to-r from-primary to-[#6063ee] dark:bg-none dark:bg-[#e5e5e5] text-white dark:text-[#050505] hover:brightness-105 hover:shadow-[0_6px_18px_rgba(70,72,212,0.25)] hover:-translate-y-[1px] active:translate-y-0 transition-all duration-200 flex items-center justify-center space-x-1.5 cursor-pointer relative overflow-hidden group font-sans dark:font-mono dark:hover:shadow-[0_0_12px_var(--primary)]"
           >
             <!-- 闪光特效 -->
-            <div class="absolute inset-0 w-1/2 h-full bg-white/20 skew-x-12 -translate-x-full group-hover:animate-shine"></div>
-            <RefreshCwIcon class="w-3.5 h-3.5 animate-spin" />
+            <div class="absolute inset-0 w-1/2 h-full bg-white/15 dark:bg-black/10 skew-x-12 -translate-x-full group-hover:animate-shine"></div>
+            <RefreshCwIcon class="w-3.5 h-3.5 animate-spin-slow" />
             <span>重启并升级</span>
           </button>
         </footer>
@@ -8914,6 +8964,15 @@ const downloadStatus = ref<'idle' | 'downloading' | 'downloaded' | 'error'>('idl
 const updateErrorMsg = ref('')
 const isDockerUpdate = ref(false)
 const copiedDockerCmd = ref(false)
+
+// 动态解析更新日志，支持按行渲染并自动去除原生序号
+const parsedChangelog = computed(() => {
+  const logText = updateChangelog.value || '1. 客户端稳定性升级与日常缺陷修复。\n2. 数据库安全迁移机制上线。'
+  return logText
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+})
 
 const handleCopyDockerCommand = async () => {
   try {
