@@ -2,7 +2,8 @@ version: '3.8'
 
 services:
   project-echo:
-    build: .
+    # 🚀 直接拉取经过 actions 预编译 better-sqlite3 的极速免编译公开镜像，避免低配 VPS 编译时内存溢出死机
+    image: ghcr.io/andclear/project-echo:latest
     container_name: project-echo-server
     restart: unless-stopped
     ports:
@@ -12,3 +13,4 @@ services:
       - ./echo-data:/root/.config/project-echo
     environment:
       - NODE_ENV=production
+      - DOCKER_MODE=true
