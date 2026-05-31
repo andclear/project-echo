@@ -8119,8 +8119,10 @@
     <!-- 移动端精致底部导航栏 -->
     <div 
       v-if="isMobile" 
-      v-show="!isInputFocused"
-      class="flex md:hidden h-16 w-full bg-sidebar/85 backdrop-blur-xl border-t border-sidebar-border/30 flex-shrink-0 items-center justify-around px-1 z-40 select-none pb-safe transition-all duration-300"
+      :class="isInputFocused 
+        ? 'opacity-0 translate-y-full h-0 border-t-0 pointer-events-none py-0' 
+        : 'opacity-100 translate-y-0 h-16 border-t border-sidebar-border/30 py-1'"
+      class="flex md:hidden w-full bg-sidebar/85 backdrop-blur-xl flex-shrink-0 items-center justify-around px-1 z-40 select-none pb-safe transition-all duration-300 ease-in-out"
     >
       <!-- 1. 对话 -->
       <button 
