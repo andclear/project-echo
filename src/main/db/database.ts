@@ -322,6 +322,27 @@ export class DatabaseService {
   }
 
   /**
+   * 获取微信好友到本地数字生命角色的映射绑定关系字典
+   */
+  public getWeChatMappings(): Record<string, string> {
+    const raw = this.getSetting('wechat_friend_mappings')
+    if (!raw) return {}
+    try {
+      return JSON.parse(raw)
+    } catch (_) {
+      return {}
+    }
+  }
+
+  /**
+   * 保存微信好友到本地数字生命角色的映射绑定关系字典
+   */
+  public saveWeChatMapping(mappings: Record<string, string>): void {
+    this.setSetting('wechat_friend_mappings', JSON.stringify(mappings))
+  }
+
+
+  /**
    * 保存聊天消息
    */
   public saveMessage(msg: {

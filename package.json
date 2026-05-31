@@ -20,6 +20,7 @@
     "markdown-it": "^14.1.1",
     "node-cron": "^3.0.3",
     "pinyin": "^4.0.0-alpha.2",
+    "qrcode": "^1.5.4",
     "vue": "^3.5.13"
   },
   "devDependencies": {
@@ -29,6 +30,7 @@
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.10.2",
     "@types/node-cron": "^3.0.11",
+    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^5.1.4",
     "autoprefixer": "^10.4.20",
     "electron": "^33.2.1",

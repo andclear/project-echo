@@ -27,6 +27,8 @@ import { SoulEvolutionService } from './services/SoulEvolutionService'
 import { MusicService } from './services/MusicService'
 import { NovelAiService } from './services/NovelAiService'
 import { UpdateService } from './services/UpdateService'
+import { WeChatService } from './services/WeChatService'
+
 
 // 完美解决 macOS 系统代理或 VPN 拦截导致的 Chromium 网络服务崩溃及本地 Dev 调试加载问题，确保开发服务器端口彻底绕过系统代理自检，且网络进程防崩
 app.commandLine.appendSwitch('proxy-bypass-list', '127.0.0.1;localhost;<local>;127.0.0.1:5173;localhost:5173;127.0.0.1:5174;localhost:5174;127.0.0.1:5175;localhost:5175')
@@ -281,6 +283,80 @@ ${meaningList}
 
 // 注册主进程 IPC 监听器
 function registerIpcHandlers(): void {
+
+  // ===================== 微信个人号接入专属 IPC 通道注册 =====================
+  // 获取当前微信服务的全部状态与绑定映射表
+  ipcMain.handle('wechat-get-status', async () => {
+    try {
+      const wechatService = WeChatService.getInstance();
+      return { success: true, status: wechatService.getStatus() };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // 触发获取登录 Scheme 并启动长轮询监听
+  ipcMain.handle('wechat-start-login', async () => {
+    try {
+      const wechatService = WeChatService.getInstance();
+      const qrcodeUrl = await wechatService.requestQRAndStartLogin();
+      return { success: true, qrcodeUrl };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // 安全解除当前微信号的绑定，清除全部凭证和好友映射
+  ipcMain.handle('wechat-unbind', async () => {
+    try {
+      const wechatService = WeChatService.getInstance();
+      await wechatService.stopService();
+      
+      const db = getDatabaseService();
+      db.setSetting('wechat_token', '');
+      db.setSetting('wechat_sync_buf', '');
+      db.setSetting('wechat_account_id', '');
+      db.setSetting('wechat_qrcode_url', '');
+      db.saveWeChatMapping({}); // 清空绑定
+      db.setSetting('wechat_enabled', '0');
+
+      // 广播状态更新
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('wechat-status-updated', wechatService.getStatus());
+      }
+
+      return { success: true, status: wechatService.getStatus() };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // 允许用户直接在 PC 端手动强制更新或修改某微信好友所绑定的角色
+  ipcMain.handle('wechat-update-mapping', async (_, payload: { friendId: string; characterId: string }) => {
+    try {
+      const { friendId, characterId } = payload;
+      const db = getDatabaseService();
+      const mappings = db.getWeChatMappings();
+      
+      if (characterId) {
+        mappings[friendId] = characterId;
+      } else {
+        delete mappings[friendId]; // 清空绑定
+      }
+
+      db.saveWeChatMapping(mappings);
+      
+      const wechatService = WeChatService.getInstance();
+      // 广播状态更新给 Vue
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('wechat-status-updated', wechatService.getStatus());
+      }
+      return { success: true, status: wechatService.getStatus() };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
 
   // ====== 桌面挂载与搜索增强 IPC 通道 ======
   // 聊天历史全局物理搜索
@@ -5933,6 +6009,14 @@ app.whenReady().then(() => {
 
   // 注册 IPC 处理程序
   registerIpcHandlers()
+
+  // 启动微信个人号托管守护服务 (若开启)
+  try {
+    WeChatService.getInstance().startService()
+  } catch (error) {
+    console.error('微信服务挂载启动异常:', error)
+  }
+
 
   // 启动局域网 IPC 桥接服务器，支持通过 Settings 数据库动态自定义端口
   try {
