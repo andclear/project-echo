@@ -11,6 +11,8 @@ services:
     volumes:
       # 物理映射卷：将聊天历史、人设卡片、朋友圈及 backups 自动子卷映射至宿主机 ./echo-data 目录
       - ./echo-data:/root/.config/project-echo
+      # 🚀 救急热挂载：强行使用宿主机最新修复的 entrypoint 脚本覆盖容器内部，解决 npx 交互卡死，实现原地秒级通航！
+      - ./docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
     environment:
       - NODE_ENV=production
       - DOCKER_MODE=true

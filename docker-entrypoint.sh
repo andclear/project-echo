@@ -25,4 +25,4 @@ echo "[Docker Entrypoint] 数据设定注入成功。正在使用 Xvfb 虚拟化
 # --no-sandbox 确保 Electron 在容器 Root 权限下顺畅运行起飞
 export DOCKER_MODE=true
 exec xvfb-run --server-args="-screen 0 1024x768x24" \
-  npx electron ./out/main/index.js --no-sandbox
+  ./node_modules/.bin/electron ./out/main/index.js --no-sandbox
