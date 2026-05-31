@@ -63,12 +63,27 @@ export const sseClients = new Set<any>()
 // 🚀 极致缓存前缀保温还原全局内存字典：以角色ID为键值，缓存最近一次大模型吐出的 100% 原始未清洗的 assistant 消息内容
 export const LastAssistantRawResponse: Record<string, string> = {}
 
+// SSE 消息环形缓冲区（最近 50 条），用于断线重连后的消息补偿
+interface SseBufferedMsg { id: number; raw: string; }
+const sseMessageBuffer: SseBufferedMsg[] = []
+let sseMessageIdCounter = 0
+const SSE_BUFFER_MAX = 50
+
 // SSE 广播函数
 export function broadcastToSse(channel: string, data: any) {
+  const id = ++sseMessageIdCounter
   const payload = JSON.stringify({ channel, data })
+  const raw = `id: ${id}\ndata: ${payload}\n\n`
+
+  // 存入环形缓冲区（淘汰最旧条目）
+  sseMessageBuffer.push({ id, raw })
+  if (sseMessageBuffer.length > SSE_BUFFER_MAX) {
+    sseMessageBuffer.shift()
+  }
+
   for (const client of sseClients) {
     try {
-      client.write(`data: ${payload}\n\n`)
+      client.write(raw)
     } catch (e) {
       sseClients.delete(client)
     }
@@ -5883,15 +5898,32 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
 
   // GET /api/events — SSE 持久推送通道
   if (req.method === 'GET' && req.url && req.url.startsWith('/api/events')) {
+    // 解析客户端最后收到的消息 id（断线重连时浏览器自动携带）
+    const rawLastId = req.headers['last-event-id']
+    const lastReceivedId = rawLastId ? parseInt(rawLastId as string, 10) : -1
+
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',   // 防止 nginx/反向代理缓冲 SSE 数据包
       'Access-Control-Allow-Origin': '*'
-    });
-    res.write(': sse-connected\n\n');
-    sseClients.add(res);
+    })
+    res.write(': sse-connected\n\n')
+    sseClients.add(res)
+
+    // 补发断线期间错过的消息：仅补发 id > lastReceivedId（严格大于，杜绝重复）
+    if (lastReceivedId >= 0 && sseMessageBuffer.length > 0) {
+      const missed = sseMessageBuffer.filter(m => m.id > lastReceivedId)
+      for (const m of missed) {
+        try {
+          res.write(m.raw)
+        } catch (_) {}
+      }
+      if (missed.length > 0) {
+        console.log(`[SSE] 断线重连补偿: 补发 ${missed.length} 条消息 (id > ${lastReceivedId})`)
+      }
+    }
 
     // 每 20 秒发送一次 SSE comment 心跳包（": ping"），防止路由器/NAT/iOS 系统因 TCP 长时间无活动而强制回收连接
     // 浏览器收到 comment 行会直接丢弃，不触发 onmessage，对业务完全透明

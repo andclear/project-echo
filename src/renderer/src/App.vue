@@ -8999,23 +8999,20 @@ if (typeof window !== 'undefined' && !(window as any).api) {
         const Ctx = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
         audioCtx = new Ctx();
 
-        // 创建 0.5 秒长度的静音缓冲区（全零样本，100% 无声）
-        const bufferSize = audioCtx.sampleRate * 0.5;
+        // 创建 1.0 秒长度的静音缓冲区（全零样本，100% 无声）
+        const bufferSize = audioCtx.sampleRate * 1.0;
         const silentBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
         // createBuffer 默认已填充零，无需额外操作
 
-        function scheduleNext() {
-          if (!audioCtx) return;
-          silentSource = audioCtx.createBufferSource();
-          silentSource.buffer = silentBuffer;
-          silentSource.connect(audioCtx.destination);
-          silentSource.onended = scheduleNext; // 循环
-          silentSource.start();
-        }
+        // 仅需创建一次音频源节点，开启原生硬件级循环 (loop = true)，杜绝高频 JS 闭包执行与垃圾回收泄露
+        silentSource = audioCtx.createBufferSource();
+        silentSource.buffer = silentBuffer;
+        silentSource.loop = true;
+        silentSource.connect(audioCtx.destination);
+        silentSource.start();
 
-        scheduleNext();
         isRunning = true;
-        console.log('[SilentAudio] iOS 后台保活无声音频会话已启动 🔇');
+        console.log('[SilentAudio] iOS 后台保活硬件级无声音频循环已启动 🔇');
       } catch (e) {
         console.warn('[SilentAudio] 无声音频保活启动失败:', e);
       }
