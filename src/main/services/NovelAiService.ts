@@ -13,6 +13,9 @@ export interface NovelAiConfig {
 }
 
 export class NovelAiService {
+  // 全局生图串行排队 Promise 链，用于彻底规避 NovelAI 官方同一 API Key 的并发 429 限制
+  private static generateQueue: Promise<void> = Promise.resolve()
+
   /**
    * 从 NovelAI 的 ZIP 响应包中解析出 PNG 二进制数据
    * 采用纯内存字节解析，防范引入外部 adm-zip 等依赖导致包体积及平台兼容问题
@@ -82,173 +85,205 @@ export class NovelAiService {
   public static async generateImage(
     config: NovelAiConfig,
     prompt: string,
-    dimensions: 'portrait' | 'landscape' | 'square' = 'portrait'
+    dimensions: 'portrait' | 'landscape' | 'square' = 'portrait',
+    isRetry = false
   ): Promise<Buffer> {
-    const apiKey = config.apiKey?.trim()
-    if (!apiKey) {
-      throw new Error('未配置 NovelAI 密钥 (API Key)，请先前往「AI 绘图」设置页面配置并保存。')
-    }
+    // 🚀 全局串行互斥锁：确保同一时间仅发起一个生图请求，彻底规避 NAI 官方并发 429 报错限制
+    const currentLock = NovelAiService.generateQueue
+    let resolveLock: () => void
+    NovelAiService.generateQueue = new Promise<void>((resolve) => {
+      resolveLock = resolve
+    })
 
-    const baseUrl = (config.baseUrl || 'https://image.novelai.net').replace(/\/$/, '')
-    const url = `${baseUrl}/ai/generate-image`
-
-    // 默认尺寸匹配（优先使用传入的 dimensions，其次使用全局默认生图尺寸，最底线以 portrait 兜底）
-    const activeDimensions = dimensions || config.defaultDimensions || 'portrait'
-    let width = 832
-    let height = 1216
-    if (activeDimensions === 'landscape') {
-      width = 1216
-      height = 832
-    } else if (activeDimensions === 'square') {
-      width = 1024
-      height = 1024
-    }
-
-    // 负面提示词
-    const negativePrompt =
-      config.negativePrompt ||
-      'low quality, bad anatomy, worst quality, 3d, monochrome, sketch'
-
-    const modelName = config.model || 'nai-diffusion-4-5-full'
-    const isV4 = modelName.includes('-4')
-
-    let finalSampler = config.sampler || 'k_euler_ancestral'
-    if (!isV4 && finalSampler === 'k_euler_ancestral') {
-      finalSampler = 'euler_ancestral'
-    }
-
-    const baseParams: any = {
-      width,
-      height,
-      scale: isV4 ? 6.0 : 5.0,
-      sampler: finalSampler,
-      steps: 28,
-      seed: Math.floor(Math.random() * 9999999999),
-      n_samples: 1,
-      ucPreset: 0,
-      uc: negativePrompt
-    }
-
-    if (isV4) {
-      baseParams.params_version = 3
-      baseParams.prefer_brownian = true
-      baseParams.negative_prompt = negativePrompt
-      baseParams.noise_schedule = 'karras'
-      baseParams.qualityToggle = true
-      baseParams.add_original_image = false
-      baseParams.controlnet_strength = 1.0
-      baseParams.deliberate_euler_ancestral_bug = false
-      baseParams.dynamic_thresholding = false
-      baseParams.legacy = false
-      baseParams.legacy_v3_extend = false
-      baseParams.sm = false
-      baseParams.sm_dyn = false
-      baseParams.uncond_scale = 1.0
-      baseParams.use_coords = false
-      baseParams.characterPrompts = []
-      baseParams.reference_image_multiple = []
-      baseParams.reference_information_extracted_multiple = []
-      baseParams.reference_strength_multiple = []
-
-      // V4/V4.5 正负面核心 Prompt 嵌套包（解决后端 Go 微服务 unmarshal 空指针 500 报错的关键）
-      baseParams.v4_negative_prompt = {
-        caption: {
-          base_caption: negativePrompt,
-          char_captions: []
-        }
-      }
-
-      baseParams.v4_prompt = {
-        caption: {
-          base_caption: prompt,
-          char_captions: []
-        },
-        use_coords: false,
-        use_order: true
-      }
-    } else {
-      baseParams.sm = false
-      baseParams.sm_dyn = false
-      baseParams.dynamic_thresholding = false
-      baseParams.controlnet_strength = 1.0
-      baseParams.legacy = false
-      baseParams.add_original_image = true
-      baseParams.cfg_rescale = 0.0
-      baseParams.noise = 0.2
-      baseParams.strength = 0.7
-    }
-
-    const payload = {
-      input: prompt,
-      model: modelName,
-      action: 'generate',
-      parameters: baseParams
-    }
-
-    console.log(`[NovelAiService] 正在向 NAI 发起生图请求，尺寸: ${width}x${height}, 模型: ${payload.model}`)
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => {
-      controller.abort()
-    }, 45000) // 🚀 45秒超时自愈防线
-
-    let response: Response
     try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'User-Agent': 'EchoPlatform/1.0.0'
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      })
+      // 等待上一张图绘制完毕（无论成功或失败均会释放）
+      await currentLock
+    } catch (_) {}
+
+    try {
+      const apiKey = config.apiKey?.trim()
+      if (!apiKey) {
+        throw new Error('未配置 NovelAI 密钥 (API Key)，请先前往「AI 绘图」设置页面配置并保存。')
+      }
+
+      const baseUrl = (config.baseUrl || 'https://image.novelai.net').replace(/\/$/, '')
+      const url = `${baseUrl}/ai/generate-image`
+
+      // 默认尺寸匹配（优先使用传入的 dimensions，其次使用全局默认生图尺寸，最底线以 portrait 兜底）
+      const activeDimensions = dimensions || config.defaultDimensions || 'portrait'
+      let width = 832
+      let height = 1216
+      if (activeDimensions === 'landscape') {
+        width = 1216
+        height = 832
+      } else if (activeDimensions === 'square') {
+        width = 1024
+        height = 1024
+      }
+
+      // 负面提示词
+      const negativePrompt =
+        config.negativePrompt ||
+        'low quality, bad anatomy, worst quality, 3d, monochrome, sketch'
+
+      const modelName = config.model || 'nai-diffusion-4-5-full'
+      const isV4 = modelName.includes('-4')
+
+      let finalSampler = config.sampler || 'k_euler_ancestral'
+      if (!isV4 && finalSampler === 'k_euler_ancestral') {
+        finalSampler = 'euler_ancestral'
+      }
+
+      const baseParams: any = {
+        width,
+        height,
+        scale: isV4 ? 6.0 : 5.0,
+        sampler: finalSampler,
+        steps: 28,
+        seed: Math.floor(Math.random() * 9999999999),
+        n_samples: 1,
+        ucPreset: 0,
+        uc: negativePrompt
+      }
+
+      if (isV4) {
+        baseParams.params_version = 3
+        baseParams.prefer_brownian = true
+        baseParams.negative_prompt = negativePrompt
+        baseParams.noise_schedule = 'karras'
+        baseParams.qualityToggle = true
+        baseParams.add_original_image = false
+        baseParams.controlnet_strength = 1.0
+        baseParams.deliberate_euler_ancestral_bug = false
+        baseParams.dynamic_thresholding = false
+        baseParams.legacy = false
+        baseParams.legacy_v3_extend = false
+        baseParams.sm = false
+        baseParams.sm_dyn = false
+        baseParams.uncond_scale = 1.0
+        baseParams.use_coords = false
+        baseParams.characterPrompts = []
+        baseParams.reference_image_multiple = []
+        baseParams.reference_information_extracted_multiple = []
+        baseParams.reference_strength_multiple = []
+
+        // V4/V4.5 正负面核心 Prompt 嵌套包（解决后端 Go 微服务 unmarshal 空指针 500 报错的关键）
+        baseParams.v4_negative_prompt = {
+          caption: {
+            base_caption: negativePrompt,
+            char_captions: []
+          }
+        }
+
+        baseParams.v4_prompt = {
+          caption: {
+            base_caption: prompt,
+            char_captions: []
+          },
+          use_coords: false,
+          use_order: true
+        }
+      } else {
+        baseParams.sm = false
+        baseParams.sm_dyn = false
+        baseParams.dynamic_thresholding = false
+        baseParams.controlnet_strength = 1.0
+        baseParams.legacy = false
+        baseParams.add_original_image = true
+        baseParams.cfg_rescale = 0.0
+        baseParams.noise = 0.2
+        baseParams.strength = 0.7
+      }
+
+      const payload = {
+        input: prompt,
+        model: modelName,
+        action: 'generate',
+        parameters: baseParams
+      }
+
+      console.log(`[NovelAiService] 正在向 NAI 发起生图请求，尺寸: ${width}x${height}, 模型: ${payload.model}`)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => {
+        controller.abort()
+      }, 45000) // 🚀 45秒超时自愈防线
+
+      let response: Response
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'User-Agent': 'EchoPlatform/1.0.0'
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        })
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          throw new Error('NovelAI 绘图请求超时，请检查网络连通性或代理设置。')
+        }
+        throw err
+      } finally {
+        clearTimeout(timeoutId)
+      }
+
+      if (!response.ok) {
+        const errText = await response.text()
+        console.error(`[NovelAiService] API 绘图响应失败 (${response.status}):`, errText)
+        try {
+          const fs = require('fs')
+          const path = require('path')
+          const { app } = require('electron')
+          const logPath = path.join(app.getPath('userData'), 'nai_error.log')
+          fs.writeFileSync(logPath, JSON.stringify({
+            url,
+            payload,
+            status: response.status,
+            error: errText
+          }, null, 2))
+        } catch (logErr) {
+          console.error('[NovelAiService] 写入错误日志失败:', logErr)
+        }
+        throw new Error(`NovelAI 绘图接口报错 (${response.status}): ${errText}`)
+      }
+
+      const arrayBuffer = await response.arrayBuffer()
+      const zipBuffer = Buffer.from(arrayBuffer)
+      return this.extractPngFromZip(zipBuffer)
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error('NovelAI 绘图请求超时，请检查网络连通性或代理设置。')
+      if (!isRetry) {
+        console.warn(`[NovelAiService] 生图遭遇错误: ${err.message || err}。正在尝试静默重新排队至队尾画图...`)
+        // 自动重新调用 generateImage，传入 isRetry = true，第二次生图会自动排在当前的队尾！
+        return NovelAiService.generateImage(config, prompt, dimensions, true)
       }
       throw err
     } finally {
-      clearTimeout(timeoutId)
+      // 释放排队锁，通知下一张图可以开始绘制
+      resolveLock!()
     }
-
-    if (!response.ok) {
-      const errText = await response.text()
-      console.error(`[NovelAiService] API 绘图响应失败 (${response.status}):`, errText)
-      try {
-        const fs = require('fs')
-        const path = require('path')
-        const { app } = require('electron')
-        const logPath = path.join(app.getPath('userData'), 'nai_error.log')
-        fs.writeFileSync(logPath, JSON.stringify({
-          url,
-          payload,
-          status: response.status,
-          error: errText
-        }, null, 2))
-      } catch (logErr) {
-        console.error('[NovelAiService] 写入错误日志失败:', logErr)
-      }
-      throw new Error(`NovelAI 绘图接口报错 (${response.status}): ${errText}`)
-    }
-
-    const arrayBuffer = await response.arrayBuffer()
-    const zipBuffer = Buffer.from(arrayBuffer)
-    return this.extractPngFromZip(zipBuffer)
   }
 
   /**
    * 获取 NovelAI 账户订阅状态以及 Anlas 点数余额
    */
-  public static async fetchAnlas(apiKey: string): Promise<number> {
+  public static async fetchAnlas(apiKey: string, baseUrl?: string): Promise<number> {
     const key = apiKey?.trim()
     if (!key) {
       throw new Error('未配置 API Key')
     }
 
-    const url = 'https://api.novelai.net/user/data'
-    console.log('[NovelAiService] 正在查询 NovelAI 账户全部 Anlas 余额...')
+    let url = 'https://api.novelai.net/user/data'
+    if (baseUrl) {
+      const cleanBase = baseUrl.trim().replace(/\/$/, '')
+      if (cleanBase && !cleanBase.includes('image.novelai.net') && !cleanBase.includes('api.novelai.net')) {
+        url = `${cleanBase}/user/data`
+      }
+    }
+
+    console.log(`[NovelAiService] 正在查询 NovelAI 账户全部 Anlas 余额, 地址: ${url}...`)
 
     const response = await fetch(url, {
       method: 'GET',

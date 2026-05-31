@@ -1076,7 +1076,16 @@ function registerIpcHandlers(): void {
   // 4.3 获取 NovelAI Anlas 余额 IPC 通道
   ipcMain.handle('fetch-novelai-anlas', async (_, payload: { apiKey: string }) => {
     try {
-      const anlas = await NovelAiService.fetchAnlas(payload.apiKey)
+      const db = getDatabaseService()
+      const configStr = db.getSetting('novelai_config')
+      let baseUrl: string | undefined = undefined
+      if (configStr) {
+        try {
+          const config = JSON.parse(configStr)
+          baseUrl = config.baseUrl
+        } catch (_) {}
+      }
+      const anlas = await NovelAiService.fetchAnlas(payload.apiKey, baseUrl)
       return { success: true, anlas }
     } catch (error: any) {
       console.error('[IPC] 获取 NovelAI Anlas 余额失败:', error)

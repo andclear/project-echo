@@ -5640,6 +5640,7 @@
 
                       <!-- AI 绘图 -->
                       <button
+                        v-if="!isGroupActive"
                         @click="triggerChatImageGeneration(); showMobilePlusMenu = false"
                         :disabled="isAnalyzingPrompt || isDrawingImage"
                         class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-indigo-500 hover:bg-indigo-500/10 transition-all w-full text-left disabled:opacity-50"
@@ -5756,6 +5757,7 @@
 
                 <!-- AI 绘图 -->
                 <button
+                  v-if="!isGroupActive"
                   @click="triggerChatImageGeneration"
                   :disabled="isAnalyzingPrompt || isDrawingImage"
                   class="input-tool-btn disabled:opacity-50"
