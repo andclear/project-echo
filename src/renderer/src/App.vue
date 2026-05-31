@@ -5106,7 +5106,7 @@
           <!-- 聊天气泡主容器（相对定位挂载回底悬浮按钮） -->
           <div class="flex-1 min-h-0 flex flex-col relative">
             <!-- 聊天气泡区 -->
-            <div ref="chatContainer" class="w-full h-full overflow-y-auto px-5 py-4 space-y-3 select-text" @scroll.passive="handleChatScroll">
+            <div ref="chatContainer" class="w-full h-full overflow-y-auto px-5 py-4 flex flex-col space-y-3 select-text" @scroll.passive="handleChatScroll">
             <!-- 初始空白（不显示开场白） -->
             <div v-if="chatMessages.length === 0" class="flex flex-col items-center justify-center h-full text-center">
               <div class="w-14 h-14 rounded overflow-hidden border border-on-surface/5 bg-surface mb-3 shadow-md flex items-center justify-center">
@@ -5128,6 +5128,9 @@
               <p class="text-sm font-semibold text-on-surface">{{ isGroupActive ? activeGroupChat?.name : activeCharacter?.name }}</p>
               <p class="text-xs text-on-surface-variant/50 mt-1">发送消息开始对话</p>
             </div>
+
+            <!-- 弹性垫片：当消息少时，强力拉伸将气泡顶到最底部；当消息多时自适应压缩归零，绝不影响滚动！ -->
+            <div v-if="chatMessages.length > 0" class="flex-grow min-h-0 flex-shrink-0"></div>
 
             <!-- 消息列表 -->
             <template v-for="(msg, idx) in chatMessages" :key="idx">
