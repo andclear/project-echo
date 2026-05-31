@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@electron-toolkit/utils": "^3.0.0",
+    "axios": "^1.7.9",
     "better-sqlite3": "^11.8.0",
     "howler": "^2.2.4",
     "js-tiktoken": "^1.0.16",
