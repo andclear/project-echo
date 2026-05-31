@@ -5525,6 +5525,8 @@
                     @input="e => { adjustTextareaHeight(e); handleInputAtMention(e) }"
                     @focus="isInputFocused = true"
                     @blur="isInputFocused = false"
+                    @compositionstart="handleCompositionStart"
+                    @compositionend="handleCompositionEnd"
                     placeholder="发送消息..."
                     rows="1"
                     style="max-height: 120px;"
@@ -5805,6 +5807,8 @@
                     @paste="handlePaste"
                     @focus="handleTextareaFocus"
                     @input="handleInputAtMention"
+                    @compositionstart="handleCompositionStart"
+                    @compositionend="handleCompositionEnd"
                     placeholder="发送消息... (Enter 发送，Shift+Enter 换行)"
                     class="w-full flex-1 py-2 rounded-xl bg-surface text-on-surface text-sm focus:outline-none focus:ring-1 focus:ring-primary/20 border border-chat-input-border resize-none disabled:opacity-50 transition-all placeholder-on-surface-variant/30 leading-relaxed overflow-y-auto select-text"
                     :class="pastedImageBase64 ? 'pl-20 pr-3' : 'px-3'"
@@ -10156,7 +10160,7 @@ watch(chatInputText, (newVal) => {
   // 🚀 如果是正在执行发送产生的清空，直接拦截，避开干扰
   if (isSendingChatMessage) return
 
-  if (trimmed.length > 0) {
+  if (trimmed.length > 0 || isComposing.value) {
     // 🚀 清除删空确认定时器，代表这只是瞬间过渡态，用户仍在打字中
     if (inputEmptyTimersMap[charId]) {
       clearTimeout(inputEmptyTimersMap[charId])
@@ -11205,6 +11209,35 @@ const parseError = ref<string | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const isPreviewOpen = ref(false)
 const isInputFocused = ref(false)
+const isComposing = ref(false)
+
+function handleCompositionStart() {
+  isComposing.value = true
+  const charId = selectedCharacterId.value
+  if (charId) {
+    // 🚀 拼音输入启动瞬间，强力抹杀一切自愈与合并定时器，防抢话！
+    if (inputEmptyTimersMap[charId]) {
+      clearTimeout(inputEmptyTimersMap[charId])
+      inputEmptyTimersMap[charId] = null
+    }
+    if (messageMergeTimersMap[charId]) {
+      clearTimeout(messageMergeTimersMap[charId])
+      messageMergeTimersMap[charId] = null
+    }
+  }
+}
+
+function handleCompositionEnd(e: any) {
+  isComposing.value = false
+  const charId = selectedCharacterId.value
+  if (charId) {
+    // 🚀 拼音正式汉字上屏结束瞬间，再次强力抹杀一切残留回复定时器，誓死捍卫打字不被抢话！
+    if (messageMergeTimersMap[charId]) {
+      clearTimeout(messageMergeTimersMap[charId])
+      messageMergeTimersMap[charId] = null
+    }
+  }
+}
 
 // 智能检测当前是否真正处于可以与角色发送消息的“聊天会话界面”中
 const isChattingActive = computed(() => {
