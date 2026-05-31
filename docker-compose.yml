@@ -14,6 +14,7 @@ services:
     environment:
       - NODE_ENV=production
       - DOCKER_MODE=true
+      - TZ=Asia/Shanghai
     # 🚀 官方推荐：终极日志抗膨胀物理防线，将总日志体积死死按在最大 30MB 牢笼里！
     logging:
       driver: "json-file"
