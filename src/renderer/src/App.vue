@@ -8333,7 +8333,9 @@
             <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shine"></div>
             <RefreshCwIcon class="w-6 h-6 animate-spin text-primary" />
           </div>
-          <h3 class="text-sm font-black text-on-surface tracking-wide text-center">新版本回音 (Echo) 已准备就绪！</h3>
+          <h3 class="text-sm font-black text-on-surface tracking-wide text-center">
+            {{ isDockerUpdate ? '新版本回音 (Docker 镜像) 已就绪！' : '新版本回音 (Echo) 已准备就绪！' }}
+          </h3>
           <p class="text-[10px] text-primary font-mono font-bold mt-1 bg-primary/10 px-2 py-0.5 rounded-full select-none">最新版本: {{ latestVersion }}</p>
         </header>
 
@@ -8353,9 +8355,26 @@
             @click="showUpdateModal = false"
             class="px-5 py-2.5 rounded-xl border border-outline-variant hover:bg-surface-high text-xs font-semibold text-on-surface-variant hover:text-on-surface transition-all active:scale-95 cursor-pointer"
           >
-            稍后安装
+            {{ isDockerUpdate ? '稍后更新' : '稍后安装' }}
           </button>
+          
+          <!-- A. Docker 专属一键极速复制指令按钮 -->
           <button
+            v-if="isDockerUpdate"
+            @click="handleCopyDockerCommand"
+            :class="[
+              'px-6 py-2.5 rounded-xl text-xs font-black text-white transition-all active:scale-95 shadow-md flex items-center space-x-1.5 cursor-pointer relative overflow-hidden group',
+              copiedDockerCmd ? 'bg-success hover:brightness-110' : 'bg-gradient-to-r from-primary to-secondary hover:brightness-110'
+            ]"
+          >
+            <CheckIcon v-if="copiedDockerCmd" class="w-3.5 h-3.5" />
+            <CopyIcon v-else class="w-3.5 h-3.5" />
+            <span>{{ copiedDockerCmd ? '指令已复制！' : '复制 Docker 更新指令' }}</span>
+          </button>
+
+          <!-- B. 常规电脑客户端重启安装按钮 -->
+          <button
+            v-else
             @click="handleRestartAndInstall"
             class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary hover:brightness-110 text-xs font-black text-white transition-all active:scale-95 shadow-md flex items-center space-x-1.5 cursor-pointer relative overflow-hidden group"
           >
@@ -8884,6 +8903,21 @@ const updateChangelog = ref('')
 const showUpdateModal = ref(false)
 const downloadStatus = ref<'idle' | 'downloading' | 'downloaded' | 'error'>('idle')
 const updateErrorMsg = ref('')
+const isDockerUpdate = ref(false)
+const copiedDockerCmd = ref(false)
+
+const handleCopyDockerCommand = async () => {
+  try {
+    await navigator.clipboard.writeText('docker compose down && docker compose pull && docker compose up -d')
+    copiedDockerCmd.value = true
+    showToast('更新指令已成功复制到剪贴板！请前往宿主机运行。🐾')
+    setTimeout(() => {
+      copiedDockerCmd.value = false
+    }, 3000)
+  } catch (err: any) {
+    showToast(`复制失败: ${err.message || err}`)
+  }
+}
 
 let unlistenUpdateStatus: (() => void) | null = null
 let unlistenDownloadProgress: (() => void) | null = null
@@ -15255,7 +15289,15 @@ onMounted(async () => {
       if (payload.status === 'update-found') {
         latestVersion.value = payload.version
         updateChangelog.value = payload.changelog
-        downloadStatus.value = 'downloading'
+        isDockerUpdate.value = !!payload.isDocker
+        
+        if (payload.isDocker) {
+          showUpdateModal.value = true
+          updateStatus.value = 'latest'
+          downloadStatus.value = 'idle'
+        } else {
+          downloadStatus.value = 'downloading'
+        }
       } else if (payload.status === 'latest') {
         updateStatus.value = 'latest'
       } else if (payload.status === 'error') {

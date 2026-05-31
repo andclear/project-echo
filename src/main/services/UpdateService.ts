@@ -123,14 +123,23 @@ export class UpdateService {
 
       this.isChecking = false
       
-      // 有更新，通知渲染层已发现新版本，并在后台启动静默下载
+      // 有更新，通知渲染层已发现新版本
+      const isDockerMode = process.env.DOCKER_MODE === 'true'
+      
       mainWindow.webContents.send('update-check-status', {
         status: 'update-found',
         version: config.version,
-        changelog: config.changelog
+        changelog: config.changelog,
+        isDocker: isDockerMode
       })
 
-      // 启动静默后台下载
+      // 🚀 如果是 Docker 部署环境下：优雅熔断后续的静默包下载，防止在容器内执行无意义的下载操作
+      if (isDockerMode) {
+        console.log('[UpdateService] 检测到当前处于 Docker 部署模式，已将更新提示推送至前端，优雅阻断后台二进制包下载。')
+        return { success: true, hasUpdate: true, version: config.version, isDocker: true }
+      }
+
+      // 启动常规桌面端静默后台下载
       this.downloadUpdate(mainWindow, downloadUrl, config.version)
 
       return { success: true, hasUpdate: true, version: config.version }
