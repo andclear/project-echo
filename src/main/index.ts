@@ -78,6 +78,22 @@ const SSE_BUFFER_MAX = 50
 // 用于消息广播时区分本机流式回复（已由 chat-chunk 渲染）和外设备推送的消息
 const activeElectronChats = new Set<string>()
 
+/**
+ * 全局公共工具：物理剔除大模型思维链标签及其内容
+ * 支持 <think>...</think>、<thinking>...</thinking>、<cot>...</cot>（大小写不敏感，支持多行）
+ * 同时处理未闭合的半截开头标签（流式中断时）
+ */
+function stripThinkingTags(content: string): string {
+  // 剔除完整的思维链标签及内容
+  const fullTagsReg = /<(cot|think|thinking)>[\s\S]*?<\/\1>/gi
+  // 剔除未闭合的思维链开头（流式截断情形）
+  const halfOpenTagReg = /<(cot|think|thinking)>[\s\S]*$/gi
+  return content
+    .replace(fullTagsReg, '')
+    .replace(halfOpenTagReg, '')
+    .trim()
+}
+
 // SSE 广播函数
 export function broadcastToSse(channel: string, data: any) {
   const id = ++sseMessageIdCounter
@@ -2177,13 +2193,8 @@ ${formattedHistory}
             */
           }
 
-          // C. 清洗大模型回复
-          const thinkTagsReg = /<(cot|think|thinking)>[\s\S]*?<\/\1>/gi
-          const halfThinkTagsReg = /<(cot|think|thinking)>[\s\S]*$/gi
-          let finalResponse = accumulatedResponse
-            .replace(thinkTagsReg, '')
-            .replace(halfThinkTagsReg, '')
-            .trim()
+          // C. 清洗大模型回复（启用全局 stripThinkingTags）
+          let finalResponse = stripThinkingTags(accumulatedResponse)
 
           // D. [回音红包动作决策] (扣减各自 State.md 的钱包余额)
           let redPacketSend: { amount: number; title: string; status: string } | null = null
@@ -2551,6 +2562,7 @@ ${formattedHistory}
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
           }
+          accumulatedResponse = stripThinkingTags(accumulatedResponse)
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
@@ -2581,6 +2593,7 @@ ${formattedHistory}
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
           }
+          accumulatedResponse = stripThinkingTags(accumulatedResponse)
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
@@ -2611,6 +2624,7 @@ ${formattedHistory}
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
           }
+          accumulatedResponse = stripThinkingTags(accumulatedResponse)
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
@@ -2651,6 +2665,7 @@ ${formattedHistory}
           for await (const chunk of chatStreamGen) {
             accumulatedResponse += chunk.content
           }
+          accumulatedResponse = stripThinkingTags(accumulatedResponse)
 
           // 解析并缓存设定
           let name = extractBlock(accumulatedResponse, 'NAME')
@@ -2723,6 +2738,7 @@ ${formattedHistory}
             for await (const chunk of chatStreamGen) {
               accumulatedResponse += chunk.content
             }
+            accumulatedResponse = stripThinkingTags(accumulatedResponse)
 
             // 重新解析并缓存
             let name = extractBlock(accumulatedResponse, 'NAME')
@@ -3400,14 +3416,8 @@ ${memoryContent}
     // 对 AI 回复进行系统控制符代码全局擦除，原汁原味地保留 AI 输出的所有对话描述与转账口语台词，杜绝暴力屏蔽带来的残损体验
     const halfBracketReg = /[（(][^）)]*$/g // 🚀 针对流式生成中断导致的未闭合半截括号动作（如：“(红”）进行优雅自愈擦除
     
-    // 🚀 彻底物理擦除 AI 的思考链标签（如 <cot>、<think>、<thinking>）及其包裹的全部内部思考内容，确保大模型底层的逻辑思考绝对不会被物理存盘到 SQLite 中，保障极致隐私和无穿帮扮演
-    const thinkTagsReg = /<(cot|think|thinking)>[\s\S]*?<\/\1>/gi
-    const halfThinkTagsReg = /<(cot|think|thinking)>[\s\S]*$/gi
-
-    let finalResponse = accumulatedResponse
-      .replace(thinkTagsReg, '')
-      .replace(halfThinkTagsReg, '')
-
+    // 用全局工具函数对 AI 回复进行思维链标签的物理擦除
+    let finalResponse = stripThinkingTags(accumulatedResponse)
     // A3. [自定义表情包动作决策] (仅在非导演模式下触发)
     let customEmojiSend: any = null
     const emojiReg = /`?\s*\[(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]\s*`?/i

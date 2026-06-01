@@ -855,7 +855,14 @@ export class WeChatService {
       ];
 
       const response = await modelAdapter.chat(chatMessages, { usePrimary: true });
-      const finalAIResponse = response.content.trim();
+      // 物理剔除思维链标签（<think>、<thinking>、<cot> 及其内容），确保微信端和 PC 端气泡均为净化后内容
+      const rawAIResponse = response.content.trim();
+      const fullThinkReg = /<(cot|think|thinking)>[\s\S]*?<\/\1>/gi;
+      const halfThinkReg = /<(cot|think|thinking)>[\s\S]*$/gi;
+      const finalAIResponse = rawAIResponse
+        .replace(fullThinkReg, '')
+        .replace(halfThinkReg, '')
+        .trim();
 
       // 4. 【特化发信解耦】：微信端根据对话模式决定发信策略 (重用已获取的专属 chatMode)
 
