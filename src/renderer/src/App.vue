@@ -10139,10 +10139,14 @@ function checkIfMobile() {
 
 function updateViewportHeight() {
   if (window.visualViewport) {
-    viewportHeight.value = `${window.visualViewport.height}px`
-    // 🔒 极其关键：瞬间强行重置 iOS 因软键盘聚焦顶起导致的 html/body 默认全局滚动，让视口牢牢锁死在物理边界内。
-    // 但输入框聚焦期间（键盘弹出时）必须跳过此操作——window.scrollTo(0,0) 会被移动端浏览器解释为
-    // "滚动文档"，进而主动 blur 当前输入框，导致键盘立即收回。高度更新本身是安全的，不会引起失焦。
+    // 🔒 关键修复：使用 offsetTop + height 而非单纯 height 作为根容器高度。
+    // iOS 键盘弹出时会自动将页面向上滚动（visualViewport.offsetTop 增大），
+    // 若只用 height，根容器会偏短，每次键盘弹出/收回循环导致空白累积增大。
+    // offsetTop + height = 页面顶部到键盘顶部的完整距离，确保输入框始终紧贴键盘上方。
+    // Android 上 offsetTop 始终为 0，该公式对两端均正确。
+    const vv = window.visualViewport
+    viewportHeight.value = `${vv.offsetTop + vv.height}px`
+    // 只有键盘未弹出时（未聚焦），才重置页面滚动，防止聚焦期间调用 scrollTo 导致键盘收回
     if (!isInputFocused.value) {
       window.scrollTo(0, 0)
       document.body.scrollTop = 0
