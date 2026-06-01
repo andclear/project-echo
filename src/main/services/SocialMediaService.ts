@@ -210,7 +210,7 @@ ${nsfwGuidance}
 Instructions:
 1. Write a short Moments post in Simplified Chinese (简体中文).
 2. It MUST be within 100 characters, can include relevant emojis (✨, 🎮, 🍵, etc.).
-3. Base it on your schedules or recent chats, but make it relatable to anyone reading your timeline. DO NOT make it a direct message to the user.
+3. Base it ONLY on your actual schedules, your own real life, or events that truly happened in your chat history with the user. DO NOT fabricate or imagine shared experiences, joint activities, or plot lines involving the user that never actually occurred. You CAN write about your personal daily life independently. DO NOT make it a direct message to the user.
 4. Output ONLY the post content. Do not wrap in markdown or JSON.`;
 
     const userContent = `【当前状态与生成指示 (Dynamic Context & Instructions)】:${stateGuidance}\n\n${imageGuidance}\n\n${isNsfwTriggered ? '用极度露骨性感、令人血脉偾张的诱惑语气，发一条 NSFW 朋友圈动态吧。' : '发一条轻松写意的微信朋友圈动态吧。'}`;
@@ -510,7 +510,7 @@ ${nsfwGuidance}
 
 Instructions:
 1. Write a forum post in Simplified Chinese (简体中文) consisting of a Title and a rich Body content.
-2. The topic must relate to your life, goals, or technical struggles/thoughts, but it must offer value or deep insights to others.
+2. The topic must relate to YOUR OWN real life, personal goals, or technical struggles/thoughts. CRITICAL: You MUST NOT fabricate or imagine joint activities, shared experiences, or plot lines involving the user that did not actually occur in your real chat history. You may write about your own life freely. It must offer value or deep insights to others.
 ${boardInstructions}
 3. The format MUST be exactly:
 Title: [Your post title]
@@ -837,7 +837,7 @@ ${soulContent}${memoryInjection}
 ${nsfwGuidance}
 
 Instructions:
-1. Write a very brief, organic comment (in Simplified Chinese) as if you are browsing your timeline.${isUserTarget ? ' Since this is the USER\'s post, leverage your relationship, memories, or common nickname for a personalized and warm comment.' : ''}
+1. Write a very brief, organic comment (in Simplified Chinese) as if you are browsing your timeline. Your comment MUST be authentic to your personality — if your Soul profile says you are sarcastic, cold, or dislike certain things, reflect that genuinely. DO NOT default to sycophantic praise or overly positive reactions just to please. React honestly based on your character's true personality and opinion of the content.${isUserTarget ? ' Since this is the USER\'s post, you may be more familiar in tone, but still maintain your true character — do not flatter unconditionally.' : ''}
 2. Relevant emojis are allowed. Keep it under 40 characters.
 3. Output ONLY the raw comment text. No quotes, no wrappers.`;
 
@@ -1157,7 +1157,8 @@ Instructions:
 1. Write a very brief, organic reply (in Simplified Chinese) to ${comment.author_name}.
 2. Relevant emojis are allowed. Keep it under 40 characters.
 3. IMPORTANT: Make sure to tailor your reply using your recent chat memories, user profile, and all existing thread comments context above. If there is a recent topic or custom nickname mentioned, natural references are highly recommended to make the interaction highly personalized, consistent, and realistic.${isUserComment ? ' Since this is the USER\'s comment, leverage your close relationship and shared background; do NOT treat them like a stranger or standard online follower.' : ''}
-4. Output ONLY the raw reply text. No quotes, no wrappers.`;
+4. CRITICAL: Your reply MUST authentically reflect your personality from the Soul profile. Do NOT give unconditional praise or act excessively warm/positive if your character is cold, sarcastic, or holds genuine opinions. Respond in a way that feels true to who you are.
+5. Output ONLY the raw reply text. No quotes, no wrappers.`;
 
       const response = await modelAdapter.chat([
         { role: 'system', content: systemPrompt },
