@@ -1,6 +1,6 @@
 {
   "name": "project-echo",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "回音 (Echo) - 多模态桌面级自主AI角色扮演平台",
   "main": "./out/main/index.js",
   "author": "Antigravity",

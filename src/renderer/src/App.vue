@@ -8527,7 +8527,7 @@
           <div class="flex items-center justify-center space-x-3.5 py-2 px-4 bg-surface-low/30 dark:bg-[#1a1a1a]/30 border border-outline-variant/10 dark:border-[#202022] rounded-[18px] dark:rounded-[6px] max-w-[290px] mx-auto shadow-sm">
             <div class="flex flex-col items-center">
               <span class="text-[8px] text-on-surface-variant/40 dark:text-[#bbcabf]/30 font-bold tracking-wider uppercase font-mono">Current</span>
-              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v1.0.1</span>
+              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v1.0.2</span>
             </div>
             
             <!-- 指示箭头带极精密虚线 -->
