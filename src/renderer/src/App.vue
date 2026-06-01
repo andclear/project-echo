@@ -5300,7 +5300,14 @@
                   </div>
                   
                   <!-- 自定义表情包大图气泡 -->
-                  <div v-if="msg.customEmojiUrl" class="mb-1 max-w-[88px] max-h-[88px] rounded-xl overflow-hidden p-1 flex items-center justify-center select-none bg-transparent hover:scale-105 active:scale-95 transition-all">
+                  <div 
+                    v-if="msg.customEmojiUrl" 
+                    class="mb-1 max-w-[88px] max-h-[88px] rounded-xl overflow-hidden p-1 flex items-center justify-center select-none bg-transparent hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                    @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                    @touchstart="onLongPressStart($event, msg, 'message')"
+                    @touchend="onLongPressEnd"
+                    @touchmove="onLongPressMove"
+                  >
                     <img :src="msg.customEmojiUrl" class="w-full h-full object-contain select-none pointer-events-none" />
                   </div>
 
@@ -5470,7 +5477,14 @@
                   </div>
 
                   <!-- 自定义表情包大图气泡 -->
-                  <div v-if="msg.customEmojiUrl" class="mb-1 max-w-[88px] max-h-[88px] rounded-xl overflow-hidden p-1 flex items-center justify-center select-none bg-transparent hover:scale-105 active:scale-95 transition-all">
+                  <div 
+                    v-if="msg.customEmojiUrl" 
+                    class="mb-1 max-w-[88px] max-h-[88px] rounded-xl overflow-hidden p-1 flex items-center justify-center select-none bg-transparent hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                    @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                    @touchstart="onLongPressStart($event, msg, 'message')"
+                    @touchend="onLongPressEnd"
+                    @touchmove="onLongPressMove"
+                  >
                     <img :src="msg.customEmojiUrl" class="w-full h-full object-contain select-none pointer-events-none" />
                   </div>
 
