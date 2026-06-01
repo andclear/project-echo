@@ -11897,38 +11897,10 @@ function splitAssistantContent(content: string): string[] {
   return paragraphs
 }
 
-function flattenMessages(historyMessages: any[], charId: string): any[] {
-  const isGroupChat = groupChats.value.some(g => g.id === charId)
-  // 使用该角色自身的 chatMode（从缓存读取），不用全局 chatMode.value，避免描写模式角色的历史消息被错误拆分
-  const charMode = characterChatModeCache[charId] ?? 'descriptive'
-  if (isGroupChat || charMode !== 'dialogue') {
-    return historyMessages
-  }
-  const flattened: any[] = []
-  for (const msg of historyMessages) {
-    if (msg.role === 'assistant' && msg.content && !msg.isSystem && !msg.redPacket) {
-      const paragraphs = splitAssistantContent(msg.content)
-      if (paragraphs.length <= 1) {
-        flattened.push(msg)
-      } else {
-        for (let idx = 0; idx < paragraphs.length; idx++) {
-          const text = paragraphs[idx]
-          const isLast = (idx === paragraphs.length - 1)
-          flattened.push({
-            ...msg,
-            id: isLast ? msg.id : `msg_part_${idx}_` + msg.id,
-            content: text,
-            prompt_tokens: isLast ? msg.prompt_tokens : undefined,
-            completion_tokens: isLast ? msg.completion_tokens : undefined,
-            cached_tokens: isLast ? msg.cached_tokens : undefined
-          })
-        }
-      }
-    } else {
-      flattened.push(msg)
-    }
-  }
-  return flattened
+// 怎么存就怎么显示：后端对话模式已按句分条存储，描写模式整段存储，DB 格式即为正确的显示格式
+// 无需前端二次拆分，直接透传原始消息列表
+function flattenMessages(historyMessages: any[], _charId: string): any[] {
+  return historyMessages
 }
 
 function restoreMessageProps(m: any) {
@@ -12032,7 +12004,15 @@ async function loadCharacters() {
           Object.assign(tempMeta[char.id], metaRes.meta)
         }
 
-        // C. 历史消息懒加载以便预览与计算排序时间戳
+        // C. 先加载该角色的聊天模式写入缓存，确保后面 flattenMessages 能读到正确的值
+        const modeRes = await window.api.invoke('get-character-chat-mode', { characterId: char.id })
+        if (modeRes.success && modeRes.mode) {
+          characterChatModeCache[char.id] = modeRes.mode
+        } else {
+          characterChatModeCache[char.id] = 'descriptive' // 默认描写模式（更安全，不会错误拆分）
+        }
+
+        // D. 历史消息懒加载：此时 cache 已就绪，flattenMessages 能正确按角色自身模式拆分
         const histRes = await window.api.invoke('get-chat-history', { characterId: char.id, limit: 50 })
         if (histRes.success && histRes.history) {
           const restored = histRes.history.map((m: any) => restoreMessageProps(m))
@@ -12043,13 +12023,6 @@ async function loadCharacters() {
         } else {
           tempAllMessages[char.id] = []
           tempActiveTimes[char.id] = 0
-        }
-        // D. 从数据库加载该角色的聊天模式，写入缓存（确保后台搭讪处理时能拿到正确的模式）
-        const modeRes = await window.api.invoke('get-character-chat-mode', { characterId: char.id })
-        if (modeRes.success && modeRes.mode) {
-          characterChatModeCache[char.id] = modeRes.mode
-        } else {
-          characterChatModeCache[char.id] = 'descriptive' // 默认描写模式（更安全，不会错误拆分）
         }
       }))
 
