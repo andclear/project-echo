@@ -10140,10 +10140,14 @@ function checkIfMobile() {
 function updateViewportHeight() {
   if (window.visualViewport) {
     viewportHeight.value = `${window.visualViewport.height}px`
-    // 极其关键：瞬间强行重置 iOS 因软键盘聚焦顶起导致的 html/body 默认全局滚动，让视口牢牢锁死在物理边界内
-    window.scrollTo(0, 0)
-    document.body.scrollTop = 0
-    document.documentElement.scrollTop = 0
+    // 🔒 极其关键：瞬间强行重置 iOS 因软键盘聚焦顶起导致的 html/body 默认全局滚动，让视口牢牢锁死在物理边界内。
+    // 但输入框聚焦期间（键盘弹出时）必须跳过此操作——window.scrollTo(0,0) 会被移动端浏览器解释为
+    // "滚动文档"，进而主动 blur 当前输入框，导致键盘立即收回。高度更新本身是安全的，不会引起失焦。
+    if (!isInputFocused.value) {
+      window.scrollTo(0, 0)
+      document.body.scrollTop = 0
+      document.documentElement.scrollTop = 0
+    }
     // 软键盘弹起时自动滚动到底部，保证极致流畅体验
     if (sideView.value === 'chat' && selectedCharacterId.value) {
       nextTick(() => {
@@ -12847,17 +12851,28 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
       return
     }
 
-    // 5. 在任何模式下（包含对话、描写和导演模式）均直接一次性调用 handleAssistantResponse 弹射或播放完整内容
+    // 5. Electron 端同样通过 playbackChain 串行化弹射，确保与 receive-message 触发的调用共享同一队列，
+    //    彻底消除两条通道并发执行导致气泡交叉插入、顺序混乱的问题。
     if (res.content) {
-      await handleAssistantResponse(
-        char,
-        res.content,
-        res.redPacketAction,
-        res.prompt_tokens,
-        res.completion_tokens,
-        res.cached_tokens,
-        res.messageId
-      )
+      const msgId = res.messageId
+      if (msgId) pendingPlaybackMessageIds.add(msgId)
+      playbackChain = playbackChain.then(async () => {
+        try {
+          await handleAssistantResponse(
+            char,
+            res.content,
+            res.redPacketAction,
+            res.prompt_tokens,
+            res.completion_tokens,
+            res.cached_tokens,
+            res.messageId
+          )
+        } finally {
+          if (msgId) pendingPlaybackMessageIds.delete(msgId)
+        }
+      })
+      // 等待本次 playbackChain 全部完成后再继续（处理红包等后续逻辑）
+      await playbackChain
     }
 
     // 🚀 双向红包神级同步：如果大模型主动发送了红包，且当前处于单聊模式下，在其文字气泡播放/接收完毕后，自动在聊天队列追加红包卡片气泡
@@ -13090,19 +13105,29 @@ async function handleAssistantResponse(
       }
 
       // 开启串行异步微信分段打字发送模拟
+      // 🔒 修复气泡顺序 Bug：在弹射开始前锁定插入位置（当前消息数组末尾）。
+      // 后续每段气泡用 splice 定点插入，而非 push 到末尾——
+      // 因为每次 await 期间用户可能发送新消息，新 user 气泡被追加到末尾，
+      // 若继续 push 则 AI 分句会错排在新用户消息之后，造成顺序混乱。
+      let insertAt = allMessages[char.id].length
+
       for (let idx = 0; idx < paragraphs.length; idx++) {
         const text = paragraphs[idx]
-        
-        // 在顶部标题栏显示“对方正在输入...”
+
+        // 在顶部标题栏显示"对方正在输入..."
         isStreaming.value = true
-        
+
         // 根据每句话 of 字数拟真思考打字的时长
         const typeDelay = Math.min(Math.max(text.length * 100, 1000), 2800)
         await new Promise(resolve => setTimeout(resolve, typeDelay))
 
         // 延迟结束，该句段瞬间作为独立的微信助理气泡弹射展示出来！
+        // 使用 splice 定点插入而非 push，确保分句始终在正确位置（紧跟上一句之后）
         const isLast = (idx === paragraphs.length - 1)
-        msgs.push({
+        const currentMsgs = allMessages[char.id]
+        // 安全边界：insertAt 不能超过数组当前长度
+        const safeInsertAt = Math.min(insertAt, currentMsgs.length)
+        currentMsgs.splice(safeInsertAt, 0, {
           role: 'assistant',
           content: text,
           id: isLast && messageId ? messageId : 'msg_part_' + Math.random().toString(36).substr(2, 9), // 🚀 最后一句绑定真实物理 ID，前几段用临时唯一 ID！
@@ -13111,9 +13136,10 @@ async function handleAssistantResponse(
           completion_tokens: isLast ? completionTokens : undefined,
           cached_tokens: isLast ? cachedTokens : undefined
         })
+        insertAt = safeInsertAt + 1 // 下一句插入到本句之后
         nextTick(() => scrollToBottom())
 
-        // 如果有下一句，微等 500ms 作为大脑思考打字间隔空隙，随后再次进入“对方正在输入”状态
+        // 如果有下一句，微等 500ms 作为大脑思考打字间隔空隙，随后再次进入"对方正在输入"状态
         if (idx < paragraphs.length - 1) {
           isStreaming.value = false
           await new Promise(resolve => setTimeout(resolve, 500))
@@ -13629,7 +13655,7 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
       characterId: char.id,
       folderName: char.folder_name,
       userMessage: `[表情: ${emoji.meaning}]`,
-      chatMode: currentChatMode.value,
+      chatMode: characterChatModeCache[char.id] ?? 'descriptive',
       userMsgId: userMsgId,
       dbMessage: `[wechat_custom_emoji]:${JSON.stringify({ meaning: emoji.meaning, base64: emoji.base64 })}`
     })
@@ -15812,6 +15838,9 @@ onMounted(async () => {
             (document.activeElement as HTMLElement)?.blur()
           }
 
+          // 键盘收起后立即恢复根容器高度（isInputFocused 已置为 false，updateViewportHeight 会正常执行）
+          updateViewportHeight()
+
           // 🚀 黄金微操：手机键盘彻底折叠收起后，立即触发平滑向下滚动到底部，消息气泡像流水般优美沉底，绝不留出大片空白！
           nextTick(() => {
             scrollToBottom('smooth', true)
@@ -16055,7 +16084,9 @@ onMounted(async () => {
 
     if (data.done) {
       // 🚀 提前注册到 pendingDialogueContents，确保在 receive-message 广播到达前锁定，彻底斩断单聊/群聊重复气泡！
-      if (currentChatMode.value === 'dialogue' && data.content) {
+      // 🔒 修复：使用消息归属角色的真实 chatMode，而非当前 UI 选中角色的 chatMode，防止角色切换时串号
+      const chunkCharModeForDone = characterChatModeCache[chunkCharId] ?? 'descriptive'
+      if (chunkCharModeForDone === 'dialogue' && data.content) {
         pendingDialogueContents.add(data.content.replace(/\s+/g, '').slice(0, 80))
       }
 
@@ -16199,7 +16230,9 @@ onMounted(async () => {
       }
 
       // 🚀 核心自愈优化：仅在移动端或群聊等需要流式更新/打字机同步的场景下，将最后一条 assistant 消息内容一次性覆盖为包含完美换行符的权威全文；在 PC 端单聊（非流式）下则完全无需且不应覆盖，以防篡改历史气泡
-      if (data.content && (currentChatMode.value === 'descriptive' || currentChatMode.value === 'director') && (!window.electron || (window.api && (window.api as any).isIpcBridge) || isGroupChat)) {
+      // 🔒 修复：使用消息归属角色的真实 chatMode，而非当前 UI 选中角色的 chatMode
+      const chunkCharModeForCover = characterChatModeCache[chunkCharId] ?? 'descriptive'
+      if (data.content && (chunkCharModeForCover === 'descriptive' || chunkCharModeForCover === 'director') && (!window.electron || (window.api && (window.api as any).isIpcBridge) || isGroupChat)) {
         const charId = chunkCharId
         if (charId && allMessages[charId]) {
           const msgs = allMessages[charId]
@@ -16285,8 +16318,10 @@ onMounted(async () => {
     }
 
     // 🚀 响应取消流式诉求：如果当前不是群聊，或者处于纯文字对话（dialogue）模式，直接拦截并静默丢弃流式消息（含创角 Bot 文本），全部交由 Promise 决议和广播接管，从根本上消灭重复气泡！
+    // 🔒 修复：使用消息归属角色（chunkCharId）的真实 chatMode，而非当前 UI 选中角色的 chatMode
     const isGroupChat = groupChats.value.some(g => g.id === chunkCharId)
-    if (!isGroupChat || currentChatMode.value === 'dialogue') {
+    const chunkCharModeForStream = characterChatModeCache[chunkCharId] ?? 'descriptive'
+    if (!isGroupChat || chunkCharModeForStream === 'dialogue') {
       return
     }
 
@@ -16678,15 +16713,25 @@ onMounted(async () => {
               }
             })
           } else {
-            handleAssistantResponse(
-              char,
-              msg.content,
-              null,
-              msg.prompt_tokens,
-              msg.completion_tokens,
-              msg.cached_tokens,
-              msg.id
-            )
+            // 🔒 修复：Electron 端同样加入 playbackChain 串行化，防止与 chat-stream 直接触发的
+            // handleAssistantResponse 并发执行，造成气泡交叉插入、顺序混乱或重复出现。
+            const msgId = msg.id;
+            pendingPlaybackMessageIds.add(msgId);
+            playbackChain = playbackChain.then(async () => {
+              try {
+                await handleAssistantResponse(
+                  char,
+                  msg.content,
+                  null,
+                  msg.prompt_tokens,
+                  msg.completion_tokens,
+                  msg.cached_tokens,
+                  msg.id
+                )
+              } finally {
+                pendingPlaybackMessageIds.delete(msgId)
+              }
+            })
           }
         } else {
           // 极致兜底降级处理

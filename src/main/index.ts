@@ -2954,8 +2954,10 @@ ${formattedHistory}
     }
 
     // 组装 System Prompt (至尊三层前缀保温排布)
-    // 支持 chatMode 参数：含描写模式 vs 纯对话模式
-    const chatMode = payload.chatMode || 'descriptive'
+    // 🔒 安全修复：始终从数据库读取该角色的专属 chatMode，不信任前端 payload 传来的值，
+    // 防止前端 UI 状态（currentChatMode）因 race condition 或选中角色错位导致 chatMode 串号。
+    // 与 AgentLifeEngine、MemoryAgentService 等后台服务保持完全一致的读取策略。
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) as 'descriptive' | 'dialogue' | 'director' || 'dialogue'
     const globalPrompt = settings.globalPrompt || ''
 
     // 读取逻辑时间戳门控，只拉取上一次压缩以后的增量历史消息作为大模型上下文
