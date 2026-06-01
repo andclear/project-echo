@@ -16176,7 +16176,8 @@ onMounted(async () => {
         }
         
         if (chunkCharId === selectedCharacterId.value) {
-          nextTick(() => scrollToBottom())
+          // 群聊 done 时强制置底（确保用户看到最新回复）
+          nextTick(() => scrollToBottom('smooth', true))
         }
         return
       }
@@ -16368,14 +16369,13 @@ onMounted(async () => {
     } else if (newVal === 'favorites') {
       await loadFavoritesList()
     } else if (newVal === 'chat') {
-      // 只要切回会话列表板块，且当前已经选中了某个活跃角色，100% 自动将历史气泡强制滚到底部
+      // 切回会话页时，强制将消息滚到底部（force=true 跳过防抖，确保不被"用户在上方阅读"条件拦截）
       if (selectedCharacterId.value) {
         nextTick(() => {
-          scrollToBottom('auto')
-          // 挂载 100ms 二次置底，形成双保险高容错防线
-          setTimeout(() => {
-            scrollToBottom('auto')
-          }, 100)
+          scrollToBottom('auto', true)
+          // DOM 渲染可能有延迟，增加 150ms 和 400ms 双重保险
+          setTimeout(() => scrollToBottom('auto', true), 150)
+          setTimeout(() => scrollToBottom('auto', true), 400)
         })
       }
     }
@@ -16448,7 +16448,8 @@ onMounted(async () => {
       conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
       window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
     } else {
-      nextTick(() => scrollToBottom())
+      // 收到主动搭讪消息时强制置底，让用户看到最新内容
+      nextTick(() => scrollToBottom('smooth', true))
     }
   })
 
@@ -16687,7 +16688,8 @@ onMounted(async () => {
       conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
       window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
     } else {
-      nextTick(() => scrollToBottom())
+      // 收到新消息时强制置底（force=true 跳过防抖保护，不因用户之前在上方阅读而拒绝置底）
+      nextTick(() => scrollToBottom('smooth', true))
     }
     })()
   }) // end window.api.receive
