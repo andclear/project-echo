@@ -257,7 +257,7 @@ export class NovelAiService {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
-            'User-Agent': 'EchoPlatform/1.0.0'
+            'User-Agent': 'EchoPlatform/1.0.2'
           },
           body: JSON.stringify(payload),
           signal: controller.signal
@@ -330,7 +330,7 @@ export class NovelAiService {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${key}`,
-        'User-Agent': 'EchoPlatform/1.0.0'
+        'User-Agent': 'EchoPlatform/1.0.2'
       }
     })
 

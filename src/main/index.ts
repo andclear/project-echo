@@ -74,6 +74,10 @@ const sseMessageBuffer: SseBufferedMsg[] = []
 let sseMessageIdCounter = 0
 const SSE_BUFFER_MAX = 50
 
+// 🚀 记录当前 Electron 本机正在流式处理的单聊请求（characterId 集合）
+// 用于消息广播时区分本机流式回复（已由 chat-chunk 渲染）和外设备推送的消息
+const activeElectronChats = new Set<string>()
+
 // SSE 广播函数
 export function broadcastToSse(channel: string, data: any) {
   const id = ++sseMessageIdCounter
@@ -932,7 +936,7 @@ function registerIpcHandlers(): void {
 
       const url = `${baseUrl.replace(/\/$/, '')}/models`
       const headers: Record<string, string> = {
-        'User-Agent': 'EchoPlatform/1.0.0 (Desktop AI Roleplay Platform)'
+        'User-Agent': 'EchoPlatform/1.0.2 (Desktop AI Roleplay Platform)'
       }
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`
@@ -1083,6 +1087,31 @@ function registerIpcHandlers(): void {
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 保存全局模型配置失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 3.1 获取角色专属聊天模式 IPC 通道
+  ipcMain.handle('get-character-chat-mode', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const mode = db.getSetting(`chat_mode_${payload.characterId}`) || 'dialogue'
+      return { success: true, mode }
+    } catch (error: any) {
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 3.2 设置角色专属聊天模式 IPC 通道（立即写库并广播给其他端）
+  ipcMain.handle('set-character-chat-mode', async (_, payload: { characterId: string; mode: string }) => {
+    try {
+      const db = getDatabaseService()
+      db.setSetting(`chat_mode_${payload.characterId}`, payload.mode)
+      // 通过 broadcastToSse 广播，保证写入环形缓冲区，其他端断线重连后也能补偿收到
+      broadcastToSse('character-chat-mode-changed', { characterId: payload.characterId, mode: payload.mode })
+      return { success: true }
+    } catch (error: any) {
+      console.error('[IPC] 设置角色聊天模式失败:', error)
       return { success: false, error: error.message || error }
     }
   })
@@ -2988,6 +3017,47 @@ ${memoryContent}
       }
     }
 
+    // 如果有粘贴/拖拽大图，物理保存至磁盘角色 media 目录中，实现索引化极速落盘
+    let dbContent = payload.dbMessage || (payload.imageBase64 && characterId !== CREATOR_BOT_ID
+      ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
+      : userMessage)
+    if (payload.imageBase64 && characterId !== CREATOR_BOT_ID) {
+      try {
+        const mediaDir = join(charDir, 'media')  // charDir 已在 L2825 声明
+        if (!fs.existsSync(mediaDir)) {
+          fs.mkdirSync(mediaDir, { recursive: true })
+        }
+        const filename = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`
+        const fullPath = join(mediaDir, filename)
+        const base64Data = payload.imageBase64.replace(/^data:image\/\w+;base64,/, '')
+        fs.writeFileSync(fullPath, Buffer.from(base64Data, 'base64'))
+        dbContent = `[wechat_image_media]:media/${filename}`
+      } catch (e) {
+        console.error('[Image Storage] 保存大图失败:', e)
+      }
+    }
+
+    // 🚀 提前存盘用户消息（在 AI 调用前）：让 SSE 立即广播给手机端，不再等 AI 回复完成
+    const userMsgId = payload.userMsgId || crypto.randomUUID()
+    if (!payload.isRegenerate) {
+      db.saveMessage({
+        id: userMsgId,
+        character_id: characterId,
+        role: 'user',
+        content: dbContent,
+        timestamp: Date.now(),
+        token_usage: 0  // token 用量在 AI 完成后才知道，用户消息暂存 0
+      })
+    }
+
+    // 🚀 如果是 Electron 本机的流式对话请求，注册到 activeElectronChats
+    // 这样 registerOnMessageSaved 回调可以识别并跳过本机 AI 段落的 IPC 广播，防止重复渲染
+    // 判断依据：真正 Electron event.sender 有 id 属性，HTTP 桥接的 mockEvent.sender 没有
+    const isElectronEvent = typeof (event.sender as any).id === 'number'
+    if (isElectronEvent) {
+      activeElectronChats.add(characterId)
+    }
+
     // 开启前台流式聊天，获取并发锁，阻塞后台任务
     await InferenceMutex.lock()
 
@@ -3152,10 +3222,11 @@ ${memoryContent}
     } finally {
       // 绝对确保锁的安全释放，唤醒并发队列
       InferenceMutex.unlock()
+      // 注意：activeElectronChats 的清理在 db.saveMessage 全部完成后（chat-chunk done 之后）进行
     }
 
-    // 极速持久化消息记录
-    const userMsgId = payload.userMsgId || crypto.randomUUID()
+    // 注意：userMsgId 已在 AI 调用前提前声明并已存盘用户消息
+    // 此处只需生成 assistantMsgId
     const assistantMsgId = crypto.randomUUID()
 
     // 判定红包动作自决结果 (包含双向收发逻辑)
@@ -3402,27 +3473,7 @@ ${memoryContent}
       }).filter(line => line.trim().length > 0).join('\n')
     }
 
-    // 如果有粘贴/拖拽大图，物理保存至磁盘角色 media 目录中，实现索引化极速落盘
-    let dbContent = payload.dbMessage || (payload.imageBase64 && characterId !== CREATOR_BOT_ID
-      ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
-      : userMessage)
-    if (payload.imageBase64 && characterId !== CREATOR_BOT_ID) {
-      try {
-        const charDir = join(storageManager.getBaseDir(), folderName)
-        const mediaDir = join(charDir, 'media')
-        if (!fs.existsSync(mediaDir)) {
-          fs.mkdirSync(mediaDir, { recursive: true })
-        }
-        const filename = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`
-        const fullPath = join(mediaDir, filename)
-        const base64Data = payload.imageBase64.replace(/^data:image\/\w+;base64,/, '')
-        fs.writeFileSync(fullPath, Buffer.from(base64Data, 'base64'))
-        // 索引化存入数据库，供完美异步加载
-        dbContent = `[wechat_image_media]:media/${filename}`
-      } catch (e) {
-        console.error('[Image Storage] 保存大图失败:', e)
-      }
-    }
+    // 如果有粘贴/拖拽大图（此处已在 AI 调用前提前处理，dbContent 已正确赋值，此处不再重复）
 
     // 根据历史拼装的上下文 messages (输入) 与生成的 finalResponse (输出) 进行中英文高保真比例 Token 估算
     const inputChars = messages.reduce((acc, m) => acc + (m.content || '').length, 0)
@@ -3432,14 +3483,10 @@ ${memoryContent}
     const totalEstimatedTokens = inputTokens + outputTokens
 
     if (!payload.isRegenerate) {
-      db.saveMessage({
-        id: userMsgId,
-        character_id: characterId,
-        role: 'user',
-        content: dbContent,
-        timestamp: Date.now(),
-        token_usage: totalEstimatedTokens
-      })
+      // 用户消息已在 AI 调用前存盘，此处仅更新 token_usage（第二次就地更新）
+      try {
+        db.db.prepare('UPDATE Messages SET token_usage = ? WHERE id = ?').run(totalEstimatedTokens, userMsgId)
+      } catch (_) { /* 如果更新失败则静默忽略，不影响主流程 */ }
     }
 
     // 提示：大模型运行数据统计已在 ModelAdapter 底层拦截器中高保全无感统一记录，此处无需再次手动写入，防止数据重复统计。
@@ -3585,18 +3632,21 @@ ${memoryContent}
     let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
     let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
 
-    // 向前端广播一次性 done 信号，携带完整的清洗后回复内容，以保持最大前向兼容
     event.sender.send('chat-chunk', {
       characterId,
       content: finalResponse,
       done: true,
-      messageId: assistantMsgId, // 🚀 携带真实消息 ID 以供前端分段打字机防重绑定
+      messageId: assistantMsgId,
       prompt_tokens: finalPromptTokens,
       completion_tokens: finalCompletionTokens,
       cached_tokens: finalCachedTokens
     })
 
-    // IPC 接口 Promise 结果一次性完整带回
+    // 所有 db.saveMessage 已完成，现在安全清理 activeElectronChats
+    if (isElectronEvent) {
+      activeElectronChats.delete(characterId)
+    }
+
     return {
       success: true,
       content: finalResponse,
@@ -4607,7 +4657,7 @@ Please output in exactly this XML format:
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          'User-Agent': 'EchoPlatform/1.0.0 (Desktop AI Roleplay Platform)'
+          'User-Agent': 'EchoPlatform/1.0.2 (Desktop AI Roleplay Platform)'
         }
       })
 
@@ -6622,16 +6672,21 @@ app.whenReady().then(() => {
   try {
     const db = getDatabaseService()
     
-    // 级联事件广播总线：当有任何新消息保存到 SQLite 数据库时，秒级同步广播给电脑前端和局域网手机端
+    // 级联事件广播总线：当有任何新消息保存到 SQLite 数据库时，双路并发广播给所有端
     db.registerOnMessageSaved((msg) => {
-      // 1. 广播给电脑软件前端（电脑端拦截后会自动通过 SSE 广播并打上自增 id）
-      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      // 判断晢语次是否是 本机 Electron 正在流式处理的 AI 对话回复
+      // 若是，桌面端已通过 chat-chunk 渲染，跳过 IPC 广播防止重复气泡
+      const isElectronAssistantMsg = msg.role === 'assistant' && activeElectronChats.has(msg.character_id)
+      
+      // 路径 1：Electron 桌面端（透过 ipcRenderer 监听）
+      // 第一条：如果是本机 Electron 正在流式处理的 AI 回复（dialogue 展开分次存盘），则跳过，防止重复渲染
+      if (!isElectronAssistantMsg && mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('receive-message', msg)
-      } else {
-        // 2. 🚀 体验与功能防线：若电脑端主窗口不存在（如 headless 模式或 docker 环境），直接调用 SSE 广播并写入环形缓冲区
-        broadcastToSse('receive-message', msg)
       }
+      // 路径 2：局域网 Web 端 / 手机端（透过 SSE 监听）始终广播
+      broadcastToSse('receive-message', msg)
     })
+
     const customPortStr = db.getSetting('ipc_bridge_port')
     let port = 3000
     if (customPortStr && customPortStr.trim() !== '') {
