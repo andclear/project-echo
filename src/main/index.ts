@@ -1,5 +1,5 @@
 import './utils/AppUserDataLock'
-import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, screen } from 'electron'
 import path, { join, extname, basename } from 'path'
 import fs from 'fs'
 import zlib from 'zlib'
@@ -154,10 +154,48 @@ export function mergeChatHistory(history: any[]): any[] {
 }
 
 function createWindow(): void {
+  // 🚀 窗口状态持久化：读取上次保存的窗口尺寸与位置，首次启动按屏幕逻辑分辨率自动计算舒适默认値
+  const getWindowState = (): { width: number; height: number; x?: number; y?: number } => {
+    try {
+      const db = getDatabaseService()
+      const saved = db.getSetting('window_bounds')
+      if (saved) {
+        const bounds = JSON.parse(saved)
+        // 验证保存的位置在当前某块显示器上仍然有效（防止用户拔除外接昿示器导致窗口弹到屏幕外）
+        const allDisplays = screen.getAllDisplays()
+        const isOnScreen = allDisplays.some(d => {
+          const wa = d.workArea
+          return (
+            bounds.x != null && bounds.y != null &&
+            bounds.x >= wa.x - 50 && bounds.y >= wa.y - 50 &&
+            bounds.x + bounds.width <= wa.x + wa.width + 50 &&
+            bounds.y + bounds.height <= wa.y + wa.height + 50
+          )
+        })
+        if (isOnScreen && bounds.width >= 800 && bounds.height >= 600) {
+          return bounds
+        }
+      }
+    } catch (_) {}
+
+    // 首次启动：按主屏逻辑分辨率计算舒适默认值，带上上下限
+    const { width: sw, height: sh } = screen.getPrimaryDisplay().workArea
+    return {
+      width: Math.round(Math.max(1100, Math.min(1380, sw * 0.70))),
+      height: Math.round(Math.max(750, Math.min(880, sh * 0.82)))
+    }
+  }
+
+  const windowState = getWindowState()
+
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: windowState.width,
+    height: windowState.height,
+    x: windowState.x,
+    y: windowState.y,
+    minWidth: 900,
+    minHeight: 640,
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hidden', // 配合现代毛玻璃设计
@@ -198,6 +236,12 @@ function createWindow(): void {
 
   // 拦截主窗口 close 事件，实现点击“X”关闭不退出，而是隐藏在托盘后台运行
   win.on('close', (event) => {
+    // 关闭前先保存当前窗口尺寸与位置，下次启动时恢复（含 Windows 自定义标题栏关闭按钮触发路径）
+    try {
+      const db = getDatabaseService()
+      db.setSetting('window_bounds', JSON.stringify(mainWindow!.getBounds()))
+    } catch (_) {}
+
     // 只有当用户没有点击托盘中的“退出”时，我们才拦截关闭并转为隐藏
     if (!(app as any).isQuiting) {
       event.preventDefault(); // 阻断物理关闭退出
@@ -462,6 +506,28 @@ function registerIpcHandlers(): void {
   ipcMain.handle('clock-quit-app', () => {
     (app as any).isQuiting = true
     app.quit()
+    return { success: true }
+  })
+
+  // Windows 自定义标题栏窗口控制按钒组 (minimize / maximize / close)
+  // 注意：window-close 与 macOS 点 X 行为完全一致，都是隐藏到系统托盘后台运行，彻底退出需从托盘菜单操作
+  ipcMain.handle('window-minimize', () => {
+    mainWindow?.minimize()
+    return { success: true }
+  })
+
+  ipcMain.handle('window-maximize', () => {
+    if (mainWindow?.isMaximized()) {
+      mainWindow.unmaximize()
+    } else {
+      mainWindow?.maximize()
+    }
+    return { success: true }
+  })
+
+  ipcMain.handle('window-close', () => {
+    // 触发 win.on('close', ...) 事件，已有防山 event.preventDefault() + win.hide() 逻辑，行为与 macOS 托盘完全一致
+    mainWindow?.close()
     return { success: true }
   })
 
