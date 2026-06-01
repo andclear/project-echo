@@ -1149,6 +1149,12 @@ function registerIpcHandlers(): void {
             sseClients.delete(client)
           }
         }
+
+        // 3. 清除该角色的待确认记忆草稿（防止被删消息的记忆被延迟写入污染上下文）
+        try {
+          db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${charId}`)
+          console.log(`[IPC] 删除消息时清除角色 ${charId} 的记忆草稿。`)
+        } catch (_) {}
       }
 
       return { success: true }
@@ -2929,6 +2935,24 @@ ${formattedHistory}
       fs.writeFileSync(charUserPath, '[]', 'utf8')
     }
 
+    // 🚀 延迟确认记忆提交：在本轮 AI 生成开始前，先将上一轮暂存的记忆草稿核验并落盘
+    // 逻辑：若草稿的锚点 AI 消息仍存在数据库，则合并写盘；若已被删除/重新生成，则丢弃草稿
+    {
+      const statePath = join(charDir, 'State.md')
+      const intimacySpeed = db.getSetting(`intimacy_speed_${characterId}`) || 'slow'
+      const pendingService = new MemoryAgentService(modelAdapter)
+      await pendingService.commitPendingMemory(
+        characterId,
+        memoryPath,
+        charUserPath,
+        statePath,
+        intimacySpeed
+      ).catch(e => {
+        // 草稿提交失败时静默忽略，不影响主对话流程
+        console.warn('[CommitPending] 草稿提交异常（静默忽略）:', e)
+      })
+    }
+
     // 组装 System Prompt (至尊三层前缀保温排布)
     // 支持 chatMode 参数：含描写模式 vs 纯对话模式
     const chatMode = payload.chatMode || 'descriptive'
@@ -3569,6 +3593,9 @@ ${memoryContent}
 
     // 根据聊天模式进行物理存盘分段处理
     let finalMsgTimestamp = Date.now() + 50
+    // 记录该批 AI 消息中第一条的时间戳，作为延迟确认记忆草稿的锚点（anchorTs）
+    // 对话模式下有多条气泡，anchorTs 取第一条（最小时间戳）以确保"只要任意一条仍存在就提交草稿"
+    let firstBubbleTs = finalMsgTimestamp
 
     // 1. 先存盘大模型的对话纯文字内容（如果存在文字的话）
     if (finalResponse.trim().length > 0) {
@@ -3613,6 +3640,8 @@ ${memoryContent}
 
         paragraphs.forEach((p, idx) => {
           const pTimestamp = Date.now() + 50 + idx * 100
+          // 记录第一条气泡的时间戳作为锚点（后续 commitPendingMemory 使用）
+          if (idx === 0) firstBubbleTs = pTimestamp
           const isLast = (idx === paragraphs.length - 1) && !redPacketSend
           db.saveMessage({
             id: crypto.randomUUID(),
@@ -3689,16 +3718,25 @@ ${memoryContent}
     // 🚀 极致缓存前缀保温：把 100% 原始的大模型流式输出写入内存字典以供下一轮无缝还原
     LastAssistantRawResponse[characterId] = accumulatedResponse
 
-    // 触发静默记忆提炼与睡眠反思进化
+
+    // 触发静默记忆提炼（延迟确认模式：结果暂存为草稿，等待用户下次发消息时核验后落盘）
     const memoryService = new MemoryAgentService(modelAdapter)
+    // anchorTs 使用该批 AI 消息的最小时间戳（对话模式多气泡取第一条，描写模式取单条时间戳）
+    const anchorTs = firstBubbleTs
     memoryService.extractMemoryAndProfile(
       memoryPath,
       charUserPath,
       userMessage,
-      finalResponse
-    ).then(async () => {
-      console.log('[MemoryService] 记忆与画像提取成功！')
-      // 后台静默自省双通道归并压缩（V3 终极白金版）
+      finalResponse,
+      false,    // isGroup
+      anchorTs  // 锚点时间戳
+    ).then(async (pendingDiff) => {
+      if (pendingDiff) {
+        // 将草稿序列化存入 Settings 表，等待用户下次发消息时提交落盘
+        db.setSetting(`pending_memory_diff_${characterId}`, JSON.stringify(pendingDiff))
+        console.log(`[MemoryService] 记忆草稿已暂存，anchorTs=${anchorTs}`)
+      }
+      // 归并压缩仍立即运行（基于历史总条数触发，与单条消息无关）
       await memoryService.compressActiveHistoryAndConsolidate(characterId, memoryPath)
     }).catch(err => {
       console.error('[MemoryService] 提取异常:', err)
@@ -5437,6 +5475,12 @@ Please output in exactly this XML format:
       if (deleteCount === 0) {
         throw new Error('最后一条消息并非角色回复，无法要求重答。')
       }
+
+      // 清除该角色的待确认记忆草稿（旧回复已被擦除，其对应的草稿无需再落盘；新回复完成后会产生新草稿）
+      try {
+        db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${payload.characterId}`)
+        console.log(`[regenerate-reply] 清除角色 ${payload.characterId} 的记忆草稿。`)
+      } catch (_) {}
 
       console.log(`[regenerate-reply] 成功擦除连续 ${deleteCount} 条旧回复气泡。`)
       return { success: true }

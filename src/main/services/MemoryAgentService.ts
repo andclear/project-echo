@@ -11,6 +11,24 @@ import { SummaryReaderWriter } from '../utils/SummaryReaderWriter';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 
 /**
+ * 延迟确认记忆草稿结构
+ * 单聊 AI 回复完成后，记忆提炼结果暂存为此结构并持久化到 Settings 表，
+ * 等待用户下次发消息时核验锚点后才正式合并写盘。
+ */
+export interface PendingMemoryDiff {
+  /** 该批 AI 回复消息的最小时间戳，用于锚点校验 */
+  anchorTs: number;
+  /** 完整的 LTM 键值对快照（为 null 表示大模型未返回有效 LTM，跳过写盘） */
+  ltm: Record<string, string> | null;
+  /** 本轮新增的 STM 条目列表 */
+  stm_updates: string[];
+  /** 完整的 USER.md Facts 数组快照（为 null 表示无需更新） */
+  char_user_facts: string[] | null;
+  /** State.md delta 更新列表 */
+  state_updates: { key: string; delta?: number; value?: any }[];
+}
+
+/**
  * MemoryAgentService
  * 负责在对话完成后，静默进行长期记忆（LTM）与专属用户偏好画像（USER.md）的后台提取与物理更新。
  * 在群聊模式下，则专注于群聊记忆与大事记的异步合并提炼。
@@ -23,20 +41,26 @@ export class MemoryAgentService {
   }
 
   /**
-   * 核心后台反思任务：从最新一轮交互中提取并沉淀记忆、画像以及评估心情状态的 Delta 并落盘
+   * 核心后台反思任务：从最新一轮交互中提取记忆、画像以及状态 Delta。
+   * - 单聊模式：返回 PendingMemoryDiff 草稿，由调用方存入 Settings 表，
+   *             等待用户下次发消息时通过 commitPendingMemory 核验后落盘。
+   * - 群聊模式：维持原有立即写盘行为，返回 null。
+   *
    * @param memoryPath 专属 Memory.md 绝对路径
    * @param charUserPath 专属 USER.md 绝对路径 (群聊时可为空 '')
    * @param userMessage 本回合用户输入
    * @param assistantMessage 本回合 AI 角色流式输出的完整回复
    * @param isGroup 是否为群聊模式
+   * @param anchorTs 该批 AI 消息的最小时间戳，作为后续校验的锚点（单聊时必传）
    */
   public async extractMemoryAndProfile(
     memoryPath: string,
     charUserPath: string,
     userMessage: string,
     assistantMessage: string,
-    isGroup: boolean = false
-  ): Promise<void> {
+    isGroup: boolean = false,
+    anchorTs: number = 0
+  ): Promise<PendingMemoryDiff | null> {
 
     // 1. 获取非阻塞并发互斥锁，确保前台 Stream 对话没有任何卡顿
     await InferenceMutex.lock();
@@ -70,14 +94,14 @@ ${Object.keys(currentLtm).length === 0 ? '（暂无长期记忆）' : Object.ent
 【群记忆提取红线规则】
 1. 统一且强制使用 {{user}} 与各角色占位符：
    - 对于用户，使用 \`{{user}}\` 代指。
-   - 对于群聊中的各个 AI 角色，**请在记忆中直接使用其各自的真实名字称呼，例如“魏淑珍”、“李沧海”**，以使群聊成员相互之间的关系被准确记录。
+   - 对于群聊中的各个 AI 角色，**请在记忆中直接使用其各自的真实名字称呼，例如"魏淑珍"、"李沧海"**，以使群聊成员相互之间的关系被准确记录。
    
 2. 记忆的防膨胀与高保真合并：
-   - 避免无限膨胀：仔细查阅【当前已有的记忆】。如果这一轮新对话中没有产生任何“具有长期持久、全新价值的事实”，直接保持旧有记忆，不要盲目增加新条目！
+   - 避免无限膨胀：仔细查阅【当前已有的记忆】。如果这一轮新对话中没有产生任何"具有长期持久、全新价值的事实"，直接保持旧有记忆，不要盲目增加新条目！
    - 合并与精简：如果发现本轮对话中的记忆与已有的条目相似或相关，请主动将其【合并】成一条更精炼的表述，不要留存多条高度重复的条目。
    
 3. 撰写格式规范：
-   - 必须以第三人称客观陈述句撰写事实（例如：“\`魏淑珍和李沧海在群里探讨了现代铁疙瘩是不是飞剑，魏淑珍认为不是\`”）。
+   - 必须以第三人称客观陈述句撰写事实（例如："\`魏淑珍和李沧海在群里探讨了现代铁疙瘩是不是飞剑，魏淑珍认为不是\`"）。
    - 严禁撰写指令性或提示词式的句子。
    - 所有提取的记忆必须使用【简体中文】。
 
@@ -94,7 +118,7 @@ Target JSON 格式：
     // 如果没有变化，请完整复制原有的 LTM。
   },
   "stm_updates": [
-    // 本轮对话中产生的“最新群聊短期记忆（STM）”。只有在发现有真正值得记录的最新关键话题或事件时填入（1-2 条短事实）。
+    // 本轮对话中产生的"最新群聊短期记忆（STM）"。只有在发现有真正值得记录的最新关键话题或事件时填入（1-2 条短事实）。
     // 如果没有，必须返回空数组 []。
   ]
 }`;
@@ -130,31 +154,31 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
 【至关重要：记忆画像提取核心红线规则】
 1. 严格仅基于用户（User）本人的输入提取偏好与画像：
    - 对于关于用户（User）的任何偏好、行为习惯、身份背景或事实的提取，**必须严格且仅能基于用户（User）在对话历史中亲口输入、承认、表达或确认的内容**！
-   - **绝对禁止**将角色（Character）在回复中单方面口嗨、虚构、编造或提及的背景设定、回忆（例如角色提及：“你上次说想吃盐烤鲑鱼”、“我记得你最讨厌咖啡了”等）直接当作用户的真实事实提取！角色单方面为了扮演沉浸而编造或引申的内容，在没有得到用户亲口明确认可之前，**绝对不能**算作用户的偏好！
+   - **绝对禁止**将角色（Character）在回复中单方面口嗨、虚构、编造或提及的背景设定、回忆（例如角色提及："你上次说想吃盐烤鲑鱼"、"我记得你最讨厌咖啡了"等）直接当作用户的真实事实提取！角色单方面为了扮演沉浸而编造或引申的内容，在没有得到用户亲口明确认可之前，**绝对不能**算作用户的偏好！
    - 只有用户（User）在本轮对话中亲口发出的消息，才是确认用户偏好与画像事实的唯一真理源！
 
 2. 统一且强制使用 {{user}} 与 {{char}} 占位符：
    - 在所有提取或合并的长期记忆（LTM）、短期记忆（STM）以及专属画像事实（char_user_facts）中，**必须且仅能使用 \`{{user}}\` 来代指用户本身，使用 \`{{char}}\` 来代指当前的角色本身**！
-   - 绝对禁止输出任何真实名字（如“杨越”、“真由”等），也禁止使用“用户”、“User”、“Character”、“角色”或第一/第二人称（如“你”、“我”、“他”）。
+   - 绝对禁止输出任何真实名字（如"杨越"、"真由"等），也禁止使用"用户"、"User"、"Character"、"角色"或第一/第二人称（如"你"、"我"、"他"）。
 
 【核心指令】
 1. 记忆画像的防膨胀与高保真合并：
-   - 避免无限膨胀：仔细查阅【当前已有的记忆与画像】。如果这一轮新对话中没有产生任何“具有长期持久、全新价值的事实或偏好变化”，请原样复制并返回现有的长期记忆与画像事实，绝对不要盲目增加新条目！
+   - 避免无限膨胀：仔细查阅【当前已有的记忆与画像】。如果这一轮新对话中没有产生任何"具有长期持久、全新价值的事实或偏好变化"，请原样复制并返回现有的长期记忆与画像事实，绝对不要盲目增加新条目！
    - 合并与精简：如果发现本轮对话中的偏好与已有的条目相似或相关，请主动将其【合并】成一条更精炼的表述，不要留存多条高度重复的条目。
    - 智能修剪与删除：如果旧的记忆/画像事实在对话中被新事实所推翻或已过期（如用户表示改变了习惯），请从列表/对象中直接【更新】或【删除】该旧记忆，或将对应 LTM 键删去。
    - 专属画像容量控制：专属画像事实（char_user_facts）数组的总上限建议控制在 15 条以内。如果接近或超过此上限，请务必进行智能归并。
    - 拒绝琐碎对话细节：只记录具有长期持久参考价值（如用户喜好、重要个人背景、稳定的习惯等）的事实。过滤掉临时性、一次性、与本轮任务无关的琐碎杂谈。
 
 2. 撰写格式规范：
-   - 必须以第三人称客观陈述句撰写事实（例如：“\`{{user}}更喜欢直接且简短的回复\`”或“\`{{user}}的生日是 9 月 10 日\`”）。
-   - 严禁撰写指令性或提示词式的句子（例如：严禁写“\`总是简短回答\`”、“\`注意多赞美用户\`”）。
+   - 必须以第三人称客观陈述句撰写事实（例如："\`{{user}}更喜欢直接且简短的回复\`"或"\`{{user}}的生日是 9 月 10 日\`"）。
+   - 严禁撰写指令性或提示词式的句子（例如：严禁写"\`总是简短回答\`"、"\`注意多赞美用户\`"）。
    - 所有提取的记忆与画像事实必须使用【简体中文】。
 
 【当前已有的记忆与画像】
 ${currentMemoryContext}
 
 【角色当前状态更新评估】
-请审查角色当前状态，它们的含义（“指标含义”）以及自定义更新规则（“AI更新规则”），并评估最新对话对这些状态的影响：
+请审查角色当前状态，它们的含义（"指标含义"）以及自定义更新规则（"AI更新规则"），并评估最新对话对这些状态的影响：
 - 如果用户表达温暖、关心、支持或赞美：mood 增加 (+5 至 +10)，intimacy 增加 (+1 至 +3)。
 - 如果用户冷淡、挑剔、争吵或沉默：mood 降低 (-10 至 -20)，intimacy 降低 (-2 至 -5)。
 - 遵循 State 列表中的 AI更新规则 评估自定义数值/文本状态。若文本状态（如 clothing）发生变化，请在 'value' 字段中提供更新后的文本（无需提供 'delta'）。
@@ -177,7 +201,7 @@ Target JSON 格式：
     // 如果没有变化，请完整复制原有的 Facts。建议控制在 15 条以内。必须使用 {{user}} 和 {{char}}。
   ],
   "stm_updates": [
-    // 本轮对话中产生的“最新短期记忆（STM）”。只有在发现有真正值得记录的最新关键话题或事件时填入（1-2 条短事实，必须使用 {{user}} 和 {{char}}）。
+    // 本轮对话中产生的"最新短期记忆（STM）"。只有在发现有真正值得记录的最新关键话题或事件时填入（1-2 条短事实，必须使用 {{user}} 和 {{char}}）。
     // 如果没有或只是普通的日常闲聊，必须返回空数组 []。
   ],
   "state_updates": [
@@ -209,140 +233,118 @@ Target JSON 格式：
           state_updates?: { key: string; delta?: number; value?: any }[];
         };
 
-        // 4. 调用高精度物理写盘引擎，将合并与精炼后的数据安全落盘
-        // A. 短期记忆 (STM) 增量更新
-        if (Array.isArray(parsed.stm_updates) && parsed.stm_updates.length > 0) {
-          for (const stmFact of parsed.stm_updates) {
-            const cleaned = stmFact.trim();
-            if (cleaned) {
-              MemoryReaderWriter.pushSTM(memoryPath, cleaned);
-              console.log(`[MemoryAgentService] 物理短期记忆追加 STM: ${cleaned}`);
-            }
-          }
-        }
+        // ======================================================================
+        // 4. 根据模式分两条路处理提炼结果
+        // ======================================================================
 
-        // B. 长期记忆 (LTM) 整合覆盖更新 (彻底避免无限追加带来的膨胀)
-        if (parsed.ltm && typeof parsed.ltm === 'object') {
-          const memory = MemoryReaderWriter.readMemory(memoryPath);
-          const cleanedLtm: Record<string, string> = {};
+        if (isGroup) {
+          // ─── 群聊路径：维持原有立即写盘行为 ───
 
-          for (const key of Object.keys(parsed.ltm)) {
-            const val = parsed.ltm[key];
-            if (typeof val === 'string' && val.trim() !== '') {
-              cleanedLtm[key.trim()] = val.trim();
+          // A. STM 增量追加
+          if (Array.isArray(parsed.stm_updates) && parsed.stm_updates.length > 0) {
+            for (const stmFact of parsed.stm_updates) {
+              const cleaned = stmFact.trim();
+              if (cleaned) {
+                MemoryReaderWriter.pushSTM(memoryPath, cleaned);
+                console.log(`[MemoryAgentService] 群聊 物理短期记忆追加 STM: ${cleaned}`);
+              }
             }
           }
 
-          const newKeysCount = Object.keys(cleanedLtm).length;
-          const oldKeysCount = Object.keys(currentLtm).length;
-
-          // 极端防御性防呆设计：如果原有 LTM 非空，但大模型反思结果返回了空字典，大概率为幻觉错误或漏解。
-          // 此时，为防范物理擦除，直接跳过物理落盘以保护用户长期记忆。
-          if (newKeysCount === 0 && oldKeysCount > 0) {
-            console.warn('[MemoryAgentService] 大模型返回 LTM 字典为空，但历史存在长期记忆，跳过覆盖以物理保全 LTM。');
-          } else {
-            memory.ltm = cleanedLtm;
-            MemoryReaderWriter.writeMemory(memoryPath, memory.stm, memory.ltm);
-          }
-        }
-
-        // C. 角色专属千人千面画像 (USER.md) 整合覆盖更新 (仅单聊)
-        if (!isGroup && Array.isArray(parsed.char_user_facts)) {
-          const cleanedFacts = parsed.char_user_facts
-            .map((f: any) => typeof f === 'string' ? f.trim() : '')
-            .filter((f: string, idx: number, self: string[]) => f !== '' && self.indexOf(f) === idx);
-
-          if (cleanedFacts.length === 0 && currentCharFacts.length > 0) {
-            console.warn('[MemoryAgentService] 大模型返回专属画像 Facts 为空，但历史存在事实，跳过更新以物理保全画像。');
-          } else {
-            // 🚀 大师级高精度 Facts 相似度防微调去抖比对引擎，防止因大模型用词、助词、顺序微调导致的前缀缓存频繁失效
-            const purify = (str: string) => {
-              return str
-                .replace(/\{\{user\}\}/g, '用户')
-                .replace(/\{\{char\}\}/g, '角色')
-                .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '')
-                .trim();
-            };
-
-            const getOverlapRatio = (s1: string, s2: string): number => {
-              const p1 = purify(s1);
-              const p2 = purify(s2);
-              if (p1 === p2) return 1.0;
-              if (!p1 || !p2) return 0.0;
-              const chars1 = Array.from(p1);
-              const set2 = new Set(Array.from(p2));
-              const intersection = chars1.filter(c => set2.has(c)).length;
-              return intersection / Math.max(chars1.length, p2.length);
-            };
-
-            const isSimilar = (f1: string, f2: string): boolean => {
-              return getOverlapRatio(f1, f2) >= 0.70;
-            };
-
-            // 检查是否有真正的全新增 facts
-            const hasNewDryGoods = cleanedFacts.some(newFact =>
-              !currentCharFacts.some(oldFact => isSimilar(newFact, oldFact))
-            );
-
-            // 检查是否有被主动彻底删除的 facts
-            const hasDeletedFacts = currentCharFacts.some(oldFact =>
-              !cleanedFacts.some(newFact => isSimilar(newFact, oldFact))
-            );
-
-            const isIdentical = !hasNewDryGoods && !hasDeletedFacts;
-
-            if (isIdentical) {
-              console.log('[MemoryAgentService] 专属画像 Facts 仅有同义词润色/字词微调，跳过物理写盘以完美保持前缀缓存。');
+          // B. LTM 整合覆盖
+          if (parsed.ltm && typeof parsed.ltm === 'object') {
+            const memory = MemoryReaderWriter.readMemory(memoryPath);
+            const cleanedLtm: Record<string, string> = {};
+            for (const key of Object.keys(parsed.ltm)) {
+              const val = parsed.ltm[key];
+              if (typeof val === 'string' && val.trim() !== '') {
+                cleanedLtm[key.trim()] = val.trim();
+              }
+            }
+            const newKeysCount = Object.keys(cleanedLtm).length;
+            const oldKeysCount = Object.keys(currentLtm).length;
+            if (newKeysCount === 0 && oldKeysCount > 0) {
+              console.warn('[MemoryAgentService] 群聊 大模型返回 LTM 字典为空，跳过覆盖以物理保全 LTM。');
             } else {
-              UserProfileReaderWriter.writeCharacterProfile(charUserPath, cleanedFacts);
-              console.log('[MemoryAgentService] 专属画像 Facts 发生实质性变更（发现新增/删除事实），物理更新 USER.md。');
+              memory.ltm = cleanedLtm;
+              MemoryReaderWriter.writeMemory(memoryPath, memory.stm, memory.ltm);
             }
           }
-        }
 
-        // D. 角色状态 (State.md) Delta 增量更新与物理落盘 (仅单聊)
-        if (!isGroup && Array.isArray(parsed.state_updates) && parsed.state_updates.length > 0) {
-          // 🚀 核心过滤防线：物理拦截并过滤掉所有试图从后台 AI 反思更新钱包余额 'balance' 的指令，
-          // 因为钱包余额已在前台扣减/红包增减逻辑中进行了 100% 精确的规则级落盘，绝对不容许 AI 幻觉和格式错误进行覆盖篡改！
-          let filteredUpdates = parsed.state_updates.filter(u => u && u.key !== 'balance');
+        } else {
+          // ─── 单聊路径：构建 PendingMemoryDiff 草稿，不写盘，由调用方持久化后延迟落盘 ───
 
-          if (filteredUpdates.length > 0) {
-            // 🚀 物理级“慢”成长速率精准干涉门禁
-            const charId = path.basename(path.dirname(memoryPath));
-            const db = getDatabaseService();
-            const intimacySpeed = db.getSetting(`intimacy_speed_${charId}`) || 'slow';
-
-            if (intimacySpeed === 'slow') {
-              filteredUpdates = filteredUpdates.map(u => {
-                if (u.key === 'intimacy') {
-                  if (u.delta !== undefined && u.delta !== null) {
-                    const deltaVal = Number(u.delta);
-                    if (!isNaN(deltaVal)) {
-                      if (deltaVal > 0) {
-                        return { ...u, delta: 1 };
-                      } else if (deltaVal < 0) {
-                        // 限制下降在 -2 至 -5 之间
-                        return { ...u, delta: Math.max(-5, Math.min(-2, deltaVal)) };
-                      }
-                    }
-                  }
-                }
-                return u;
-              });
-            }
-
-            StateReaderWriter.applyStateUpdates(statePath, filteredUpdates);
-            console.log(`[MemoryAgentService] 物理状态增量更新落盘成功(已过滤 balance 且对 intimacy 进行了速率干涉):`, filteredUpdates);
-
-            // 穿透广播给渲染进程前端以驱动仪表盘的动画浮动与数值更新
-            const windows = BrowserWindow.getAllWindows();
-            if (windows.length > 0) {
-              windows[0].webContents.send('character-state-updated', {
-                characterId: path.basename(path.dirname(memoryPath)),
-                updates: filteredUpdates
-              });
+          // A. 整理 STM 新增条目
+          const pendingStmUpdates: string[] = [];
+          if (Array.isArray(parsed.stm_updates)) {
+            for (const stmFact of parsed.stm_updates) {
+              const cleaned = stmFact.trim();
+              if (cleaned) pendingStmUpdates.push(cleaned);
             }
           }
+
+          // B. 整理 LTM（保留原有防呆逻辑）
+          let pendingLtm: Record<string, string> | null = null;
+          if (parsed.ltm && typeof parsed.ltm === 'object') {
+            const cleanedLtm: Record<string, string> = {};
+            for (const key of Object.keys(parsed.ltm)) {
+              const val = parsed.ltm[key];
+              if (typeof val === 'string' && val.trim() !== '') {
+                cleanedLtm[key.trim()] = val.trim();
+              }
+            }
+            const newKeysCount = Object.keys(cleanedLtm).length;
+            const oldKeysCount = Object.keys(currentLtm).length;
+            if (newKeysCount === 0 && oldKeysCount > 0) {
+              // 返回空 LTM 大概率是幻觉，草稿中标记为 null 跳过写盘
+              console.warn('[MemoryAgentService] 单聊 大模型返回 LTM 字典为空，草稿中跳过 LTM 更新以保全旧数据。');
+              pendingLtm = null;
+            } else {
+              pendingLtm = cleanedLtm;
+            }
+          }
+
+          // C. 整理 USER.md Facts（保留防呆逻辑，交由 commitPendingMemory 时执行相似度去抖）
+          let pendingCharUserFacts: string[] | null = null;
+          if (Array.isArray(parsed.char_user_facts)) {
+            const cleanedFacts = parsed.char_user_facts
+              .map((f: any) => typeof f === 'string' ? f.trim() : '')
+              .filter((f: string, idx: number, self: string[]) => f !== '' && self.indexOf(f) === idx);
+            if (cleanedFacts.length === 0 && currentCharFacts.length > 0) {
+              // 防止大模型幻觉清空画像
+              console.warn('[MemoryAgentService] 单聊 大模型返回专属画像 Facts 为空，草稿中跳过 Facts 更新以保全旧画像。');
+              pendingCharUserFacts = null;
+            } else {
+              pendingCharUserFacts = cleanedFacts;
+            }
+          }
+
+          // D. 整理 State delta（过滤 balance，由 commitPendingMemory 时执行 intimacy 速率干涉）
+          const pendingStateUpdates: { key: string; delta?: number; value?: any }[] = [];
+          if (Array.isArray(parsed.state_updates)) {
+            for (const u of parsed.state_updates) {
+              if (u && u.key !== 'balance') {
+                pendingStateUpdates.push(u);
+              }
+            }
+          }
+
+          // 构建草稿并从方法返回，由 index.ts 调用方持久化到 Settings 表
+          const diff: PendingMemoryDiff = {
+            anchorTs,
+            ltm: pendingLtm,
+            stm_updates: pendingStmUpdates,
+            char_user_facts: pendingCharUserFacts,
+            state_updates: pendingStateUpdates
+          };
+          console.log(`[MemoryAgentService] 单聊记忆草稿已构建，anchorTs=${anchorTs}，等待用户下次发消息时核验落盘。`);
+
+          // 🚀 并发解死锁自愈防线：在 return 之前异步触发 Schedule/Goals 推进（锁将在 finally 中释放）
+          this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter).catch(err => {
+            console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
+          });
+
+          return diff;
         }
       }
 
@@ -360,6 +362,150 @@ Target JSON 格式：
         console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
       });
     }
+
+    return null;
+  }
+
+  /**
+   * 将数据库中暂存的记忆草稿（PendingMemoryDiff）正式合并落盘。
+   * 应在用户下次发送消息时、AI 开始生成之前调用。
+   * 逻辑：读取草稿 → 校验锚点消息是否仍存在 → 落盘 → 清除草稿。
+   *
+   * @param characterId 角色 ID（用于读取 Settings 中的草稿 key 和查询消息表）
+   * @param memoryPath Memory.md 绝对路径
+   * @param charUserPath USER.md 绝对路径
+   * @param statePath State.md 绝对路径
+   * @param intimacySpeed 亲密度成长速率配置（'slow' | 'normal'）
+   */
+  public async commitPendingMemory(
+    characterId: string,
+    memoryPath: string,
+    charUserPath: string,
+    statePath: string,
+    intimacySpeed: string
+  ): Promise<void> {
+    const db = getDatabaseService();
+    const settingKey = `pending_memory_diff_${characterId}`;
+
+    // 1. 读取草稿
+    const raw = db.getSetting(settingKey);
+    if (!raw) return; // 无草稿，直接返回
+
+    let diff: PendingMemoryDiff;
+    try {
+      diff = JSON.parse(raw) as PendingMemoryDiff;
+    } catch (e) {
+      // 草稿损坏，清除后返回
+      console.warn('[MemoryAgentService] commitPendingMemory: 草稿解析失败，自动清除。', e);
+      db.db.prepare('DELETE FROM Settings WHERE key = ?').run(settingKey);
+      return;
+    }
+
+    // 2. 校验锚点：查询该角色是否仍有时间戳 >= anchorTs 的 assistant 消息
+    // （对话模式下 AI 回复是多条气泡，取批次内最小时间戳作为锚点，只要任意一条存在即视为有效）
+    const anchorRow = db.db.prepare(
+      "SELECT id FROM Messages WHERE character_id = ? AND role = 'assistant' AND timestamp >= ? LIMIT 1"
+    ).get(characterId, diff.anchorTs);
+
+    if (!anchorRow) {
+      // 锚点消息已全部被删除（用户删除或重新生成），草稿无效，清除并跳过写盘
+      console.log(`[MemoryAgentService] commitPendingMemory: 角色 ${characterId} 的锚点消息已被删除，草稿作废，清除。`);
+      db.db.prepare('DELETE FROM Settings WHERE key = ?').run(settingKey);
+      return;
+    }
+
+    console.log(`[MemoryAgentService] commitPendingMemory: 角色 ${characterId} 锚点校验通过，开始落盘记忆草稿...`);
+
+    // 3. 落盘各项数据
+
+    // A. STM 增量追加
+    if (diff.stm_updates && diff.stm_updates.length > 0) {
+      for (const stmFact of diff.stm_updates) {
+        if (stmFact) {
+          MemoryReaderWriter.pushSTM(memoryPath, stmFact);
+          console.log(`[MemoryAgentService] commitPendingMemory: 追加 STM: ${stmFact}`);
+        }
+      }
+    }
+
+    // B. LTM 整合覆盖
+    if (diff.ltm !== null && typeof diff.ltm === 'object') {
+      const memory = MemoryReaderWriter.readMemory(memoryPath);
+      memory.ltm = diff.ltm;
+      MemoryReaderWriter.writeMemory(memoryPath, memory.stm, memory.ltm);
+      console.log('[MemoryAgentService] commitPendingMemory: LTM 整合覆盖写盘成功。');
+    }
+
+    // C. USER.md Facts 整合覆盖（保留高精度相似度防微调去抖逻辑）
+    if (diff.char_user_facts !== null && Array.isArray(diff.char_user_facts)) {
+      const currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
+      const cleanedFacts = diff.char_user_facts;
+
+      const purify = (str: string) => str
+        .replace(/\{\{user\}\}/g, '用户')
+        .replace(/\{\{char\}\}/g, '角色')
+        .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '')
+        .trim();
+
+      const getOverlapRatio = (s1: string, s2: string): number => {
+        const p1 = purify(s1);
+        const p2 = purify(s2);
+        if (p1 === p2) return 1.0;
+        if (!p1 || !p2) return 0.0;
+        const chars1 = Array.from(p1);
+        const set2 = new Set(Array.from(p2));
+        const intersection = chars1.filter(c => set2.has(c)).length;
+        return intersection / Math.max(chars1.length, p2.length);
+      };
+
+      const isSimilar = (f1: string, f2: string) => getOverlapRatio(f1, f2) >= 0.70;
+
+      const hasNewDryGoods = cleanedFacts.some(nf => !currentCharFacts.some(of => isSimilar(nf, of)));
+      const hasDeletedFacts = currentCharFacts.some(of => !cleanedFacts.some(nf => isSimilar(nf, of)));
+
+      if (!hasNewDryGoods && !hasDeletedFacts) {
+        console.log('[MemoryAgentService] commitPendingMemory: 专属画像 Facts 仅微调，跳过写盘以保持前缀缓存。');
+      } else {
+        UserProfileReaderWriter.writeCharacterProfile(charUserPath, cleanedFacts);
+        console.log('[MemoryAgentService] commitPendingMemory: 专属画像 USER.md Facts 更新落盘成功。');
+      }
+    }
+
+    // D. State.md Delta（执行 balance 过滤和 intimacy 速率干涉）
+    if (diff.state_updates && diff.state_updates.length > 0) {
+      let filteredUpdates = diff.state_updates.filter(u => u && u.key !== 'balance');
+
+      if (filteredUpdates.length > 0) {
+        if (intimacySpeed === 'slow') {
+          filteredUpdates = filteredUpdates.map(u => {
+            if (u.key === 'intimacy' && u.delta !== undefined && u.delta !== null) {
+              const deltaVal = Number(u.delta);
+              if (!isNaN(deltaVal)) {
+                if (deltaVal > 0) return { ...u, delta: 1 };
+                if (deltaVal < 0) return { ...u, delta: Math.max(-5, Math.min(-2, deltaVal)) };
+              }
+            }
+            return u;
+          });
+        }
+
+        StateReaderWriter.applyStateUpdates(statePath, filteredUpdates);
+        console.log('[MemoryAgentService] commitPendingMemory: State.md delta 落盘成功:', filteredUpdates);
+
+        // 广播给前端仪表盘
+        const windows = BrowserWindow.getAllWindows();
+        if (windows.length > 0) {
+          windows[0].webContents.send('character-state-updated', {
+            characterId,
+            updates: filteredUpdates
+          });
+        }
+      }
+    }
+
+    // 4. 清除草稿（已成功落盘，下一轮 AI 回复将产生新草稿）
+    db.db.prepare('DELETE FROM Settings WHERE key = ?').run(settingKey);
+    console.log(`[MemoryAgentService] commitPendingMemory: 角色 ${characterId} 记忆草稿已清除，落盘完成。`);
   }
 
   /**

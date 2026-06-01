@@ -11918,7 +11918,7 @@ function flattenMessages(historyMessages: any[], charId: string): any[] {
 }
 
 function restoreMessageProps(m: any) {
-  const result: any = reactive({
+  const result: any = {
     id: m.id,
     role: m.role,
     content: m.content,
@@ -11931,7 +11931,7 @@ function restoreMessageProps(m: any) {
     imageBase64: m.imageBase64 || '',
     imageMeta: m.imageMeta || null,
     sender_id: m.sender_id || m.character_id
-  })
+  }
   
   if (m.content) {
     // 自动清洗历史记录中可能残存的红包控制字符，确保绝不显露代码
