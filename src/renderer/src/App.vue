@@ -9252,7 +9252,11 @@ const handleCheckForUpdates = async () => {
 
 const handleRestartAndInstall = async () => {
   try {
-    await window.api.invoke('restart-and-install')
+    const res = await window.api.invoke('restart-and-install')
+    if (res && !res.success) {
+      showToast(`启动安装程序失败: ${res.message || '未知错误'}`)
+    }
+    // success 时 app 会自动 quit，无需额外处理
   } catch (err: any) {
     showToast(`启动安装程序失败: ${err.message || err}`)
   }

@@ -159,46 +159,36 @@ export class UpdateService {
   /**
    * 静默后台下载更新包
    */
-  private downloadUpdate(mainWindow: BrowserWindow, url: string, latestVersion: string): void {
-    if (this.isDownloading) {
-      console.log('[UpdateService] 正在后台下载更新包，请勿重复下载...')
+  private doDownload(
+    mainWindow: BrowserWindow,
+    url: string,
+    localFilePath: string,
+    latestVersion: string,
+    redirectDepth: number
+  ): void {
+    if (redirectDepth > 8) {
+      this.handleDownloadError(mainWindow, new Error('重定向次数过多（超过 8 次），已自动熔断'))
       return
     }
-
-    this.isDownloading = true
-    mainWindow.webContents.send('update-download-progress', { progress: 0 })
-
-    // 获取系统临时文件夹路径并在其下创建专属升级目录
-    const tempDir = join(app.getPath('temp'), 'echo-updates')
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true })
-    }
-
-    // 提取文件名
-    const urlParts = url.split('/')
-    const originalFileName = urlParts[urlParts.length - 1] || `Echo-Setup-${latestVersion}`
-    const localFilePath = join(tempDir, originalFileName)
-    this.downloadedFilePath = localFilePath
-
-    console.log(`[UpdateService] 开始静默下载更新包: ${url} -> ${localFilePath}`)
 
     const fileStream = fs.createWriteStream(localFilePath)
 
     const request = https.get(url, (response) => {
-      // 兼容重定向
-      if (response.statusCode === 301 || response.statusCode === 302) {
+      // 跟随所有 3xx 重定向（Gitee Release → OSS/CDN 可能有多级）
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400) {
         const redirectUrl = response.headers.location
         if (redirectUrl) {
-          console.log(`[UpdateService] 正在跟随重定向至: ${redirectUrl}`)
+          console.log(`[UpdateService] 跟随第 ${redirectDepth + 1} 层重定向: ${redirectUrl}`)
           fileStream.close()
-          fs.unlinkSync(localFilePath) // 删掉空文件
-          this.isDownloading = false
-          this.downloadUpdate(mainWindow, redirectUrl, latestVersion)
+          try { fs.unlinkSync(localFilePath) } catch (_) {}
+          this.doDownload(mainWindow, redirectUrl, localFilePath, latestVersion, redirectDepth + 1)
           return
         }
       }
 
       if (response.statusCode !== 200) {
+        fileStream.close()
+        try { fs.unlinkSync(localFilePath) } catch (_) {}
         this.handleDownloadError(mainWindow, new Error(`HTTP 状态码异常: ${response.statusCode}`))
         return
       }
@@ -210,7 +200,6 @@ export class UpdateService {
         downloadedBytes += chunk.length
         if (totalBytes > 0) {
           const percent = Math.round((downloadedBytes / totalBytes) * 100)
-          // 节流推送进度
           mainWindow.webContents.send('update-download-progress', { progress: percent })
         }
       })
@@ -220,24 +209,57 @@ export class UpdateService {
       fileStream.on('finish', () => {
         fileStream.close()
         this.isDownloading = false
-        console.log('[UpdateService] 更新包静默下载顺利完成！')
-        
-        // 广播下载完成事件给渲染进程，唤起毛玻璃安装确认对话框
+        const fileSize = fs.existsSync(localFilePath) ? fs.statSync(localFilePath).size : 0
+        console.log(`[UpdateService] 更新包下载完成！路径: ${localFilePath}, 大小: ${fileSize} 字节`)
+
         mainWindow.webContents.send('update-download-status', {
           status: 'downloaded',
           version: latestVersion,
           changelog: this.latestVersionInfo?.changelog || ''
         })
       })
+
+      fileStream.on('error', (err) => {
+        this.handleDownloadError(mainWindow, err)
+      })
     })
 
     request.on('error', (err) => {
       fileStream.close()
-      if (fs.existsSync(localFilePath)) {
-        fs.unlinkSync(localFilePath)
-      }
+      try { fs.unlinkSync(localFilePath) } catch (_) {}
       this.handleDownloadError(mainWindow, err)
     })
+  }
+
+  private downloadUpdate(mainWindow: BrowserWindow, url: string, latestVersion: string): void {
+    if (this.isDownloading) {
+      console.log('[UpdateService] 正在后台下载更新包，请勿重复下载...')
+      return
+    }
+
+    this.isDownloading = true
+    mainWindow.webContents.send('update-download-progress', { progress: 0 })
+
+    const tempDir = join(app.getPath('temp'), 'echo-updates')
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true })
+    }
+
+    // 🔒 修复：从 URL 中剥离 query string 再提取文件名。
+    // Gitee/CDN 重定向后的 URL 通常带有签名参数（如 ?Expires=xxx&Signature=xxx），
+    // 若不剥离，文件名会含 ?，在 Windows 上是非法字符，导致路径无效、文件无法创建。
+    const urlWithoutQuery = url.split('?')[0]
+    const urlParts = urlWithoutQuery.split('/')
+    const rawFileName = urlParts[urlParts.length - 1] || `Echo-Setup-${latestVersion}`
+    // 再次去除文件名中可能出现的其他非法字符（Windows 不允许 < > : " / \ | ? *）
+    const safeFileName = rawFileName.replace(/[<>:"/\\|?*]/g, '_')
+    const localFilePath = join(tempDir, safeFileName)
+    this.downloadedFilePath = localFilePath
+
+    console.log(`[UpdateService] 开始下载更新包: ${url}`)
+    console.log(`[UpdateService] 本地存储路径: ${localFilePath}`)
+
+    this.doDownload(mainWindow, url, localFilePath, latestVersion, 0)
   }
 
   private handleDownloadError(mainWindow: BrowserWindow, err: Error): void {
@@ -253,41 +275,57 @@ export class UpdateService {
    * 重启并执行覆盖安装
    */
   public restartAndInstall(): { success: boolean; message: string } {
-    if (!this.downloadedFilePath || !fs.existsSync(this.downloadedFilePath)) {
-      return { success: false, message: '未找到已下载的安装包，请重新检查更新' }
+    console.log(`[UpdateService] restartAndInstall 调用，downloadedFilePath="${this.downloadedFilePath}"`)
+
+    if (!this.downloadedFilePath) {
+      const msg = '未找到已下载的安装包路径，请重新检查更新'
+      console.error(`[UpdateService] ${msg}`)
+      return { success: false, message: msg }
+    }
+
+    if (!fs.existsSync(this.downloadedFilePath)) {
+      const msg = `安装包文件不存在: ${this.downloadedFilePath}`
+      console.error(`[UpdateService] ${msg}`)
+      return { success: false, message: msg + '，请重新检查更新' }
+    }
+
+    const fileSize = fs.statSync(this.downloadedFilePath).size
+    if (fileSize === 0) {
+      const msg = `安装包文件大小为 0 字节，下载可能已损坏: ${this.downloadedFilePath}`
+      console.error(`[UpdateService] ${msg}`)
+      return { success: false, message: msg + '，请重新检查更新' }
     }
 
     const filePath = this.downloadedFilePath
-    console.log(`[UpdateService] 准备重启并执行覆盖安装: ${filePath}`)
+    console.log(`[UpdateService] 准备重启并执行覆盖安装: ${filePath} (${fileSize} 字节)`)
 
     const platform = process.platform
 
-    // 🚀 核心修复：强制开启 app.isQuiting 标志门锁，彻底打通与菜单栏“退出”一致的彻底、物理级退场通道！
-    // 完美绕过 win.on('close') 拦截器将其误杀转为“后台隐藏”的重大 Electron 生命周期死锁 Bug！
-    (app as any).isQuiting = true
+    // 强制设置 isQuiting 标志，绕过 win.on('close') 的后台隐藏拦截器，确保 app.quit() 能彻底退出
+    ;(app as any).isQuiting = true
 
     if (platform === 'win32') {
-      // Windows: 静默或者唤起 NSIS 安装包，并退出主程序防占位
+      // Windows: 启动 NSIS 安装包（detached 保证安装进程在主进程退出后继续运行）
       const child = spawn(filePath, [], {
         detached: true,
         stdio: 'ignore'
       })
       child.unref()
-      app.quit()
+      setTimeout(() => app.quit(), 300)
     } else if (platform === 'darwin') {
-      // macOS: 打开 DMG 挂载并提示用户拖拽
       exec(`open "${filePath}"`, (err) => {
         if (err) {
           console.error('[UpdateService] 唤起 dmg 安装界面失败:', err.message)
         }
       })
-      app.quit()
+      setTimeout(() => app.quit(), 500)
     } else if (platform === 'linux') {
-      // Linux: 提示用户文件路径，并打开它
       shell.openPath(join(filePath, '..')).catch((err) => {
         console.error('[UpdateService] 打开 Linux 安装包目录失败:', err.message)
       })
-      app.quit()
+      setTimeout(() => app.quit(), 500)
+    } else {
+      return { success: false, message: `不支持的系统平台: ${platform}` }
     }
 
     return { success: true, message: '正在退出并运行安装包...' }
