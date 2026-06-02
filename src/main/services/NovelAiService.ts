@@ -125,15 +125,18 @@ export class NovelAiService {
       // ⚡️ 2. 智能随机或单一画师串挑选算法
       let activeArtist = ''
       if (config.randomArtist && Array.isArray(config.artistStringList) && config.artistStringList.length > 0) {
-        const validList = config.artistStringList.map((item: any) => {
-          if (typeof item === 'string') return item.trim()
-          return (item.value || '').trim()
-        }).filter(val => val.length > 0)
+        // 去重：防止用户配置了重复 value 的条目导致该画师串命中概率倍增
+        const validList = [...new Set(
+          config.artistStringList.map((item: any) => {
+            if (typeof item === 'string') return item.trim()
+            return (item.value || '').trim()
+          }).filter(val => val.length > 0)
+        )]
 
         if (validList.length > 0) {
           const randomIndex = Math.floor(Math.random() * validList.length)
           activeArtist = validList[randomIndex]
-          console.log(`[NovelAiService] 🎲 随机画师串分流命中 [#${randomIndex + 1}]: "${activeArtist}"`)
+          console.log(`[NovelAiService] 🎲 随机画师串分流命中 [#${randomIndex + 1}/${validList.length}]: "${activeArtist}"`)
         }
       }
 

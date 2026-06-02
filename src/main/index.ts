@@ -1396,7 +1396,9 @@ function registerIpcHandlers(): void {
         ? `${appearancePrompt}, ${payload.prompt}`
         : payload.prompt
 
-      if (naiConfig.artistString?.trim()) {
+      // 仅在固定模式下由调用方预拼画师串；随机模式下由 NovelAiService.generateImage 内部统一随机选取并拼接
+      // 避免随机模式下 cleaning 逻辑失配导致固定画师串残留，造成该画师出现频率虚高
+      if (!naiConfig.randomArtist && naiConfig.artistString?.trim()) {
         finalPrompt = `${naiConfig.artistString.trim()}, ${finalPrompt}`
       }
       if (naiConfig.qualityPrompt?.trim()) {

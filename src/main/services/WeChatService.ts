@@ -739,7 +739,8 @@ export class WeChatService {
         ? `${appearancePrompt}, ${extractedPrompt}`
         : extractedPrompt;
 
-      if (config.artistString?.trim()) {
+      // 仅在固定模式下预拼画师串，随机模式由 NovelAiService.generateImage 内部统一随机拼接
+      if (!config.randomArtist && config.artistString?.trim()) {
         finalPrompt = `${config.artistString.trim()}, ${finalPrompt}`;
       }
       if (config.qualityPrompt?.trim()) {
