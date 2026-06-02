@@ -4854,7 +4854,7 @@
                 <div class="text-sm font-bold text-on-surface flex items-center space-x-1.5">
                   <span v-if="isGroupActive">{{ activeGroupChat.name }}</span>
                   <span v-else-if="activeCharacter">{{ activeCharacter.name }}</span>
-                  <span v-if="isStreaming && streamingCharacterId === selectedCharacterId" class="text-xs font-normal text-primary/80 animate-pulse">（对方正在输入...）</span>
+                  <span v-if="isCurrentCharStreaming" class="text-xs font-normal text-primary/80 animate-pulse">（对方正在输入...）</span>
                   
                   <!-- 爱心图标挂件 (入口按钮) -->
                   <button
@@ -5751,11 +5751,11 @@
                   <button
                     @pointerdown.prevent="sendChatMessage"
                     @click.prevent
-                    :disabled="isStreaming || (!chatInputText.trim() && !pastedImageBase64)"
+                    :disabled="isCurrentCharStreaming || (!chatInputText.trim() && !pastedImageBase64)"
                     class="flex items-center justify-center w-9 h-9 rounded-xl bg-primary text-on-primary disabled:opacity-40 transition-all active:scale-95 cursor-pointer shadow-sm"
                     title="发送"
                   >
-                    <Loader2Icon v-if="isStreaming" class="w-4 h-4 animate-spin" />
+                    <Loader2Icon v-if="isCurrentCharStreaming" class="w-4 h-4 animate-spin" />
                     <SendIcon v-else class="w-4 h-4" />
                   </button>
                 </div>
@@ -5972,12 +5972,12 @@
                   <button
                     @pointerdown.prevent="sendChatMessage"
                     @click.prevent
-                    :disabled="isStreaming || (!chatInputText.trim() && !pastedImageBase64)"
+                    :disabled="isCurrentCharStreaming || (!chatInputText.trim() && !pastedImageBase64)"
                     class="px-3.5 py-1.5 rounded-lg bg-primary text-on-primary text-xs font-bold disabled:opacity-40 hover:opacity-90 transition-all flex items-center space-x-1.5 shadow-sm active:scale-95"
                   >
-                    <Loader2Icon v-if="isStreaming" class="w-3.5 h-3.5 animate-spin" />
+                    <Loader2Icon v-if="isCurrentCharStreaming" class="w-3.5 h-3.5 animate-spin" />
                     <SendIcon v-else class="w-3.5 h-3.5" />
-                    <span>{{ isStreaming ? '接收中...' : '发送' }}</span>
+                    <span>{{ isCurrentCharStreaming ? '接收中...' : '发送' }}</span>
                   </button>
                 </div>
               </div>
@@ -10590,15 +10590,11 @@ const visibleCharacters = computed(() => {
 const chatInputText = ref('')
 const chatTextarea = ref<HTMLTextAreaElement | null>(null)
 const chatContainer = ref<HTMLElement | null>(null)
-const isStreaming = ref(false)
+// 每个角色独立的流式状态集合，允许多角色并发对话互不阻塞
+const streamingCharsSet = reactive(new Set<string>())
 const streamingCharacterId = ref<string | null>(null)
-
-// 自动侦听全局流式输入状态，并在流式结束时自动清空活跃流式角色 ID
-watch(isStreaming, (newVal) => {
-  if (!newVal) {
-    streamingCharacterId.value = null
-  }
-})
+// isCurrentCharStreaming：当前选中角色是否正在流式回复（不阻塞其他角色的发送按钮）
+const isCurrentCharStreaming = computed(() => streamingCharsSet.has(selectedCharacterId.value || ''))
 
 // 🚀 角色流式回复超时保护机制 (30秒超时自愈防线)
 let replyTimeoutTimer: any = null
@@ -10618,7 +10614,7 @@ function startReplyTimeout(charId: string) {
 }
 
 function handleReplyTimeout(charId: string) {
-  isStreaming.value = false
+  streamingCharsSet.delete(charId)
   streamingCharacterId.value = null
   
   const msgs = allMessages[charId] || []
@@ -10697,7 +10693,7 @@ watch(chatInputText, (newVal) => {
       inputEmptyTimersMap[charId] = null
 
       const pendingQueue = pendingUserMessagesMap[charId] || []
-      if (pendingQueue.length > 0 && !messageMergeTimersMap[charId] && !isStreaming.value) {
+      if (pendingQueue.length > 0 && !messageMergeTimersMap[charId] && !streamingCharsSet.has(charId)) {
         const mergeDelay = isMobile.value ? 4500 : 2500
         console.log(`[Typing reconciliation] 500ms 确认期满，用户确实删空了输入框，将在 ${mergeDelay / 1000} 秒后恢复角色回复...`)
         const char = characterList.value.find(c => c.id === charId)
@@ -10708,10 +10704,10 @@ watch(chatInputText, (newVal) => {
         }
       } else if (pendingQueue.length === 0) {
         // 🚀 极致自愈保障：当消息框清空，且后台没有任何待回复的积压消息时，
-        // 任何遗留的“对方正在输入...”或 isStreaming 锁定状态绝对属于异常死锁，必须无条件强力释放！
-        if (isStreaming.value && streamingCharacterId.value === charId) {
-          console.warn(`[Typing Safety] 消息框已清空且无挂起积压消息，但发现 isStreaming 仍为 true。触发强力自愈，解锁正在输入状态！`)
-          isStreaming.value = false
+        // 任何遗留的"对方正在输入..."或 streamingCharsSet 锁定状态绝对属于异常死锁，必须无条件强力释放！
+        if (streamingCharsSet.has(charId)) {
+          console.warn(`[Typing Safety] 消息框已清空且无挂起积压消息，但角色仍在 streamingCharsSet 中，触发强力自愈解锁！`)
+          streamingCharsSet.delete(charId)
           streamingCharacterId.value = ''
           clearReplyTimeout()
         }
@@ -12650,8 +12646,8 @@ function onImportCancel() { isPreviewOpen.value = false }
 // ===================== 发送消息 =====================
 async function sendChatMessage() {
   const char = activeCharacter.value || activeGroupChat.value
-  // 安全拦截：当 AI 正在回复（isStreaming 为 true）或者输入与图片均为空时，拦截不予发送
-  if (!char || isStreaming.value || (!chatInputText.value.trim() && !pastedImageBase64.value)) return
+  // 安全拦截：当 AI 正在回复当前角色（streamingCharsSet 中）或者输入与图片均为空时，拦截不予发送
+  if (!char || streamingCharsSet.has(char.id) || (!chatInputText.value.trim() && !pastedImageBase64.value)) return
 
   // 如果模式还未从 DB 加载完成，等它（通常 < 20ms，不影响体验）
   if (pendingChatModeLoad) await pendingChatModeLoad
@@ -12817,8 +12813,8 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
     }
   }
 
-  // 不再提前推送助理空白气泡，仅通过 isStreaming.value 激活顶部“对方正在输入...”状态
-  isStreaming.value = true
+  // 不再提前推送助理空白气泡，仅通过 isCurrentCharStreaming 激活顶部"对方正在输入..."状态
+  streamingCharsSet.add(char.id)
   streamingCharacterId.value = char.id
   scrubber.reset()
 
@@ -12928,12 +12924,12 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
       console.warn('[Web Bridge Fetch Handshake Disconnect] 局域网 Web 客户端管手超时/断开（属正常自愈范畴），静默移交 SSE 保活接管。');
       // 🚀 核心修复：局域网端虽然依赖 SSE，但如果是真实接口报错（非握手断连），必须释放正在输入锁定，杜绝卡死
       if (err && err.message && !err.message.includes('handshake')) {
-        isStreaming.value = false
+        streamingCharsSet.delete(char.id)
         streamingCharacterId.value = ''
       }
       return;
     }
-    isStreaming.value = false
+    streamingCharsSet.delete(char.id)
     const msgs = allMessages[char.id] || []
     if (msgs.length > 0) {
       const last = msgs[msgs.length - 1]
@@ -13046,14 +13042,14 @@ async function handleAssistantResponse(
         if (promptTokens !== undefined) lastMsg.prompt_tokens = promptTokens
         if (completionTokens !== undefined) lastMsg.completion_tokens = completionTokens
         if (cachedTokens !== undefined) lastMsg.cached_tokens = cachedTokens
-        isStreaming.value = false
+        streamingCharsSet.delete(char.id)
         nextTick(() => scrollToBottom('smooth', true))
       } else {
         // 🚀 核心自愈去重：检查本地 msgs 中是否由于 receive-message 提前到达而已经存在了相同 id 或高度相同内容的消息！
         const isAlreadyExist = msgs.some(m => m.id === messageId || (m.role === 'assistant' && m.content === content))
         if (isAlreadyExist) {
           console.log(`[Sync Gate] 瞬间呈现模式：本地已被 receive-message 提前写入，不再重复 push`)
-          isStreaming.value = false
+          streamingCharsSet.delete(char.id)
           nextTick(() => scrollToBottom())
         } else {
           msgs.push({
@@ -13065,7 +13061,7 @@ async function handleAssistantResponse(
             completion_tokens: completionTokens,
             cached_tokens: cachedTokens
           })
-          isStreaming.value = false
+          streamingCharsSet.delete(char.id)
           nextTick(() => {
             scrollToBottom('smooth', true)
             setTimeout(() => scrollToBottom('smooth', true), 80)
@@ -13108,7 +13104,7 @@ async function handleAssistantResponse(
       }
 
       if (paragraphs.length === 0) {
-        isStreaming.value = false
+        streamingCharsSet.delete(char.id)
         return
       }
 
@@ -13123,7 +13119,7 @@ async function handleAssistantResponse(
         const text = paragraphs[idx]
 
         // 在顶部标题栏显示"对方正在输入..."
-        isStreaming.value = true
+        streamingCharsSet.add(char.id)
 
         // 根据每句话 of 字数拟真思考打字的时长
         const typeDelay = Math.min(Math.max(text.length * 100, 1000), 2800)
@@ -13149,12 +13145,12 @@ async function handleAssistantResponse(
 
         // 如果有下一句，微等 500ms 作为大脑思考打字间隔空隙，随后再次进入"对方正在输入"状态
         if (idx < paragraphs.length - 1) {
-          isStreaming.value = false
+          streamingCharsSet.delete(char.id)
           await new Promise(resolve => setTimeout(resolve, 500))
         }
       }
 
-      isStreaming.value = false
+      streamingCharsSet.delete(char.id)
       nextTick(() => {
         scrollToBottom('smooth', true)
         setTimeout(() => scrollToBottom('smooth', true), 80)
@@ -13398,7 +13394,7 @@ function startTypingEffect() {
         if (last.role === 'assistant') last.content += ch
       }
       scrollToBottom()
-    } else if (!isStreaming.value) {
+    } else if (!streamingCharsSet.has(selectedCharacterId.value || '')) {
       clearInterval(typingTimer)
       typingTimer = null
 
@@ -13652,7 +13648,7 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
     timestamp: timestamp
   })
   
-  isStreaming.value = true
+  streamingCharsSet.add(char.id)
   streamingCharacterId.value = char.id
   scrubber.reset()
   typingQueue.value = []
@@ -13678,7 +13674,7 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
       res.messageId
     )
   } catch (err: any) {
-    isStreaming.value = false
+    streamingCharsSet.delete(char.id)
     const msgs = allMessages[char.id] || []
     if (msgs.length > 0) {
       const last = msgs[msgs.length - 1]
@@ -16073,7 +16069,7 @@ onMounted(async () => {
       const folderName = parts[1].trim()
       
       // 立即重置流式标志，确保新创建出来的角色对话框发送按钮立即可用，避免卡死
-      isStreaming.value = false
+      streamingCharsSet.delete(chunkCharId)
       streamingCharacterId.value = null
       
       // 延迟 3.5 秒跳转，让用户看清成功提示
@@ -16102,7 +16098,7 @@ onMounted(async () => {
       const senderId = (data as any).senderId
       
       if (isGroupChat) {
-        isStreaming.value = false
+        streamingCharsSet.delete(chunkCharId)
         if (streamingCharacterId.value === chunkCharId) {
           streamingCharacterId.value = null
         }
@@ -16226,12 +16222,12 @@ onMounted(async () => {
       }
 
       if (chunkCharId === selectedCharacterId.value) {
-        isStreaming.value = false
+        streamingCharsSet.delete(chunkCharId)
         streamingCharacterId.value = null
         // 快速处理并清洗 typingQueue 中的红包控制符并更新卡片状态
         scrubRedPacketFromQueue()
       } else {
-        isStreaming.value = false
+        streamingCharsSet.delete(chunkCharId)
         if (streamingCharacterId.value === chunkCharId) {
           streamingCharacterId.value = null
         }
@@ -16649,7 +16645,7 @@ onMounted(async () => {
     }
 
 
-    const isWaitingResponse = isStreaming.value && streamingCharacterId.value === charId
+    const isWaitingResponse = streamingCharsSet.has(charId)
 
     if (isDuplicate) {
       console.log(`[Sync Gate] 拦截到重复气泡广播，予以丢弃过滤，安全避开双气泡。`)
@@ -16673,7 +16669,7 @@ onMounted(async () => {
       // 此时我们绝对不能过滤丢弃它，而是将其作为保底救命消息渲染出来，并立刻自动重置卡死状态，解除死锁！
       if (isWaitingResponse && msg.role === 'assistant') {
         console.warn(`[Sync Gate Self-Cure] 发现本地卡在等待状态，但从未收到此消息。判定流式信道丢包，触发保底自愈！`)
-        isStreaming.value = false
+        streamingCharsSet.delete(charId)
         streamingCharacterId.value = ''
         clearReplyTimeout()
       }
@@ -17514,7 +17510,7 @@ function ctxDeleteMessage() {
   const char = contextMenu.char
   if (!msg || !char) return
   
-  if (isStreaming.value) {
+  if (streamingCharsSet.has(contextMenu.char?.id || '')) {
     showToast('AI 正在回复中，暂时无法删除消息！ ⏳')
     return
   }
@@ -17544,7 +17540,7 @@ function ctxDeleteMessage() {
 
 async function ctxRegenerateMessage() {
   const char = contextMenu.char
-  if (!char || isStreaming.value) return
+  if (!char || streamingCharsSet.has(char.id)) return
   contextMenu.visible = false
   
   showCustomConfirm(
