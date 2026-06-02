@@ -89,7 +89,7 @@ export class SocialMediaService {
   /**
    * 生成单条朋友圈并落盘 SQLite
    */
-  public async generateMoment(char: any, modelAdapter: ModelAdapter, forceDraw = false): Promise<any> {
+  public async generateMoment(char: any, modelAdapter: ModelAdapter, forceDraw = false, forceNsfw = false, forceInteract = false): Promise<any> {
     const db = getDatabaseService();
     if (db.getChatHistory(char.id, 1).length === 0) {
       console.log(`[SocialMediaService] 0-Token 物理拦截：角色 ${char.name} 从未与用户产生过聊天历史，拒绝生成朋友圈。`);
@@ -117,9 +117,10 @@ export class SocialMediaService {
     const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
 
     // 检测全局常规设置并进行 60% 物理概率 NSFW 触发判定
+    // forceNsfw=true 时直接强制 NSFW，无视全局开关和概率
     const genConfigStr = db.getSetting('general_config');
-    let isNsfwTriggered = false;
-    if (genConfigStr) {
+    let isNsfwTriggered = forceNsfw;
+    if (!forceNsfw && genConfigStr) {
       try {
         const genConfig = JSON.parse(genConfigStr);
         if (genConfig.enable_nsfw && Math.random() < 0.6) {
@@ -328,8 +329,10 @@ Constraints:
         windows[0].webContents.send('social-moment-updated', moment);
       }
 
-      // 触发社交互动评估（点赞/评论）。调试模式下同步阻塞 await 以保证返回前互动已全部落盘；非调试模式下异步延迟模拟
-      if (forceDraw) {
+      // 触发社交互动评估（点赞/评论）
+      // forceInteract=true → 100% 点赞/评论（调试模式）；false → 正常 30% 概率随机互动
+      // forceDraw 仅控制图片是否同步等待，不再决定互动强度
+      if (forceInteract) {
         await this.evaluateSocialInteraction(moment, 'moment', modelAdapter, true).catch(err => {
           console.error('[SocialMediaService] 角色朋友圈互动评估出错:', err);
         });
@@ -350,7 +353,7 @@ Constraints:
   /**
    * 生成单篇论坛帖子并落盘 SQLite
    */
-  public async generateForumPost(char: any, modelAdapter: ModelAdapter, forceDraw = false): Promise<any> {
+  public async generateForumPost(char: any, modelAdapter: ModelAdapter, forceDraw = false, forceNsfw = false, forceInteract = false): Promise<any> {
     const db = getDatabaseService();
     if (db.getChatHistory(char.id, 1).length === 0) {
       console.log(`[SocialMediaService] 0-Token 物理拦截：角色 ${char.name} 从未与用户产生过聊天历史，拒绝生成论坛帖子。`);
@@ -373,9 +376,10 @@ Constraints:
     const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
 
     // 检测全局常规设置并进行 60% 物理概率 NSFW 触发判定
+    // forceNsfw=true 时直接强制 NSFW，无视全局开关和概率
     const genConfigStr = db.getSetting('general_config');
-    let isNsfwTriggered = false;
-    if (genConfigStr) {
+    let isNsfwTriggered = forceNsfw;
+    if (!forceNsfw && genConfigStr) {
       try {
         const genConfig = JSON.parse(genConfigStr);
         if (genConfig.enable_nsfw && Math.random() < 0.6) {
@@ -642,8 +646,9 @@ Constraints:
         windows[0].webContents.send('social-forum-updated', post);
       }
 
-      // 触发社交互动评估（评论）。调试模式下同步阻塞 await 以保证返回前评论已全部落盘；非调试模式下异步延迟模拟
-      if (forceDraw) {
+      // 触发社交互动评估（评论）
+      // forceInteract=true → 100% 评论（调试模式）；false → 正常 30% 概率随机互动
+      if (forceInteract) {
         await this.evaluateSocialInteraction(post, 'forum_post', modelAdapter, true).catch(err => {
           console.error('[SocialMediaService] 角色论坛互动评估出错:', err);
         });
@@ -689,10 +694,10 @@ Constraints:
 
     const baseDir = this.storageManager.getBaseDir();
 
-    // 并行评估所有角色的社交响应
-    await Promise.all(activeChars.map(async (char) => {
-      // 1. 30% 概率自动点赞，调试模式下 100% 点赞
-      if (forceInteract || Math.random() < 0.3) {
+    // 🚀 改为串行处理：让后面的角色能看到前面角色已落盘的评论，避免撞评，评论更有层次感
+    for (const char of activeChars) {
+      // 1. 50% 概率自动点赞，调试模式下 100% 点赞
+      if (forceInteract || Math.random() < 0.5) {
         if (type === 'moment') {
           db.saveMomentLike({
             moment_id: target.id,
@@ -716,8 +721,8 @@ Constraints:
         }
       }
 
-      // 2. 30% 概率自动发表初始评论，调试模式下 100% 发表
-      if (forceInteract || Math.random() < 0.3) {
+      // 2. 50% 概率自动发表初始评论，调试模式下 100% 发表
+      if (forceInteract || Math.random() < 0.5) {
         try {
           const soulPath = path.join(baseDir, char.folder_name, 'Soul.md');
           const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
@@ -848,9 +853,27 @@ Instructions:
 
 用极简的语气，写一条对 ${target.author_name} 的简短评论吧。`;
 
+          // 读取当前帖子/动态已有评论，注入给模型作为上下文，避免撞评和重复观点
+          let existingCommentsContext = '';
+          try {
+            let existingComments: any[] = [];
+            if (type === 'moment') {
+              existingComments = db.getMomentComments(target.id) || [];
+            } else {
+              existingComments = db.getForumComments(target.id) || [];
+            }
+            if (existingComments.length > 0) {
+              const commentList = existingComments
+                .slice(-10) // 最多取最近 10 条避免 token 过多
+                .map((c: any) => `- ${c.author_name}: ${c.content}`)
+                .join('\n');
+              existingCommentsContext = `\n\n【已有评论列表（请避免与下列评论撞词或重复观点）】:\n${commentList}`;
+            }
+          } catch (_) {}
+
           const response = await modelAdapter.chat([
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: userContent }
+            { role: 'user', content: userContent + existingCommentsContext }
           ], { useSecondary: true });
 
           const commentText = response.content.trim().replace(/^["']|["']$/g, '');
@@ -903,7 +926,7 @@ Instructions:
           console.error(`[SocialMediaService] 自动评估初始评论失败:`, e);
         }
       }
-    }));
+    }
   }
 
   /**

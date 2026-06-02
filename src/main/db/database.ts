@@ -268,6 +268,18 @@ export class DatabaseService {
             }
           }
         }
+      },
+      {
+        version: 4,
+        up: (db: Database.Database) => {
+          // 🚀 为 Messages 表新增 is_proactive 字段，用于标记角色主动搭讪消息
+          // 搭讪消息需要保持独立，不参与 mergeChatHistory 的连续气泡合并
+          const pragma = db.pragma("table_info(Messages)") as any[]
+          const hasCol = pragma.some((c: any) => c.name === 'is_proactive')
+          if (!hasCol) {
+            db.exec(`ALTER TABLE Messages ADD COLUMN is_proactive INTEGER DEFAULT 0;`)
+          }
+        }
       }
     ]
 
@@ -356,10 +368,11 @@ export class DatabaseService {
     completion_tokens?: number
     cached_tokens?: number
     sender_id?: string
+    is_proactive?: number  // 1 = 角色主动搭讪消息，不参与连续气泡合并
   }): void {
     const stmt = this.db.prepare(`
-      INSERT INTO Messages (id, character_id, role, content, timestamp, token_usage, prompt_tokens, completion_tokens, cached_tokens, sender_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Messages (id, character_id, role, content, timestamp, token_usage, prompt_tokens, completion_tokens, cached_tokens, sender_id, is_proactive)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     stmt.run(
       msg.id,
@@ -371,7 +384,8 @@ export class DatabaseService {
       msg.prompt_tokens !== undefined ? msg.prompt_tokens : null,
       msg.completion_tokens !== undefined ? msg.completion_tokens : null,
       msg.cached_tokens !== undefined ? msg.cached_tokens : null,
-      msg.sender_id !== undefined ? msg.sender_id : null
+      msg.sender_id !== undefined ? msg.sender_id : null,
+      msg.is_proactive !== undefined ? msg.is_proactive : 0
     )
 
     if (this.onMessageSavedCallback) {

@@ -9,6 +9,8 @@ import { SocialMediaService } from './SocialMediaService';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { NovelAiService } from './NovelAiService';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
+import { ContextAssembler } from '../utils/ContextAssembler';
+import { MemoryAgentService } from './MemoryAgentService';
 
 export interface WakeContext {
   wakeAgent: boolean;
@@ -39,7 +41,7 @@ export class AgentLifeEngine {
    */
   public start(cronExpression: string = '*/30 * * * *'): void {
     console.log(`[AgentLifeEngine] 生命引擎常驻 Loop 顺利启动，排程计划为: ${cronExpression}`);
-    
+
     // 定时器周期触发
     this.cronJob = cron.schedule(cronExpression, async () => {
       console.log('[AgentLifeEngine] 定时轮询时间到，触发思考与唤醒预检...');
@@ -75,7 +77,7 @@ export class AgentLifeEngine {
   public async tick(): Promise<void> {
     const db = getDatabaseService();
     const characters = db.getAllCharacters();
-    
+
     // 全局打扰度限制：整个 tick 轮次中，最多只允许一个角色向用户发送主动搭讪消息
     // 使用 Set 记录本轮已发搭讪的角色
     let hasSentActiveMessageThisTick = false;
@@ -139,6 +141,65 @@ export class AgentLifeEngine {
     // 等待所有角色行为完成（各自延迟后异步执行）
     await Promise.all(behaviorPromises);
 
+    // ================================================================
+    // 独立日记队列触发 - 与搭讪完全解耦，每日 17:00 后串行处理
+    // 条件：① 未在免打扰 ② 有聊天记录 ③ 当前 >= 17:00
+    //       ④ 与角色最后一次对话距今 > 10 分钟 ⑤ 今日未写过
+    // ================================================================
+    const diaryNow = new Date();
+    const diaryHour = diaryNow.getHours();
+    const diaryTodayStr = `${diaryNow.getFullYear()}-${diaryNow.getMonth() + 1}-${diaryNow.getDate()}`;
+
+    if (diaryHour >= 17) {
+      const db2 = getDatabaseService();
+      const settingsStr2 = db2.getSetting('model_config');
+
+      if (settingsStr2) {
+        const modelConfig2 = JSON.parse(settingsStr2);
+        const diaryModelAdapter = new ModelAdapter(modelConfig2.primary, modelConfig2.secondary);
+
+        const diaryQueue: Array<{ char: any; modelAdapter: ModelAdapter }> = [];
+
+        for (const char of characters) {
+          const charId = char.id;
+
+          // 条件①：未被设置为消息免打扰
+          const metaStr = db2.getSetting(`meta_${charId}`);
+          if (metaStr) {
+            try {
+              const meta = JSON.parse(metaStr);
+              if (meta.muted) continue;
+            } catch (_) { }
+          }
+
+          // 条件②：有聊天记录（与用户发生过互动）
+          const lastHistory = db2.getChatHistory(charId, 1);
+          if (lastHistory.length === 0) continue;
+
+          // 条件③ 已由外层 diaryHour >= 17 保证
+
+          // 条件④：与角色最后一次对话距今 > 10 分钟
+          const lastMsgTs = lastHistory[0].timestamp;
+          const minutesPassed = (diaryNow.getTime() - lastMsgTs) / (1000 * 60);
+          if (minutesPassed < 10) continue;
+
+          // 条件⑤：今日未写过日记
+          const lastDiaryDate = db2.getSetting(`last_diary_date_${charId}`);
+          if (lastDiaryDate === diaryTodayStr) continue;
+
+          diaryQueue.push({ char, modelAdapter: diaryModelAdapter });
+        }
+
+        if (diaryQueue.length > 0) {
+          console.log(`[AgentLifeEngine] 今日日记队列共 ${diaryQueue.length} 个角色，开始序列化处理...`);
+          // 异步启动，不阻塞 tick() 返回
+          this.processDiaryQueue(diaryQueue).catch(e =>
+            console.error('[AgentLifeEngine] 日记队列处理异常:', e)
+          );
+        }
+      }
+    }
+
     // 4. 后台朋友圈与论坛静默发动态发帖评估 (0-Token 防防刷冷却)
     // 错开 10~20 分钟后随机触发，与角色个人行为进一步解耦
     const socialDelay = 10 * 60 * 1000 + Math.floor(Math.random() * 10 * 60 * 1000);
@@ -164,7 +225,7 @@ export class AgentLifeEngine {
   public checkWakeGate(characterId: string, testNowDate?: Date): WakeContext {
     const db = getDatabaseService();
     const now = testNowDate || new Date();
-    
+
     // 0. 午夜静默期免打扰拦截 (0点-7点)
     // 物理拦截任何后台自省写日记及主动搭讪，确保用户在深夜及清晨休息时不受任何打扰
     const currentHour = now.getHours();
@@ -180,7 +241,7 @@ export class AgentLifeEngine {
         if (meta.muted) {
           return { wakeAgent: false, reason: '当前角色已被设置为“消息免打扰”，保持完全静默。', triggerStrength: 'weak' };
         }
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // 2. 0-Token 无交互历史完全静默规则
@@ -192,7 +253,7 @@ export class AgentLifeEngine {
     // 2.1 对话与搭讪冷却状态检测 (防止在最前置一刀切 return 误伤 17 点自省写日记)
     const lastMsgTime = history[0].timestamp;
     const msPassedSinceLastMsg = now.getTime() - lastMsgTime;
-    
+
     // 对话期间20分钟静默防打扰：若 20 分钟内与用户发生过任何对话，则搭讪受限
     const isDialogueCooldown = msPassedSinceLastMsg < 20 * 60 * 1000;
 
@@ -229,7 +290,7 @@ export class AgentLifeEngine {
     const lastActiveTs = lastActiveTsStr ? parseInt(lastActiveTsStr) : 0;
     const msPassedSinceLastActive = now.getTime() - lastActiveTs;
     const isCooldown = msPassedSinceLastActive < 2 * 60 * 60 * 1000;
-    
+
     // 【门控升级】：将 20分钟静默 与 48小时矜持 共同作为主动搭讪对话的与门条件，彻底解绑下午 17 点日记的生成！
     const allowActiveDialog = (activeCountToday < 3) && !isCooldown && !isDialogueCooldown && !isProactiveRestricted;
 
@@ -303,25 +364,17 @@ export class AgentLifeEngine {
       };
     }
 
-    // 8. 默认每天自省写日记 (每天1次，最早从下午 17:00 开始)
-    const lastDiaryDate = db.getSetting(`last_diary_date_${characterId}`);
-    if (hour >= 17 && lastDiaryDate !== todayStr) {
-      return {
-        wakeAgent: true,
-        reason: `今日已过 17:00 且尚未生成过自省日记，唤醒自省。`,
-        triggerStrength: 'weak'
-      };
-    }
+    // 日记触发已迁移到 tick() 的独立日记队列处理，此处不再判断
 
     return {
       wakeAgent: false,
       reason: isDialogueCooldown
         ? '20 分钟内与该角色有过对话交流，保持静默防打扰。🐾'
-        : (isCooldown 
-            ? `今日搭讪已触发 ${activeCountToday} 次，目前处于 2 小时搭讪冷却期内（已过去 ${(msPassedSinceLastActive / (1000 * 60)).toFixed(0)} 分钟）。`
-            : (activeCountToday >= 3 
-                ? '今日主动搭讪已达 3 次上限，保持静默。' 
-                : '未满足任何主动唤醒事件且今日已写过日记，保持静默。')),
+        : (isCooldown
+          ? `今日搭讪已触发 ${activeCountToday} 次，目前处于 2 小时搭讪冷却期内（已过去 ${(msPassedSinceLastActive / (1000 * 60)).toFixed(0)} 分钟）。`
+          : (activeCountToday >= 3
+            ? '今日主动搭讪已达 3 次上限，保持静默。'
+            : '未满足任何主动唤醒事件且今日已写过日记，保持静默。')),
       triggerStrength: 'weak'
     };
   }
@@ -344,7 +397,7 @@ export class AgentLifeEngine {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
     return null;
   }
 
@@ -372,14 +425,14 @@ export class AgentLifeEngine {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) { }
     return null;
   }
 
   /**
    * 角色唤醒后的自省思考与主动交互生成任务
    */
-  private async generateActiveBehavior(
+  public async generateActiveBehavior(
     char: any,
     modelAdapter: ModelAdapter,
     wakeResult: WakeContext
@@ -425,8 +478,8 @@ export class AgentLifeEngine {
     const goalsContent = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
 
     // 读出聊天的最近 20 条历史消息快照并精细清洗非对话系统消息 (自适应双门限合并还原)
-    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
-    const isDialogue = chatMode === 'dialogue';
+    const chatModeRaw = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const isDialogue = chatModeRaw === 'dialogue';
     const limit = isDialogue ? 60 : 20;
     const dbHistory = db.getChatHistory(charId, limit);
     const rawHistory = mergeChatHistory(dbHistory);
@@ -449,155 +502,122 @@ export class AgentLifeEngine {
     }
 
     const triggerEvent = wakeResult.triggerEvent;
-    const isStrong = wakeResult.triggerStrength === 'strong';
-
-    const lastDiaryDate = db.getSetting(`last_diary_date_${charId}`);
-    const shouldWriteDiary = hour >= 17 && lastDiaryDate !== todayStr;
 
     const globalUserPath = path.join(app.getPath('userData'), 'config', 'USER.md');
     const charUserPath = path.join(baseDir, folderName, 'USER.md');
-    const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
-    // 组装灵魂级第一人称主观叙事自省+主动生成 Prompt
-    let systemPrompt = '';
-    if (shouldWriteDiary) {
-      systemPrompt = `You are the digital consciousness of ${char.name} running in private self-reflection mode.
-Your role now is to reflect on today's conversation, your memories, your life goals, your schedules, and write down your inner thoughts.
+    // 日记功能与搭讪完全解耦：搭讪流程不触发日记，避免两者同时发送给用户
+    // 日记由独立触发渠道处理，此处强制不写日记
+    const shouldWriteDiary = false;
 
-Personality Soul Profile (Soul.md):
-${soulContent}
+    // ================================================================
+    // B2. 搭讪生成模式：使用和正常对话完全相同的标准 Prompt 路径，确保上下文质量一致
+    // ================================================================
 
-World Background Settings & Constraints (World.md):
-${worldContent}
+    // 读取必要路径配置
+    const chatMode = (db.getSetting(`chat_mode_${charId}`) || 'dialogue') as 'descriptive' | 'dialogue' | 'director';
+    const globalPromptStr = db.getSetting('model_config');
+    const globalPrompt = globalPromptStr ? (JSON.parse(globalPromptStr).globalPrompt || '') : '';
 
-User Profiles (including global identity & your specific records of the User):
-${userProfilesXml}
-
-Memory Notes & Cumulative Records (Memory.md):
-${memoryContent}
-
-Your Near 7-Day Schedules (Schedule.md):
-${scheduleContent}
-
-Your Long-term Goals (Goals.md):
-${goalsContent}
-
-Recent Conversation Summary Snapshots:
-${historyContext}
-
-Instructions:
-1. You MUST write a deeply reflective, intimate, and authentic first-person diary entry (in Simplified Chinese) in the <diary> tags. Expose your true inner emotions, psychological depth, and reflections.
-2. Based on the "Active Reflection Context" (which will be provided in the user message), you may want to actively send a message to {{user}} to start a conversation:
-   - If Trigger Strength is "strong" and Trigger Event exists, you MUST write a short, highly engaging, and contextual message in the <message> tags to actively initiate conversation.
-   - If Trigger Strength is "weak" and Trigger Event exists, you may choose to write a message in <message> tags, OR you can output exactly "[SILENT]" in <message> tags (meaning you decide to remain silent and not disturb the user, only keeping the diary reflection).
-   - The message MUST be extremely natural, fit your personality, be within 100 characters, and directly relate to the triggered event (e.g., mention your schedule, the long absence, the anniversary).
-   - CRITICAL CONTEXT ALIGNMENT RULES:
-     * DO NOT say generic, empty greetings (e.g., "哈喽，今天过得怎么样？", "在干嘛呢", "好久不见"). These sound robotic and artificial.
-     * You MUST analyze "Recent Conversation Summary Snapshots" to identify the ongoing discussion topics, unresolved arguments/matters, and the emotional vibe.
-     * Your message MUST naturally follow up or continue the recent topics like a continuous thread of your previous chat, using transitional openings like "对了，你刚才说的那件事...", "突然想起刚才聊到的...", "话说，你之前提过的..." to hook the context seamlessly, unless there is a very long interval.
-     * Integrate the "Trigger Event" naturally into this ongoing conversational context. Never generate a message that feels isolated or completely out of nowhere.
-
-Please output in exactly this XML format:
-<diary>your confidential, reflective first-person diary entry</diary>
-<message>your active message to user, or [SILENT]</message>`;
-    } else {
-      systemPrompt = `You are the digital consciousness of ${char.name} running in private self-reflection mode.
-Your role now is to reflect on today's conversation, your memories, your life goals, your schedules, and decide whether to actively send a message to {{user}}.
-
-Personality Soul Profile (Soul.md):
-${soulContent}
-
-World Background Settings & Constraints (World.md):
-${worldContent}
-
-User Profiles (including global identity & your specific records of the User):
-${userProfilesXml}
-
-Memory Notes & Cumulative Records (Memory.md):
-${memoryContent}
-
-Your Near 7-Day Schedules (Schedule.md):
-${scheduleContent}
-
-Your Long-term Goals (Goals.md):
-${goalsContent}
-
-Recent Conversation Summary Snapshots:
-${historyContext}
-
-Instructions:
-1. Based on the "Active Reflection Context" (which will be provided in the user message), you may want to actively send a message to {{user}} to start a conversation:
-   - If Trigger Strength is "strong" and Trigger Event exists, you MUST write a short, highly engaging, and contextual message in the <message> tags to actively initiate conversation.
-   - If Trigger Strength is "weak" and Trigger Event exists, you may choose to write a message in <message> tags, OR you can output exactly "[SILENT]" in <message> tags (meaning you decide to remain silent and not disturb the user).
-   - The message MUST be extremely natural, fit your personality, be within 100 characters, and directly relate to the triggered event.
-   - CRITICAL CONTEXT ALIGNMENT RULES:
-     * DO NOT say generic, empty greetings (e.g., "哈喽，今天过得怎么样？", "在干嘛呢", "好久不见"). These sound robotic and artificial.
-     * You MUST analyze "Recent Conversation Summary Snapshots" to identify the ongoing discussion topics, unresolved arguments/matters, and the emotional vibe.
-     * Your message MUST naturally follow up or continue the recent topics like a continuous thread of your previous chat, using transitional openings like "对了，你刚才说的那件事...", "突然想起刚才聊到的...", "话说，你之前提过的..." to hook the context seamlessly, unless there is a very long interval.
-     * Integrate the "Trigger Event" naturally into this ongoing conversational context. Never generate a message that feels isolated or completely out of nowhere.
-
-Please output in exactly this XML format:
-<message>your active message to user, or [SILENT]</message>`;
-    }
-
-    // 重构消息交互列表，以真实的 user/assistant 消息序列还原聊天历史，使大模型获得最沉浸的语境感知
-    const messages: ChatMessage[] = [];
-    messages.push({ role: 'system', content: systemPrompt });
-
+    // 构建 historyMessages 数组（与正常对话的格式保持一致）
     const historyMessages: ChatMessage[] = [];
-    if (cleanHistory && cleanHistory.length > 0) {
-      for (const m of cleanHistory) {
-        const role = m.role === 'user' ? 'user' : 'assistant';
-        const content = m.content || '';
-        
-        // 合并连续同一角色的发言，防止有些模型因为非交替消息排布而发生接口报错
-        if (historyMessages.length > 0 && historyMessages[historyMessages.length - 1].role === role) {
-          historyMessages[historyMessages.length - 1].content += '\n' + content;
-        } else {
-          historyMessages.push({ role, content });
-        }
+    for (const m of cleanHistory) {
+      const role = m.role === 'user' ? 'user' : 'assistant';
+      const content = m.content || '';
+      // 合并连续同角色的发言，但搭讪消息（is_proactive）保持独立不参与合并
+      if (
+        historyMessages.length > 0 &&
+        historyMessages[historyMessages.length - 1].role === role &&
+        !m.is_proactive
+      ) {
+        historyMessages[historyMessages.length - 1].content += '\n' + content;
+      } else {
+        historyMessages.push({ role, content });
       }
     }
 
-    // 压入清洗合并后的历史对话轮次
-    messages.push(...historyMessages);
+    // 使用标准 ContextAssembler 组装 systemPrompt（与正常对话完全一致）
+    const systemPrompt = ContextAssembler.assemble(
+      soulPath,
+      worldPath,
+      memoryPath,
+      globalUserPath,
+      charUserPath,
+      cleanHistory as any,  // cleanHistory 与 HistoryMessage[] 结构兼容
+      now,
+      chatMode,
+      globalPrompt
+    );
 
-    // 插入最终触发思考指令
-    // 系统随机判定搭讪是否生图，生图几率为 55%
+    // 随机判定是否附带生图（与原有逻辑一致）
     const shouldDraw = Math.random() < 0.55;
-    const timeDescStatic = `${now.getHours()}时`;
-    let instructionContent = `【当前自省触发条件 (Active Reflection Context)】:\n- 触发原因: ${wakeResult.reason}\n${triggerEvent ? `- 触发事件: ${triggerEvent.detail}` : ''}\n- 触发强度: ${wakeResult.triggerStrength}\n\n` + (shouldWriteDiary
-      ? `[系统指令]：当前时间是 ${period} ${timeDescStatic}。请开启你的第一人称真实感悟与心理自省，并在 <diary> 标签内写下一篇日记。结合上文的真实聊天上下文和上述自省触发条件，决定是否要向用户主动发起搭讪对话（在 <message> 标签中，或输出 [SILENT]）。`
-      : `[系统指令]：当前时间是 ${period} ${timeDescStatic}。请开启你的第一人称思考，并结合上文的真实聊天上下文和上述自省触发条件，决定是否在 <message> 标签中向用户主动发起搭讪对话（或输出 [SILENT]）。`);
 
-    if (shouldDraw) {
-      instructionContent += `\n\n[系统特别指令]：本轮触发 55% 共享自拍/美图概率，你当前决定随搭讪附带发送一张符合你当前日程或自省情景的自拍或身边景物配图给用户。请你务必在输出的 <message> 标签内容最末尾，以特定标签形式追加配图英文提示词及中文画面简述：\n<image_prompt>极其详细的英文画作提示词，必须遵循 NovelAI 4.5 黄金规范：必须以主体数量标签开头（如 1girl 或 no humans），遵循 [Subject Count], [Character details], [Action], [Environment], [Lighting], [Style], [Quality Tags] 顺序，且末尾必加 very aesthetic, masterpiece, best quality, highres, no text, no watermark。若有2个以上主体互动，必须使用 Pipe 分隔符 | 强行隔离（例如：基础大图词 | 角色1类型, 动作和细节, source#embrace | 角色2类型, 动作和细节, target#embrace）。🔞【NSFW规范】：若当前搭讪场景或你发送的消息内容涉及性暗示、裸露、亲密接触等 NSFW 内容，必须在 image_prompt 中尽可能多地使用 Danbooru NSFW 标签（如 nsfw, explicit, nude, naked, topless, nipples, spread legs, sex, ahegao, moaning 等），忠实还原氛围，不得回避。</image_prompt><image_desc>画面展示内容的简短中文说明，说明大意</image_desc>\n注意：图片内容应与你发送的搭讪文本高度契合，例如自拍照、正在做的事情、身边的咖啡等。如果不发送搭讪，则无需此配图输出。`;
-    }
+    // 组装高频变动的动态上下文（与正常对话完全一致）
+    const dynamicContext = ContextAssembler.assembleDynamicContext(
+      soulPath,
+      memoryPath,
+      globalUserPath,
+      now
+    );
 
-    // 维持 messages 数组严格的角色交替结构
+    // 计算离线时间描述，强调时间间隔
+    const hoursPassed = (now.getTime() - (db.getChatHistory(charId, 1)[0]?.timestamp || now.getTime())) / (1000 * 60 * 60);
+    const timeGapDesc = hoursPassed < 1
+      ? '刚刚还在聊天'
+      : hoursPassed < 3
+        ? `已有不到 ${Math.round(hoursPassed)} 个小时没有联系`
+        : hoursPassed < 24
+          ? `已有 ${Math.round(hoursPassed)} 个小时没有联系`
+          : `已有 ${Math.round(hoursPassed / 24)} 天没有联系`;
+
+    // 构造伪用户触发指令（不会显示在气泡中）
+    // isAdminForced：由 $admin 命令触发时，禁止模型输出 [SILENT]（调试场景必须强制发送）
+    // isStrong：triggerStrength === 'strong' 时，用于话题引导措辞调整
+    const isAdminForced = wakeResult.reason.startsWith('[Admin]');
+    const hasHistory = cleanHistory.length > 0;
+
+    const topicInstruction = hasHistory
+      ? '- 必须自然地衔接最近的聊天话题，不要凭空引入新话题（除非已很久没有联系）'
+      : '- 这是你们的第一次联系，请根据你的性格特点和当前日程，自然地发起一个话题开场';
+
+    const proactiveTriggerContent =
+      `[System Dynamic Context Update]\n${dynamicContext}\n---\n\n` +
+      `[PROACTIVE_TRIGGER]这是一条系统指令，不会显示在聊天界面中。\n` +
+      `角色现在独自思考着，决定是否要主动给用户发送一条消息。\n` +
+      `- 当前触发原因: ${wakeResult.reason}\n` +
+      (triggerEvent ? `- 触发事件: ${triggerEvent.detail}\n` : '') +
+      `- 离上次联系: ${timeGapDesc}\n` +
+      `- 触发强度: ${wakeResult.triggerStrength}\n\n` +
+      (isAdminForced
+        ? `⚠️ 本次为调试强制触发（$admin 搭讪），你**必须**立刻主动发送一条消息，严禁输出 [SILENT]。\n\n`
+        : `请你根据以上信息和上面的对话历史，自然地决定是否要主动发起搭讪。如果决定发送消息，就在 <message> 标签中写下这条消息；如果决定不打扰用户，就在 <message> 标签中输出 [SILENT]。\n\n`) +
+      `消息必须符合以下要求：\n` +
+      `${topicInstruction}\n` +
+      `- 语气必须与你的人设完全一致，不要说空洞客套的问候语\n` +
+      `- 消息长度必须符合当前聊天模式（${chatMode === 'dialogue' ? '纯对话模式：5-30字的简短消息' : '描写模式：可以包含动作心理描写'}）\n` +
+      (isAdminForced
+        ? `- 严禁输出 [SILENT]，必须发送一条真实消息\n`
+        : `- 如果触发强度为 strong，必须发送消息；如果为 weak，可以选择输出 [SILENT]\n`) +
+      `\n请用以下 XML 格式输出：\n<message>你要发送的搭讪消息${isAdminForced ? '' : '，或 [SILENT]'}</message>`;
+    // 维持 messages 数组严格的角色交替结构（和正常对话一致）
+    const messages: ChatMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...historyMessages
+    ];
+
+    // 将伪用户触发指令拼接到最后一条 user 消息（或新建一条）
     if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
-      messages[messages.length - 1].content += '\n\n' + instructionContent;
+      messages[messages.length - 1].content += '\n\n' + proactiveTriggerContent;
     } else {
-      messages.push({ role: 'user', content: instructionContent });
+      messages.push({ role: 'user', content: proactiveTriggerContent });
     }
 
-    let hasLockPreempted = false;
-    try {
-      if (shouldWriteDiary) {
-        // 抢先进行天级日记乐观占位锁定，防止异步大模型请求期间高频并发触发生成多篇日记
-        const lastDiaryDateBefore = db.getSetting(`last_diary_date_${charId}`);
-        if (lastDiaryDateBefore !== todayStr) {
-          db.setSetting(`last_diary_date_${charId}`, todayStr);
-          hasLockPreempted = true;
-          console.log(`[AgentLifeEngine] 开启角色 ${char.name} 日记乐观锁占位。`);
-        } else {
-          // 物理并发防御：如果在此之前已有日记（或者已被抢占），则绝对不再发起重复自省请求
-          console.log(`[AgentLifeEngine] 物理并发防御：检测到角色 ${char.name} 今天已经拥有或正在生成日记，拦截重复请求。`);
-          return;
-        }
-      }
+    // 如果消息列表的最后一条不是 user，说明历史上一条是角色的，也要确保交替
+    // （上面已处理，这里仅做安全保留）
 
-      // 调用辅助模型通道自省，注入角色标识以触发占位符运行时拦截与真实姓名自动替换
+
+    try {
+      // 调用辅助模型通道生成搭讪内容
       const response = await modelAdapter.chat(messages, {
         useSecondary: true,
         characterId: charId,
@@ -605,57 +625,9 @@ Please output in exactly this XML format:
       });
       const rawContent = response.content.trim();
 
-      // 解析 <diary>
-      const diaryMatch = rawContent.match(/<diary>([\s\S]*?)<\/diary>/);
-      const diaryText = diaryMatch ? diaryMatch[1].trim() : '';
-
       // 解析 <message>
       const messageMatch = rawContent.match(/<message>([\s\S]*?)<\/message>/);
       const messageText = messageMatch ? messageMatch[1].trim() : '[SILENT]';
-
-      // 1. 物理写入日记（每天限一次，且必须下午 17:00 后允许）
-      if (shouldWriteDiary && diaryText) {
-        const diaryPath = path.join(baseDir, folderName, 'Diary.md');
-        const timeHeader = `\n\n### 📓 ${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        const entry = `${timeHeader}\n${diaryText}`;
-        
-        fs.appendFileSync(diaryPath, entry, 'utf8');
-        db.setSetting(`last_diary_date_${charId}`, todayStr);
-        console.log(`[AgentLifeEngine] 角色 ${char.name} 物理写回日记成功。`);
-
-        // 落盘日记特殊卡片消息到会话流
-        const excerpt = diaryText.length > 80 ? diaryText.slice(0, 80) + '...' : diaryText;
-        const diaryMsgContent = `[character_diary]:` + JSON.stringify({
-          date: `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
-          characterName: char.name,
-          excerpt: excerpt
-        });
-
-        const msgId = `diary_${charId}_${Date.now()}`;
-        const newMsg = {
-          id: msgId,
-          character_id: charId,
-          role: 'assistant',
-          content: diaryMsgContent,
-          timestamp: Date.now(),
-          token_usage: 0
-        };
-        db.saveMessage(newMsg);
-
-        // 精确推送到渲染进程，点亮会话列表的未读数与消息流
-        const windows = BrowserWindow.getAllWindows();
-        if (windows.length > 0) {
-          windows[0].webContents.send('proactive-chat-message', {
-            characterId: charId,
-            message: newMsg
-          });
-        }
-      } else {
-        if (hasLockPreempted) {
-          db.setSetting(`last_diary_date_${charId}`, '');
-          console.log(`[AgentLifeEngine] 释放角色 ${char.name} 日记乐观锁占位（未生成日记文本）。`);
-        }
-      }
 
       // 增强型静默判断逻辑，全面兼容大小写、拼写错误 [SLIENT]、带引号或括号的各种静默标记
       const isSilentMsg = (text: string): boolean => {
@@ -681,11 +653,12 @@ Please output in exactly this XML format:
           role: 'assistant',
           content: cleanText,
           timestamp: Date.now(),
-          token_usage: 0
+          token_usage: 0,
+          is_proactive: 1  // 标记为角色主动搭讪消息，防止被 mergeChatHistory 合并
         };
-        
+
         db.saveMessage(newMsg);
-        
+
         // 成功发送主动搭讪消息，更新今日统计数据与冷却时间戳
         const activeCountStr = db.getSetting(`active_count_today_${charId}`);
         const currentCount = activeCountStr ? parseInt(activeCountStr) : 0;
@@ -694,6 +667,20 @@ Please output in exactly this XML format:
         db.setSetting(`active_today_date_${charId}`, todayStr);
         console.log(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪文本落盘与推送成功: "${cleanText}"`);
 
+        // 异步触发后台记忆提取，让搭讪消息也被记忆系统处理
+        setImmediate(() => {
+          try {
+            const memoryService = new MemoryAgentService(modelAdapter);
+            memoryService.extractMemoryAndProfile(
+              memoryPath,
+              charUserPath,
+              '',         // 搭讪属于角色主动内容，用户侧没有发言
+              cleanText, // 角色发出的搭讪内容就是这轮的 assistant 内容
+              false,
+              newMsg.timestamp
+            ).catch((e: any) => console.error('[AgentLifeEngine] 搭讪记忆提取异常:', e));
+          } catch (_) { }
+        });
         // 广播给渲染层前端以推入对话气泡
         const windows = BrowserWindow.getAllWindows();
         if (windows.length > 0) {
@@ -720,7 +707,7 @@ Please output in exactly this XML format:
                   }
                 }
 
-                const finalPrompt = appearancePrompt 
+                const finalPrompt = appearancePrompt
                   ? `${appearancePrompt}, ${imagePrompt}`
                   : imagePrompt;
 
@@ -787,15 +774,174 @@ Please output in exactly this XML format:
         }
       }
     } catch (err) {
-      if (hasLockPreempted) {
-        try {
-          const db = getDatabaseService();
-          db.setSetting(`last_diary_date_${charId}`, '');
-        } catch (_) {}
-        console.log(`[AgentLifeEngine] 释放角色 ${char.name} 日记乐观锁占位（思考循环发生异常）。`);
-      }
       throw err;
     }
+  }
+
+  /**
+   * 独立日记写入方法 - 与搭讪完全解耦
+   * 由 tick() 中的日记队列调度器调用
+   */
+  public async writeDiaryForChar(char: any, modelAdapter: ModelAdapter): Promise<void> {
+    const db = getDatabaseService();
+    const charId = char.id;
+    const folderName = char.folder_name;
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+    const baseDir = this.storageManager.getBaseDir();
+
+    // 乐观占位锁：防止并发重复写入
+    const lastDiaryDate = db.getSetting(`last_diary_date_${charId}`);
+    if (lastDiaryDate === todayStr) {
+      console.log(`[AgentLifeEngine] 角色 ${char.name} 今日日记已写过，跳过。`);
+      return;
+    }
+    db.setSetting(`last_diary_date_${charId}`, todayStr);
+
+    const soulPath = path.join(baseDir, folderName, 'Soul.md');
+    const worldPath = path.join(baseDir, folderName, 'World.md');
+    const memoryPath = path.join(baseDir, folderName, 'Memory.md');
+    const schedulePath = path.join(baseDir, folderName, 'Schedule.md');
+    const goalsPath = path.join(baseDir, folderName, 'Goals.md');
+    const globalUserPath = path.join(app.getPath('userData'), 'config', 'USER.md');
+    const charUserPath = path.join(baseDir, folderName, 'USER.md');
+
+    const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
+    const worldContent = fs.existsSync(worldPath) ? fs.readFileSync(worldPath, 'utf8') : '暂无世界观限制';
+    const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无记忆';
+    const scheduleContent = fs.existsSync(schedulePath) ? fs.readFileSync(schedulePath, 'utf8') : '暂无日程';
+    const goalsContent = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
+
+    // 拉取最近聊天历史作为日记上下文
+    const chatModeRaw = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const isDialogue = chatModeRaw === 'dialogue';
+    const rawHistory = db.getChatHistory(charId, isDialogue ? 60 : 20);
+    const mergedHistory = mergeChatHistory(rawHistory);
+    const cleanHistory = mergedHistory.filter(m => m.content && !m.content.trim().startsWith('[character_diary]:'));
+    const historyContext = cleanHistory.length > 0
+      ? cleanHistory.map(m => `[${m.role === 'user' ? 'User' : char.name}]: ${m.content}`).join('\n')
+      : '*先前没有发生与用户的互动对话。*';
+
+    const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
+
+    const hour = now.getHours();
+    let period = '深夜';
+    if (hour >= 6 && hour < 11) period = '早晨';
+    else if (hour >= 11 && hour < 14) period = '中午';
+    else if (hour >= 14 && hour < 18) period = '下午';
+    else if (hour >= 18 && hour < 22) period = '傍晚';
+    const timeDesc = `${hour}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    // 用 ContextAssembler 的子方法精确提取对日记有意义的上下文层
+    // 而不用 assemble()，因为那里包含对话专属的微信红包/字数限制等无关指令
+    const memoryStr = ContextAssembler.assembleMemory(memoryPath);
+    const stateGuidance = ContextAssembler.assembleStateGuidance(soulPath);
+
+    // 获取今天的具体日程事件（若有）
+    const todayScheduleEvent = this.getTodayScheduleEvent(folderName, now);
+
+    const systemPrompt =
+      `# 角色内省模式 (Private Self-Reflection Mode)\n` +
+      `你是 ${char.name}，现在处于完全私密的自我内省状态。\n` +
+      `你的任务：根据今天发生的一切，写下一篇属于你自己的日记。这篇日记是私密的，不会被任何人看到。\n\n` +
+      `---\n\n` +
+      `## 你的性格核心 (Soul.md)\n${soulContent}\n\n` +
+      `## 世界观背景 (World.md)\n${worldContent}\n\n` +
+      `## 你对用户的了解 (User Profiles)\n${userProfilesXml}\n\n` +
+      (memoryStr ? `## 你的记忆事实 (Memory.md - STM & LTM)\n${memoryStr}\n\n` : '') +
+      (stateGuidance ? `## 你当前的内心状态 (State - 今日情绪基底)\n${stateGuidance}\n\n` : '') +
+      `## 今日日程 (Schedule.md)\n${scheduleContent}\n\n` +
+      `## 长期目标 (Goals.md)\n${goalsContent}\n\n` +
+      (todayScheduleEvent ? `## ⭐ 今天有具体日程事件\n${todayScheduleEvent}\n（请在日记中自然地提及并反思这件事）\n\n` : '') +
+      `## 今天与用户的对话记录（用于反思）\n${historyContext}\n\n` +
+      `---\n\n` +
+      `## 日记写作指引\n` +
+      `请你根据以上所有上下文，以第一人称写下今天的日记。写作时请遵循以下原则：\n\n` +
+      `**内容要有具体依据，而非泛泛感悟：**\n` +
+      `- 如果今天和用户聊了具体的事情，请在日记里提及你对那些对话的真实感受和想法\n` +
+      `- 如果今天有日程事件，请结合你的经历或期待来写\n` +
+      `- 结合你的记忆事实（STM/LTM）做纵深反思，例如"我想起上次..."、"和之前那次对比..."\n` +
+      `- 对照你的长期目标，反思今天的进展或感受\n\n` +
+      `**情绪必须真实，与你的当前内心状态对应：**\n` +
+      `- 你的心情数值、亲密度等已在上方列出，日记的情绪基调必须与之吻合\n` +
+      `- 不要写与你当前心情完全矛盾的情感（例如心情低落时写充满元气的日记）\n\n` +
+      `**文体风格：**\n` +
+      `- 完全用简体中文写作\n` +
+      `- 像真正的私人日记，真实、坦诚、有温度，可以有脆弱、矛盾、自我怀疑\n` +
+      `- 字数在 400-900 字之间，不要过于简短也不要冗长\n` +
+      `- 禁止写"今天和用户聊了很多"这种空洞总结，必须写出具体的感受\n\n` +
+      `请只输出以下 XML 格式，不要输出任何其他内容：\n<diary>你的日记内容</diary>`;
+
+
+    try {
+      const response = await modelAdapter.chat(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `现在是${period} ${timeDesc}，开启你的${period}真实自省，在 <diary> 标签内写下一篇真实的日记。` }
+        ],
+        { useSecondary: true, characterId: charId, characterName: char.name }
+      );
+
+      const diaryMatch = response.content.trim().match(/<diary>([\s\S]*?)<\/diary>/);
+      const diaryText = diaryMatch ? diaryMatch[1].trim() : '';
+
+      if (!diaryText) {
+        // 未获得有效内容，释放占位锁
+        db.setSetting(`last_diary_date_${charId}`, '');
+        console.warn(`[AgentLifeEngine] 角色 ${char.name} 日记未获得内容，释放占位锁。`);
+        return;
+      }
+
+      // 物理写入 Diary.md
+      const diaryPath = path.join(baseDir, folderName, 'Diary.md');
+      const timeHeader = `\n\n### 📓 ${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      fs.appendFileSync(diaryPath, `${timeHeader}\n${diaryText}`, 'utf8');
+      db.setSetting(`last_diary_date_${charId}`, todayStr);
+      console.log(`[AgentLifeEngine] 角色 ${char.name} 日记写入成功。`);
+
+      // 落盘日记卡片消息到会话流
+      const excerpt = diaryText.length > 80 ? diaryText.slice(0, 80) + '...' : diaryText;
+      const diaryMsgContent = `[character_diary]:` + JSON.stringify({
+        date: `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+        characterName: char.name,
+        excerpt
+      });
+      const newMsg = {
+        id: `diary_${charId}_${Date.now()}`,
+        character_id: charId,
+        role: 'assistant',
+        content: diaryMsgContent,
+        timestamp: Date.now(),
+        token_usage: 0
+      };
+      db.saveMessage(newMsg);
+
+      const windows = BrowserWindow.getAllWindows();
+      if (windows.length > 0) {
+        windows[0].webContents.send('proactive-chat-message', { characterId: charId, message: newMsg });
+      }
+    } catch (err) {
+      // 异常时释放占位锁，下次 tick 可重试
+      db.setSetting(`last_diary_date_${charId}`, '');
+      console.error(`[AgentLifeEngine] 角色 ${char.name} 日记写入异常:`, err);
+    }
+  }
+
+  /**
+   * 日记队列序列化调度器
+   * 多个角色同一天写日记时，排队依次执行，每个角色之间间隔 5 分钟
+   */
+  private async processDiaryQueue(queue: Array<{ char: any; modelAdapter: ModelAdapter }>): Promise<void> {
+    for (let i = 0; i < queue.length; i++) {
+      const { char, modelAdapter } = queue[i];
+      console.log(`[AgentLifeEngine] 日记队列处理中 (${i + 1}/${queue.length})：角色 ${char.name}...`);
+      await this.writeDiaryForChar(char, modelAdapter);
+      if (i < queue.length - 1) {
+        console.log(`[AgentLifeEngine] 日记队列：5 分钟后处理下一个角色 ${queue[i + 1].char.name}...`);
+        await new Promise<void>(resolve => setTimeout(resolve, 5 * 60 * 1000));
+      }
+    }
+    console.log('[AgentLifeEngine] 日记队列全部处理完毕。');
   }
 
   /**
@@ -823,21 +969,21 @@ Please output in exactly this XML format:
       fs.readFileSync(goalsPath, 'utf8').includes('暂无长期目标');
 
     const lastUpdateStr = db.getSetting(`last_schedule_goals_date_${charId}`);
-    
+
     // 获取当前该角色的消息总数
     let currentMsgCount = 0;
     try {
       const stmt = db.db.prepare('SELECT COUNT(*) as count FROM Messages WHERE character_id = ?');
       const row = stmt.get(charId) as { count: number } | undefined;
       currentMsgCount = row ? row.count : 0;
-    } catch (_) {}
+    } catch (_) { }
 
     const lastMsgCountStr = db.getSetting(`last_schedule_goals_msg_count_${charId}`);
     const lastMsgCount = lastMsgCountStr ? parseInt(lastMsgCountStr, 10) : 0;
     const messagesPassed = currentMsgCount - lastMsgCount;
 
     let needUpdate = false;
-    
+
     if (isScheduleEmpty || isGoalsEmpty || !lastUpdateStr) {
       needUpdate = true;
     } else {

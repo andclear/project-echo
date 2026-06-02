@@ -199,7 +199,10 @@ export class MemoryReaderWriter {
    */
   public static pushSTM(filePath: string, fact: string): void {
     const memory = this.readMemory(filePath);
-    memory.stm.push(fact.trim());
+    // 自动附加写入日期前缀，让 AI 读取时能感知该条记忆的时效性，避免相对时间词（明天/下周）永久冻结
+    const now = new Date();
+    const dateTag = `[${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}]`;
+    memory.stm.push(`${dateTag} ${fact.trim()}`);
     
     // 如果超过 50 条上限，截取最新 50 条 (FIFO)
     if (memory.stm.length > this.MAX_STM_SIZE) {

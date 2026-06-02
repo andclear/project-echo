@@ -16,6 +16,8 @@ export function mergeChatHistory(history: any[]): any[] {
     } else if (
       currentMsg.role === msg.role &&
       msg.role === 'assistant' &&
+      !msg.is_proactive &&         // 搭讪消息不参与合并（自身不被吸收进上一条）
+      !currentMsg.is_proactive &&  // 上一条是搭讪消息时也不吸收后续消息
       (msg.timestamp - currentMsg.timestamp < 15000) // 15秒内连续的多气泡，判定为同一条消息的分段
     ) {
       // 融合成单条消息并换行拼接

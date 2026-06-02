@@ -360,7 +360,8 @@ function formatMessageContentForLLM(content: string): string {
     try {
       const jsonStr = content.substring('[wechat_red_packet]:'.length)
       const rp = JSON.parse(jsonStr)
-      return `[微信红包: ${rp.amount}元 (附言: ${rp.title})]`
+      const statusDesc = rp.status === 'received' ? '（已领取）' : rp.status === 'returned' ? '（已退回）' : '（待处理）'
+      return `[微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}]`
     } catch (_) {
       return '[微信红包]'
     }
@@ -1221,6 +1222,17 @@ function registerIpcHandlers(): void {
   })
 
   // 4.1 获取 NovelAI 配置 IPC 通道
+  // 通用设置读取接口（供前端查询任意 DB 设置项）
+  ipcMain.handle('get-setting', async (_, payload: { key: string }) => {
+    try {
+      const db = getDatabaseService()
+      const value = db.getSetting(payload.key)
+      return { success: true, value: value ?? null }
+    } catch (error: any) {
+      return { success: false, error: error.message }
+    }
+  })
+
   ipcMain.handle('get-novelai-config', async () => {
     try {
       const db = getDatabaseService()
@@ -2582,7 +2594,104 @@ ${formattedHistory}
 
     console.log(`[IPC] ➜ 收到流式聊天请求. 角色: ${characterId}, 消息: "${userMessage}"`)
 
-    // ===================== 角色卡创建Bot 专属互动拦截器 =====================
+    // ===================== $admin 调试命令拦截器 =====================
+    // $admin 命令：不存 DB、不入上下文、不推气泡，仅通过 isSystem chat-chunk 推送文字提示
+    if (userMessage.trim().startsWith('$admin')) {
+      const db = getDatabaseService()
+
+      // 推送系统提示气泡的辅助函数（不存 DB）
+      const sendAdminTip = (msg: string) => {
+        event.sender.send('chat-chunk', {
+          characterId,
+          content: msg,
+          done: true,
+          isSystem: true
+        })
+      }
+
+      const args = userMessage.trim().split(/\s+/)
+      const cmd = args[1] // 子命令
+
+      // 获取当前角色信息
+      const char = db.getAllCharacters().find((c: any) => c.id === characterId)
+      if (!char) {
+        sendAdminTip('⚠️ 命令有误')
+        return { success: true }
+      }
+
+      // 获取模型配置
+      const configStr = db.getSetting('model_config')
+      if (!configStr) {
+        sendAdminTip('⚠️ 命令有误')
+        return { success: true }
+      }
+      const modelConfig = JSON.parse(configStr)
+      const adminModelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary)
+
+      if (cmd === '搭讪') {
+        // 直接触发当前角色搭讪
+        sendAdminTip('ℹ️ 已触发搭讪，请稍候...')
+        const agentEngine = new AgentLifeEngine()
+        const wakeResult = {
+          wakeAgent: true,
+          reason: '[Admin] 调试触发搭讪',
+          triggerStrength: 'strong' as const,
+          triggerEvent: {
+            type: 'random_drift' as const,
+            detail: '调试指令触发：立刻主动联系用户，发送一条自然的消息。'
+          }
+        }
+        agentEngine.generateActiveBehavior(char, adminModelAdapter, wakeResult).catch((e: any) => {
+          console.error('[Admin] 搭讪触发失败:', e)
+        })
+
+      } else if (cmd === '日记') {
+        // 强制触发写日记（无视今日是否已写）
+        sendAdminTip('ℹ️ 已触发写日记，请稍候...')
+        // 清除今日日记锁，允许重写
+        db.setSetting(`last_diary_date_${characterId}`, '')
+        const agentEngine = new AgentLifeEngine()
+        agentEngine.writeDiaryForChar(char, adminModelAdapter).catch((e: any) => {
+          console.error('[Admin] 写日记失败:', e)
+        })
+
+      } else if (cmd === '朋友圈') {
+        const forceNsfw = args.includes('nsfw')
+        const forcePic = args.includes('pic')
+        sendAdminTip(`ℹ️ 已触发朋友圈${forceNsfw ? '（NSFW）' : ''}${forcePic ? '（带图）' : ''}，请稍候...`)
+        const socialService = new SocialMediaService()
+        socialService.generateMoment(char, adminModelAdapter, forcePic, forceNsfw).catch((e: any) => {
+          console.error('[Admin] 朋友圈触发失败:', e)
+        })
+
+      } else if (cmd === '论坛') {
+        const forceNsfw = args.includes('nsfw')
+        const forcePic = args.includes('pic')
+        sendAdminTip(`ℹ️ 已触发论坛发帖${forceNsfw ? '（NSFW）' : ''}${forcePic ? '（带图）' : ''}，请稍候...`)
+        const socialService = new SocialMediaService()
+        socialService.generateForumPost(char, adminModelAdapter, forcePic, forceNsfw).catch((e: any) => {
+          console.error('[Admin] 论坛发帖触发失败:', e)
+        })
+
+      } else if (cmd === 'nai' && args[2] === 'on') {
+        // 开启全图模式，持久化到 DB
+        db.setSetting('admin_nai_auto_mode', '1')
+        sendAdminTip('✅ 全图模式已开启：角色回复后将自动生图并发送，确认模式已关闭。')
+
+      } else if (cmd === 'nai' && args[2] === 'off') {
+        // 关闭全图模式
+        db.setSetting('admin_nai_auto_mode', '0')
+        sendAdminTip('✅ 全图模式已关闭，回归手动生图模式。')
+
+      } else {
+        // 未知 $admin 子命令
+        sendAdminTip('⚠️ 命令有误')
+      }
+
+      return { success: true }
+    }
+
+
     if (characterId === CREATOR_BOT_ID) {
       const db = getDatabaseService()
       const configStr = db.getSetting('model_config')
@@ -3755,6 +3864,7 @@ ${memoryContent}
       content: finalResponse,
       done: true,
       messageId: assistantMsgId,
+      redPacketAction: redPacketAction,   // 携带领取/退回决策，供前端红包状态更新
       prompt_tokens: finalPromptTokens,
       completion_tokens: finalCompletionTokens,
       cached_tokens: finalCachedTokens

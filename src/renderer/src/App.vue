@@ -12680,6 +12680,27 @@ async function sendChatMessage() {
   const userMsgId = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
   lastUserMsgId.value = userMsgId
 
+  // 🚀 $admin 命令早期拦截：不显示气泡、不入 pending 队列、不存 DB
+  // 直接调用 chat-stream（主进程会通过 isSystem chat-chunk 返回文字提示）
+  if (userMsg.startsWith('$admin')) {
+    // 标记当前角色为流式交互中，避免重复发送
+    streamingCharsSet.add(char.id)
+    streamingCharacterId.value = char.id
+    try {
+      await window.api.invoke('chat-stream', {
+        characterId: char.id,
+        folderName: (char as any).folder_name || '',
+        userMessage: userMsg
+      })
+    } catch (e) {
+      console.warn('[Admin] IPC 调用失败:', e)
+    } finally {
+      streamingCharsSet.delete(char.id)
+      streamingCharacterId.value = null
+    }
+    return
+  }
+
   // 1. 立即在聊天列表追加该用户消息的绿色气泡进行渲染展示，提供最顺畅的即发即现体验
   if (!allMessages[char.id]) allMessages[char.id] = []
   const timestamp = Date.now()
@@ -12694,6 +12715,7 @@ async function sendChatMessage() {
     sender_id: 'user'
   })
   nextTick(() => scrollToBottom('smooth', true))
+
 
   // 2. 物理落盘已完全移交给后台 3 秒合并时唯一落盘，从而解除重复产生的双条消息 Bug
 
@@ -16044,6 +16066,17 @@ onMounted(async () => {
 
   // 监听流式 chunk
   window.api.receive('chat-chunk', (data: { characterId: string; content: string; done: boolean; isSystem?: boolean }) => {
+    // 🚀 $admin 系统提示快速通道：在所有流式逻辑之前优先处理，无视 done 状态
+    if (data.isSystem) {
+      const sysCharId = data.characterId || selectedCharacterId.value || ''
+      if (!allMessages[sysCharId]) allMessages[sysCharId] = []
+      allMessages[sysCharId].push({ role: 'system', content: data.content, isSystem: true })
+      if (sysCharId === selectedCharacterId.value) {
+        nextTick(() => scrollToBottom())
+      }
+      return
+    }
+
     const chunkCharId = data.characterId || streamingCharacterId.value || selectedCharacterId.value || ''
 
     // 🚀 只要流式吐字或处于流式交互中，就重置/清除超时定时器，只在真正停滞 10分钟 以上时才超时自愈
@@ -16306,20 +16339,67 @@ onMounted(async () => {
           if (diaryRes.success && chunkCharId === selectedCharacterId.value) activeDiary.value = diaryRes.content
         }
       }, 1500)
-      return
-    }
 
-    if (data.isSystem) {
-      const msgs = allMessages[chunkCharId]
-      if (msgs) {
-        msgs.push({ role: 'system', content: data.content, isSystem: true })
-        msgs.push({ role: 'assistant', content: '' })
-        if (chunkCharId === selectedCharacterId.value) {
-          nextTick(() => scrollToBottom())
+      // 🚀 全图模式（$admin nai on）：回复完成后自动生图并推气泡，永不弹出确认框
+      setTimeout(async () => {
+        try {
+          const naiModeRes = await window.api.invoke('get-setting', { key: 'admin_nai_auto_mode' })
+          if (naiModeRes?.value === '1' && novelai.apiKey) {
+            const char = characterList.value.find(c => c.id === chunkCharId)
+            if (!char) return
+            const recentMsgs = (allMessages[chunkCharId] || []).slice(-20)
+            const promptRes = await window.api.invoke('analyze-chat-image-prompt', {
+              characterId: chunkCharId,
+              folderName: char.folder_name,
+              recentMessages: JSON.parse(JSON.stringify(recentMsgs))
+            })
+            if (promptRes.success && promptRes.prompt) {
+              // 直接注入上下文并跳过确认框强制生图
+              activeDrawingContextMap[chunkCharId] = {
+                prompt: promptRes.prompt,
+                description: promptRes.description || '',
+                dimensions: (novelai.defaultDimensions as 'portrait' | 'landscape' | 'square') || 'portrait'
+              }
+              await executeNovelAiImageGeneration(chunkCharId, char.folder_name)
+            }
+          }
+        } catch (e) {
+          console.warn('[NAI Auto Mode] 全图模式自动生图异常:', e)
+        }
+      }, 800)
+
+
+      // 🚀 单聊红包状态同步：利用 chat-chunk done 携带的 redPacketAction 即时更新用户红包气泡状态
+      const chunkRedPacketAction = (data as any).redPacketAction as string | null
+      if (chunkRedPacketAction && chunkCharId) {
+        const charMsgs = allMessages[chunkCharId] || []
+        for (let i = charMsgs.length - 1; i >= 0; i--) {
+          const m = charMsgs[i]
+          if (m.role === 'user' && m.redPacket && (!m.redPacket.status || m.redPacket.status === 'waiting')) {
+            if (chunkRedPacketAction === 'receive') {
+              m.redPacket.status = 'received'
+            } else if (chunkRedPacketAction === 'return') {
+              m.redPacket.status = 'returned'
+              const amt = parseFloat(m.redPacket.amount)
+              if (!isNaN(amt) && amt > 0) {
+                userProfile.walletBalance += amt
+                saveUserProfileLocal()
+                showCustomAlert('红包被退回', `角色退回了你的红包，金额 ${amt.toFixed(2)} 元已退回您的钱包！`, 'info')
+              }
+            }
+            if (m.id) {
+              window.api.invoke('update-message-content', {
+                messageId: m.id,
+                content: `[wechat_red_packet]:${JSON.stringify({ amount: m.redPacket.amount, title: m.redPacket.title, status: m.redPacket.status, targetId: m.redPacket.targetId, targetName: m.redPacket.targetName })}`
+              })
+            }
+            break
+          }
         }
       }
       return
     }
+
 
     // 🚀 响应取消流式诉求：如果当前不是群聊，或者处于纯文字对话（dialogue）模式，直接拦截并静默丢弃流式消息（含创角 Bot 文本），全部交由 Promise 决议和广播接管，从根本上消灭重复气泡！
     // 🔒 修复：使用消息归属角色（chunkCharId）的真实 chatMode，而非当前 UI 选中角色的 chatMode
