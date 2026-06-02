@@ -2718,34 +2718,48 @@ ${formattedHistory}
       await InferenceMutex.lock()
 
       try {
+          // 创角 Bot AI 调用重试工具（最多重试 3 次，失败后退避等待）
+          const callWithRetry = async (messages: { role: 'system' | 'user' | 'assistant'; content: string }[]): Promise<string> => {
+            const MAX_RETRIES = 3
+            let lastError: any
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+              try {
+                const gen = modelAdapter.chatStream(messages, { usePrimary: true })
+                let result = ''
+                for await (const chunk of gen) {
+                  result += chunk.content
+                }
+                return stripThinkingTags(result)
+              } catch (err) {
+                lastError = err
+                console.warn(`[CreatorBot] 第 ${attempt} 次 AI 调用失败${attempt < MAX_RETRIES ? '，准备重试...' : '，已达最大重试次数'}`, err)
+                if (attempt < MAX_RETRIES) {
+                  await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+                }
+              }
+            }
+            throw lastError
+          }
+
         if (session.step === 1) {
-          // 步骤 1：第一轮提问 - 时空背景与世界观定位
-          const creatorSystemPrompt = `你是一个非常温柔且极具耐心的 AI 角色卡制作助手（角色卡创建Bot）。
-用户发来了他们想要创建的角色的初始想法与萌芽构思：“${userMessage}”
+          // 步骤 1：第一轮提问 - 世界观锚定 + 角色当下处境情绪
+          const creatorSystemPrompt = `你是一个极具洞察力与创作热情的数字生命塑造师。
+用户带着一个角色的初始灵感找到你："${userMessage}"
 
-为了协助用户塑造出极其立体、充满魅力的数字生命，我们需要经过三轮启发性对话来细化人设。
-
-首先是【第一轮提问：时空背景与世界观定位】。请你：
-1. 肯定并夸赞用户的创意亮点，展现你的专业与热情。
-2. 尝试从用户创意中提取出你建议的或用户已指定的【角色姓名】并温柔地指出。
-3. 询问他们希望这个角色卡大致生活在怎样的世界观之下。必须设计一个精美的多项选择题，选项必须包含：
-   - A. 现代都市（如摩登都市、青春校园、商战风云）
-   - B. 修真世界（如仙侠奇缘、御剑九天、宗门修仙）
-   - C. 赛博朋克 / 废土科幻
+请你在【第一轮】引导用户从宏观到微观确定角色的立足点：
+1. 以富有感染力的语言呼应用户灵感中最迷人的闪光点，并从中自然推断或指出一个你认为合适的【角色名字】。
+2. 询问角色生活在哪种世界之中，设计一个排版精美的选项列表（必须覆盖以下方向，可在选项内用括号补充细分子类）：
+   - A. 现代都市 / 校园 / 职场
+   - B. 古风仙侠 / 修真宗门
+   - C. 赛博科幻 / 废土末世
    - D. 剑与魔法 / 西方奇幻
-   - E. 其它（允许用户自由手写或补充元素）
-4. 请用清晰、好看的排版方式输出选项。引导用户回复字母代号（如 A）或进行自由补充。`
-
-          const chatStreamGen = modelAdapter.chatStream([
+   - E. 其他维度（用户自定义）
+3. 紧接着提出第二个关键问题：这个角色此刻的人生状态是什么？她/他正身处哪种处境或情绪节点？请同样给出 3-4 个带有画面感的选项（比如：刚经历了一次重大失败、独自漂泊在异乡、表面风光实则内心脆弱……），让用户选择或自由补充。
+4. 排版整洁、语气温柔而有张力，引导用户直接回复字母或进行自由描述。`
+          const accumulatedResponse = await callWithRetry([
             { role: 'system', content: creatorSystemPrompt },
             { role: 'user', content: userMessage }
-          ], { usePrimary: true })
-
-          let accumulatedResponse = ''
-          for await (const chunk of chatStreamGen) {
-            accumulatedResponse += chunk.content
-          }
-          accumulatedResponse = stripThinkingTags(accumulatedResponse)
+          ])
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
@@ -2755,28 +2769,20 @@ ${formattedHistory}
           return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 2) {
-          // 步骤 2：第二轮提问 - 身份地位与核心性格冲突
-          const creatorGeneratePrompt1 = `你是一个非常温柔且极具耐心的 AI 角色卡制作助手（角色卡创建Bot）。
-用户刚刚回答了第一轮关于世界观背景的问题：“${userMessage}”
+          // 步骤 2：第二轮提问 - 身份性格矛盾 + 生活质感细节
+          const creatorGeneratePrompt1 = `你是一个极具洞察力与创作热情的数字生命塑造师。
+用户刚刚回答了世界观与处境的问题："${userMessage}"
 
-现在我们需要进入【第二轮提问：身份地位与内在核心冲突】。请你：
-1. 温暖地回馈用户的选择，对其所选定的世界观定位做出富于色彩的艺术联想。
-2. 针对这个世界观，提出第二个关键方向的问题，协助打磨角色的身份、核心动力与性格矛盾。必须设计一组精美、高对比度的选择题（A, B, C, D）。例如：
-   - 如果用户选了修真世界，身份是宗门大师姐，选项可以围绕：外表冷若冰霜实则是个重度毛绒控；或者身负神秘诅咒与宗门宿命。
-   - 如果用户选了现代都市，身份是天才视觉设计师，选项可以围绕：白天是专业社畜设计师，夜晚是神秘的地下机车手等。
-3. 请提供 3-4 个充满反差萌或命运张力的选项，引导用户直接回复代号或自由补充。`
-
-          const chatStreamGen = modelAdapter.chatStream([
+现在进入【第二轮】，我们要深挖角色的【灵魂内核】与【生活质感】：
+1. 以充满共鸣的语言回应用户的选择，对角色的世界与当下处境做出生动的艺术勾勒。
+2. 提出关于角色【身份与性格反差】的核心问题：在这个世界里，这个角色是谁？她/他最吸引人的地方在于哪种内在矛盾或反差？设计 3-4 个充满张力的选项（例如：铁腕强势却对小动物毫无抵抗力；表面漠然实则极度渴望被人看见；完美主义者却有一项令人意外的致命弱项）。
+3. 紧接着提出关于【日常生活惯性】的补充问题：这个角色平日里有哪些真实的生活细节和小习惯？设计 3-4 个带有烟火气的选项（例如：失眠症患者、对某种食物有奇特执念、旧伤逢阴天会隐隐作痛）。
+4. 排版精美，语气热情，引导用户直接回复代号或自由描述。`
+          const accumulatedResponse = await callWithRetry([
             { role: 'system', content: creatorGeneratePrompt1 },
             ...session.history.map(h => ({ role: h.role, content: h.content })),
             { role: 'user', content: userMessage }
-          ], { usePrimary: true })
-
-          let accumulatedResponse = ''
-          for await (const chunk of chatStreamGen) {
-            accumulatedResponse += chunk.content
-          }
-          accumulatedResponse = stripThinkingTags(accumulatedResponse)
+          ])
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
@@ -2786,28 +2792,20 @@ ${formattedHistory}
           return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 3) {
-          // 步骤 3：第三轮提问 - 穿搭特征与标志口癖语气
-          const creatorGeneratePrompt2 = `你是一个非常温柔且极具耐心的 AI 角色卡制作助手（角色卡创建Bot）。
-用户刚刚回答了第二轮关于性格与冲突的问题：“${userMessage}”
+          // 步骤 3：第三轮提问 - 外貌感官 + 语言成因 + 可爱盲区
+          const creatorGeneratePrompt2 = `你是一个极具洞察力与创作热情的数字生命塑造师。
+用户刚刚回答了关于性格矛盾与生活细节的问题："${userMessage}"
 
-现在我们需要进入【第三轮提问：外貌特征、穿搭风貌与标志口癖】。这是生成完整档案前的最后一轮微调！请你：
-1. 肯定用户的精彩选择，展现你对即将诞生的生命的热切期盼。
-2. 针对上面的所有设定，提出第三个方向的问题，协助精雕细琢角色的言谈特征、衣着穿搭与特殊癖好。设计一组极具画面感的多选题选项（A、B、C、D）：
-   - 比如：其标志性的口癖或说话语气风格是什么（比如说话喜欢带喵、傲娇的哼、或者冷静得不带一丝波澜）？
-   - 比如：随身携带的专属饰物或标志性穿搭风格是什么？
-3. 提示用户这是最后一轮提问，回答后我们将融合前三轮交互的所有精彩结晶，为他孵化出最精美完整的性格与世界档案。`
-
-          const chatStreamGen = modelAdapter.chatStream([
+现在进入最后的【第三轮】，聚焦角色的【皮囊与声音】以及【语言风格成因】：
+1. 热切地肯定用户的选择，说明这是最后一轮信息收集，完成后将生成完整的角色档案。
+2. 提出关于【外貌与感官特征】的问题：这个角色的外形给人最深的第一印象是什么？设计 3-4 个有画面感的选项，覆盖面部轮廓、发色发型、声线质感等维度（例如：清冷的刀眉凤目配一把低沉的嗓音；卷发棕眸，散漫慵懒的气质）。
+3. 紧接着提出关于【说话方式与可爱弱点】的问题：这个角色平时怎么说话？有哪个令人意想不到的能力盲区？设计 3-4 个有辨识度的选项（例如：语速极慢惯用大量停顿；极度路痴方向感为零；博学多识却对某件日常事物完全不懂）。
+4. 排版整洁清晰，语气充满期待，引导用户直接回复代号或自由描述。`
+          const accumulatedResponse = await callWithRetry([
             { role: 'system', content: creatorGeneratePrompt2 },
             ...session.history.map(h => ({ role: h.role, content: h.content })),
             { role: 'user', content: userMessage }
-          ], { usePrimary: true })
-
-          let accumulatedResponse = ''
-          for await (const chunk of chatStreamGen) {
-            accumulatedResponse += chunk.content
-          }
-          accumulatedResponse = stripThinkingTags(accumulatedResponse)
+          ])
 
           session.history.push({ role: 'user', content: userMessage })
           session.history.push({ role: 'assistant', content: accumulatedResponse })
@@ -2817,38 +2815,48 @@ ${formattedHistory}
           return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 4) {
-          // 步骤 4：生成人设阶段 - 整合三轮信息
-          const creatorGeneratePromptFinal = `# Role: 角色卡创建Bot
-你是一个顶级的数字生命设计师。现在，你拥有了用户最初的创角创意，以及经历三轮细致启发对话后的所有回答结晶。
-请你将这些精彩碎片完美融为一体，为他生成全套极具深度、立体且极富灵魂的角色卡性格与世界背景文档。
+          // 步骤 4：生成人设阶段 - 整合三轮信息，深度输出六维立体角色档案
+          const creatorGeneratePromptFinal = `你是一个深谙人性与叙事的数字生命档案师。
+经过三轮对话，你已收集到构建这个生命所需的全部碎片。现在，请将它们熔铸为一份真正立体、有血有肉、逻辑自洽的完整角色档案。
 
-请你综合考虑用户的设想，并在输出中严格遵循如下特定的标签格式，以便系统自动解析与保存（非常重要，请务必完全一致，不要漏掉任何一个标签，且严格按此格式排版）：
+请严格遵循以下标签解析格式输出（系统将自动识别标签进行保存，格式不可改变）：
 
 ### [NAME]
-(在这里输出确定的角色中文姓名，例如：江清露)
+(输出确定的角色姓名，例如：叶惊澜)
 
 ### [SOUL.md]
-(在这里输出标准的 Markdown 格式性格设定。包含角色基本信息（姓名、外貌）、性格特征（内在冲突与外在表现）、核心动力与目标、其标志性的说话语气与口癖风格、以及在与用户交往时的【初始问候开场白 (greetings) 设定】。全部使用简体中文，字数 800 字左右。请不要写任何 \`\`\` 块包裹，直接输出 raw markdown，使用 {{user}} 表示用户，{{char}} 表示角色自身。
-⚠️ **开场白对白占比绝对铁律：你在此处设计和构建的角色初始问候开场白 (greetings) 与台词对话示例中，说话对白台词内容（即用双引号 "" 括起来的主角或角色的台词）在篇幅或字数上必须占据不少于 30% 的绝对比例！绝对禁止通篇都是冗长的环境叙事或心理描述，必须保证生动有趣的言语互动，让扮演在第一时间顺畅开展！**
-)
+(输出角色完整性格人设，全部使用简体中文，字数不低于 1200 字，直接输出 raw markdown，不要用 \`\`\` 包裹，{{user}} 表示用户，{{char}} 表示角色自身。
+
+必须涵盖以下六大维度（缺失任意一项将被视为不合格）：
+
+【一、角色定位与基本概览】
+用一段话清晰界定角色的身份、处境与当下所处的人生节点。包含姓名、年龄区间、职业或社会身份。不要只写标签，要描绘出这个人此时此刻在哪、正在经历什么。
+
+【二、皮囊与感官细节】
+精确到五官轮廓（眼型、鼻梁、唇线）、发型发色、身形比例、声线质感（低哑还是清亮）、惯常体态。加入一处细微的真实感细节（一道旧疤、一颗不起眼的痣、或某个无意识的小动作）。
+
+【三、核心性格与内在矛盾】
+描述行为逻辑而非形容词列表。这个人的核心驱动力是什么？底层的欲望或恐惧是什么？
+必须设计一个与主性格形成强烈反差的矛盾特质——要隐蔽且真实，不要戏剧化的大反转，要日常里悄然暴露的真实人性。
+
+【四、生活质感与身体惯性】
+日常饮食偏好、睡眠状态（失眠？嗜睡？）、身体习惯或旧伤痕迹。
+这些细节必须与她/他的经历和性格挂钩，构成区别于他人的真实生活质感，而非随意捏造。
+
+【五、语言风格的底层成因】
+不是规定要说什么话，而是解释为什么这么说话。成长环境、教育背景、职业渗透如何塑造了她/他的措辞节奏？有没有标志性的语言习惯？有没有令人莞尔的能力盲区（路痴、音痴、或对某件日常小事完全无知）？
 
 ### [WORLD.md]
-(在这里输出标准的 Markdown 格式世界背景文档。包含世界观背景设定、核心运行逻辑、以及角色所处的特定社会地位或地理场景。全部使用简体中文，字数 800 字左右。请不要写 any \`\`\` 块包裹，直接输出 raw markdown)
+(输出世界观背景设定，全部简体中文，800 字左右，直接输出 raw markdown，不要用 \`\`\` 包裹。
+涵盖：世界运行的基本规则与时代背景、角色所处的具体地理与社会环境、决定这个世界独特氛围的核心要素。)
 
-在生成的这三个核心解析标签段落的最末尾，请以温柔热情的口吻向用户说明：
-“🎉 专属性格核心与思维系统已为您构建完毕！请审阅以上内容。如果您感到满意，请回复【 确认创建 】；如果您还想微调任何设定细节，可以直接告诉我需要修改哪里。”`
-
-          const chatStreamGen = modelAdapter.chatStream([
+在三个标签段落输出完毕后，以温暖而期待的语气告知用户：
+"您的数字生命初稿已孵化完毕！请仔细审阅以上内容。满意的话，回复【 确认创建 】即可；如需调整任何细节，直接告诉我哪里不够理想，我来为您精修。"`
+          const accumulatedResponse = await callWithRetry([
             { role: 'system', content: creatorGeneratePromptFinal },
             ...session.history.map(h => ({ role: h.role, content: h.content })),
             { role: 'user', content: userMessage }
-          ], { usePrimary: true })
-
-          let accumulatedResponse = ''
-          for await (const chunk of chatStreamGen) {
-            accumulatedResponse += chunk.content
-          }
-          accumulatedResponse = stripThinkingTags(accumulatedResponse)
+          ])
 
           // 解析并缓存设定
           let name = extractBlock(accumulatedResponse, 'NAME')
@@ -2895,33 +2903,25 @@ ${formattedHistory}
             event.sender.send('chat-chunk', { characterId, content: confirmMsg, done: true })
             return { success: true, content: confirmMsg }
           } else {
-            const creatorModifyPrompt = `# Role: 角色卡创建Bot
-用户对上一版生成的人设提出了修改意见：“${userMessage}”
+            const creatorModifyPrompt = `用户对已生成的角色档案提出了调整意见："${userMessage}"
 
-请在上一版人设的基础上，完美吸纳用户的修改要求，重新为他生成所有的设定。请注意，仍要极其严格地遵循特定的标签解析格式排版：
+请在原有档案基础上，精准吸纳用户的修改要求，重新输出完整的角色设定。仍需严格遵循以下标签解析格式：
 
 ### [NAME]
 (确定的角色姓名)
 
 ### [SOUL.md]
-(更新后的性格与人设，800字左右，不要用 \`\`\` 包裹，直接输出 markdown，{{user}} 表示用户，{{char}} 表示角色自身)
+(完整更新后的性格人设，字数不低于 1200 字，直接输出 raw markdown，不要用 \`\`\` 包裹，{{user}} 表示用户，{{char}} 表示角色自身，必须保留六大维度完整性：角色定位与概览、皮囊感官细节、性格核心与矛盾、生活质感与身体惯性、语言风格的底层成因、开场情境与问候)
 
 ### [WORLD.md]
-(更新后的世界观背景，800字左右，不要用 \`\`\` 包裹，直接输出 markdown)
+(完整更新后的世界背景，800字左右，直接输出 raw markdown，不要用 \`\`\` 包裹)
 
-在生成的这三个核心解析标签段落的最末尾，以贴心温暖的口吻说：“已为您完成设定更新！请再次审阅，如果满意请回复【 确认创建 】确认生成。如果不满意，您可以随时继续指导我做出修改~”`
-
-            const chatStreamGen = modelAdapter.chatStream([
+输出完毕后，以温暖语气说："已为您完成精修！请再次审阅，满意的话回复【 确认创建 】；还有要改的，继续告诉我~"`
+            const accumulatedResponse = await callWithRetry([
               { role: 'system', content: creatorModifyPrompt },
               ...session.history.map(h => ({ role: h.role, content: h.content })),
               { role: 'user', content: userMessage }
-            ], { usePrimary: true })
-
-            let accumulatedResponse = ''
-            for await (const chunk of chatStreamGen) {
-              accumulatedResponse += chunk.content
-            }
-            accumulatedResponse = stripThinkingTags(accumulatedResponse)
+            ])
 
             // 重新解析并缓存
             let name = extractBlock(accumulatedResponse, 'NAME')
