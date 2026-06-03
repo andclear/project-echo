@@ -61,6 +61,9 @@
             </div>
             <h4 class="text-xs font-bold text-on-surface mb-1 truncate">{{ fb.title }}</h4>
             <p class="text-[11px] text-on-surface-variant line-clamp-1 leading-relaxed">{{ fb.content }}</p>
+            <div v-if="fb.target_version" class="text-[9px] font-mono mt-1 text-on-surface-variant/70">
+              {{ fb.status === 'completed' ? '🎉 实现版本: ' : '🎯 预计版本: ' }}{{ fb.target_version }}
+            </div>
             <div class="flex justify-between items-center text-[9px] text-on-surface-variant/50 font-mono mt-2.5 select-none">
               <span>单号: {{ fb.id.substring(0, 8) }}...</span>
               <span>{{ formatDate(fb.created_at) }}</span>
@@ -177,6 +180,11 @@
             </div>
             <h3 class="text-xs font-bold text-on-surface mb-1.5">{{ activeFeedback.title }}</h3>
             <p class="text-[11px] text-on-surface-variant leading-relaxed whitespace-pre-wrap select-text">{{ activeFeedback.content }}</p>
+            <div v-if="activeFeedback.target_version" class="text-[9px] font-mono mt-2">
+              <span class="px-1.5 py-0.5 rounded-[2px] border bg-outline/10 text-on-surface-variant/80 border-outline-variant/30">
+                {{ activeFeedback.status === 'completed' ? '🎉 实现版本: ' : '🎯 预计版本: ' }}{{ activeFeedback.target_version }}
+              </span>
+            </div>
             <div class="text-[9px] text-on-surface-variant/40 font-mono mt-3 select-none">
               单号: {{ activeFeedback.id }} | 提交时间: {{ formatDate(activeFeedback.created_at) }}
             </div>
@@ -280,9 +288,10 @@ interface FeedbackRecord {
   id: string;
   title: string;
   content: string;
-  type: 'bug' | 'suggestion' | 'feedback';
+  type: 'bug' | 'suggestion' | 'feedback' | 'wife_treasure';
   contact?: string;
   status: 'pending' | 'in_progress' | 'completed' | 'rejected';
+  target_version?: string;
   created_at: number;
 }
 
@@ -644,6 +653,7 @@ async function sendChatReply() {
 function getTypeLabel(type: string) {
   if (type === 'bug') return 'BUG反馈'
   if (type === 'suggestion') return '功能建议'
+  if (type === 'wife_treasure') return '老婆宝'
   return '意见反馈'
 }
 
@@ -668,6 +678,7 @@ function getTypeBadgeStyle(type: string) {
   const base = 'inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-[2px] font-medium border '
   if (type === 'bug') return base + 'bg-error/10 text-error border-error/20'
   if (type === 'suggestion') return base + 'bg-primary/10 text-primary border-primary/20'
+  if (type === 'wife_treasure') return base + 'bg-pink-500/10 text-pink-500 border-pink-500/20'
   return base + 'bg-outline/10 text-on-surface-variant border-outline-variant/30'
 }
 
