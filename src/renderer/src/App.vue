@@ -5436,6 +5436,28 @@
 
           <!-- 聊天气泡主容器（相对定位挂载回底悬浮按钮） -->
           <div class="flex-1 min-h-0 flex flex-col relative">
+
+            <!-- 🗂️ 批量删除后的记忆提醒横幅 -->
+            <div
+              v-if="showMemoryWarningBanner"
+              class="mx-5 mt-3 mb-1 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between gap-3 animate-in slide-in-from-top-2 duration-300 flex-shrink-0 select-none"
+            >
+              <div class="flex items-center space-x-3 flex-1 min-w-0">
+                <div class="w-7 h-7 rounded-full bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                  <span class="text-sm">🧠</span>
+                </div>
+                <p class="text-[11px] text-amber-700 dark:text-amber-400 font-semibold leading-snug">
+                  旧记忆可能仍在影响 AI 回复，建议手动编辑记忆文件清除相关内容。
+                </p>
+              </div>
+              <button
+                @click="showMemoryWarningBanner = false"
+                class="flex-shrink-0 w-5 h-5 rounded-full text-amber-600/60 hover:text-amber-600 hover:bg-amber-500/10 transition-colors flex items-center justify-center cursor-pointer"
+              >
+                <XIcon class="w-3.5 h-3.5" />
+              </button>
+            </div>
+
             <!-- 聊天气泡区 -->
             <div ref="chatContainer" class="w-full h-full overflow-y-auto px-5 py-4 flex flex-col space-y-3 select-text" @scroll.passive="handleChatScroll">
             <!-- 初始空白（不显示开场白） -->
@@ -5480,13 +5502,28 @@
               </div>
 
               <!-- 用户消息（右侧） -->
-              <div v-else-if="msg.role === 'user'" class="flex justify-end items-start space-x-2">
+              <div
+                v-else-if="msg.role === 'user'"
+                class="flex justify-end items-start space-x-2 relative select-none"
+                style="touch-action: manipulation;"
+                :class="isMultiSelectMode ? 'cursor-pointer' : ''"
+                @click="isMultiSelectMode && msg.id ? toggleMessageSelect(msg.id) : undefined"
+              >
+                <!-- 多选复选框（右侧，用户消息） -->
+                <div
+                  v-if="isMultiSelectMode && msg.id"
+                  class="flex-shrink-0 self-start mt-1 mr-1 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all"
+                  :class="selectedMessageIds.has(msg.id) ? 'bg-primary border-primary' : 'border-outline-variant bg-surface'"
+                >
+                  <CheckIcon v-if="selectedMessageIds.has(msg.id)" class="w-3 h-3 text-white" stroke-width="3" />
+                </div>
                 <div class="max-w-[68%] flex flex-col items-end">
                   <!-- 图片气泡 -->
                   <div 
                     v-if="msg.imageBase64" 
-                    class="mb-1 w-fit rounded-xl overflow-hidden border border-primary/20 shadow-sm cursor-pointer hover:opacity-95 transition-opacity"
-                    @click="openImagePreview({
+                    class="mb-1 w-fit rounded-xl overflow-hidden border border-primary/20 shadow-sm transition-opacity"
+                    :class="isMultiSelectMode ? 'cursor-pointer' : 'cursor-pointer hover:opacity-95'"
+                    @click.stop="isMultiSelectMode && msg.id ? toggleMessageSelect(msg.id) : openImagePreview({
                       base64: msg.imageBase64,
                       filename: msg.imageMeta?.filename || 'user_drawing.png',
                       relativePath: msg.imageMeta?.relativePath || '',
@@ -5497,8 +5534,13 @@
                       prefixType: msg.imageMeta?.prefixType || 'chat',
                       characterId: selectedCharacterId
                     })"
+                    @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                    @touchstart="onLongPressStart($event, msg, 'message')"
+                    @touchend="onLongPressEnd"
+                    @touchmove="onLongPressMove"
                   >
-                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" @load="scrollToBottom('auto', false)" />
+                    <!-- pointer-events:none 让触摸事件穿透到父容器，-webkit-touch-callout:none 屏蔽 iOS/安卓 原生长按图片上拉菜单 -->
+                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain select-none pointer-events-none" style="-webkit-touch-callout: none; -webkit-user-drag: none;" @load="scrollToBottom('auto', false)" />
                   </div>
                   
                   <!-- 自定义表情包大图气泡 -->
@@ -5628,13 +5670,27 @@
                 </div>
                 <!-- 用户头像方形圆角化 -->
                 <div class="w-8 h-8 rounded overflow-hidden border border-on-surface/5 bg-surface-low flex-shrink-0 flex items-center justify-center shadow-sm">
-                  <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover" @error="userProfile.avatarUrl = ''" />
-                  <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover" />
+                  <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" @error="userProfile.avatarUrl = ''" />
+                  <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" />
                 </div>
               </div>
 
               <!-- AI 消息（左侧） -->
-              <div v-else-if="msg.role === 'assistant'" class="flex items-start space-x-2">
+              <div
+                v-else-if="msg.role === 'assistant'"
+                class="flex items-start space-x-2 relative select-none"
+                style="touch-action: manipulation;"
+                :class="isMultiSelectMode ? 'cursor-pointer' : ''"
+                @click="isMultiSelectMode && msg.id ? toggleMessageSelect(msg.id) : undefined"
+              >
+                <!-- 多选复选框（左侧，AI消息） -->
+                <div
+                  v-if="isMultiSelectMode && msg.id"
+                  class="flex-shrink-0 self-start mt-1 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all order-first"
+                  :class="selectedMessageIds.has(msg.id) ? 'bg-primary border-primary' : 'border-outline-variant bg-surface'"
+                >
+                  <CheckIcon v-if="selectedMessageIds.has(msg.id)" class="w-3 h-3 text-white" stroke-width="3" />
+                </div>
                 <!-- AI角色头像方形圆角化 -->
                 <div class="w-8 h-8 rounded overflow-hidden border border-on-surface/5 bg-surface flex-shrink-0 flex items-center justify-center shadow-sm">
                   <template v-if="msg.sender_id === 'character_creator_bot'">
@@ -5643,8 +5699,8 @@
                     </div>
                   </template>
                   <template v-else>
-                    <img v-if="msg.sender_id && characterAvatars[msg.sender_id as string]" :src="characterAvatars[msg.sender_id as string]" class="w-full h-full object-cover" />
-                    <img v-else-if="activeCharacter && characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
+                    <img v-if="msg.sender_id && characterAvatars[msg.sender_id as string]" :src="characterAvatars[msg.sender_id as string]" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" />
+                    <img v-else-if="activeCharacter && characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" />
                     <div v-else class="w-full h-full flex items-center justify-center bg-gray-200">
                       <UserIcon class="w-4 h-4 text-gray-400" />
                     </div>
@@ -5658,8 +5714,9 @@
                   <!-- 图片气泡 -->
                   <div 
                     v-if="msg.imageBase64" 
-                    class="mb-1 w-fit rounded-xl overflow-hidden border border-primary/20 shadow-sm cursor-pointer hover:opacity-95 transition-opacity"
-                    @click="openImagePreview({
+                    class="mb-1 w-fit rounded-xl overflow-hidden border border-primary/20 shadow-sm transition-opacity"
+                    :class="isMultiSelectMode ? 'cursor-pointer' : 'cursor-pointer hover:opacity-95'"
+                    @click.stop="isMultiSelectMode && msg.id ? toggleMessageSelect(msg.id) : openImagePreview({
                       base64: msg.imageBase64,
                       filename: msg.imageMeta?.filename || 'ai_drawing.png',
                       relativePath: msg.imageMeta?.relativePath || '',
@@ -5675,7 +5732,8 @@
                     @touchend="onLongPressEnd"
                     @touchmove="onLongPressMove"
                   >
-                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain" @load="scrollToBottom('auto', false)" />
+                    <!-- pointer-events:none 让触摸事件穿透到父容器，-webkit-touch-callout:none 屏蔽 iOS/安卣 原生长按图片上拉菜单 -->
+                    <img :src="msg.imageBase64" class="max-w-full max-h-48 object-contain select-none pointer-events-none" style="-webkit-touch-callout: none; -webkit-user-drag: none;" @load="scrollToBottom('auto', false)" />
                   </div>
 
                   <!-- 自定义表情包大图气泡 -->
@@ -5823,6 +5881,30 @@
             </button>
           </transition>
         </div>
+
+          <!-- 🗂️ 多选删除工具栏（多选模式时替换底部输入区显示） -->
+          <div
+            v-if="isMultiSelectMode"
+            class="border-t border-chat-border bg-surface flex-shrink-0 flex items-center justify-between px-5 py-3 select-none animate-in slide-in-from-bottom-2 duration-200 z-20"
+          >
+            <button
+              @click="exitMultiSelect"
+              class="px-4 py-2 rounded-xl text-xs font-bold text-on-surface-variant hover:bg-on-surface/5 transition-all border border-outline-variant/50 cursor-pointer active:scale-95"
+            >
+              取消
+            </button>
+            <span class="text-xs font-semibold text-on-surface-variant">
+              已选 {{ selectedMessageIds.size }} 条
+            </span>
+            <button
+              @click="confirmBatchDelete"
+              :disabled="selectedMessageIds.size === 0"
+              class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-error hover:bg-error/90 transition-all shadow-sm disabled:opacity-40 cursor-pointer active:scale-95 flex items-center space-x-1.5"
+            >
+              <TrashIcon class="w-3.5 h-3.5" />
+              <span>删除{{ selectedMessageIds.size > 0 ? `（${selectedMessageIds.size}）` : '' }}</span>
+            </button>
+          </div>
 
           <!-- 底部输入区 -->
           <div 
@@ -6237,6 +6319,10 @@
 
       <!-- C. 聊天气泡右键 -->
       <template v-else-if="contextMenu.type === 'message'">
+        <button class="ctx-menu-item" @click="ctxEnterMultiSelect">
+          <CheckSquareIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
+          <span>多选</span>
+        </button>
         <button class="ctx-menu-item" @click="ctxCopyMessage">
           <CopyIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
           <span>复制全文</span>
@@ -9072,7 +9158,8 @@ import {
   AlertOctagon as AlertOctagonIcon,
   MessageSquareHeart as MessageSquareHeartIcon,
   ExternalLink as ExternalLinkIcon,
-  Cloud as CloudIcon
+  Cloud as CloudIcon,
+  CheckSquare as CheckSquareIcon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -10529,6 +10616,7 @@ function getIntimacyPhaseText(val: number | string): string {
 watch(selectedCharacterId, async (newVal) => {
   activePopoverKey.value = null
   showStatesDropdown.value = false // 切换角色时关闭内心下拉框
+  exitMultiSelect()               // 切换角色时自动退出多选模式
   fetchActiveCharacterStates()
   if (newVal) {
     try {
@@ -17863,6 +17951,93 @@ function ctxDeleteMessage() {
     }
   )
 }
+
+// ===================== 多选删除功能 =====================
+
+// 是否处于多选模式
+const isMultiSelectMode = ref(false)
+// 当前已选中的消息 ID 集合
+const selectedMessageIds = ref<Set<string>>(new Set())
+
+// 从右键菜单进入多选模式，并默认选中当前消息
+function ctxEnterMultiSelect() {
+  const msg = contextMenu.message
+  contextMenu.visible = false
+  isMultiSelectMode.value = true
+  selectedMessageIds.value = new Set()
+  if (msg?.id) {
+    selectedMessageIds.value.add(msg.id)
+  }
+}
+
+// 退出多选模式，清空选中
+function exitMultiSelect() {
+  isMultiSelectMode.value = false
+  selectedMessageIds.value = new Set()
+}
+
+// 切换某条消息的选中状态
+function toggleMessageSelect(id: string) {
+  const s = selectedMessageIds.value
+  if (s.has(id)) {
+    s.delete(id)
+  } else {
+    s.add(id)
+  }
+  // 触发响应式更新（Set 变更需要重新赋值）
+  selectedMessageIds.value = new Set(s)
+}
+
+// 批量删除已选消息
+async function confirmBatchDelete() {
+  const char = activeCharacter.value || activeGroupChat.value
+  if (!char || selectedMessageIds.value.size === 0) return
+
+  if (streamingCharsSet.has(char.id)) {
+    showToast('AI 正在回复中，暂时无法删除消息！ ⏳')
+    return
+  }
+
+  const count = selectedMessageIds.value.size
+
+  showCustomConfirm(
+    '确认批量删除',
+    `您确定要彻底物理删除选中的 ${count} 条聊天记录吗？\n\n此操作将从数据库、上下文历史、记忆草稿与缓存中永久抹去，无法撤销。`,
+    async () => {
+      const ids = [...selectedMessageIds.value]
+      let successCount = 0
+
+      for (const msgId of ids) {
+        const res = await window.api.invoke('delete-message', { messageId: msgId })
+        if (res.success) {
+          // 同步从前端消息列表移除
+          const msgs = allMessages[char.id]
+          if (msgs) {
+            const idx = msgs.findIndex((m: any) => m.id === msgId)
+            if (idx !== -1) msgs.splice(idx, 1)
+          }
+          successCount++
+        }
+      }
+
+      exitMultiSelect()
+      showToast(`已成功删除 ${successCount} 条消息记录 🗑️`)
+
+      // 超过 2 条时展示记忆提醒横幅
+      if (successCount > 2) {
+        showMemoryWarningBanner.value = true
+        if (memoryWarningTimer) clearTimeout(memoryWarningTimer)
+        memoryWarningTimer = setTimeout(() => {
+          showMemoryWarningBanner.value = false
+        }, 8000)
+      }
+    }
+  )
+}
+
+// 记忆提醒横幅状态
+const showMemoryWarningBanner = ref(false)
+let memoryWarningTimer: any = null
 
 async function ctxRegenerateMessage() {
   const char = contextMenu.char

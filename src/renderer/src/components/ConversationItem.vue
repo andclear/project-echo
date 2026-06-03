@@ -2,6 +2,7 @@
   <!-- 会话列表条目：显示角色头像、名称、最后消息、时间、未读数、免打扰图标 -->
   <div
     class="px-3 h-[68px] flex-shrink-0 flex items-center space-x-2.5 cursor-pointer transition-colors relative select-none"
+    style="touch-action: manipulation;"
     :class="[
       isSelected ? 'bg-conversation-selected' : (isPinned ? 'bg-secondary/[0.04] dark:bg-secondary/[0.03] hover:bg-conversation-hover' : 'hover:bg-conversation-hover'),
       isMuted ? 'opacity-70' : ''

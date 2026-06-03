@@ -1179,6 +1179,9 @@ function registerIpcHandlers(): void {
           db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${charId}`)
           console.log(`[IPC] 删除消息时清除角色 ${charId} 的记忆草稿。`)
         } catch (_) {}
+
+        // 4. 清除进程内存级前缀缓存（防止删除最后一条 AI 消息后，旧原始内容被还原进下一轮 history 造成上下文污染）
+        delete LastAssistantRawResponse[charId]
       }
 
       return { success: true }
