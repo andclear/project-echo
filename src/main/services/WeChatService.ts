@@ -418,7 +418,7 @@ export class WeChatService {
             }
           } else {
             // 兜底降级：未绑定角色时，将图片消息设为普通文字以触发选秀引导
-            finalUserMessage = '[图片消息]';
+            finalUserMessage = '（用户发来了一张图片）';
           }
         } catch (err: any) {
           console.error('[WeChatService] 下载解密微信图片消息失败:', err);
@@ -674,7 +674,16 @@ export class WeChatService {
       const limit = isDialogue ? 45 : 15;
       const rawHistory = db.getChatHistory(characterId, limit);
       const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
-      const contextText = history.map(h => `${h.role === 'user' ? '用户' : '角色'}: ${h.content}`).join('\n');
+      // 过滤掉 AI 生成图片消息（assistant 图片），用户图片保留占位文字
+      const contextText = history
+        .filter((h: any) => !(h.role === 'assistant' && (h.content || '').startsWith('[wechat_image_media]:')))
+        .map((h: any) => {
+          const label = h.role === 'user' ? '用户' : '角色';
+          const content = (h.role === 'user' && (h.content || '').startsWith('[wechat_image_media]:')
+            ? '（用户发来了一张图片）'
+            : h.content);
+          return `${label}: ${content}`;
+        }).join('\n');
 
       // 5. 注入与 PC 客户端 100% 对称的 NovelAI 4.5 双角色隔离 Pipe 黄金指令
       const systemPrompt = `你是一个非常专业且具有极高艺术审美的 NovelAI 4.5 Full 绘图提示词生成大师。
@@ -842,16 +851,18 @@ export class WeChatService {
       const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
       const chatMessages: ChatMessage[] = [
         { role: 'system', content: this.buildSystemPrompt(characterId) },
-        ...history.map(m => {
-          let content = m.content;
-          if (content.startsWith('[wechat_image_media]:')) {
-            content = '（用户发来了一张图片）';
-          }
-          return {
-            role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-            content: content
-          };
-        }),
+        // 过滤掉 AI 生成图片消息（assistant 图片），保留用户图片占位符
+        ...history
+          .filter((m: any) => !(m.role === 'assistant' && (m.content || '').startsWith('[wechat_image_media]:')))
+          .map((m: any) => {
+            const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
+              ? '（用户发来了一张图片）'
+              : m.content);
+            return {
+              role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+              content: content
+            };
+          }),
         { role: 'user', content: userMessage.startsWith('[wechat_image_media]:') ? '（用户发来了一张图片）' : userMessage }
       ];
 

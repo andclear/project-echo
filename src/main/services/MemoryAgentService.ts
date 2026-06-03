@@ -613,10 +613,13 @@ Target JSON 格式：
     }
     const mergedHistory = mergeChatHistory(rawHistory);
 
+    // 过滤掉 AI 生成图片消息（assistant 图片），用户图片保留占位符
     const cleanHistory = mergedHistory.filter((m: any) => {
       if (!m.content) return false;
       const contentStr = m.content.trim();
       if (contentStr.startsWith('[character_diary]:')) return false;
+      // AI 生成图片消息完全过滤
+      if (m.role !== 'user' && contentStr.startsWith('[wechat_image_media]:')) return false;
       return true;
     });
 
@@ -624,7 +627,10 @@ Target JSON 格式：
     if (cleanHistory.length > 0) {
       historyContext = cleanHistory.map((m: any) => {
         const sender = m.role === 'user' ? 'User' : charName;
-        return `[${sender}]: ${m.content}`;
+        const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
+          ? '（用户发来了一张图片）'
+          : m.content);
+        return `[${sender}]: ${content}`;
       }).join('\n');
     } else {
       historyContext = '*先前没有发生与用户的互动对话。*';
@@ -814,18 +820,24 @@ ${charUserContent}
 
       // 5. 格式化待归并的历史对话文本 (群聊时获取真实 AI 成员名字)并流式反向拼合
       const mergedActiveHistory = mergeChatHistory(activeHistory);
-      const chatTranscript = mergedActiveHistory.map((m: any) => {
-        let name = m.role === 'user' ? 'User' : 'Character';
-        if (isGroup && m.sender_id) {
-          if (m.sender_id === 'user') {
-            name = 'User';
-          } else {
-            const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(m.sender_id) as any;
-            name = charRow ? charRow.name : 'Character';
+      // 过滤掉 AI 生成图片消息（assistant 图片），用户图片保留占位符
+      const chatTranscript = mergedActiveHistory
+        .filter((m: any) => !(m.role !== 'user' && (m.content || '').startsWith('[wechat_image_media]:')))
+        .map((m: any) => {
+          let name = m.role === 'user' ? 'User' : 'Character';
+          if (isGroup && m.sender_id) {
+            if (m.sender_id === 'user') {
+              name = 'User';
+            } else {
+              const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(m.sender_id) as any;
+              name = charRow ? charRow.name : 'Character';
+            }
           }
-        }
-        return `[${name}]: ${m.content}`;
-      }).join('\n');
+          const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
+            ? '（用户发来了一张图片）'
+            : m.content);
+          return `[${name}]: ${content}`;
+        }).join('\n');
 
       // 6. 组装双通道归并 System Prompt (分单聊和群聊分支)
       let systemPrompt = '';
@@ -998,8 +1010,17 @@ Target JSON 格式：
     const limit = isDialogue ? 200 : 100;
     const rawHistory = db.getChatHistory(charId, limit);
     const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
+    // 过滤掉 AI 生成图片消息（assistant 图片），用户图片保留占位符
     const historyContext = history.length > 0
-      ? history.map((m: any) => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n')
+      ? history
+          .filter((m: any) => !(m.role !== 'user' && (m.content || '').startsWith('[wechat_image_media]:')))
+          .map((m: any) => {
+            const label = m.role === 'user' ? 'User' : 'Character';
+            const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
+              ? '（用户发来了一张图片）'
+              : m.content);
+            return `[${label}]: ${content}`;
+          }).join('\n')
       : '（暂无聊天历史）';
 
     // 2. 获取 Soul 性格核心

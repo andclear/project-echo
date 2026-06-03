@@ -347,7 +347,12 @@ function cleanMarkdownBlock(text: string): string {
 }
 
 // 物理清洗存盘的历史消息格式，把 wechat_custom_emoji/wechat_red_packet 等 JSON 格式清洗为对大模型友好的文本提示词，杜绝格式混乱
-function formatMessageContentForLLM(content: string): string {
+/**
+ * 将消息内容格式化为适合 LLM 输入的文本。
+ * - AI 绘图生成的图片消息（role = 'assistant'）：返回空字符串，调用方应将该消息整体过滤掉。
+ * - 用户发送的图片消息（role = 'user'）：返回全角括号叙事描述，避免 LLM 将方括号标记误当作可输出文本。
+ */
+function formatMessageContentForLLM(content: string, role?: string): string {
   if (!content) return ''
   if (content.startsWith('[wechat_custom_emoji]:')) {
     try {
@@ -369,7 +374,10 @@ function formatMessageContentForLLM(content: string): string {
     }
   }
   if (content.startsWith('[wechat_image_media]:')) {
-    return '[图片消息]'
+    // AI 绘图消息（assistant 发出）：返回空字符串，由调用方 filter 掉，绝不让噪音进入上下文
+    if (role === 'assistant') return ''
+    // 用户发送的图片消息：用全角括号叙事描述，避免 LLM 将方括号标记误当作可输出文本
+    return '（用户发来了一张图片）'
   }
   return content
 }
@@ -1655,7 +1663,16 @@ function registerIpcHandlers(): void {
 ### Image Description
 (在这里用中文对画面做一个简述。例如：少女正坐在温馨的咖啡厅窗边，手端着热咖啡，对着镜头微微甜笑，身后是落日余晖洒在街景上。)`
 
-      const contextText = payload.recentMessages.map(m => `${m.role === 'user' ? '用户' : '角色'}: ${m.content}`).join('\n')
+      // 过滤掉 AI 生成图片消息（assistant 图片），用户图片保留为占位文字
+      const contextText = payload.recentMessages
+        .filter((m: any) => !(m.role === 'assistant' && (m.content || '').startsWith('[wechat_image_media]:')))
+        .map((m: any) => {
+          const label = m.role === 'user' ? '用户' : '角色'
+          const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:'))
+            ? '（用户发来了一张图片）'
+            : (m.content || '')
+          return `${label}: ${content}`
+        }).join('\n')
       
       const messages: ChatMessage[] = [
         { role: 'system', content: systemPrompt },
@@ -2318,14 +2335,17 @@ ${soulContent}
           const rawHistory = db.getChatHistory(groupId, limit)
           const history = mergeChatHistory(rawHistory)
 
-          const formattedHistory = history.map((m: any) => {
-            let senderName = 'User'
-            if (m.sender_id !== 'user') {
-              const matched = aiMembers.find(member => member.id === m.sender_id)
-              senderName = matched ? matched.name : 'Character'
-            }
-            return `[${senderName}]: ${formatMessageContentForLLM(m.content)}`
-          }).join('\n')
+          const formattedHistory = history
+            // 过滤掉 AI 生成图片消息（assistant 图片），完全不注入上下文
+            .filter((m: any) => !(m.sender_id !== 'user' && m.content?.startsWith('[wechat_image_media]:')))
+            .map((m: any) => {
+              let senderName = 'User'
+              if (m.sender_id !== 'user') {
+                const matched = aiMembers.find((member: any) => member.id === m.sender_id)
+                senderName = matched ? matched.name : 'Character'
+              }
+              return `[${senderName}]: ${formatMessageContentForLLM(m.content, m.sender_id === 'user' ? 'user' : 'assistant')}`
+            }).join('\n')
 
           const eligibleMembers = aiMembers.filter(m => m.id !== currentSpeakerId)
 
@@ -3309,7 +3329,10 @@ ${memoryContent}
 
       messages = [
         { role: 'system', content: systemPrompt },
-        ...history.map(m => ({ role: m.role as any, content: formatMessageContentForLLM(m.content) }))
+        // 过滤掉 AI 生成图片消息（assistant 图片），保留用户图片占位符
+        ...history
+          .filter((m: any) => !(m.role === 'assistant' && m.content?.startsWith('[wechat_image_media]:')))
+          .map((m: any) => ({ role: m.role as any, content: formatMessageContentForLLM(m.content, m.role) }))
       ]
 
       if (!payload.isRegenerate) {

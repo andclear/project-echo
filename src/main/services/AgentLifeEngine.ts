@@ -499,19 +499,24 @@ export class AgentLifeEngine {
     const limit = isDialogue ? 60 : 20;
     const dbHistory = db.getChatHistory(charId, limit);
     const rawHistory = mergeChatHistory(dbHistory);
-    // 过滤掉日记卡片等非直接对话文本
-    const cleanHistory = rawHistory.filter(m => {
+    // 过滤掉日记卡片和 AI 生成图片消息
+    const cleanHistory = rawHistory.filter((m: any) => {
       if (!m.content) return false;
       const contentStr = m.content.trim();
       if (contentStr.startsWith('[character_diary]:')) return false;
+      // AI 生成图片消息（assistant 图片）完全剔除
+      if (m.role !== 'user' && contentStr.startsWith('[wechat_image_media]:')) return false;
       return true;
     });
 
     let historyContext = '';
     if (cleanHistory.length > 0) {
-      historyContext = cleanHistory.map(m => {
+      historyContext = cleanHistory.map((m: any) => {
         const sender = m.role === 'user' ? 'User' : char.name;
-        return `[${sender}]: ${m.content}`;
+        const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
+          ? '（用户发来了一张图片）'
+          : m.content);
+        return `[${sender}]: ${content}`;
       }).join('\n');
     } else {
       historyContext = '*先前没有发生与用户的互动对话。*';
@@ -539,7 +544,10 @@ export class AgentLifeEngine {
     const historyMessages: ChatMessage[] = [];
     for (const m of cleanHistory) {
       const role = m.role === 'user' ? 'user' : 'assistant';
-      const content = m.content || '';
+      // 用户图片消息用占位符替换，避免原始标记进入 LLM
+      const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
+        ? '（用户发来了一张图片）'
+        : (m.content || ''));
       // 合并连续同角色的发言，但搭讪消息（is_proactive）保持独立不参与合并
       if (
         historyMessages.length > 0 &&
@@ -833,9 +841,16 @@ export class AgentLifeEngine {
     const isDialogue = chatModeRaw === 'dialogue';
     const rawHistory = db.getChatHistory(charId, isDialogue ? 60 : 20);
     const mergedHistory = mergeChatHistory(rawHistory);
-    const cleanHistory = mergedHistory.filter(m => m.content && !m.content.trim().startsWith('[character_diary]:'));
+    // 过滤掉日记卡片和 AI 生成图片消息
+    const cleanHistory = mergedHistory.filter((m: any) => m.content && !m.content.trim().startsWith('[character_diary]:') && !(m.role !== 'user' && m.content.trim().startsWith('[wechat_image_media]:')));
     const historyContext = cleanHistory.length > 0
-      ? cleanHistory.map(m => `[${m.role === 'user' ? 'User' : char.name}]: ${m.content}`).join('\n')
+      ? cleanHistory.map((m: any) => {
+          const label = m.role === 'user' ? 'User' : char.name;
+          const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
+            ? '（用户发来了一张图片）'
+            : m.content);
+          return `[${label}]: ${content}`;
+        }).join('\n')
       : '*先前没有发生与用户的互动对话。*';
 
     const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
@@ -1062,10 +1077,12 @@ export class AgentLifeEngine {
     }
     const mergedHistory = mergeChatHistory(rawHistory);
 
+    // 过滤掉日记卡片和 AI 生成图片消息
     const cleanHistory = mergedHistory.filter((m: any) => {
       if (!m.content) return false;
       const contentStr = m.content.trim();
       if (contentStr.startsWith('[character_diary]:')) return false;
+      if (m.role !== 'user' && contentStr.startsWith('[wechat_image_media]:')) return false;
       return true;
     });
 
@@ -1073,7 +1090,10 @@ export class AgentLifeEngine {
     if (cleanHistory.length > 0) {
       historyContext = cleanHistory.map((m: any) => {
         const sender = m.role === 'user' ? 'User' : charName;
-        return `[${sender}]: ${m.content}`;
+        const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
+          ? '（用户发来了一张图片）'
+          : m.content);
+        return `[${sender}]: ${content}`;
       }).join('\n');
     } else {
       historyContext = '*先前没有发生与用户的互动对话。*';
