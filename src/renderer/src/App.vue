@@ -16759,21 +16759,21 @@ onMounted(async () => {
       }
       if (!isDuplicate) {
         msgs.push(restoreMessageProps(msg))
+        
+        // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
+        if (selectedCharacterId.value !== charId || !isChattingActive.value) {
+          if (!conversationMeta[charId]) {
+            conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
+          }
+          conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
+          window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
+        } else {
+          // 收到主动搭讪消息时强制置底，让用户看到最新内容
+          nextTick(() => scrollToBottom('smooth', true))
+        }
       } else {
         console.log('[Deduplication] proactive-chat-message 成功过滤并查杀重复消息:', msg.id)
       }
-    }
-    
-    // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
-    if (selectedCharacterId.value !== charId || !isChattingActive.value) {
-      if (!conversationMeta[charId]) {
-        conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
-      }
-      conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
-      window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
-    } else {
-      // 收到主动搭讪消息时强制置底，让用户看到最新内容
-      nextTick(() => scrollToBottom('smooth', true))
     }
   })
 
@@ -16973,11 +16973,14 @@ onMounted(async () => {
         } catch { msgCharMode = 'descriptive' }
         characterChatModeCache[charId] = msgCharMode
       }
+      
+      let hasIncrementedUnread = false
       if (msgCharMode === 'dialogue' && msg.role === 'assistant' && !isSpecialMsg) {
         // 🚀 纯文字对话模式下，收到主动回复或搭讪消息（非时序重复）时，严禁直接扁平化瞬间 push 出来！
         // 而是物理调用微信级仿真播放器 handleAssistantResponse 进行逐句延迟打字弹射播放，保障视觉与逻辑完全统一！
         const char = characterList.value.find(c => c.id === charId)
         if (char) {
+          hasIncrementedUnread = true // 由于 handleAssistantResponse 内部会自增并保存未读数，这里标记为已由其自增
           const isWebClient = !window.electron || (window.api && (window.api as any).isIpcBridge);
           if (isWebClient) {
             const msgId = msg.id;
@@ -17027,18 +17030,20 @@ onMounted(async () => {
         const flattened = flattenMessages([msg], charId)
         msgs.push(...flattened.map(m => restoreMessageProps(m)))
       }
-    }
-    
-    // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
-    if (selectedCharacterId.value !== charId || !isChattingActive.value) {
-      if (!conversationMeta[charId]) {
-        conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
+      
+      // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
+      if (selectedCharacterId.value !== charId || !isChattingActive.value) {
+        if (!hasIncrementedUnread) {
+          if (!conversationMeta[charId]) {
+            conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
+          }
+          conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
+          window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
+        }
+      } else {
+        // 收到新消息时强制置底（force=true 跳过防抖保护，不因用户之前在上方阅读而拒绝置底）
+        nextTick(() => scrollToBottom('smooth', true))
       }
-      conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
-      window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
-    } else {
-      // 收到新消息时强制置底（force=true 跳过防抖保护，不因用户之前在上方阅读而拒绝置底）
-      nextTick(() => scrollToBottom('smooth', true))
     }
     })()
   }) // end window.api.receive
