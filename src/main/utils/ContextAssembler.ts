@@ -5,6 +5,8 @@ import { UserProfileReaderWriter } from './UserProfileReaderWriter';
 import { StateReaderWriter } from './StateReaderWriter';
 import { getDatabaseService } from '../db/database';
 import { SummaryReaderWriter } from './SummaryReaderWriter';
+import { WeatherService } from './WeatherService';
+
 
 /**
  * 历史消息格式接口
@@ -581,7 +583,23 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     const dateStrEN = `${dayNameEN}, ${monthName} ${day}, ${year} ${hours}:00 (Hour-level accuracy)`;
     const dateStrCN = `${year}年${date.getMonth() + 1}月${day}日 ${dayNameCN} 【时段：${timeOfDay}】 ${hours}时`;
 
-    return `## Live Environment Info\n- Current real-world time: ${dateStrEN}\n- 当前现实世界时间：${dateStrCN}\n- 时段感知：现在是${timeOfDay}，请根据实际时段调整你的状态和回复语气。`;
+    let weatherSection = '';
+    try {
+      const db = getDatabaseService();
+      const profileStr = db.getSetting('echo_user_profile');
+      if (profileStr) {
+        const parsed = JSON.parse(profileStr);
+        if (parsed.location) {
+          const location = parsed.location.trim();
+          if (location) {
+            const weatherText = WeatherService.getWeatherSync(location);
+            weatherSection = `\n- 用户所在地：${location}${weatherText ? `\n- 所在地实时天气：${weatherText}\n- 环境与温度感知：现在是${timeOfDay}，${location}外面是 ${weatherText}。请在合适的时候将这些外部环境（时间、气温、阴晴雨雪）自然地融入进你的神态细节、动作描写与日常聊天对话中，让交流共振。` : ''}`;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return `## Live Environment Info\n- Current real-world time: ${dateStrEN}\n- 当前现实世界时间：${dateStrCN}\n- 时段感知：现在是${timeOfDay}，请根据实际时段调整你的状态和回复语气。${weatherSection}`;
   }
 
   /**

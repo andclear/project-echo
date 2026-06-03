@@ -7,6 +7,8 @@ import { StateReaderWriter } from '../utils/StateReaderWriter';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { NovelAiService } from './NovelAiService';
+import { WeatherService } from '../utils/WeatherService';
+
 
 export class SocialMediaService {
   private storageManager: CharacterStorageManager;
@@ -192,8 +194,34 @@ Please make sure your Moments post subtly reflects your current mood and these c
 2. 【配图生图结合】：如果有配图，你的 <image_prompt> 英文生图 tags 必须高度符合高尺度 NSFW 性感写真或挑逗姿态风格（展示迷人身段、情趣衣着或诱人姿态等，完全自然发挥），且朋友圈正文要极其下流或露骨地提及该照片中的内容（例如评价自己拍的艳照、调侃自己的身体或对读者的私密勾引）！`;
     }
 
+    // 异步拉取当前所在地天气数据，并加入2秒超时保护
+    let weatherInfoText = '';
+    try {
+      const profileStr = db.getSetting('echo_user_profile');
+      if (profileStr) {
+        const parsed = JSON.parse(profileStr);
+        if (parsed.location) {
+          await Promise.race([
+            WeatherService.prefetchWeather(parsed.location.trim()),
+            new Promise(resolve => setTimeout(resolve, 2000))
+          ]);
+          const weatherVal = WeatherService.getWeatherSync(parsed.location.trim());
+          if (weatherVal) {
+            weatherInfoText = `\n【用户所在地及当前天气环境 (User Location & Weather)】：当前用户所在的城市为 ${parsed.location.trim()}，该地当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的生活背景。`;
+          }
+        }
+      }
+    } catch (_) {}
+
+    const now = new Date();
+    const dayNamesCN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+    const todayStrCN = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${dayNamesCN[now.getDay()]}`;
+    const todayTimeStr = `\n【当前现实世界精准时间 (Current Real-world Time)】：今天是 ${todayStrCN}。请以这个当前时间为最高权威背景参考。在你根据 Schedule.md（日程表）选取发帖素材时，请务必特别注意：比今天更晚的日期是尚未发生的【未来日程规划】，你绝对不能以已经发生、过去的回忆或正在经历的口吻在朋友圈中“剧透/抢跑”这些日程！如果一定要写，必须使用“期待明天...”、“明天打算...”等尚未发生的规划口吻。`;
+
     const systemPrompt = `You are ${char.name}. You are writing a short post for your Moments (like WeChat Moments /朋友圈) in Simplified Chinese.
 Moments posts are public, lighthearted, and casual. It should NEVER look like a private diary. It should be natural, expressive, and fit your personality perfectly.
+${todayTimeStr}
+${weatherInfoText}
 
 Personality Soul Profile:
 ${soulContent}
@@ -496,8 +524,34 @@ Please make sure your forum post subtly reflects your current mood and these cus
 2. 【生图提示词要求】：如果有配图，你的 <image_prompt> 英文生图 tags 必须高度契合 NSFW 场景，精细展示出极高尺度的身体姿态、衣着诱惑或极具感官冲击力的画面，且帖子正文中必须对图片有极其露骨、肉欲或挑逗性的直接指代与大篇幅评价！`;
     }
 
+    // 异步拉取当前所在地天气数据，并加入2秒超时保护
+    let weatherInfoText = '';
+    try {
+      const profileStr = db.getSetting('echo_user_profile');
+      if (profileStr) {
+        const parsed = JSON.parse(profileStr);
+        if (parsed.location) {
+          await Promise.race([
+            WeatherService.prefetchWeather(parsed.location.trim()),
+            new Promise(resolve => setTimeout(resolve, 2000))
+          ]);
+          const weatherVal = WeatherService.getWeatherSync(parsed.location.trim());
+          if (weatherVal) {
+            weatherInfoText = `\n【用户所在地及当前天气环境 (User Location & Weather)】：当前用户所在的城市为 ${parsed.location.trim()}，该地当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的论坛写作背景。`;
+          }
+        }
+      }
+    } catch (_) {}
+
+    const now = new Date();
+    const dayNamesCN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+    const todayStrCN = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${dayNamesCN[now.getDay()]}`;
+    const todayTimeStr = `\n【当前现实世界精准时间 (Current Real-world Time)】：今天是 ${todayStrCN}。请以这个当前时间为最高权威背景参考。在你根据 Schedule.md（日程表）选取发帖素材时，请务必特别注意：比今天更晚的日期是尚未发生的【未来日程规划】，你绝对不能以已经发生、过去的回忆或正在经历的口吻在论坛发帖中“剧透/抢跑”这些日程！如果一定要写，必须使用“期待明天...”、“明天打算...”等尚未发生的规划口吻。`;
+
     const systemPrompt = `You are ${char.name}. You are posting a thread/article in the "${boardName}" section of an online community forum in Simplified Chinese.
 Forum posts are formal, structured, detailed, and opinionated (like a blog or a detailed question/sharing). It should be deeply related to the current board category ("${boardName}") as well as your personal goals, schedules, or world views.
+${todayTimeStr}
+${weatherInfoText}
 
 Personality Soul Profile:
 ${soulContent}
@@ -834,8 +888,28 @@ Please strictly apply these relationship constraints, mood, and custom personali
 2. 如果被评论者是其他 AI 角色，用戏谑、露骨或成人级的幽默语气进行 NSFW 暗示或挑逗性调侃，完美维持你的性张力人设！`;
           }
 
+          // 异步拉取当前所在地天气数据，并加入2秒超时保护
+          let weatherInfoText = '';
+          try {
+            const profileStr = db.getSetting('echo_user_profile');
+            if (profileStr) {
+              const parsed = JSON.parse(profileStr);
+              if (parsed.location) {
+                await Promise.race([
+                  WeatherService.prefetchWeather(parsed.location.trim()),
+                  new Promise(resolve => setTimeout(resolve, 2000))
+                ]);
+                const weatherVal = WeatherService.getWeatherSync(parsed.location.trim());
+                if (weatherVal) {
+                  weatherInfoText = `\n【用户所在地及当前天气环境 (User Location & Weather)】：当前用户所在的城市为 ${parsed.location.trim()}，该地当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的环境背景。`;
+                }
+              }
+            }
+          } catch (_) {}
+
           const systemPrompt = `You are ${char.name}. You are commenting on ${target.author_name}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${target.author_name} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}
 Your comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.
+${weatherInfoText}
 
 Personality Soul Profile:
 ${soulContent}${memoryInjection}

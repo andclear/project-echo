@@ -11,6 +11,8 @@ import { NovelAiService } from './NovelAiService';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { ContextAssembler } from '../utils/ContextAssembler';
 import { MemoryAgentService } from './MemoryAgentService';
+import { WeatherService } from '../utils/WeatherService';
+
 
 export interface WakeContext {
   wakeAgent: boolean;
@@ -443,6 +445,20 @@ export class AgentLifeEngine {
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
 
+    // 异步拉取当前所在地天气数据，并加入2秒超时保护
+    try {
+      const profileStr = db.getSetting('echo_user_profile');
+      if (profileStr) {
+        const parsed = JSON.parse(profileStr);
+        if (parsed.location) {
+          await Promise.race([
+            WeatherService.prefetchWeather(parsed.location.trim()),
+            new Promise(resolve => setTimeout(resolve, 2000))
+          ]);
+        }
+      }
+    } catch (_) {}
+
     const timeDesc = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
     const hour = now.getHours();
     let period = '深夜';
@@ -837,6 +853,20 @@ export class AgentLifeEngine {
     const memoryStr = ContextAssembler.assembleMemory(memoryPath);
     const stateGuidance = ContextAssembler.assembleStateGuidance(soulPath);
 
+    // 异步拉取当前所在地天气数据，并加入2秒超时保护
+    try {
+      const profileStr = db.getSetting('echo_user_profile');
+      if (profileStr) {
+        const parsed = JSON.parse(profileStr);
+        if (parsed.location) {
+          await Promise.race([
+            WeatherService.prefetchWeather(parsed.location.trim()),
+            new Promise(resolve => setTimeout(resolve, 2000))
+          ]);
+        }
+      }
+    } catch (_) {}
+
     // 获取今天的具体日程事件（若有）
     const todayScheduleEvent = this.getTodayScheduleEvent(folderName, now);
 
@@ -845,6 +875,7 @@ export class AgentLifeEngine {
       `你是 ${char.name}，现在处于完全私密的自我内省状态。\n` +
       `你的任务：根据今天发生的一切，写下一篇属于你自己的日记。这篇日记是私密的，不会被任何人看到。\n\n` +
       `---\n\n` +
+      `## 今日实时环境与天气 (Live Environment & Weather)\n${ContextAssembler.assembleLiveEnvInfo(now)}\n\n` +
       `## 你的性格核心 (Soul.md)\n${soulContent}\n\n` +
       `## 世界观背景 (World.md)\n${worldContent}\n\n` +
       `## 你对用户的了解 (User Profiles)\n${userProfilesXml}\n\n` +

@@ -871,8 +871,8 @@ export class ModelAdapter {
   ): Promise<ChatResponse> {
     let processedMessages = this.preprocessRedPackets(messages)
     if (!options?.skipSystemInjection) {
-      processedMessages = this.injectCurrentTimePrompt(processedMessages)
       processedMessages = this.injectGlobalPrompt(processedMessages)
+      processedMessages = this.injectCurrentTimePrompt(processedMessages)
       processedMessages = this.replaceUserPlaceholders(processedMessages)
       processedMessages = this.replaceCharacterPlaceholders(processedMessages, options)
     }
@@ -901,8 +901,8 @@ export class ModelAdapter {
   ): AsyncGenerator<ChatChunk, void, unknown> {
     let processedMessages = this.preprocessRedPackets(messages)
     if (!options?.skipSystemInjection) {
-      processedMessages = this.injectCurrentTimePrompt(processedMessages)
       processedMessages = this.injectGlobalPrompt(processedMessages)
+      processedMessages = this.injectCurrentTimePrompt(processedMessages)
       processedMessages = this.replaceUserPlaceholders(processedMessages)
       processedMessages = this.replaceCharacterPlaceholders(processedMessages, options)
     }

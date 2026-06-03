@@ -5,7 +5,7 @@ export class CharacterSummarizer {
   /**
    * 自动调用大模型，归纳总结性格设定 Soul.md 与 世界设定 World.md
    */
-  public static async summarize(cardData: any): Promise<{ soul: string; world: string }> {
+  public static async summarize(cardData: any, userInstruction?: string): Promise<{ soul: string; world: string }> {
     const db = getDatabaseService()
     const configStr = db.getSetting('model_config')
     
@@ -92,7 +92,7 @@ ${filteredEntries.length === 0 ? '（暂无任何世界书条目设定）' : fil
 1. 【核心防混淆规则】主角的名字是：${name}。世界书中大部分条目介绍的是其他 NPC 设定。请注意别弄混，绝对不要把 NPC 的外貌、人设或身份误当成主角 ${name} 的设定！
 2. 【主角设定世界书融合】部分角色卡在设计时，偶尔会将属于主角 ${name} 的人设补充写入到世界书条目中。如果发现条目的内容明确属于主角 ${name} 本身，请将其吸收整合进性格与人设中。
 3. 【系统名/卡包名真名智能纠偏】原始数据中的卡片姓名（"${name}"）可能会被卡片作者误设为系统、卡包或世界观的名称（例如“xxx系统”、“碧蓝航线背景”）。请你仔细阅读“人设简介（description）”与“开场白”，如果发现原始姓名属于此类系统或背景词，请你【主动识别并提取出真正的主角姓名】，并在性格人设提炼中，全部以该真实主角的视角与设定进行精炼和总结，绝不要把系统当成角色人设本身。
-4. 【纯简体中文输出限制】你必须完全使用简体中文（Simplified Chinese）来撰写和提炼所有的性格人设细节，绝对不能输出英文或其他语言的内容。
+4. 【纯简体中文输出限制】你必须完全使用简体中文（Simplified Chinese）来撰写和提炼所有的性格人设细节，绝对不能输出英文或其他语言的内容。${userInstruction ? `\n5. 【用户修正要求（最高优先级，必须严格遵守）】用户对本次提炼提出了明确的修正要求，你必须完全按照此要求进行重新总结：${userInstruction}` : ''}
 
 字数建议控制在 800 字左右。不要说任何“这是提炼后的性格”等分析性废话，直接以 Markdown 标题 (# 角色设定 - 性格与人设) 开始输出。
 
@@ -110,7 +110,7 @@ ${cleanWorldInput}
 在总结提炼时，你必须【严格遵守】以下三点规范：
 1. 【条目优先级重排提炼】下方世界书条目已按常驻属性排序，常驻（constant=true）条目拥有最高优先级，非常驻（constant=false）条目优先级次之，请在总结时合理赋予相应的设定权重。
 2. 【剔除客户端美化与状态栏标准】如果条目中包含任何关于卡片美化、对话框状态栏渲染、特定格式代码展示要求等输出标准规范，请【直接忽略并完全剔除】，绝对不要写入 World.md 中。
-3. 【纯简体中文输出限制】你必须完全使用简体中文（Simplified Chinese）来撰写和提炼所有的世界观与背景设定，绝对不能输出英文或其他语言的总结。
+3. 【纯简体中文输出限制】你必须完全使用简体中文（Simplified Chinese）来撰写和提炼所有的世界观与背景设定，绝对不能输出英文或其他语言的总结。${userInstruction ? `\n4. 【用户修正要求（最高优先级，必须严格遵守）】用户对本次提炼提出了明确的修正要求，你必须完全按照此要求进行重新总结：${userInstruction}` : ''}
 
 字数建议控制在 1000 字左右。不要说任何引言、导语或废话，直接以 Markdown 标题 (# 世界设定 - 世界背景) 开始输出。
 

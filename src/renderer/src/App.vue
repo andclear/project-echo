@@ -125,7 +125,7 @@
         <!-- 用户头像（点击进入个人设置） -->
         <div
           class="w-10 h-10 rounded overflow-hidden border-2 border-nav-avatar-border hover:opacity-90 transition-all mb-5 flex-shrink-0 shadow-md cursor-pointer"
-          @click="showUserProfileModal = true; userProfileActiveTab = 'profile'; userMdEditing = false"
+          @click="sideView = 'settings'; activeSettingsTab = 'profile'; userProfileActiveTab = 'profile'; userMdEditing = false"
         >
           <img
             v-if="userProfile.avatarUrl"
@@ -256,7 +256,7 @@
               <div
                 v-if="isMobile"
                 class="w-[28px] h-[28px] rounded-md overflow-hidden border border-outline-variant bg-surface flex-shrink-0 cursor-pointer shadow-sm active:scale-95 transition-all"
-                @click="showUserProfileModal = true; userProfileActiveTab = 'profile'; userMdEditing = false"
+                @click="sideView = 'settings'; activeSettingsTab = 'profile'; userProfileActiveTab = 'profile'; userMdEditing = false"
                 title="点击修改个人信息"
               >
                 <img
@@ -474,10 +474,17 @@
               </div>
             </div>
           </div>
-          <!-- 底部版本与客户端名称 -->
-          <div class="px-4 py-3.5 border-t border-sidebar-border/30 text-[10px] text-on-surface-variant/40 font-mono flex-shrink-0 select-none">
-            <div>Echo - 回音 v1.0.2</div>
-            <div class="mt-0.5 opacity-60">AIRP 聊天客户端</div>
+          <!-- 底部所在地与天气 -->
+          <div 
+            class="px-4 py-3 border-t border-sidebar-border/30 text-[10px] text-on-surface-variant/60 font-sans flex-shrink-0 select-none flex items-center space-x-2.5 cursor-pointer hover:bg-surface-high/30 active:scale-[0.98] transition-all"
+            title="点击强制刷新天气信息"
+            @click="fetchRealtimeWeather(true)"
+          >
+            <CloudIcon class="w-3.5 h-3.5 text-primary/75 shrink-0" stroke-width="1.8" />
+            <div class="flex-1 min-w-0">
+              <div class="font-bold text-on-surface truncate">{{ userProfile.location || '未设置所在地' }}</div>
+              <div class="text-[9px] text-on-surface-variant/60 truncate mt-0.5">{{ userWeatherText || '正在加载天气...' }}</div>
+            </div>
           </div>
         </template>
         
@@ -1982,6 +1989,137 @@
 
               </div>
 
+              <!-- 个人中心 (Tab: profile) -->
+              <div v-else-if="activeSettingsTab === 'profile'" class="space-y-6 animate-in fade-in duration-200 select-none">
+                <!-- 选项卡切换页签 -->
+                <div class="flex bg-surface-high/60 border border-outline-variant/10 rounded-xl p-1 space-x-1">
+                  <button
+                    @click="userProfileActiveTab = 'profile'"
+                    class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-center cursor-pointer font-sans"
+                    :class="userProfileActiveTab === 'profile' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-high/30'"
+                  >
+                    基础资料
+                  </button>
+                  <button
+                    @click="userProfileActiveTab = 'userMd'"
+                    class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-center cursor-pointer font-sans"
+                    :class="userProfileActiveTab === 'userMd' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-high/30'"
+                  >
+                    个人设定（全局）
+                  </button>
+                </div>
+
+                <div class="space-y-5">
+                  <!-- A. 基础资料页签 -->
+                  <template v-if="userProfileActiveTab === 'profile'">
+                    <!-- 个人名片卡片 -->
+                    <div class="p-5 rounded-2xl bg-surface-low/40 border border-outline-variant/15 flex items-center space-x-4">
+                      <div class="w-16 h-16 rounded overflow-hidden border border-outline-variant bg-surface flex-shrink-0 cursor-pointer relative group transition-all hover:scale-102 active:scale-98" @click="triggerAvatarInput">
+                        <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover" />
+                        <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover" />
+                        <div class="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          <CameraIcon class="w-4 h-4 text-white" />
+                        </div>
+                      </div>
+                      <input ref="avatarFileInput" type="file" accept="image/*" class="hidden" @change="handleAvatarChange" />
+                      <div class="flex-1 min-w-0 select-text">
+                        <div class="text-xs font-bold text-on-surface truncate">{{ userProfile.nickname || '未设置姓名' }}</div>
+                        <div class="text-[10px] text-on-surface-variant truncate mt-1 leading-relaxed opacity-85">{{ userProfile.signature || '这个人很懒，什么都没留下' }}</div>
+                        <div class="text-[10px] text-on-surface-variant mt-2 flex items-center space-x-1 font-semibold opacity-75">
+                          <GlobeIcon class="w-3.5 h-3.5 text-primary" />
+                          <span>{{ userProfile.location || '未知所在地' }}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 网格编辑表单 -->
+                    <div class="grid grid-cols-2 gap-4 select-text">
+                      <div class="space-y-1.5 col-span-1">
+                        <label class="text-[10px] uppercase font-bold text-on-surface-variant font-mono">姓名</label>
+                        <input v-model="userProfile.nickname" type="text" placeholder="设置姓名" class="form-input text-xs w-full px-3 py-2 rounded-xl bg-surface border border-outline-variant focus:outline-none focus:border-primary transition-all" />
+                      </div>
+                      <div class="space-y-1.5 col-span-1 relative">
+                        <label class="text-[10px] uppercase font-bold text-on-surface-variant font-mono">所在地</label>
+                        <input 
+                          v-model="userProfile.location" 
+                          type="text" 
+                          placeholder="设置所在地" 
+                          @focus="locationFocus = true"
+                          @blur="locationFocus = false"
+                          class="form-input text-xs w-full px-3 py-2 rounded-xl bg-surface border border-outline-variant focus:outline-none focus:border-primary transition-all" 
+                        />
+                        <!-- 离线联想下拉列表 -->
+                        <div v-if="filteredCities.length > 0" class="absolute left-0 right-0 top-full mt-1 bg-surface border border-outline-variant/65 rounded-xl shadow-xl z-50 overflow-hidden text-xs max-h-48 overflow-y-auto backdrop-blur-md bg-surface/95 animate-in fade-in slide-in-from-top-1 duration-150 select-none">
+                          <div 
+                            v-for="item in filteredCities" 
+                            :key="item.full" 
+                            @mousedown="selectCity(item)"
+                            class="px-3 py-2 hover:bg-primary/10 hover:text-primary cursor-pointer transition-colors border-b border-outline-variant/10 last:border-none flex justify-between items-center"
+                          >
+                            <span class="font-medium">{{ item.p === item.c ? item.c + item.d : item.p + item.c + item.d }}</span>
+                            <span class="text-[9px] text-on-surface-variant/50 font-mono">{{ item.display }}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="space-y-1.5 col-span-2">
+                        <label class="text-[10px] uppercase font-bold text-on-surface-variant font-mono">个性签名</label>
+                        <input v-model="userProfile.signature" type="text" placeholder="设置个性签名" class="form-input text-xs w-full px-3 py-2 rounded-xl bg-surface border border-outline-variant focus:outline-none focus:border-primary transition-all" />
+                      </div>
+                    </div>
+
+                    <!-- 数字钱包卡片 -->
+                    <div class="p-4 rounded-2xl bg-gradient-to-r from-primary/5 to-secondary/5 border border-outline-variant/15 flex items-center justify-between mt-1 select-text">
+                      <div class="flex flex-col space-y-0.5 select-none">
+                        <span class="text-[9px] font-bold text-on-surface-variant/80 uppercase font-mono tracking-wider">我的钱包 (回音虚拟币)</span>
+                        <span class="text-base font-black text-primary font-mono">{{ userProfile.walletBalance }} <span class="text-[10px] font-normal text-on-surface-variant">元</span></span>
+                      </div>
+                      <div class="w-5/12 flex items-center space-x-2">
+                        <label class="text-[10px] text-on-surface-variant font-bold shrink-0">充值额度</label>
+                        <input v-model.number="userProfile.walletBalance" type="number" min="0" placeholder="0" class="form-input text-xs py-1.5 px-2 text-center bg-surface border border-outline-variant rounded-xl w-full focus:outline-none focus:border-primary transition-all" />
+                      </div>
+                    </div>
+                  </template>
+
+                  <!-- B. 全局画像页签 -->
+                  <template v-else>
+                    <div class="flex flex-col space-y-3 min-h-[300px] h-[400px]">
+                      <div class="text-[10px] text-error font-bold leading-normal select-none">
+                        ⚠️ 用户设定的名称请与基础资料中的姓名保持一致
+                      </div>
+                      <div class="flex items-center justify-between select-none">
+                        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">全局用户画像 (USER.md)</span>
+                        <button
+                          @click="userMdEditing = !userMdEditing"
+                          class="flex items-center space-x-1.5 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-lg transition-all font-bold cursor-pointer select-none"
+                        >
+                          <component :is="userMdEditing ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                          <span>{{ userMdEditing ? '编辑源码' : '预览文档' }}</span>
+                        </button>
+                      </div>
+                      
+                      <!-- 预览模式 -->
+                      <div v-if="!userMdEditing" class="flex-1 p-4 rounded-xl border border-outline-variant/15 bg-surface-low/30 text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-inner h-full font-sans" v-html="renderMarkdown(globalUserMdContent || '*暂无全局用户设定*')">
+                      </div>
+                      <!-- 编辑模式 -->
+                      <textarea v-else v-model="globalUserMdContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant/15 rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner h-full"></textarea>
+                    </div>
+                  </template>
+
+                  <!-- 保存按钮 -->
+                  <div class="flex justify-end pt-3 border-t border-outline-variant/10">
+                    <button
+                      @click="saveUserProfile"
+                      :disabled="saving"
+                      class="btn-primary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-6 font-bold rounded-xl active:scale-95 transition-all select-none cursor-pointer"
+                    >
+                      <Loader2Icon v-if="saving" class="w-3.5 h-3.5 animate-spin" />
+                      <SaveIcon v-else class="w-3.5 h-3.5" />
+                      <span>保存并生效</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <!-- A.2 状态栏设置 (Tab: states) -->
               <div v-else-if="activeSettingsTab === 'states'" class="space-y-6 animate-in fade-in duration-200">
                 <!-- 预设创建/编辑面板 -->
@@ -3051,12 +3189,71 @@
                       </a>
                     </div>
                   </div>
+
+                  <!-- 🚀 致谢部分 -->
+                  <div class="pt-4 border-t border-outline-variant/10">
+                    <div
+                      @click="showAcknowledgements = !showAcknowledgements"
+                      class="flex items-center justify-between cursor-pointer select-none py-1.5 group"
+                    >
+                      <div class="space-y-1">
+                        <h3 class="text-xs font-bold text-on-surface uppercase tracking-wider font-mono flex items-center space-x-1.5">
+                          <span>致谢</span>
+                          <span class="text-[10px] font-normal text-on-surface-variant/50 group-hover:text-primary transition-colors animate-pulse">
+                            (点击展开/折叠)
+                          </span>
+                        </h3>
+                        <p class="text-[10px] text-on-surface-variant/80">
+                          本项目学习/参考了部分以下开源项目的内容。
+                        </p>
+                      </div>
+                      <ChevronDownIcon
+                        class="w-4 h-4 text-on-surface-variant transition-transform duration-300 group-hover:text-primary"
+                        :class="{ 'rotate-180': showAcknowledgements }"
+                      />
+                    </div>
+
+                    <!-- 折叠展开的内容区域 -->
+                    <div
+                      class="grid transition-all duration-300 ease-in-out"
+                      :class="showAcknowledgements ? 'grid-rows-[1fr] opacity-100 mt-3' : 'grid-rows-[0fr] opacity-0 overflow-hidden'"
+                    >
+                      <div class="overflow-hidden">
+                        <div class="divide-y divide-outline-variant/10">
+                          <div
+                            v-for="(item, idx) in acknowledgementsList"
+                            :key="idx"
+                            class="py-2.5 px-1 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-primary/5 transition-all duration-150 group gap-2"
+                          >
+                            <div class="flex items-center space-x-2.5 min-w-0">
+                              <span class="text-xs font-bold text-on-surface group-hover:text-primary transition-colors truncate">
+                                {{ item.projectName }}
+                              </span>
+                              <span class="text-[10px] text-on-surface-variant/60 shrink-0">
+                                作者: {{ item.author }}
+                              </span>
+                            </div>
+                            <div class="flex items-center min-w-0">
+                              <a
+                                :href="item.url"
+                                target="_blank"
+                                class="text-[10px] font-mono text-on-surface-variant hover:text-primary hover:underline cursor-pointer flex items-center space-x-1 truncate max-w-full"
+                              >
+                                <span class="truncate max-w-[240px] sm:max-w-[360px]">{{ item.url }}</span>
+                                <ExternalLinkIcon class="w-3 h-3 opacity-60 group-hover:opacity-100 group-hover:text-primary transition-opacity shrink-0" />
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
             <!-- 固定底部操作粘滞栏 -->
-            <div v-if="activeSettingsTab !== 'about' && activeSettingsTab !== 'migration'" class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none">
+            <div v-if="activeSettingsTab !== 'about' && activeSettingsTab !== 'migration' && activeSettingsTab !== 'profile'" class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none">
               <div class="flex items-center justify-between max-w-3xl w-full mx-auto">
                 <button 
                   v-if="activeSettingsTab === 'drawing'"
@@ -6063,117 +6260,7 @@
       </template>
     </div>
 
-    <!-- ========================= 弹窗：用户个人设置 ========================= -->
-    <div v-if="showUserProfileModal" class="modal-overlay" @click.self="closeUserProfileModal">
-      <div class="modal-panel flex flex-col overflow-hidden transition-all duration-300 shadow-2xl" :class="userProfileActiveTab === 'userMd' ? 'w-[640px] h-[580px]' : 'w-[380px] h-[480px]'">
-        <div class="modal-header flex-shrink-0">
-          <span>个人中心</span>
-          <button @click="closeUserProfileModal" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
-        </div>
 
-        <!-- 选项卡切换页签 -->
-        <div class="flex border-b border-outline-variant/30 flex-shrink-0 bg-surface">
-          <button
-            @click="userProfileActiveTab = 'profile'"
-            class="flex-1 py-2.5 text-xs font-bold border-b-2 transition-all text-center"
-            :class="userProfileActiveTab === 'profile' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
-          >
-            基础资料
-          </button>
-          <button
-            @click="userProfileActiveTab = 'userMd'"
-            class="flex-1 py-2.5 text-xs font-bold border-b-2 transition-all text-center"
-            :class="userProfileActiveTab === 'userMd' ? 'border-primary text-primary' : 'border-transparent text-on-surface-variant hover:text-on-surface'"
-          >
-            个人设定（全局）
-          </button>
-        </div>
-
-        <div class="p-5 overflow-y-auto flex-1 flex flex-col min-h-0 space-y-4">
-          <!-- A. 基础资料页签 -->
-          <template v-if="userProfileActiveTab === 'profile'">
-            <!-- 个人名片卡片 -->
-            <div class="p-4 rounded-xl bg-surface-low border border-outline-variant/60 shadow-sm flex items-center space-x-4">
-              <div class="w-14 h-14 rounded overflow-hidden border-2 border-on-surface/5 cursor-pointer relative group flex-shrink-0" @click="triggerAvatarInput">
-                <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover" />
-                <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover" />
-                <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <CameraIcon class="w-4 h-4 text-white" />
-                </div>
-              </div>
-              <input ref="avatarFileInput" type="file" accept="image/*" class="hidden" @change="handleAvatarChange" />
-              <div class="flex-1 min-w-0">
-                <div class="text-xs font-bold text-on-surface truncate">{{ userProfile.nickname || '未设置姓名' }}</div>
-                <div class="text-[10px] text-on-surface-variant truncate mt-0.5 opacity-80">{{ userProfile.signature || '这个人很懒，什么都没留下' }}</div>
-                <div class="text-[9px] text-on-surface-variant mt-1.5 flex items-center space-x-1 opacity-70">
-                  <GlobeIcon class="w-3 h-3 text-primary" />
-                  <span>{{ userProfile.location || '未知所在地' }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 网格编辑表单 -->
-            <div class="grid grid-cols-2 gap-3.5 pt-1">
-              <div class="form-group col-span-1">
-                <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">姓名</label>
-                <input v-model="userProfile.nickname" type="text" placeholder="设置姓名" class="form-input text-xs" />
-              </div>
-              <div class="form-group col-span-1">
-                <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">所在地</label>
-                <input v-model="userProfile.location" type="text" placeholder="设置所在地" class="form-input text-xs" />
-              </div>
-              <div class="form-group col-span-2">
-                <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">个性签名</label>
-                <input v-model="userProfile.signature" type="text" placeholder="设置个性签名" class="form-input text-xs" />
-              </div>
-            </div>
-
-            <!-- 数字钱包卡片 -->
-            <div class="p-3.5 rounded-xl bg-gradient-to-r from-primary/10 to-secondary/10 border border-outline-variant/40 flex items-center justify-between shadow-inner mt-1 flex-shrink-0">
-              <div class="flex flex-col space-y-0.5">
-                <span class="text-[9px] font-bold text-on-surface-variant/80 uppercase font-mono tracking-wider">我的钱包 (回音虚拟币)</span>
-                <span class="text-base font-black text-primary font-mono">{{ userProfile.walletBalance }} <span class="text-[10px] font-normal text-on-surface-variant">元</span></span>
-              </div>
-              <div class="form-group w-5/12">
-                <label class="text-[9px] text-on-surface-variant font-bold text-right pr-1">充值额度</label>
-                <input v-model.number="userProfile.walletBalance" type="number" min="0" placeholder="0" class="form-input text-xs py-1 px-2 text-center bg-surface border border-outline-variant" />
-              </div>
-            </div>
-          </template>
-
-          <!-- B. 全局画像页签 -->
-          <template v-else>
-            <div class="flex-1 flex flex-col min-h-0 space-y-2">
-              <div class="text-[10px] text-red-500 font-bold leading-normal">
-                ⚠️ 用户设定的名称请与基础资料中的姓名保持一致
-              </div>
-              <div class="flex items-center justify-between flex-shrink-0">
-                <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">全局用户画像 (USER.md)</span>
-                <button
-                  @click="userMdEditing = !userMdEditing"
-                  class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0"
-                >
-                  <component :is="userMdEditing ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
-                  <span>{{ userMdEditing ? '预览文档' : '编辑源码' }}</span>
-                </button>
-              </div>
-              
-              <!-- 预览模式 -->
-              <div v-if="!userMdEditing" class="flex-1 p-4 rounded-xl border border-outline-variant bg-surface text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-sm min-h-0 h-full" v-html="renderMarkdown(globalUserMdContent || '*暂无全局用户设定*')">
-              </div>
-              <!-- 编辑模式 -->
-              <textarea v-else v-model="globalUserMdContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner min-h-0 h-full"></textarea>
-            </div>
-          </template>
-
-          <!-- 底部操作按钮 -->
-          <div class="flex justify-end space-x-2 pt-3 border-t border-outline-variant/30 mt-4 flex-shrink-0">
-            <button @click="closeUserProfileModal" class="btn-secondary">取消</button>
-            <button @click="saveUserProfile" class="btn-primary">保存并生效</button>
-          </div>
-        </div>
-      </div>
-    </div>
 
 
 
@@ -6911,6 +6998,7 @@
 
     <!-- AI 角色导入确认弹窗 -->
     <CharacterPreviewModal
+      ref="characterPreviewModalRef"
       :is-open="isPreviewOpen"
       :card-data="uploadedRawData"
       :pinyin-name="previewPinyinName"
@@ -6920,6 +7008,7 @@
       @confirm="onImportConfirm"
       @cancel="onImportCancel"
       @show-alert="showCustomAlert"
+      @re-summarize="onReSummarize"
     />
     <!-- 角色专属聊天模式切换弹窗 -->
     <div v-if="showChatModeModal && activeCharacter && !isGroupActive" class="modal-overlay z-[99999]" @click.self="showChatModeModal = false">
@@ -8870,6 +8959,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch, toRaw } from 'vue'
+import citiesData from './assets/cities.json'
 import ClockView from './components/ClockView.vue'
 
 // 🚀 跨平台 Windows 专属窗口属性与 IPC 事件通道
@@ -8963,7 +9053,9 @@ import {
   UploadCloud as UploadCloudIcon,
   FileCheck as FileCheckIcon,
   AlertOctagon as AlertOctagonIcon,
-  MessageSquareHeart as MessageSquareHeartIcon
+  MessageSquareHeart as MessageSquareHeartIcon,
+  ExternalLink as ExternalLinkIcon,
+  Cloud as CloudIcon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -9627,6 +9719,53 @@ const avatarFileInput = ref<HTMLInputElement | null>(null)
 const userProfileActiveTab = ref<'profile' | 'userMd'>('profile')
 const userMdEditing = ref(false)
 
+const userWeatherText = ref('')
+const isWeatherLoading = ref(false)
+function fetchRealtimeWeather(force = false) {
+  if (!userProfile.location || userProfile.location.trim() === '') {
+    userWeatherText.value = '暂无所在地'
+    return
+  }
+  if (isWeatherLoading.value) return
+  isWeatherLoading.value = true
+  userWeatherText.value = force ? '正在强刷天气...' : '正在加载天气...'
+  window.api.invoke('get-realtime-weather', userProfile.location, force).then((res: any) => {
+    isWeatherLoading.value = false
+    if (res.success && res.weather) {
+      userWeatherText.value = res.weather
+    } else {
+      userWeatherText.value = '获取天气失败'
+    }
+  }).catch(() => {
+    isWeatherLoading.value = false
+    userWeatherText.value = '获取天气失败'
+  })
+}
+
+const locationFocus = ref(false)
+const filteredCities = computed(() => {
+  const q = (userProfile.location || '').trim().toLowerCase()
+  if (!q || !locationFocus.value) return []
+  return (citiesData as any[]).filter((item: any) => {
+    const combinedName = item.p === item.c ? item.c + item.d : item.p + item.c + item.d
+    if (userProfile.location === combinedName) return false
+    return item.full.toLowerCase().includes(q) || 
+           item.d.toLowerCase().includes(q) || 
+           item.c.toLowerCase().includes(q)
+  }).slice(0, 5)
+})
+
+function selectCity(item: any) {
+  let name = ''
+  if (item.p === item.c) {
+    name = item.c + item.d
+  } else {
+    name = item.p + item.c + item.d
+  }
+  userProfile.location = name
+  locationFocus.value = false
+}
+
 // ===================== 设置 =====================
 // ===================== 用户使用协议前置拦截状态 =====================
 const isAgreementChecking = ref(true)
@@ -9635,6 +9774,22 @@ const showAgreementModal = ref(false)
 const agreementCountdown = ref(15)
 const isAgreementViewMode = ref(false)
 let agreementTimer: any = null
+
+// ===================== 致谢开源项目 =====================
+const showAcknowledgements = ref(false)
+// 后续若需添加新的开源项目，只需在此数组中追加对象即可
+const acknowledgementsList = ref([
+  {
+    projectName: 'sillytavern-conso-illustrator',
+    author: 'Asobi-123',
+    url: 'https://github.com/Asobi-123/sillytavern-conso-illustrator'
+  },
+  {
+    projectName: 'FlutterCppWangWangPhone',
+    author: 'Liunian06',
+    url: 'https://github.com/Liunian06/FlutterCppWangWangPhone'
+  }
+])
 
 const agreementText = `## 一、定义与服务内容
 
@@ -9711,10 +9866,11 @@ const showChatModeModal = ref(false) // 角色专属聊天模式切换弹窗
 // 每个角色各自的聊天模式（key=characterId），reactive 保证模板响应式更新
 // 启动时在 loadCharacters 中从 DB 全量预加载；setChatMode/selectCharacter/广播 时实时同步
 const characterChatModeCache = reactive<Record<string, 'descriptive' | 'dialogue' | 'director'>>({})
-const activeSettingsTab = ref<'general' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about'>('general')
+const activeSettingsTab = ref<'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about'>('general')
 const globalPrompt = ref('')
-const settingsMenus: { id: 'general' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about'; label: string; icon: any }[] = [
+const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about'; label: string; icon: any }[] = [
   { id: 'general', label: '常规设置', icon: SettingsIcon },
+  { id: 'profile', label: '个人中心', icon: UserIcon },
   { id: 'states', label: '状态栏设置', icon: HeartIcon },
   { id: 'primary', label: '主大模型', icon: CpuIcon },
   { id: 'secondary', label: '辅助大模型', icon: CpuIcon },
@@ -9723,6 +9879,20 @@ const settingsMenus: { id: 'general' | 'states' | 'primary' | 'secondary' | 'dra
   { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
   { id: 'about', label: '关于软件', icon: HelpCircleIcon }
 ]
+
+watch(activeSettingsTab, (newTab) => {
+  if (newTab === 'profile') {
+    window.api.invoke('read-global-user-md').then((res: any) => {
+      if (res.success) {
+        globalUserMdContent.value = res.content
+        if (res.nickname !== undefined && res.nickname.trim() !== '') {
+          userProfile.nickname = res.nickname
+          saveUserProfileLocal()
+        }
+      }
+    })
+  }
+})
 
 // ===================== 微信个人号接入专属 Vue3 响应式状态机 =====================
 const wechatState = ref({
@@ -11722,6 +11892,7 @@ const uploadStep = ref<'idle' | 'parsing' | 'summarizing'>('idle')
 const parseError = ref<string | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const isPreviewOpen = ref(false)
+const characterPreviewModalRef = ref<any>(null) // 引用 CharacterPreviewModal 组件实例
 const isInputFocused = ref(false)
 const isComposing = ref(false)
 
@@ -12642,6 +12813,22 @@ async function onImportConfirm(data: { folderName: string; name: string; soul: s
 }
 
 function onImportCancel() { isPreviewOpen.value = false }
+
+// 重新提炼：携带用户修正要求，重新调用后端进行 AI 提炼
+async function onReSummarize(userInstruction: string) {
+  try {
+    const cardDataForSummarize = JSON.parse(JSON.stringify(uploadedRawData.value))
+    const summarizeRes = await window.api.invoke('summarize-character', cardDataForSummarize, userInstruction)
+    if (!summarizeRes.success) throw new Error(summarizeRes.error || 'AI 重新提炼失败')
+    previewSoul.value = summarizeRes.summary.soul
+    previewWorld.value = summarizeRes.summary.world
+  } catch (e: any) {
+    showCustomAlert('重新提炼失败', e.message || '发生未知错误', 'error')
+  } finally {
+    // 无论成功或失败，都恢复弹窗内的按钮状态
+    characterPreviewModalRef.value?.onReSummarizeDone()
+  }
+}
 
 // ===================== 发送消息 =====================
 async function sendChatMessage() {
@@ -13776,7 +13963,8 @@ async function openCharacterRedPacket() {
 
 // ===================== 用户设置 =====================
 function openUserProfile() {
-  showUserProfileModal.value = true
+  sideView.value = 'settings'
+  activeSettingsTab.value = 'profile'
   // 加载全局 USER.md并同步基础资料姓名
   window.api.invoke('read-global-user-md').then((res: any) => {
     if (res.success) {
@@ -13836,6 +14024,10 @@ async function saveUserProfile() {
       userProfile.nickname = syncRes.nickname
       saveUserProfileLocal()
     }
+    showCustomAlert('个人中心保存成功', '个人中心基础资料与全局用户画像已成功保存并实时生效。', 'success')
+    fetchRealtimeWeather()
+  } else {
+    showCustomAlert('保存失败', `${syncRes?.error || '物理写盘失败'}`, 'error')
   }
   showUserProfileModal.value = false
 }
@@ -15661,6 +15853,7 @@ async function initializeCoreApp() {
       Object.assign(userProfile, pRes.profile)
       saveUserProfileLocal(false) // 仅更新本地，防循环写入
     }
+    fetchRealtimeWeather()
     // 异步加载大模型自省解析的 USER.md 以保持姓名覆盖和预检
     window.api.invoke('read-global-user-md').then((res: any) => {
       if (res.success) {
@@ -15671,7 +15864,8 @@ async function initializeCoreApp() {
         }
       }
       if (!userProfile.nickname || userProfile.nickname.trim() === '') {
-        showUserProfileModal.value = true
+        sideView.value = 'settings'
+        activeSettingsTab.value = 'profile'
         userProfileActiveTab.value = 'profile'
         showCustomAlert('设置姓名', '检测到您尚未设置姓名，请先完成基础资料中的姓名设置以开启数字生命旅程！', 'info')
       }

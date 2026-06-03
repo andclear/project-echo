@@ -107,6 +107,33 @@
         </div>
       </main>
 
+      <!-- 重新提炼纠偏区域 -->
+      <div class="px-6 py-3.5 border-t border-outline-variant/40 bg-surface-low/20 dark:bg-surface-dim/10 select-none">
+        <div class="flex items-center space-x-2 mb-2">
+          <RefreshCwIcon class="w-3.5 h-3.5 text-on-surface-variant/60 flex-shrink-0" />
+          <span class="text-[11px] font-semibold text-on-surface-variant">提炼内容有误？请提出更正要求</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <input
+            v-model="userInstruction"
+            type="text"
+            placeholder="例如：只提炼其中的「小美」角色 / 角色实际上是男性 / 忽略世界书的 NPC 混淆..."
+            :disabled="isSummarizing"
+            class="flex-1 pl-3 pr-3 py-1.5 rounded-lg border border-outline-variant/70 bg-surface-lowest text-on-surface text-xs focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all disabled:opacity-50 placeholder-on-surface-variant/40"
+            @keydown.enter="onReSummarize"
+          />
+          <button
+            @click="onReSummarize"
+            :disabled="isSummarizing || !userInstruction.trim()"
+            class="flex-shrink-0 px-4 py-1.5 rounded-lg bg-secondary hover:bg-secondary/80 text-on-secondary text-xs font-bold transition-all flex items-center space-x-1.5 disabled:opacity-40"
+          >
+            <RefreshCwIcon v-if="!isSummarizing" class="w-3 h-3" />
+            <span v-if="isSummarizing" class="inline-block w-3 h-3 border-2 border-on-secondary/30 border-t-on-secondary rounded-full animate-spin" />
+            <span>{{ isSummarizing ? '重新提炼中...' : '重新提炼' }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- 底部操作栏：极浅背景打底，与 header 呼应 -->
       <footer class="px-6 py-4 border-t border-outline-variant bg-surface-low/40 dark:bg-surface-dim/20 flex justify-end items-center space-x-4 select-none">
         <button 
@@ -118,7 +145,7 @@
         <!-- 移去字数限制的 disabled，仅在专属物理文件夹名称为空时禁用 -->
         <button 
           @click="onConfirm"
-          :disabled="!customFolder"
+          :disabled="!customFolder || isSummarizing"
           class="px-5 py-2 rounded-lg bg-primary hover:bg-primary-container text-on-primary text-xs font-bold transition-all flex items-center disabled:opacity-40"
         >
           <CheckIcon class="w-3.5 h-3.5 mr-1.5" />
@@ -137,7 +164,8 @@ import {
   Smile as SmileIcon,
   Globe as GlobeIcon,
   User as UserIcon,
-  Check as CheckIcon
+  Check as CheckIcon,
+  RefreshCw as RefreshCwIcon
 } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -153,6 +181,7 @@ const emit = defineEmits<{
   (e: 'confirm', data: { folderName: string; name: string; soul: string; world: string }): void
   (e: 'cancel'): void
   (e: 'show-alert', title: string, text: string, type: 'info' | 'success' | 'error'): void
+  (e: 're-summarize', userInstruction: string): void
 }>()
 
 const activeTab = ref<'soul' | 'world'>('soul')
@@ -160,6 +189,8 @@ const customFolder = ref('')
 const customName = ref('')
 const editableSoul = ref('')
 const editableWorld = ref('')
+const userInstruction = ref('') // 用户提出的重新提炼修正要求
+const isSummarizing = ref(false) // 重新提炼加载状态
 
 // 监听打开状态并进行数据同步
 watch(() => props.isOpen, (newVal) => {
@@ -169,8 +200,14 @@ watch(() => props.isOpen, (newVal) => {
     editableSoul.value = props.soulContent
     editableWorld.value = props.worldContent
     activeTab.value = 'soul'
+    userInstruction.value = ''
+    isSummarizing.value = false
   }
 })
+
+// 监听父组件传入的最新提炼结果，动态刷新编辑器（重新提炼完成后生效）
+watch(() => props.soulContent, (val) => { editableSoul.value = val })
+watch(() => props.worldContent, (val) => { editableWorld.value = val })
 
 // 计算当前编辑文本字数
 const wordCount = computed(() => {
@@ -195,6 +232,22 @@ function validateFolderName() {
 function onCancel() {
   emit('cancel')
 }
+
+// 触发重新提炼：携带用户的修正要求，通知父组件重新发起提炼请求
+function onReSummarize() {
+  const instruction = userInstruction.value.trim()
+  if (!instruction || isSummarizing.value) return
+  isSummarizing.value = true
+  emit('re-summarize', instruction)
+}
+
+// 父组件在重新提炼完成后调用此方法，恢复按钮状态并清空输入框
+function onReSummarizeDone() {
+  isSummarizing.value = false
+  userInstruction.value = ''
+}
+
+defineExpose({ onReSummarizeDone })
 
 // 移除代码与系统层面的字数硬性拦截，AI 生成多少即以多少为准
 function onConfirm() {

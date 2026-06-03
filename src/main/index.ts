@@ -29,6 +29,8 @@ import { MusicService, Mp3Id3Writer } from './services/MusicService'
 import { NovelAiService } from './services/NovelAiService'
 import { UpdateService } from './services/UpdateService'
 import { WeChatService } from './services/WeChatService'
+import { WeatherService } from './utils/WeatherService'
+
 
 
 // 完美解决 macOS 系统代理或 VPN 拦截导致的 Chromium 网络服务崩溃及本地 Dev 调试加载问题，确保开发服务器端口彻底绕过系统代理自检，且网络进程防崩
@@ -884,6 +886,19 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // 0.0.1.b 获取目前真实天气数据
+  ipcMain.handle('get-realtime-weather', async (_, location: string, forceRefresh = false) => {
+    try {
+      console.log(`[IPC get-realtime-weather] 收到天气请求, location="${location}", forceRefresh=${forceRefresh}`);
+      const weatherText = await WeatherService.prefetchWeather(location, forceRefresh)
+      console.log(`[IPC get-realtime-weather] 天气请求完成, 结果="${weatherText}"`);
+      return { success: true, weather: weatherText }
+    } catch (e: any) {
+      console.error(`[IPC get-realtime-weather] 天气请求异常:`, e);
+      return { success: false, error: e.message || e }
+    }
+  })
+
   // 0.0.1 获取用户个人配置 (包含钱包余额、昵称等)
   ipcMain.handle('get-user-profile', async () => {
     try {
@@ -1636,10 +1651,10 @@ function registerIpcHandlers(): void {
   })
 
   // 6. AI 角色设定总结提炼 (Soul.md / World.md) IPC 通道
-  ipcMain.handle('summarize-character', async (_, cardData: any) => {
+  ipcMain.handle('summarize-character', async (_, cardData: any, userInstruction?: string) => {
     try {
-      console.log('[IPC] ➜ 收到角色 AI 提炼总结请求，姓名:', cardData.name)
-      const summary = await CharacterSummarizer.summarize(cardData)
+      console.log('[IPC] ➜ 收到角色 AI 提炼总结请求，姓名:', cardData.name, userInstruction ? `用户修正要求: "${userInstruction}"` : '')
+      const summary = await CharacterSummarizer.summarize(cardData, userInstruction)
       console.log('[IPC] ✔ AI 提炼总结成功！Soul.md 字符数:', summary.soul.length, 'World.md 字符数:', summary.world.length)
       return {
         success: true,
@@ -2089,6 +2104,21 @@ ${soulContent}
   }) => {
     const { characterId, folderName, userMessage } = payload
     const isGroup = !!payload.isGroup
+
+    // 异步拉取当前所在地天气数据，并加入2秒超时保护
+    try {
+      const db = getDatabaseService()
+      const profileStr = db.getSetting('echo_user_profile')
+      if (profileStr) {
+        const parsed = JSON.parse(profileStr)
+        if (parsed.location) {
+          await Promise.race([
+            WeatherService.prefetchWeather(parsed.location.trim()),
+            new Promise(resolve => setTimeout(resolve, 2000))
+          ])
+        }
+      }
+    } catch (_) {}
 
     // ===================== 群聊模式专属级联调度与流式生成引擎 =====================
     if (isGroup) {
