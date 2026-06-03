@@ -4127,7 +4127,26 @@ ${memoryContent}
         db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`last_schedule_goals_msg_count_${characterId}`)
       } catch (_) {}
 
-      console.log(`[IPC] 物理清空角色 [${folderName}] 的历史消息、记忆文件、State.md、画像和 Settings 参数完成！`)
+      // F1. 明确删除 pending_memory_diff 记忆草稿（不依赖 LIKE 模糊匹配，100% 确保清除；
+      //     若清空后立即对话，commitPendingMemory 仍持有旧草稿，会将被删的记忆重新落盘）
+      try {
+        db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${characterId}`)
+      } catch (_) {}
+
+      // G. 清空 Diary.md 日记文件（角色自省写下的日记，会被 ContextAssembler 读取并注入
+      //    System Prompt，不清除则角色会通过"日记"感知到已被删除的历史内容）
+      storageManager.writeCharacterFile(folderName, 'Diary.md', '')
+
+      // H. 清空 SUMMARY.md 大事记（对话历史压缩精华，会在 checkAndUpdateScheduleAndGoals
+      //    重建日程/目标时直接读取并作为 Prompt 上下文；群聊清空有处理，单聊此前漏清）
+      const summaryInitContent = `<!--\n{\n  "summary": ""\n}\n-->\n# 对话大事记 (History Summary)\n\n暂无大事记`
+      storageManager.writeCharacterFile(folderName, 'SUMMARY.md', summaryInitContent)
+
+      // I. 清除进程内存级 raw response 缓存（保存上一轮 AI 原始输出，用于前缀缓存保温；
+      //    不清除则下次对话可能把旧内容还原进 history[idx]，造成隐性上下文污染）
+      delete LastAssistantRawResponse[characterId]
+
+      console.log(`[IPC] 物理清空角色 [${folderName}] 的历史消息、记忆、日记、大事记、State.md、画像和 Settings 参数全部完成！`)
 
       // 🚀 广播事件通知多端联动彻底清空历史与记忆
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
@@ -4769,6 +4788,37 @@ Please output in exactly this XML format:
         } catch (_) {}
       }
       return { success: false, error: err.message || err }
+    }
+  })
+
+  // 17.5 删除单篇日记 IPC 通道（按标题日期精准定位，从 Diary.md 物理抹除对应段落）
+  ipcMain.handle('delete-diary-entry', async (_, payload: { folderName: string; date: string }) => {
+    try {
+      const { folderName, date } = payload
+      const storageManager = new CharacterStorageManager()
+      const diaryPath = join(storageManager.getBaseDir(), folderName, 'Diary.md')
+
+      if (!fs.existsSync(diaryPath)) {
+        return { success: true } // 文件不存在，视为已删除
+      }
+
+      const raw = fs.readFileSync(diaryPath, 'utf8')
+
+      // 按 ###+ 标题将日记分割为各段，过滤掉标题中含有目标 date 的段落
+      // 段落格式：### 📓 YYYY-M-D HH:MM\n日记正文...
+      const sections = raw.split(/(?=^#{2,}\s+)/m)
+      const filtered = sections.filter(sec => {
+        const firstLine = sec.split('\n')[0] || ''
+        // 若该段标题包含目标 date 字符串则删除
+        return !firstLine.includes(date)
+      })
+
+      fs.writeFileSync(diaryPath, filtered.join(''), 'utf8')
+      console.log(`[IPC] 日记条目已删除: folderName=${folderName}, date=${date}`)
+      return { success: true }
+    } catch (e: any) {
+      console.error('[IPC] 删除日记条目失败:', e)
+      return { success: false, error: e.message || e }
     }
   })
 

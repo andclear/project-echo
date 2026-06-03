@@ -6689,15 +6689,27 @@
                   <CalendarIcon class="w-3.5 h-3.5 text-primary" />
                   <span>{{ parsedDiariesList[selectedDiaryIdx].date }}</span>
                 </div>
-                <!-- 收藏日记按钮 -->
-                <button
-                  @click="toggleFavoriteDiary(parsedDiariesList[selectedDiaryIdx])"
-                  class="px-2.5 py-1 rounded-lg border text-[10px] font-bold flex items-center space-x-1 transition-all active:scale-95 cursor-pointer"
-                  :class="parsedDiariesList[selectedDiaryIdx].isFavorited ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600' : 'bg-surface border-outline-variant text-on-surface-variant hover:text-yellow-500'"
-                >
-                  <BookmarkIcon class="w-3 h-3" :class="{ 'fill-yellow-500': parsedDiariesList[selectedDiaryIdx].isFavorited }" />
-                  <span>{{ parsedDiariesList[selectedDiaryIdx].isFavorited ? '已收藏' : '收藏日记' }}</span>
-                </button>
+                <!-- 右上角操作按钮组 -->
+                <div class="flex items-center space-x-1.5">
+                  <!-- 收藏日记按钮 -->
+                  <button
+                    @click="toggleFavoriteDiary(parsedDiariesList[selectedDiaryIdx])"
+                    class="px-2.5 py-1 rounded-lg border text-[10px] font-bold flex items-center space-x-1 transition-all active:scale-95 cursor-pointer"
+                    :class="parsedDiariesList[selectedDiaryIdx].isFavorited ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-600' : 'bg-surface border-outline-variant text-on-surface-variant hover:text-yellow-500'"
+                  >
+                    <BookmarkIcon class="w-3 h-3" :class="{ 'fill-yellow-500': parsedDiariesList[selectedDiaryIdx].isFavorited }" />
+                    <span>{{ parsedDiariesList[selectedDiaryIdx].isFavorited ? '已收藏' : '收藏日记' }}</span>
+                  </button>
+                  <!-- 删除当前篇日记按钮 -->
+                  <button
+                    @click="deleteDiaryEntry(parsedDiariesList[selectedDiaryIdx])"
+                    class="px-2.5 py-1 rounded-lg border border-outline-variant text-[10px] font-bold flex items-center space-x-1 transition-all active:scale-95 cursor-pointer bg-surface text-on-surface-variant hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-500"
+                    title="删除这篇日记"
+                  >
+                    <TrashIcon class="w-3 h-3" />
+                    <span>删除</span>
+                  </button>
+                </div>
               </div>
               <!-- 亮色纸张书卷风 / 暗色 Tech-Noir 风格 -->
               <div class="mt-4 flex-1 p-4 rounded-xl leading-relaxed text-sm shadow-inner overflow-y-auto border border-outline-variant transition-all font-serif whitespace-pre-wrap"
@@ -11346,6 +11358,38 @@ watch(
   { immediate: true, deep: true }
 )
 
+async function deleteDiaryEntry(diary: any) {
+  const char = activeCharacter.value || characterList.value.find(c => c.id === selectedContactId.value)
+  if (!char || !diary) return
+
+  showCustomConfirm(
+    '删除日记',
+    `确定要永久删除 [${diary.date}] 这篇日记吗？删除后无法找回。`,
+    async () => {
+      try {
+        const res = await window.api.invoke('delete-diary-entry', {
+          folderName: char.folder_name,
+          date: diary.date
+        })
+        if (res.success) {
+          // 重新读取日记文件刷新列表
+          const diaryRes = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
+          activeDiary.value = diaryRes.success ? diaryRes.content : ''
+          // 索引防越界：若删的是最后一篇则退回到 0
+          if (selectedDiaryIdx.value >= parsedDiariesList.value.length - 1) {
+            selectedDiaryIdx.value = Math.max(0, parsedDiariesList.value.length - 2)
+          }
+          showToast('日记已删除 🗑️')
+        } else {
+          showCustomAlert('删除失败', res.error || '未知错误', 'error')
+        }
+      } catch (err: any) {
+        showCustomAlert('删除失败', err.message || err, 'error')
+      }
+    }
+  )
+}
+
 async function toggleFavoriteDiary(diary: any) {
   const char = currentDiaryChar.value
   if (!char) return
@@ -14226,11 +14270,7 @@ const isWritingDiary = ref(false)
 async function openDiaryForCharacter(charId: string) {
   const char = characterList.value.find(c => c.id === charId)
   if (!char) return
-  
-  selectedCharacterId.value = char.id
-  selectedContactId.value = char.id
-  sideView.value = 'contacts'
-  
+  // 仅加载日记内容并弹出面板，不跳转到通讯录页面
   const res = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
   activeDiary.value = res.success ? res.content : ''
   selectedDiaryIdx.value = 0
