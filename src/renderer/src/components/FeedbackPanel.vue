@@ -433,7 +433,7 @@ async function submitNewFeedback() {
   }
 
   submitting.value = true
-  const feedbackId = 'fb_' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36)
+  const feedbackId = crypto.randomUUID()
   const createdTimestamp = Date.now()
 
   const payload = {
