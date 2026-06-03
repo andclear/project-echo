@@ -14,8 +14,48 @@ env:
   ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
 jobs:
+  clean-old-artifacts:
+    name: Clean Old Actions Artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete All Old Artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            console.log(`Scanning old artifacts for ${owner}/${repo}...`);
+            let page = 1;
+            while (true) {
+              const res = await github.rest.actions.listArtifactsForRepo({
+                owner,
+                repo,
+                per_page: 100,
+                page
+              });
+              if (res.data.artifacts.length === 0) break;
+              for (const artifact of res.data.artifacts) {
+                console.log(`Deleting old artifact ${artifact.name} (ID: ${artifact.id})...`);
+                try {
+                  await github.rest.actions.deleteArtifact({
+                    owner,
+                    repo,
+                    artifact_id: artifact.id
+                  });
+                } catch (err) {
+                  console.error(`Failed to delete ${artifact.id}:`, err.message);
+                }
+              }
+              if (res.data.artifacts.length < 100) {
+                break;
+              }
+            }
+
   build:
     name: Build (${{ matrix.os }})
+    needs: clean-old-artifacts
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -83,6 +123,7 @@ jobs:
             dist/*.dmg
             dist/*.AppImage
           if-no-files-found: ignore
+          retention-days: 1
 
   publish:
     name: Publish Release Artifacts
@@ -144,3 +185,27 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete Current Temporary Artifacts
+        # 🚀 发布成功后，立刻删除本次构建中产生的所有临时 Artifacts，保持极简存储
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const res = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            for (const artifact of res.data.artifacts) {
+              console.log(`Deleting artifact ${artifact.name} (${artifact.id})...`);
+              try {
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id,
+                });
+              } catch (err) {
+                console.error(`Failed to delete current artifact ${artifact.name}:`, err.message);
+              }
+            }
