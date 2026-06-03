@@ -233,6 +233,31 @@
       </div>
 
     </div>
+
+    <!-- ── 自定义高保真提示弹窗 ── -->
+    <div v-if="dialogVisible" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm select-none animate-fade-in">
+      <div class="bg-surface border border-outline-variant w-[280px] p-6 rounded-[2px] shadow-[0_12px_40px_-6px_rgba(0,0,0,0.5)] flex flex-col items-center text-center">
+        <!-- 成功状态图标 -->
+        <div v-if="isDialogSuccess" class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center mb-3">
+          <CheckIcon class="w-5 h-5 text-primary" />
+        </div>
+        <!-- 失败/警告状态图标 -->
+        <div v-else class="w-10 h-10 bg-error/10 rounded-full flex items-center justify-center mb-3">
+          <AlertCircleIcon class="w-5 h-5 text-error" />
+        </div>
+        
+        <p class="text-xs font-bold text-on-surface leading-relaxed mb-5 select-text">
+          {{ dialogMessage }}
+        </p>
+        
+        <button 
+          @click="closeDialog"
+          class="w-full py-1.5 bg-primary text-on-primary rounded-[2px] font-bold text-xs hover:opacity-95 active:scale-95 transition-all cursor-pointer"
+        >
+          确定
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -246,7 +271,8 @@ import {
   Bug as BugIcon,
   Lightbulb as LightbulbIcon,
   HelpCircle as HelpCircleIcon,
-  Send as SendIcon
+  Send as SendIcon,
+  Check as CheckIcon
 } from 'lucide-vue-next'
 
 // ── 类型定义 ──
@@ -289,6 +315,21 @@ const sendingReply = ref(false)
 
 // 设备唯一ID
 const deviceId = ref('')
+
+// 自定义高保真提示弹窗状态
+const dialogVisible = ref(false)
+const dialogMessage = ref('')
+const isDialogSuccess = ref(true)
+
+function showCustomDialog(message: string, isSuccess = true) {
+  dialogMessage.value = message
+  isDialogSuccess.value = isSuccess
+  dialogVisible.value = true
+}
+
+function closeDialog() {
+  dialogVisible.value = false
+}
 
 onMounted(async () => {
   // 1. 调用主进程 IPC 获取设备唯一ID
@@ -504,7 +545,7 @@ async function submitNewFeedback() {
     formContact.value = ''
     formType.value = 'feedback'
     submitting.value = false
-    alert('意见反馈已成功飞入数据库，我们将尽快为您处理！🐾')
+    showCustomDialog('意见反馈已成功飞入数据库，我们将尽快为您处理！🐾', true)
     switchView('list')
 
   } catch (err: any) {
@@ -571,7 +612,7 @@ async function sendChatReply() {
       json = await res.json()
     } catch (parseErr: any) {
       console.error('[Feedback reply JSON Parse Error]:', parseErr)
-      alert(`服务器响应格式异常 (状态码: ${res.status})，回复发送失败`)
+      showCustomDialog(`服务器响应格式异常 (状态码: ${res.status})，回复发送失败`, false)
       sendingReply.value = false
       return
     }
@@ -589,11 +630,11 @@ async function sendChatReply() {
         repliesList.value = detailJson.replies || []
       }
     } else {
-      alert(json.error || '回复发送失败')
+      showCustomDialog(json.error || '回复发送失败', false)
     }
   } catch (err: any) {
     console.error('[Feedback reply Network Error]:', err)
-    alert(`连接看板接口失败: ${err.message || err}`)
+    showCustomDialog(`连接看板接口失败: ${err.message || err}`, false)
   } finally {
     sendingReply.value = false
   }
