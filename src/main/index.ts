@@ -1034,7 +1034,7 @@ function registerIpcHandlers(): void {
 
       const url = `${baseUrl.replace(/\/$/, '')}/models`
       const headers: Record<string, string> = {
-        'User-Agent': 'EchoPlatform/1.0.2 (Desktop AI Roleplay Platform)'
+        'User-Agent': 'EchoPlatform/1.0.3 (Desktop AI Roleplay Platform)'
       }
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`
@@ -1180,7 +1180,58 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // ====== 意见反馈系统专属 IPC 通道 ======
+  // 1. 获取设备唯一 ID
+  ipcMain.handle('get-device-id', async () => {
+    try {
+      const db = getDatabaseService()
+      return db.getSetting('device_id') || 'unknown'
+    } catch (err) {
+      return 'unknown'
+    }
+  })
 
+  // 2. 保存用户提交的意见反馈到本地 SQLite
+  ipcMain.handle('save-user-feedback', async (_, payload: { id: string; title: string; content: string; type: string; contact?: string; status: string; created_at: number }) => {
+    try {
+      const db = getDatabaseService()
+      const stmt = db.db.prepare(`
+        INSERT OR REPLACE INTO UserFeedbacks (id, title, content, type, contact, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      stmt.run(payload.id, payload.title, payload.content, payload.type, payload.contact || null, payload.status, payload.created_at)
+      return { success: true }
+    } catch (err: any) {
+      console.error('[IPC save-user-feedback] 异常:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 3. 读取本地保存的所有意见反馈记录
+  ipcMain.handle('get-user-feedbacks', async () => {
+    try {
+      const db = getDatabaseService()
+      const stmt = db.db.prepare(`SELECT * FROM UserFeedbacks ORDER BY created_at DESC`)
+      const rows = stmt.all()
+      return { success: true, list: rows }
+    } catch (err: any) {
+      console.error('[IPC get-user-feedbacks] 异常:', err)
+      return { success: false, error: err.message, list: [] }
+    }
+  })
+
+  // 4. 同步更新本地已提交反馈的状态
+  ipcMain.handle('update-user-feedback-status', async (_, payload: { id: string; status: string }) => {
+    try {
+      const db = getDatabaseService()
+      const stmt = db.db.prepare(`UPDATE UserFeedbacks SET status = ? WHERE id = ?`)
+      stmt.run(payload.status, payload.id)
+      return { success: true }
+    } catch (err: any) {
+      console.error('[IPC update-user-feedback-status] 异常:', err)
+      return { success: false, error: err.message }
+    }
+  })
 
   // 3. 全局设置保存 IPC 通道
   ipcMain.handle('save-settings', async (_, payload: { primary: ModelConfig; secondary: ModelConfig | null; enableSecondary: boolean }) => {
@@ -4915,7 +4966,7 @@ Please output in exactly this XML format:
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          'User-Agent': 'EchoPlatform/1.0.2 (Desktop AI Roleplay Platform)'
+          'User-Agent': 'EchoPlatform/1.0.3 (Desktop AI Roleplay Platform)'
         }
       })
 

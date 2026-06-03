@@ -87,3 +87,6 @@ docs/
 *.db
 *.sqlite
 data/
+
+# Feedback site folder
+/echo-kanban/

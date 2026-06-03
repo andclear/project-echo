@@ -235,6 +235,13 @@ export class DatabaseService {
       );
     `)
 
+    // 初始化设备唯一 ID (device_id)
+    const existingDeviceId = this.getSetting('device_id')
+    if (!existingDeviceId) {
+      const newDeviceId = 'device_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
+      this.setSetting('device_id', newDeviceId)
+    }
+
     console.log('[Database] 数据表结构初始化顺利完成！')
   }
 
@@ -279,6 +286,23 @@ export class DatabaseService {
           if (!hasCol) {
             db.exec(`ALTER TABLE Messages ADD COLUMN is_proactive INTEGER DEFAULT 0;`)
           }
+        }
+      },
+      {
+        version: 5,
+        up: (db: Database.Database) => {
+          // 创建本地意见反馈记录表
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS UserFeedbacks (
+              id TEXT PRIMARY KEY,
+              title TEXT NOT NULL,
+              content TEXT NOT NULL,
+              type TEXT NOT NULL,
+              contact TEXT,
+              status TEXT NOT NULL DEFAULT 'pending',
+              created_at INTEGER NOT NULL
+            );
+          `);
         }
       }
     ]

@@ -3052,7 +3052,7 @@
                     <SettingsIcon class="w-8 h-8 text-primary" />
                   </div>
                   <h2 class="text-base font-bold text-on-surface">Echo - 回音</h2>
-                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.2 (桌面端)</p>
+                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.3 (桌面端)</p>
                   <p class="text-[10px] text-on-surface-variant mt-1.5 opacity-60">Power By Laopobao</p>
 
                   <!-- 🚀 高科技炫彩玻璃检查更新控制组件 -->
@@ -3250,10 +3250,15 @@
                   </div>
                 </div>
               </div>
+
+              <!-- F. 意见反馈 -->
+              <div v-else-if="activeSettingsTab === 'feedback'" class="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
+                <FeedbackPanel class="flex-1" />
+              </div>
             </div>
 
             <!-- 固定底部操作粘滞栏 -->
-            <div v-if="activeSettingsTab !== 'about' && activeSettingsTab !== 'migration' && activeSettingsTab !== 'profile'" class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none">
+            <div v-if="activeSettingsTab !== 'about' && activeSettingsTab !== 'migration' && activeSettingsTab !== 'profile' && activeSettingsTab !== 'feedback'" class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none">
               <div class="flex items-center justify-between max-w-3xl w-full mx-auto">
                 <button 
                   v-if="activeSettingsTab === 'drawing'"
@@ -8638,7 +8643,7 @@
           <div class="flex items-center justify-center space-x-3.5 py-2 px-4 bg-surface-low/30 dark:bg-[#1a1a1a]/30 border border-outline-variant/10 dark:border-[#202022] rounded-[18px] dark:rounded-[6px] max-w-[290px] mx-auto shadow-sm">
             <div class="flex flex-col items-center">
               <span class="text-[8px] text-on-surface-variant/40 dark:text-[#bbcabf]/30 font-bold tracking-wider uppercase font-mono">Current</span>
-              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v1.0.2</span>
+              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v1.0.3</span>
             </div>
             
             <!-- 指示箭头带极精密虚线 -->
@@ -9059,6 +9064,7 @@ import {
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
+import FeedbackPanel from './components/FeedbackPanel.vue'
 // 内联子组件：会话列表条目
 import ConversationItem from './components/ConversationItem.vue'
 import { StreamingContextScrubber } from './utils/StreamingContextScrubber'
@@ -9866,9 +9872,9 @@ const showChatModeModal = ref(false) // 角色专属聊天模式切换弹窗
 // 每个角色各自的聊天模式（key=characterId），reactive 保证模板响应式更新
 // 启动时在 loadCharacters 中从 DB 全量预加载；setChatMode/selectCharacter/广播 时实时同步
 const characterChatModeCache = reactive<Record<string, 'descriptive' | 'dialogue' | 'director'>>({})
-const activeSettingsTab = ref<'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about'>('general')
+const activeSettingsTab = ref<'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback'>('general')
 const globalPrompt = ref('')
-const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about'; label: string; icon: any }[] = [
+const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback'; label: string; icon: any }[] = [
   { id: 'general', label: '常规设置', icon: SettingsIcon },
   { id: 'profile', label: '个人中心', icon: UserIcon },
   { id: 'states', label: '状态栏设置', icon: HeartIcon },
@@ -9877,6 +9883,7 @@ const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secon
   { id: 'drawing', label: 'AI 绘图', icon: ImageIcon },
   { id: 'wechat', label: '微信接入', icon: MessageCircleIcon },
   { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
+  { id: 'feedback', label: '意见反馈', icon: MessageSquareIcon },
   { id: 'about', label: '关于软件', icon: HelpCircleIcon }
 ]
 

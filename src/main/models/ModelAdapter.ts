@@ -53,7 +53,7 @@ export interface IModelProvider {
 
 // 统一的商业级 User-Agent 强注入头
 export const COMMON_HEADERS = {
-  'User-Agent': 'EchoPlatform/1.0.2 (Desktop AI Roleplay Platform)'
+  'User-Agent': 'EchoPlatform/1.0.3 (Desktop AI Roleplay Platform)'
 }
 
 /**
