@@ -453,7 +453,18 @@ async function submitNewFeedback() {
       body: JSON.stringify(payload)
     })
 
-    const json = await res.json()
+    let json: any = {}
+    try {
+      json = await res.json()
+    } catch (parseErr: any) {
+      console.error('[Feedback submit JSON Parse Error]:', parseErr)
+      const text = await res.text().catch(() => '')
+      console.error('[Feedback submit Raw Response]:', text)
+      errorMessage.value = `服务器响应格式异常 (状态码: ${res.status})。请检查 Vercel 部署日志。🐾`
+      submitting.value = false
+      return
+    }
+
     if (!res.ok || !json.success) {
       errorMessage.value = json.error || '提交失败，请稍后重试'
       submitting.value = false
@@ -497,7 +508,8 @@ async function submitNewFeedback() {
     switchView('list')
 
   } catch (err: any) {
-    errorMessage.value = '连接看板服务器接口超时，请检查您的网络连接或稍后重试'
+    console.error('[Feedback submit Network Error]:', err)
+    errorMessage.value = `连接看板服务器异常: ${err.message || err}。请检查您的网络连接或稍后重试。🐾`
     submitting.value = false
   }
 }
@@ -511,7 +523,14 @@ async function enterFeedbackDetail(fb: FeedbackRecord) {
 
   try {
     const res = await fetch(`${apiBaseUrl.value.trim()}/api/feedbacks/detail?id=${fb.id}`)
-    const json = await res.json()
+    let json: any = {}
+    try {
+      json = await res.json()
+    } catch (parseErr: any) {
+      console.error('[Feedback detail JSON Parse Error]:', parseErr)
+      loadingChat.value = false
+      return
+    }
     if (json.success) {
       repliesList.value = json.replies || []
       
@@ -547,20 +566,34 @@ async function sendChatReply() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
-    const json = await res.json()
+    let json: any = {}
+    try {
+      json = await res.json()
+    } catch (parseErr: any) {
+      console.error('[Feedback reply JSON Parse Error]:', parseErr)
+      alert(`服务器响应格式异常 (状态码: ${res.status})，回复发送失败`)
+      sendingReply.value = false
+      return
+    }
     if (json.success) {
       chatInput.value = ''
       // 重新拉取
       const detailRes = await fetch(`${apiBaseUrl.value.trim()}/api/feedbacks/detail?id=${activeFeedback.value.id}`)
-      const detailJson = await detailRes.json()
+      let detailJson: any = {}
+      try {
+        detailJson = await detailRes.json()
+      } catch (err) {
+        console.error('[Feedback reply detail parse error]:', err)
+      }
       if (detailJson.success) {
         repliesList.value = detailJson.replies || []
       }
     } else {
       alert(json.error || '回复发送失败')
     }
-  } catch (err) {
-    alert('连接看板接口发生物理超时，请重试')
+  } catch (err: any) {
+    console.error('[Feedback reply Network Error]:', err)
+    alert(`连接看板接口失败: ${err.message || err}`)
   } finally {
     sendingReply.value = false
   }
