@@ -207,7 +207,8 @@ Please make sure your Moments post subtly reflects your current mood and these c
           ]);
           const weatherVal = WeatherService.getWeatherSync(parsed.location.trim());
           if (weatherVal) {
-            weatherInfoText = `\n【用户所在地及当前天气环境 (User Location & Weather)】：当前用户所在的城市为 ${parsed.location.trim()}，该地当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的生活背景。`;
+            // 只注入天气，不注入城市名
+            weatherInfoText = `\n【当前天气环境 (Current Weather)】：当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的生活背景。`;
           }
         }
       }
@@ -537,7 +538,8 @@ Please make sure your forum post subtly reflects your current mood and these cus
           ]);
           const weatherVal = WeatherService.getWeatherSync(parsed.location.trim());
           if (weatherVal) {
-            weatherInfoText = `\n【用户所在地及当前天气环境 (User Location & Weather)】：当前用户所在的城市为 ${parsed.location.trim()}，该地当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的论坛写作背景。`;
+            // 只注入天气，不注入城市名
+            weatherInfoText = `\n【当前天气环境 (Current Weather)】：当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的论坛写作背景。`;
           }
         }
       }
@@ -901,7 +903,8 @@ Please strictly apply these relationship constraints, mood, and custom personali
                 ]);
                 const weatherVal = WeatherService.getWeatherSync(parsed.location.trim());
                 if (weatherVal) {
-                  weatherInfoText = `\n【用户所在地及当前天气环境 (User Location & Weather)】：当前用户所在的城市为 ${parsed.location.trim()}，该地当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的环境背景。`;
+                  // 只注入天气，不注入城市名
+                  weatherInfoText = `\n【当前天气环境 (Current Weather)】：当前实时天气为 ${weatherVal}。请参考并融入此外部环境作为你的环境背景。`;
                 }
               }
             }

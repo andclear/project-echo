@@ -593,7 +593,8 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
           const location = parsed.location.trim();
           if (location) {
             const weatherText = WeatherService.getWeatherSync(location);
-            weatherSection = `\n- 用户所在地：${location}${weatherText ? `\n- 所在地实时天气：${weatherText}\n- 环境与温度感知：现在是${timeOfDay}，${location}外面是 ${weatherText}。请在合适的时候将这些外部环境（时间、气温、阴晴雨雪）自然地融入进你的神态细节、动作描写与日常聊天对话中，让交流共振。` : ''}`;
+            // 只注入天气，不注入城市名
+            weatherSection = weatherText ? `\n- 所在地实时天气：${weatherText}\n- 环境与温度感知：现在是${timeOfDay}，外面是 ${weatherText}。请在合适的时候将这些外部环境（时间、气温、阴晴雨雪）自然地融入进你的神态细节、动作描写与日常聊天对话中，让交流共振。` : '';
           }
         }
       }
