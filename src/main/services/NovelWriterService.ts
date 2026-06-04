@@ -842,7 +842,7 @@ ${styleRef}
     const db = getDatabaseService()
     const novelEnabled = db.getSetting(`novel_enabled_${characterId}`) === '1'
     if (!novelEnabled) {
-      throw new Error('该角色尚未开启 AI 小说写手，请先在弹窗中开启。')
+      throw new Error('该角色尚未开启 AI 写手功能，请先在弹窗中开启。')
     }
 
     const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive'

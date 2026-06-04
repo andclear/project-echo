@@ -5416,7 +5416,7 @@
                       class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-all select-none w-full text-left relative"
                     >
                       <BookIcon class="w-4 h-4 text-primary" />
-                      <span>AI小说写手</span>
+                      <span>AI写手</span>
                       <span v-if="novelNewChapterBadges[activeCharacter.id]" class="ml-auto min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5">{{ novelNewChapterBadges[activeCharacter.id] }}</span>
                     </button>
 
@@ -5480,7 +5480,7 @@
                     v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot' && (characterChatModeCache[activeCharacter.id] === 'dialogue' || characterChatModeCache[activeCharacter.id] === 'descriptive') && !isGroupActive"
                     @click="openNovelPanel"
                     class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-primary transition-all relative flex items-center justify-center cursor-pointer select-none"
-                    title="AI小说写手"
+                    title="AI写手"
                   >
                     <BookIcon class="w-4 h-4" stroke-width="1.5" />
                     <span v-if="novelNewChapterBadges[activeCharacter.id]" class="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5 scale-90">{{ novelNewChapterBadges[activeCharacter.id] }}</span>
@@ -10696,7 +10696,7 @@ const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secon
   { id: 'primary', label: '主大模型', icon: CpuIcon },
   { id: 'secondary', label: '辅助大模型', icon: CpuIcon },
   { id: 'drawing', label: 'AI 绘图', icon: ImageIcon },
-  { id: 'novel', label: 'AI 小说', icon: BookOpenIcon },
+  { id: 'novel', label: 'AI 写手', icon: BookOpenIcon },
   { id: 'wechat', label: '微信接入', icon: MessageCircleIcon },
   { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
   { id: 'feedback', label: '意见反馈', icon: MessageSquareIcon },
