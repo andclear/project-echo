@@ -2230,7 +2230,14 @@ ${soulContent}
   ipcMain.handle('novel-delete-chapter', async (_, payload: { chapterId: string }) => {
     try {
       const db = getDatabaseService()
+      // 读取被删除章节的信息，以便恢复时间戳
+      const chapter = db.db.prepare('SELECT character_id, chapter_index FROM NovelChapters WHERE id = ?').get(payload.chapterId) as any
       db.deleteNovelChapter(payload.chapterId)
+      if (chapter) {
+        const prev = db.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE character_id = ? AND chapter_index < ? ORDER BY chapter_index DESC LIMIT 1').get(chapter.character_id, chapter.chapter_index) as any
+        const newTs = prev ? prev.dialogue_end_ts : 0
+        db.setSetting(`last_novel_chapter_end_ts_${chapter.character_id}`, `${newTs}`)
+      }
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }

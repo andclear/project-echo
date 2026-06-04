@@ -233,46 +233,46 @@ export class NovelWriterService {
         ? Math.max(...allChapters.map((ch: any) => ch.chapter_index)) + 1
         : 1
 
-      const { title, content: rawContent } = this.parseChapterOutput(res.content, newChapterIndex)
+      const { title: rawTitle, content: rawContent } = this.parseChapterOutput(res.content, newChapterIndex)
       
-      // 11. 去 AI 味润色与审阅
-      console.log(`[NovelWriterService] 开始去 AI 味润色与审阅...`)
-      const content = await this.polishAndReview(rawContent, stylePrompt)
+      // 11. 使用辅助模型判断是否拆分章节并获取拆分结果
+      const splitParts = await this.splitIntoChapters(rawContent, stylePrompt)
 
-      // 12. 生成 200 字以内的摘要
-      console.log(`[NovelWriterService] 开始生成本章故事摘要...`)
-      const summary = await this.generateChapterSummary(content, charName)
-
-      // 12. 写入数据库
-      const newChapterId = crypto.randomUUID()
-      db.insertNovelChapter({
-        id: newChapterId,
-        character_id: characterId,
-        chapter_index: newChapterIndex,
-        title,
-        content,
-        summary,
-        dialogue_start_ts,
-        dialogue_end_ts,
-        token_count: res.tokenUsage || 0,
-        rating: 0,
-        created_at: Date.now()
-      })
-
-      // 13. 更新 last_novel_chapter_end_ts 设置
-      db.setSetting(`last_novel_chapter_end_ts_${characterId}`, dialogue_end_ts.toString())
-
-      console.log(`[NovelWriterService] 章节生成成功！第 ${newChapterIndex} 章：《${title}》已落盘。`)
-
-      // 14. 广播事件给前端
-      BrowserWindow.getAllWindows().forEach(w => {
-        w.webContents.send('novel-chapter-added', {
-          characterId,
-          chapterId: newChapterId,
-          chapterIndex: newChapterIndex,
-          title
+      // 12. 循环处理每个拆分后的章节
+      const baseIndex = db.getNovelChapterCount(characterId) + 1
+      for (let i = 0; i < splitParts.length; i++) {
+        const part = splitParts[i]
+        const partTitle = splitParts.length === 1 ? rawTitle : `${rawTitle} - Part ${i + 1}`
+        const polished = await this.polishAndReview(part.content, stylePrompt)
+        const partSummary = await this.generateChapterSummary(polished, charName)
+        const chapterId = crypto.randomUUID()
+        const chapterIndex = baseIndex + i
+        db.insertNovelChapter({
+          id: chapterId,
+          character_id: characterId,
+          chapter_index: chapterIndex,
+          title: partTitle,
+          content: polished,
+          summary: partSummary,
+          dialogue_start_ts,
+          dialogue_end_ts,
+          token_count: 0,
+          rating: 0,
+          created_at: Date.now()
         })
-      })
+        // 更新最新章节结束时间戳
+        db.setSetting(`last_novel_chapter_end_ts_${characterId}`, dialogue_end_ts.toString())
+        // 广播事件给前端
+        BrowserWindow.getAllWindows().forEach(w => {
+          w.webContents.send('novel-chapter-added', {
+            characterId,
+            chapterId,
+            chapterIndex,
+            title: partTitle
+          })
+        })
+      }
+      console.log(`[NovelWriterService] 章节生成成功！第 ${newChapterIndex} 章：《${rawTitle}》已落盘。`)
 
     } catch (err: any) {
       console.error(`[NovelWriterService] 生成小说章节时发生致命错误:`, err.message || err)
@@ -657,6 +657,34 @@ ${adaptationInstruction}
     content = content.replace(/^```markdown/i, '').replace(/```$/, '').trim()
 
     return { title, content }
+  }
+
+  /**
+   * 使用辅助大模型判断是否需要拆分章节，并返回章节数组。
+   * 若模型返回 "NO_SPLIT"，返回单章节数组 [{ title: '', content: rawContent }]
+   */
+  private async splitIntoChapters(rawContent: string, stylePrompt: string): Promise<Array<{title: string, content: string}>> {
+    const systemPrompt = `你是章节拆分专家。请根据以下正文内容的长度、信息密度以及整体结构，判断是否需要拆分成多个章节。若需要拆分，请返回 JSON 数组，每个元素包含 "title"（章节标题，可自行生成）和 "content"（该章节的正文），保持内容的连贯性。若不需要拆分，请仅返回字符串 "NO_SPLIT"。请勿返回其它说明文字。`;
+    const userPrompt = `正文内容：\n${rawContent}`;
+    const messages: ChatMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ];
+    try {
+      const res = await this.chatWithRetry(messages, { usePrimary: false, skipSystemInjection: true }, '章节拆分判断');
+      const reply = res.content.trim();
+      if (reply === 'NO_SPLIT') {
+        return [{ title: '', content: rawContent }];
+      }
+      const parsed = JSON.parse(reply);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => ({ title: item.title || '', content: item.content || '' }));
+      }
+      return [{ title: '', content: rawContent }];
+    } catch (e) {
+      console.error('[NovelWriterService] 拆分章节失败，回退为单章节', e);
+      return [{ title: '', content: rawContent }];
+    }
   }
 
   /**
