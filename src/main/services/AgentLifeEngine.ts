@@ -8,6 +8,7 @@ import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { SocialMediaService } from './SocialMediaService';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { NovelAiService } from './NovelAiService';
+import { NovelWriterService } from './NovelWriterService';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { ContextAssembler } from '../utils/ContextAssembler';
 import { MemoryAgentService } from './MemoryAgentService';
@@ -132,6 +133,14 @@ export class AgentLifeEngine {
 
             // 3. 执行思考与可能的主动对话生成
             await this.generateActiveBehavior(char, modelAdapter, finalizedWakeResult);
+
+            // 4. 后台静默触发小说章节生成检查
+            try {
+              const novelService = new NovelWriterService(modelAdapter);
+              await novelService.checkAndGenerateChapter(charId);
+            } catch (novelErr) {
+              console.error(`[AgentLifeEngine] 角色 ${char.name} 后台小说检查异常:`, novelErr);
+            }
           } catch (err) {
             console.error(`[AgentLifeEngine] 驱动角色 ${char.name} 思考循环时发生异常:`, err);
           }

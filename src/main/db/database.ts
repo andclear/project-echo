@@ -304,6 +304,29 @@ export class DatabaseService {
             );
           `);
         }
+      },
+      {
+        version: 6,
+        up: (db: Database.Database) => {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS NovelChapters (
+              id TEXT PRIMARY KEY,
+              character_id TEXT NOT NULL,
+              chapter_index INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              content TEXT NOT NULL,
+              summary TEXT NOT NULL,
+              dialogue_start_ts INTEGER NOT NULL,
+              dialogue_end_ts INTEGER NOT NULL,
+              token_count INTEGER DEFAULT 0,
+              rating INTEGER DEFAULT 0,
+              created_at INTEGER NOT NULL
+            );
+          `);
+          try {
+            db.exec(`CREATE INDEX IF NOT EXISTS idx_novel_chapters_char ON NovelChapters (character_id, chapter_index);`);
+          } catch (_) {}
+        }
       }
     ]
 
@@ -1057,6 +1080,87 @@ export class DatabaseService {
    */
   public close(): void {
     this.db.close()
+  }
+
+  // ====== AI 小说写手相关数据库方法 ======
+  
+  public getNovelChapterCount(characterId: string): number {
+    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM NovelChapters WHERE character_id = ?')
+    const row = stmt.get(characterId) as { count: number } | undefined
+    return row ? row.count : 0
+  }
+
+  public getNovelChapters(characterId: string): any[] {
+    const stmt = this.db.prepare(`
+      SELECT id, character_id, chapter_index, title, summary, dialogue_start_ts, dialogue_end_ts, token_count, rating, created_at
+      FROM NovelChapters
+      WHERE character_id = ?
+      ORDER BY chapter_index ASC
+    `)
+    return stmt.all(characterId)
+  }
+
+  public getNovelChapterContent(chapterId: string): { content: string } | null {
+    const stmt = this.db.prepare('SELECT content FROM NovelChapters WHERE id = ?')
+    const row = stmt.get(chapterId) as { content: string } | undefined
+    return row || null
+  }
+
+  public insertNovelChapter(chapter: {
+    id: string
+    character_id: string
+    chapter_index: number
+    title: string
+    content: string
+    summary: string
+    dialogue_start_ts: number
+    dialogue_end_ts: number
+    token_count: number
+    rating: number
+    created_at: number
+  }): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO NovelChapters (id, character_id, chapter_index, title, content, summary, dialogue_start_ts, dialogue_end_ts, token_count, rating, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    stmt.run(
+      chapter.id,
+      chapter.character_id,
+      chapter.chapter_index,
+      chapter.title,
+      chapter.content,
+      chapter.summary,
+      chapter.dialogue_start_ts,
+      chapter.dialogue_end_ts,
+      chapter.token_count,
+      chapter.rating,
+      chapter.created_at
+    )
+  }
+
+  public updateNovelChapterContent(chapterId: string, content: string, summary: string, title: string): void {
+    const stmt = this.db.prepare('UPDATE NovelChapters SET content = ?, summary = ?, title = ? WHERE id = ?')
+    stmt.run(content, summary, title, chapterId)
+  }
+
+  public updateNovelChapterRating(chapterId: string, rating: number): void {
+    const stmt = this.db.prepare('UPDATE NovelChapters SET rating = ? WHERE id = ?')
+    stmt.run(rating, chapterId)
+  }
+
+  public deleteNovelChapter(chapterId: string): void {
+    const stmt = this.db.prepare('DELETE FROM NovelChapters WHERE id = ?')
+    stmt.run(chapterId)
+  }
+
+  public sumMessageTokensSince(characterId: string, afterTs: number): number {
+    const stmt = this.db.prepare(`
+      SELECT SUM(token_usage) as total_tokens
+      FROM Messages
+      WHERE character_id = ? AND timestamp > ?
+    `)
+    const row = stmt.get(characterId, afterTs) as { total_tokens: number | null } | undefined
+    return row?.total_tokens ?? 0
   }
 }
 

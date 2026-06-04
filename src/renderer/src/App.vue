@@ -2693,6 +2693,129 @@
                 </div>
               </div>
 
+              <!-- AI 小说设置 (Tab: novel) -->
+              <div v-else-if="activeSettingsTab === 'novel'" class="space-y-6 animate-in fade-in duration-200">
+                <!-- 子标签页切换 -->
+                <div class="flex border-b border-outline-variant/30 bg-surface-low/30 p-1 rounded-xl w-fit">
+                  <button
+                    @click="novelActiveTab = 'library'"
+                    class="px-4 py-1.5 text-xs font-bold rounded-lg transition-all"
+                    :class="novelActiveTab === 'library' ? 'bg-surface shadow-sm text-primary' : 'text-on-surface-variant hover:text-on-surface'"
+                  >文风库</button>
+                  <button
+                    @click="novelActiveTab = 'extract'"
+                    class="px-4 py-1.5 text-xs font-bold rounded-lg transition-all"
+                    :class="novelActiveTab === 'extract' ? 'bg-surface shadow-sm text-primary' : 'text-on-surface-variant hover:text-on-surface'"
+                  >提取文风</button>
+                </div>
+
+                <!-- 子标签页 A: 文风库 -->
+                <div v-if="novelActiveTab === 'library'" class="space-y-4">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-on-surface-variant">我的文风列表</span>
+                    <button
+                      @click="openAddStyleModal"
+                      class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-3 py-1.5 rounded-lg transition-all font-bold cursor-pointer"
+                    >
+                      <PlusIcon class="w-3.5 h-3.5" />
+                      <span>新建文风</span>
+                    </button>
+                  </div>
+
+                  <!-- 文风卡片列表 -->
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- 内置默认文风 -->
+                    <div class="bg-surface-low/30 border border-outline-variant/20 rounded-2xl p-4 space-y-2 select-text">
+                      <div class="flex items-center justify-between border-b border-outline-variant/10 pb-2">
+                        <span class="text-xs font-bold text-on-surface flex items-center space-x-1.5">
+                          <span>✨</span>
+                          <span>默认（系统内置都市言情）</span>
+                        </span>
+                        <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-outline-variant/20 text-on-surface-variant font-bold scale-90">只读</span>
+                      </div>
+                      <p class="text-[10px] text-on-surface-variant/80 line-clamp-4 leading-relaxed font-mono whitespace-pre-wrap">以现代都市言情风格为基础，语言细腻流畅，注重人物内心描写与动作交互...</p>
+                    </div>
+
+                    <!-- 用户自定义文风 -->
+                    <div v-for="style in novelStyles" :key="style.id" class="bg-surface-low/30 border border-outline-variant/20 rounded-2xl p-4 space-y-2 flex flex-col justify-between animate-in fade-in duration-200">
+                      <div>
+                        <div class="flex items-center justify-between border-b border-outline-variant/10 pb-2 mb-2">
+                          <span class="text-xs font-bold text-on-surface truncate pr-2">{{ style.name }}</span>
+                          <div class="flex items-center space-x-2 shrink-0">
+                            <button @click="openEditStyleModal(style)" class="text-[10px] font-bold text-primary hover:underline">编辑</button>
+                            <button @click="deleteNovelStyle(style.id)" class="text-[10px] font-bold text-red-500 hover:underline">删除</button>
+                          </div>
+                        </div>
+                        <p class="text-[10px] text-on-surface-variant/80 line-clamp-4 leading-relaxed font-mono whitespace-pre-wrap">{{ style.prompt }}</p>
+                      </div>
+                      <div class="text-[8px] text-on-surface-variant/50 pt-2 border-t border-outline-variant/5 text-right font-mono">创建于: {{ new Date(style.createdAt).toLocaleDateString() }}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 子标签页 B: 提取文风 -->
+                <div v-else-if="novelActiveTab === 'extract'" class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-5 space-y-5">
+                  <div class="flex flex-col space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <label class="text-xs font-bold text-on-surface">小说样本文本</label>
+                      <button
+                        @click="triggerUploadTxt"
+                        class="flex items-center space-x-1 text-[10px] text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-lg transition-all font-bold cursor-pointer"
+                      >
+                        <UploadCloudIcon class="w-3 h-3" />
+                        <span>上传 .txt 文件</span>
+                      </button>
+                      <input type="file" ref="uploadTxtInput" accept=".txt" class="hidden" @change="onUploadTxtChange">
+                    </div>
+                    <textarea
+                      v-model="sampleText"
+                      placeholder="请在此处粘贴小说样本文本（建议 500~3000 字，样本越典型，提取效果越好）..."
+                      class="w-full min-h-[160px] max-h-[300px] bg-surface border border-outline-variant/60 rounded-xl p-3 text-xs text-on-surface focus:outline-none focus:border-primary font-mono resize-y shadow-inner"
+                    ></textarea>
+                  </div>
+
+                  <div class="flex justify-end">
+                    <button
+                      @click="startExtractStyle"
+                      :disabled="isExtractingStyle || !sampleText.trim()"
+                      class="flex items-center space-x-1.5 text-xs text-white bg-primary hover:bg-primary/90 px-4 py-2 rounded-xl transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-md cursor-pointer"
+                    >
+                      <span v-if="isExtractingStyle" class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>{{ isExtractingStyle ? '正在分析并提取文风...' : '🔍 分析并提取文风' }}</span>
+                    </button>
+                  </div>
+
+                  <!-- 提取结果 -->
+                  <div v-if="extractedPrompt || isExtractingStyle" class="space-y-4 pt-4 border-t border-outline-variant/20 animate-in fade-in duration-200">
+                    <div class="flex flex-col space-y-1.5">
+                      <label class="text-xs font-bold text-on-surface">分析与提取结果</label>
+                      <textarea
+                        v-model="extractedPrompt"
+                        placeholder="AI 分析完成后，在此显示生成的文风提示词，您可以在此直接手动编辑修改..."
+                        class="w-full min-h-[160px] max-h-[300px] bg-surface border border-outline-variant/60 rounded-xl p-3 text-xs text-on-surface focus:outline-none focus:border-primary font-mono resize-y shadow-inner"
+                      ></textarea>
+                    </div>
+
+                    <div class="flex items-center space-x-3 max-w-sm">
+                      <div class="flex-1 flex flex-col space-y-1">
+                        <label class="text-[10px] font-bold text-on-surface-variant">保存为文风名称</label>
+                        <input
+                          v-model="extractedName"
+                          type="text"
+                          placeholder="例如：民国言情风"
+                          class="bg-surface border border-outline-variant/60 rounded-xl px-3 py-1.5 text-xs text-on-surface focus:outline-none focus:border-primary"
+                        >
+                      </div>
+                      <button
+                        @click="saveExtractedStyle"
+                        :disabled="!extractedPrompt.trim() || !extractedName.trim()"
+                        class="self-end text-xs text-white bg-emerald-500 hover:bg-emerald-600 px-4 py-2 rounded-xl transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-md cursor-pointer"
+                      >保存到文风库</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
 
               <!-- D. 数据备份与迁移 (Tab: migration) -->
               <div v-else-if="activeSettingsTab === 'migration'" class="space-y-6 select-none animate-in fade-in duration-200">
@@ -5294,6 +5417,17 @@
                       }}</span>
                     </button>
 
+                    <!-- AI小说写手入口（仅 descriptive 和 dialogue 模式可见） -->
+                    <button
+                      v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot' && (characterChatModeCache[activeCharacter.id] === 'dialogue' || characterChatModeCache[activeCharacter.id] === 'descriptive') && !isGroupActive"
+                      @click="openNovelPanel(); showTopMoreMenu = false"
+                      class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-all select-none w-full text-left relative"
+                    >
+                      <span class="text-[14px]">📖</span>
+                      <span>AI小说写手</span>
+                      <span v-if="novelNewChapterBadges[activeCharacter.id]" class="ml-auto min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5">{{ novelNewChapterBadges[activeCharacter.id] }}</span>
+                    </button>
+
                     <button
                       v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot'"
                       @click="triggerDreamReflection(); showTopMoreMenu = false"
@@ -5347,6 +5481,17 @@
                     title="聊天模式切换"
                   >
                     <MessageSquareHeartIcon class="w-4 h-4" stroke-width="1.5" />
+                  </button>
+
+                  <!-- AI小说写手按钮 -->
+                  <button
+                    v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot' && (characterChatModeCache[activeCharacter.id] === 'dialogue' || characterChatModeCache[activeCharacter.id] === 'descriptive') && !isGroupActive"
+                    @click="openNovelPanel"
+                    class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-primary transition-all relative flex items-center justify-center cursor-pointer select-none"
+                    title="AI小说写手"
+                  >
+                    <span class="text-[15px] leading-none">📖</span>
+                    <span v-if="novelNewChapterBadges[activeCharacter.id]" class="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5 scale-90">{{ novelNewChapterBadges[activeCharacter.id] }}</span>
                   </button>
 
                   <!-- 梦境图标：手动触发角色睡眠反思进化 -->
@@ -6611,6 +6756,176 @@
               </div>
             </div>
           </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 抽屉：AI小说写手 ========================= -->
+    <div v-if="showNovelPanel && activeCharacter" class="modal-overlay z-[9999]" @click.self="showNovelPanel = false">
+      <div class="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-surface rounded-t-2xl shadow-2xl p-6 transform transition-transform duration-300 select-none animate-in slide-in-from-bottom duration-300 max-h-[85vh] flex flex-col border-t border-outline-variant/30">
+        <!-- 头部 -->
+        <div class="flex items-center justify-between pb-4 border-b border-outline-variant/30 flex-shrink-0">
+          <div class="flex items-center space-x-2 text-primary">
+            <span class="text-xl">📖</span>
+            <span class="text-sm font-bold text-on-surface">AI 小说写手 ({{ activeCharacter.name }})</span>
+          </div>
+          <button @click="showNovelPanel = false" class="p-1 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all">
+            <XIcon class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- 内容区域 -->
+        <div class="flex-1 overflow-y-auto py-4 space-y-5 min-h-0">
+          <!-- 开启开关 -->
+          <div class="flex items-center justify-between bg-surface-high/20 p-3.5 rounded-xl border border-outline-variant/10">
+            <div class="flex flex-col">
+              <span class="text-xs font-bold text-on-surface">开启 AI 写手</span>
+              <span class="text-[10px] text-on-surface-variant/70 mt-0.5">等积累足够对话历史后，将静默生成新章节</span>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer select-none">
+              <input type="checkbox" v-model="novelEnabled" @change="triggerSaveNovelSettings" class="sr-only peer">
+              <div class="w-9 h-5 bg-outline-variant/40 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+            </label>
+          </div>
+
+          <!-- 文风选择 -->
+          <div class="flex flex-col space-y-1.5">
+            <label class="text-xs font-bold text-on-surface">文风选择</label>
+            <select
+              v-model="novelStyleId"
+              @change="triggerSaveNovelSettings"
+              class="w-full bg-surface border border-outline-variant/60 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-primary cursor-pointer transition-all"
+            >
+              <option value="">默认（系统内置都市言情）</option>
+              <option v-for="style in novelStyles" :key="style.id" :value="style.id">{{ style.name }}</option>
+            </select>
+          </div>
+
+          <!-- 叙事人称 -->
+          <div class="flex flex-col space-y-2">
+            <label class="text-xs font-bold text-on-surface">叙事人称</label>
+            <div class="flex flex-col space-y-2 bg-surface-high/10 p-3 rounded-xl border border-outline-variant/10">
+              <label class="flex items-center space-x-2.5 cursor-pointer text-xs text-on-surface">
+                <input type="radio" v-model="novelPov" value="third_user" @change="triggerSaveNovelSettings" class="text-primary focus:ring-primary w-4 h-4">
+                <span>第三人称，以 <strong>{{ userProfile.nickname }}</strong> 为主角</span>
+              </label>
+              <label class="flex items-center space-x-2.5 cursor-pointer text-xs text-on-surface">
+                <input type="radio" v-model="novelPov" value="third_char" @change="triggerSaveNovelSettings" class="text-primary focus:ring-primary w-4 h-4">
+                <span>第三人称，以 <strong>{{ activeCharacter.name }}</strong> 为主角</span>
+              </label>
+              <label class="flex items-center space-x-2.5 cursor-pointer text-xs text-on-surface">
+                <input type="radio" v-model="novelPov" value="user_first" @change="triggerSaveNovelSettings" class="text-primary focus:ring-primary w-4 h-4">
+                <span><strong>{{ userProfile.nickname }}</strong> 的第一人称 ("我")</span>
+              </label>
+              <label class="flex items-center space-x-2.5 cursor-pointer text-xs text-on-surface">
+                <input type="radio" v-model="novelPov" value="char_first" @change="triggerSaveNovelSettings" class="text-primary focus:ring-primary w-4 h-4">
+                <span><strong>{{ activeCharacter.name }}</strong> 的第一人称 ("我")</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 改编尺度 -->
+          <div class="flex flex-col space-y-1.5">
+            <label class="text-xs font-bold text-on-surface">改编尺度</label>
+            <div class="grid grid-cols-3 gap-2.5">
+              <label class="flex items-center justify-center border border-outline-variant rounded-xl p-2.5 cursor-pointer text-xs text-on-surface transition-all" :class="novelAdaptation === 'faithful' ? 'border-primary bg-primary/5 font-bold text-primary' : 'bg-surface hover:bg-surface-high/30'">
+                <input type="radio" v-model="novelAdaptation" value="faithful" @change="triggerSaveNovelSettings" class="sr-only">
+                <span>忠实记录</span>
+              </label>
+              <label class="flex items-center justify-center border border-outline-variant rounded-xl p-2.5 cursor-pointer text-xs text-on-surface transition-all" :class="novelAdaptation === 'moderate' ? 'border-primary bg-primary/5 font-bold text-primary' : 'bg-surface hover:bg-surface-high/30'">
+                <input type="radio" v-model="novelAdaptation" value="moderate" @change="triggerSaveNovelSettings" class="sr-only">
+                <span>适度改编</span>
+              </label>
+              <label class="flex items-center justify-center border border-outline-variant rounded-xl p-2.5 cursor-pointer text-xs text-on-surface transition-all" :class="novelAdaptation === 'free' ? 'border-primary bg-primary/5 font-bold text-primary' : 'bg-surface hover:bg-surface-high/30'">
+                <input type="radio" v-model="novelAdaptation" value="free" @change="triggerSaveNovelSettings" class="sr-only">
+                <span>自由创作</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 章节目录与打分/重写/删除列表 -->
+          <div v-if="novelChaptersList.length > 0" class="flex flex-col space-y-2 pt-2 border-t border-outline-variant/30">
+            <label class="text-xs font-bold text-on-surface flex items-center justify-between">
+              <span>已生成章节 ({{ novelChaptersList.length }}章)</span>
+              <div class="flex items-center space-x-2">
+                <button @click="triggerNovelExport('txt')" class="text-[10px] text-primary hover:underline font-bold">导出TXT</button>
+                <button @click="triggerNovelExport('html')" class="text-[10px] text-primary hover:underline font-bold">导出HTML</button>
+              </div>
+            </label>
+            <div class="flex flex-col space-y-2.5 max-h-48 overflow-y-auto pr-1">
+              <div v-for="ch in novelChaptersList" :key="ch.id" class="p-3 bg-surface-high/20 rounded-xl border border-outline-variant/10 text-xs flex flex-col space-y-2 animate-in fade-in duration-200">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-on-surface truncate pr-2">第{{ ch.chapter_index }}章 {{ ch.title }}</span>
+                  <span class="text-[9px] text-on-surface-variant/60 shrink-0 font-mono">{{ new Date(ch.created_at).toLocaleDateString() }}</span>
+                </div>
+                <div class="text-[10px] text-on-surface-variant/80 line-clamp-2 leading-relaxed bg-surface/50 p-1.5 rounded-lg border border-outline-variant/5">
+                  {{ ch.summary }}
+                </div>
+                <!-- 底部操作区：评分 + 重写 + 删除 -->
+                <div class="flex items-center justify-between pt-1 flex-wrap gap-1">
+                  <!-- 评分 -->
+                  <div class="flex items-center space-x-1">
+                    <span v-for="star in 5" :key="star" @click="triggerNovelRate(ch.id, star)" class="cursor-pointer text-[13px] filter transition-all hover:scale-115" :class="star <= ch.rating ? 'grayscale-0 text-amber-500' : 'grayscale text-stone-400'">★</span>
+                  </div>
+                  <div class="flex items-center space-x-2.5">
+                    <button @click="triggerNovelRewrite(ch.id)" class="text-[10px] font-bold text-primary hover:underline" title="使用相同的对话范围重新生成此章节">重写</button>
+                    <button @click="triggerNovelDelete(ch.id)" class="text-[10px] font-bold text-red-500 hover:underline">删除</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部大阅读按钮 -->
+        <div v-if="novelChaptersList.length > 0" class="pt-4 border-t border-outline-variant/30 flex-shrink-0">
+          <button
+            @click="triggerNovelOpenReader"
+            class="w-full rounded-xl border border-primary text-primary hover:bg-primary hover:text-white font-bold py-2.5 text-xs transition-all duration-200 flex items-center justify-center space-x-2"
+          >
+            <span>📖</span>
+            <span>阅读小说正文</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：新建/编辑小说文风 ========================= -->
+    <div v-if="showAddStyleModal" class="modal-overlay z-[10000] animate-in fade-in duration-200" @click.self="showAddStyleModal = false">
+      <div class="modal-panel w-[500px] max-h-[500px] flex flex-col animate-in zoom-in-95 duration-200 select-none">
+        <div class="modal-header">
+          <div class="flex items-center space-x-2">
+            <span class="text-sm">✨</span>
+            <span class="text-xs font-bold">{{ editingStyle ? '编辑小说文风' : '新建小说文风' }}</span>
+          </div>
+          <button @click="showAddStyleModal = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
+        </div>
+
+        <div class="p-5 space-y-4 flex-1 overflow-y-auto min-h-0">
+          <div class="flex flex-col space-y-1.5">
+            <label class="text-xs font-bold text-on-surface">文风名称</label>
+            <input
+              v-model="styleForm.name"
+              type="text"
+              placeholder="例如：古典仙侠风、废土轻小说"
+              class="w-full bg-surface border border-outline-variant/60 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-primary"
+            />
+          </div>
+
+          <div class="flex flex-col space-y-1.5">
+            <label class="text-xs font-bold text-on-surface">文风提示词 (Style Prompt)</label>
+            <textarea
+              v-model="styleForm.prompt"
+              rows="8"
+              placeholder="请输入控制 AI 写作风格的提示词。例如句式偏好、节奏要求、情绪展示手法等..."
+              class="w-full bg-surface border border-outline-variant/60 rounded-xl p-3 text-xs text-on-surface focus:outline-none focus:border-primary font-mono resize-none shadow-inner"
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer px-5 py-3 border-t border-outline-variant/30 flex justify-end space-x-3 flex-shrink-0">
+          <button @click="showAddStyleModal = false" class="px-4 py-2 border border-outline-variant rounded-xl text-xs hover:bg-surface-high/30 transition-all font-bold">取消</button>
+          <button @click="saveNovelStyle" class="px-4 py-2 bg-primary text-white rounded-xl text-xs hover:bg-primary/90 transition-all font-bold shadow-md">保存文风</button>
         </div>
       </div>
     </div>
@@ -9824,6 +10139,345 @@ const avatarFileInput = ref<HTMLInputElement | null>(null)
 const userProfileActiveTab = ref<'profile' | 'userMd'>('profile')
 const userMdEditing = ref(false)
 
+// ===================== AI 小说写手相关状态 =====================
+const showNovelPanel = ref(false)
+const novelChaptersList = ref<any[]>([])
+const novelNewChapterBadges = reactive<Record<string, number>>({})
+const novelEnabled = ref(false)
+const novelStyleId = ref('')
+const novelPov = ref('third_user')
+const novelAdaptation = ref('moderate')
+const novelActiveTab = ref<'library' | 'extract'>('library')
+
+// 文风库
+const novelStyles = ref<any[]>([])
+const showAddStyleModal = ref(false)
+const editingStyle = ref<any>(null)
+const styleForm = reactive({
+  name: '',
+  prompt: ''
+})
+
+// 提取文风
+const sampleText = ref('')
+const extractedPrompt = ref('')
+const extractedName = ref('我的提取文风')
+const isExtractingStyle = ref(false)
+const uploadTxtInput = ref<HTMLInputElement | null>(null)
+
+// 加载指定角色的章节列表
+async function loadNovelChapters(characterId: string) {
+  if (!characterId) return
+  try {
+    const res = await window.api.invoke('novel-get-chapters', { characterId })
+    if (res.success && res.chapters) {
+      novelChaptersList.value = res.chapters
+    }
+  } catch (err) {
+    console.error('[App.vue] 加载小说章节列表失败:', err)
+  }
+}
+
+// 加载指定角色的写手配置
+async function loadNovelSettings(characterId: string) {
+  if (!characterId) return
+  try {
+    const enabled = await window.api.invoke('get-setting', { key: `novel_enabled_${characterId}` })
+    const styleId = await window.api.invoke('get-setting', { key: `novel_style_id_${characterId}` })
+    const pov = await window.api.invoke('get-setting', { key: `novel_pov_${characterId}` })
+    const adaptation = await window.api.invoke('get-setting', { key: `novel_adaptation_${characterId}` })
+
+    novelEnabled.value = enabled === '1'
+    novelStyleId.value = styleId || ''
+    novelPov.value = pov || 'third_user'
+    novelAdaptation.value = adaptation || 'moderate'
+  } catch (err) {
+    console.error('[App.vue] 加载小说设置失败:', err)
+  }
+}
+
+// 触发保存设置
+async function triggerSaveNovelSettings() {
+  const charId = selectedCharacterId.value
+  if (!charId) return
+  try {
+    await window.api.invoke('novel-save-settings', {
+      characterId: charId,
+      enabled: novelEnabled.value,
+      styleId: novelStyleId.value,
+      pov: novelPov.value,
+      adaptation: novelAdaptation.value
+    })
+  } catch (err) {
+    console.error('[App.vue] 保存小说设置失败:', err)
+  }
+}
+
+// 打开小说面板
+async function openNovelPanel() {
+  const charId = selectedCharacterId.value
+  if (!charId) return
+  showNovelPanel.value = true
+  // 清除新章节红点角标
+  novelNewChapterBadges[charId] = 0
+  
+  await loadNovelSettings(charId)
+  await loadNovelChapters(charId)
+  await loadNovelStyles()
+}
+
+// 调起阅读器
+async function triggerNovelOpenReader() {
+  const charId = selectedCharacterId.value
+  if (!charId) return
+  try {
+    const res = await window.api.invoke('novel-open-reader', { characterId: charId })
+    if (!res.success) {
+      showCustomAlert('打开失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('打开失败', err.message || err, 'error')
+  }
+}
+
+// 导出小说
+async function triggerNovelExport(format: 'txt' | 'html') {
+  const charId = selectedCharacterId.value
+  if (!charId) return
+  try {
+    const res = await window.api.invoke('novel-export', { characterId: charId, format })
+    if (res.success) {
+      showCustomAlert('导出成功', `小说已成功导出并保存！\n路径: ${res.path}`, 'success')
+    } else if (res.canceled) {
+      console.log('[Novel] 用户取消了导出')
+    } else {
+      showCustomAlert('导出失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('导出失败', err.message || err, 'error')
+  }
+}
+
+// 重写章节
+async function triggerNovelRewrite(chapterId: string) {
+  try {
+    showToast('正在后台重新创作章节中，请稍候...📖')
+    const res = await window.api.invoke('novel-rewrite-chapter', { chapterId })
+    if (!res.success) {
+      showCustomAlert('重写失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('重写失败', err.message || err, 'error')
+  }
+}
+
+// 删除章节
+async function triggerNovelDelete(chapterId: string) {
+  const charId = selectedCharacterId.value
+  if (!charId) return
+  try {
+    const res = await window.api.invoke('novel-delete-chapter', { chapterId })
+    if (res.success) {
+      showToast('章节已成功删除 🗑️')
+      loadNovelChapters(charId)
+    } else {
+      showCustomAlert('删除失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('删除失败', err.message || err, 'error')
+  }
+}
+
+// 为章节评分
+async function triggerNovelRate(chapterId: string, rating: number) {
+  const charId = selectedCharacterId.value
+  if (!charId) return
+  try {
+    const res = await window.api.invoke('novel-rate-chapter', { chapterId, rating })
+    if (res.success) {
+      showToast(`已为章节评 ${rating} 星 ⭐`)
+      loadNovelChapters(charId)
+    } else {
+      showCustomAlert('评分失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('评分失败', err.message || err, 'error')
+  }
+}
+
+// 加载全局文风库
+async function loadNovelStyles() {
+  try {
+    const res = await window.api.invoke('novel-get-styles')
+    if (res.success && res.styles) {
+      novelStyles.value = res.styles
+    }
+  } catch (err) {
+    console.error('[App.vue] 加载文风库失败:', err)
+  }
+}
+
+// 打开添加文风模态框
+function openAddStyleModal() {
+  editingStyle.value = null
+  styleForm.name = ''
+  styleForm.prompt = ''
+  showAddStyleModal.value = true
+}
+
+// 打开编辑文风模态框
+function openEditStyleModal(style: any) {
+  editingStyle.value = style
+  styleForm.name = style.name
+  styleForm.prompt = style.prompt
+  showAddStyleModal.value = true
+}
+
+// 保存文风到文风库
+async function saveNovelStyle() {
+  if (!styleForm.name.trim()) {
+    showCustomAlert('提示', '请输入文风名称！', 'info')
+    return
+  }
+  try {
+    const payload = {
+      id: editingStyle.value ? editingStyle.value.id : crypto.randomUUID(),
+      name: styleForm.name.trim(),
+      prompt: styleForm.prompt.trim(),
+      createdAt: editingStyle.value ? editingStyle.value.createdAt : Date.now()
+    }
+    const res = await window.api.invoke('novel-save-style', payload)
+    if (res.success) {
+      showToast('文风已成功保存到文风库！')
+      showAddStyleModal.value = false
+      loadNovelStyles()
+    } else {
+      showCustomAlert('保存失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('保存失败', err.message || err, 'error')
+  }
+}
+
+// 从文风库删除文风
+async function deleteNovelStyle(styleId: string) {
+  try {
+    const res = await window.api.invoke('novel-delete-style', { styleId })
+    if (res.success) {
+      showToast('文风已从文风库中删除 🗑️')
+      loadNovelStyles()
+    } else {
+      showCustomAlert('删除失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('删除失败', err.message || err, 'error')
+  }
+}
+
+// 提取文风的本地文件选择触发
+function triggerUploadTxt() {
+  if (uploadTxtInput.value) {
+    uploadTxtInput.value.click()
+  } else {
+    window.api.invoke('novel-open-txt-file').then((res: any) => {
+      if (res.success && res.content) {
+        sampleText.value = res.content
+        showToast('小说样本文件加载成功，最多截取前 5000 字 📝')
+      }
+    })
+  }
+}
+
+// 上传 txt 文件变更回调
+async function onUploadTxtChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  if (target && target.files && target.files.length > 0) {
+    const file = target.files[0]
+    if (!file.name.endsWith('.txt')) {
+      showCustomAlert('格式错误', '只支持上传纯文本 .txt 文件！', 'error')
+      return
+    }
+    
+    if (window.api && !isDockerMode.value) {
+      const pathVal = (file as any).path || ''
+      if (pathVal) {
+        const res = await window.api.invoke('novel-open-txt-file')
+        if (res.success && res.content) {
+          sampleText.value = res.content
+          showToast('小说样本文件加载成功 📝')
+          return
+        }
+      }
+    }
+    
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      let text = (e.target?.result as string) || ''
+      if (text.length > 5000) {
+        text = text.substring(0, 5000)
+        showToast('样本较长，将截取前 5000 字进行分析')
+      } else {
+        showToast('小说样本文件加载成功 📝')
+      }
+      sampleText.value = text
+    }
+    reader.readAsText(file, 'utf-8')
+  }
+}
+
+// 提取文风 AI 分析
+async function startExtractStyle() {
+  if (!sampleText.value.trim()) {
+    showCustomAlert('提示', '请先粘贴或上传小说样本文本！', 'info')
+    return
+  }
+  isExtractingStyle.value = true
+  try {
+    const res = await window.api.invoke('novel-extract-style', { sampleText: sampleText.value.trim() })
+    if (res.success && res.prompt) {
+      extractedPrompt.value = res.prompt
+      showToast('文风提取分析完成！🎨')
+    } else {
+      showCustomAlert('提取失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('提取失败', err.message || err, 'error')
+  } finally {
+    isExtractingStyle.value = false
+  }
+}
+
+// 保存提取结果到文风库
+async function saveExtractedStyle() {
+  if (!extractedName.value.trim()) {
+    showCustomAlert('提示', '请输入保存的文风名称！', 'info')
+    return
+  }
+  if (!extractedPrompt.value.trim()) {
+    showCustomAlert('提示', '没有提取的文风提示词可保存！', 'info')
+    return
+  }
+  try {
+    const payload = {
+      id: crypto.randomUUID(),
+      name: extractedName.value.trim(),
+      prompt: extractedPrompt.value.trim(),
+      createdAt: Date.now()
+    }
+    const res = await window.api.invoke('novel-save-style', payload)
+    if (res.success) {
+      showCustomAlert('保存成功', `文风《${extractedName.value.trim()}》已成功保存至您的文风库！`, 'success')
+      extractedPrompt.value = ''
+      extractedName.value = '我的提取文风'
+      loadNovelStyles()
+    } else {
+      showCustomAlert('保存失败', res.error, 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('保存失败', err.message || err, 'error')
+  }
+}
+
 const userWeatherText = ref('')
 const isWeatherLoading = ref(false)
 function fetchRealtimeWeather(force = false) {
@@ -9971,15 +10625,16 @@ const showChatModeModal = ref(false) // 角色专属聊天模式切换弹窗
 // 每个角色各自的聊天模式（key=characterId），reactive 保证模板响应式更新
 // 启动时在 loadCharacters 中从 DB 全量预加载；setChatMode/selectCharacter/广播 时实时同步
 const characterChatModeCache = reactive<Record<string, 'descriptive' | 'dialogue' | 'director'>>({})
-const activeSettingsTab = ref<'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback'>('general')
+const activeSettingsTab = ref<'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback' | 'novel'>('general')
 const globalPrompt = ref('')
-const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback'; label: string; icon: any }[] = [
+const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback' | 'novel'; label: string; icon: any }[] = [
   { id: 'general', label: '常规设置', icon: SettingsIcon },
   { id: 'profile', label: '个人中心', icon: UserIcon },
   { id: 'states', label: '状态栏设置', icon: HeartIcon },
   { id: 'primary', label: '主大模型', icon: CpuIcon },
   { id: 'secondary', label: '辅助大模型', icon: CpuIcon },
   { id: 'drawing', label: 'AI 绘图', icon: ImageIcon },
+  { id: 'novel', label: 'AI 小说', icon: BookOpenIcon },
   { id: 'wechat', label: '微信接入', icon: MessageCircleIcon },
   { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
   { id: 'feedback', label: '意见反馈', icon: MessageSquareIcon },
@@ -16164,8 +16819,26 @@ onMounted(async () => {
       wechatState.value = status
       showCustomAlert('绑定成功', '您的微信个人号已成功安全托管并上线就绪！🐾', 'success')
     })
+    // AI小说写手广播事件监听
+    window.api.receive('novel-chapter-added', (data: { characterId: string; chapterId: string; chapterIndex: number; title: string }) => {
+      if (selectedCharacterId.value === data.characterId) {
+        loadNovelChapters(data.characterId)
+        showCustomAlert('新章节已生成', `《${data.title}》已生成完毕，快点击 📖 按钮阅读吧！`, 'success')
+      }
+      if (!novelNewChapterBadges[data.characterId]) {
+        novelNewChapterBadges[data.characterId] = 0
+      }
+      novelNewChapterBadges[data.characterId]++
+    })
+    window.api.receive('novel-chapter-rewritten', (data: { characterId: string; chapterId: string }) => {
+      if (selectedCharacterId.value === data.characterId) {
+        loadNovelChapters(data.characterId)
+        showCustomAlert('章节重写完成', '章节内容已成功重新生成并已更新。', 'success')
+      }
+    })
   }
   fetchWeChatStatus()
+  loadNovelStyles()
   
   // 🚀 手机端输入法物理折叠状态高度精密监测与 Done 自愈解锁防线
   if (window.visualViewport) {

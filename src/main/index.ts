@@ -27,6 +27,7 @@ import { SocialMediaService } from './services/SocialMediaService'
 import { SoulEvolutionService } from './services/SoulEvolutionService'
 import { MusicService, Mp3Id3Writer } from './services/MusicService'
 import { NovelAiService } from './services/NovelAiService'
+import { NovelWriterService } from './services/NovelWriterService'
 import { UpdateService } from './services/UpdateService'
 import { WeChatService } from './services/WeChatService'
 import { WeatherService } from './utils/WeatherService'
@@ -2163,6 +2164,450 @@ ${soulContent}
 
 
 
+  // ====== AI 小说写手功能专属 IPC 通道 ======
+
+  ipcMain.handle('novel-save-settings', async (_, payload: { characterId: string; enabled: boolean; styleId: string; pov: string; adaptation: string }) => {
+    try {
+      const db = getDatabaseService()
+      db.setSetting(`novel_enabled_${payload.characterId}`, payload.enabled ? '1' : '0')
+      db.setSetting(`novel_style_id_${payload.characterId}`, payload.styleId)
+      db.setSetting(`novel_pov_${payload.characterId}`, payload.pov)
+      db.setSetting(`novel_adaptation_${payload.characterId}`, payload.adaptation)
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-get-chapters', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const chapters = db.getNovelChapters(payload.characterId)
+      return { success: true, chapters }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-get-chapter-content', async (_, payload: { chapterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const res = db.getNovelChapterContent(payload.chapterId)
+      return { success: true, content: res ? res.content : '' }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-rate-chapter', async (_, payload: { chapterId: string; rating: number }) => {
+    try {
+      const db = getDatabaseService()
+      db.updateNovelChapterRating(payload.chapterId, payload.rating)
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-rewrite-chapter', async (_, payload: { chapterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const configStr = db.getSetting('model_config')
+      if (!configStr) throw new Error('模型未配置')
+      const settings = JSON.parse(configStr)
+      const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+      const novelService = new NovelWriterService(modelAdapter)
+      
+      novelService.rewriteChapter(payload.chapterId).catch(err => {
+        console.error('[NovelWriter] 重写章节后台任务异常:', err)
+      })
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-delete-chapter', async (_, payload: { chapterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      db.deleteNovelChapter(payload.chapterId)
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-export', async (_, payload: { characterId: string; format: 'txt' | 'html' }) => {
+    try {
+      const db = getDatabaseService()
+      const chapters = db.getNovelChapters(payload.characterId)
+      if (chapters.length === 0) {
+        return { success: false, error: '小说还没有生成任何章节，无法导出！' }
+      }
+      
+      const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(payload.characterId) as any
+      const charName = char ? char.name : '未知角色'
+      
+      const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
+      const result = await dialog.showSaveDialog(focusedWindow!, {
+        title: '导出小说',
+        defaultPath: `${charName}的故事.${payload.format}`,
+        filters: [
+          { name: payload.format === 'txt' ? '纯文本文件' : 'HTML网页文件', extensions: [payload.format] }
+        ]
+      })
+      
+      if (result.canceled || !result.filePath) {
+        return { success: false, canceled: true }
+      }
+      
+      let fileContent = ''
+      if (payload.format === 'txt') {
+        fileContent = `${charName}的故事\n\n`
+        for (const ch of chapters) {
+          const contentRes = db.getNovelChapterContent(ch.id)
+          const content = contentRes ? contentRes.content : ''
+          fileContent += `第${ch.chapter_index}章 ${ch.title}\n\n${content}\n\n--------------------\n\n`
+        }
+      } else {
+        let bodyHtml = ''
+        for (const ch of chapters) {
+          const contentRes = db.getNovelChapterContent(ch.id)
+          const content = contentRes ? contentRes.content : ''
+          const paragraphs = content
+            .split('\n')
+            .map(p => p.trim())
+            .filter(Boolean)
+            .map(p => `<p style="margin-bottom: 1.5em; text-indent: 2em; text-align: justify; text-justify: inter-ideograph;">${p}</p>`)
+            .join('\n')
+            
+          bodyHtml += `
+            <section style="margin-bottom: 4rem; border-bottom: 1px solid #eee; padding-bottom: 2rem;">
+              <h2 style="color: #4648d4; font-size: 1.6rem; margin-bottom: 1.5rem; font-family: 'Noto Serif SC', serif;">第${ch.chapter_index}章 ${ch.title}</h2>
+              <div style="font-size: 1.1rem; line-height: 1.9; color: #141b2b; font-family: 'Noto Serif SC', serif;">
+                ${paragraphs}
+              </div>
+            </section>
+          `
+        }
+        
+        fileContent = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>${charName}的故事</title>
+  <style>
+    body {
+      background-color: #f9f9ff;
+      color: #141b2b;
+      font-family: Inter, "Noto Serif SC", "Source Han Serif SC", "Source Han Serif", serif;
+      margin: 0;
+      padding: 2rem 1.5rem;
+    }
+    .container {
+      max-width: 760px;
+      margin: 0 auto;
+      background: #ffffff;
+      padding: 3rem 2.5rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+      border-radius: 8px;
+    }
+    h1 {
+      text-align: center;
+      color: #4648d4;
+      font-size: 2.2rem;
+      margin-bottom: 3rem;
+      font-family: "Noto Serif SC", serif;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>${charName}的故事</h1>
+    ${bodyHtml}
+  </div>
+</body>
+</html>`
+      }
+      
+      fs.writeFileSync(result.filePath, fileContent, 'utf8')
+      return { success: true, path: result.filePath }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-open-reader', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const chapters = db.getNovelChapters(payload.characterId)
+      if (chapters.length === 0) {
+        return { success: false, error: '小说还没有章节生成，请先与角色聊天吧！' }
+      }
+      
+      const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(payload.characterId) as any
+      const charName = char ? char.name : '未知角色'
+      
+      let tocHtml = '<ul style="list-style-type: none; padding: 0; margin: 0; font-size: 0.95rem; line-height: 1.8;">'
+      let bodyHtml = ''
+      
+      for (const ch of chapters) {
+        const contentRes = db.getNovelChapterContent(ch.id)
+        const content = contentRes ? contentRes.content : ''
+        const paragraphs = content
+          .split('\n')
+          .map(p => p.trim())
+          .filter(Boolean)
+          .map(p => `<p style="margin-bottom: 1.5em; text-indent: 2em; text-align: justify;">${p}</p>`)
+          .join('\n')
+          
+        tocHtml += `<li style="margin-bottom: 8px;"><a href="#chapter-${ch.id}" style="color: #4648d4; text-decoration: none; font-weight: 500;">第${ch.chapter_index}章 ${ch.title}</a></li>`
+        
+        bodyHtml += `
+          <section id="chapter-${ch.id}" style="margin-bottom: 5rem; border-bottom: 1px solid #eee; padding-bottom: 3rem; scroll-margin-top: 20px;">
+            <h2 style="color: #4648d4; font-size: 1.8rem; margin-top: 0; margin-bottom: 2rem; font-family: 'Noto Serif SC', serif; border-left: 4px solid #4648d4; padding-left: 12px;">第${ch.chapter_index}章 ${ch.title}</h2>
+            <div style="font-size: 1.15rem; line-height: 1.95; color: #141b2b; font-family: 'Noto Serif SC', serif;">
+              ${paragraphs}
+            </div>
+          </section>
+        `
+      }
+      tocHtml += '</ul>'
+      
+      const htmlContent = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>${charName} 的专属小说阅读器</title>
+  <style>
+    body {
+      background-color: #f6f6f9;
+      color: #1b1b22;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+    }
+    .sidebar {
+      width: 260px;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      background: #ffffff;
+      border-right: 1px solid #e5e5ea;
+      padding: 2rem 1.5rem;
+      overflow-y: auto;
+    }
+    .main-content {
+      margin-left: 290px;
+      flex: 1;
+      max-width: 800px;
+      background: #ffffff;
+      padding: 4rem 3.5rem;
+      min-height: 100vh;
+      box-shadow: 0 0 20px rgba(0,0,0,0.02);
+      border-left: 1px solid #e5e5ea;
+      border-right: 1px solid #e5e5ea;
+    }
+    h1 {
+      color: #1b1b22;
+      font-size: 2.2rem;
+      margin-bottom: 3rem;
+      font-family: "Noto Serif SC", serif;
+      text-align: center;
+    }
+    .sidebar-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #8e8e93;
+      margin-bottom: 1.5rem;
+      font-weight: 600;
+    }
+    .footer {
+      text-align: center;
+      color: #8e8e93;
+      font-size: 0.85rem;
+      margin-top: 5rem;
+      padding-top: 2rem;
+      border-top: 1px solid #eee;
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="sidebar-title">📖 目录导航</div>
+    ${tocHtml}
+  </div>
+  <div class="main-content">
+    <h1>${charName} 的故事</h1>
+    ${bodyHtml}
+    <div class="footer">
+      阅读器页面已动态生成。您可随时关闭此浏览器标签页。
+    </div>
+  </div>
+</body>
+</html>`
+      
+      const tempDir = join(app.getPath('userData'), 'temp')
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true })
+      }
+      
+      const filePath = join(tempDir, `novel_reader_${payload.characterId}.html`)
+      fs.writeFileSync(filePath, htmlContent, 'utf8')
+      
+      shell.openExternal(`file://${filePath}`)
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-get-styles', async () => {
+    try {
+      const db = getDatabaseService()
+      const raw = db.getSetting('novel_styles')
+      let styles = []
+      if (raw) {
+        try {
+          styles = JSON.parse(raw)
+        } catch (_) {}
+      }
+      return { success: true, styles }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-save-style', async (_, payload: { id: string; name: string; prompt: string; createdAt?: number }) => {
+    try {
+      const db = getDatabaseService()
+      const raw = db.getSetting('novel_styles')
+      let styles: any[] = []
+      if (raw) {
+        try {
+          styles = JSON.parse(raw)
+        } catch (_) {}
+      }
+      
+      const existingIdx = styles.findIndex(s => s.id === payload.id)
+      if (existingIdx !== -1) {
+        styles[existingIdx] = {
+          ...styles[existingIdx],
+          name: payload.name,
+          prompt: payload.prompt
+        }
+      } else {
+        styles.push({
+          id: payload.id || crypto.randomUUID(),
+          name: payload.name,
+          prompt: payload.prompt,
+          createdAt: payload.createdAt || Date.now()
+        })
+      }
+      
+      db.setSetting('novel_styles', JSON.stringify(styles))
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-delete-style', async (_, payload: { styleId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const raw = db.getSetting('novel_styles')
+      let styles: any[] = []
+      if (raw) {
+        try {
+          styles = JSON.parse(raw)
+        } catch (_) {}
+      }
+      
+      styles = styles.filter(s => s.id !== payload.styleId)
+      db.setSetting('novel_styles', JSON.stringify(styles))
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-extract-style', async (_, payload: { sampleText: string }) => {
+    try {
+      const db = getDatabaseService()
+      const configStr = db.getSetting('model_config')
+      if (!configStr) throw new Error('大模型未配置，请先保存配置')
+      const settings = JSON.parse(configStr)
+      const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+      
+      const systemPrompt = `请分析以下小说文本片段的写作风格，并按照指定格式输出一份「文风档」，用于指导 AI 小说创作。
+
+输出格式（严格按 Markdown 结构输出，不要添加额外解释）：
+
+## 整体语感
+- 句长偏好：{分析短句(<15字)/中句(15-30字)/长句(>30字)的大致比例，用一句话概括语感风格}
+- 标点习惯：{分析破折号、省略号、感叹号、分号等特殊标点的使用频率和典型用法，举 1~2 个原文短片段示例}
+- 段落节奏：{分析平均段落长度、单动作段还是多动作段、断行习惯}
+
+## 对话风格
+- 潜台词模式：{分析 2~3 种典型的潜台词手法，如问非所答/语气反差/信息隐瞒，每种举 1 个原文对话片段示例}
+- 对话标签习惯：{分析用动作替代"说"标签的频率，以及对话与动作的穿插方式}
+- 角色语气特点：{分析主角或典型人物的口吻特征，引用 1~2 句原文样本句}
+
+## 情绪表达
+- 情绪展示手法：{分析如何用具体行为/动作/细节展示情绪，而非直接写"他很紧张"，举 2~3 个具体示例}
+- 基调切换节奏：{分析紧张↔轻松、沉重↔温柔等情绪切换的节奏规律}
+
+## 写法技巧
+{列出 3~5 条该文本最具代表性的写作技巧，格式：技巧名：一句话说明}
+
+## 原文示范片段（few-shot 用）
+{从样本中选取最能体现上述文风特征的 200~400 字片段，保留原文，不做修改}`
+
+      const messages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `【样本文本】\n${payload.sampleText}\n\n请输出文风分析结果：` }
+      ]
+      
+      const res = await modelAdapter.chat(messages, { useSecondary: true, skipSystemInjection: true })
+      let promptText = res.content.trim()
+      promptText = promptText.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+      
+      return { success: true, prompt: promptText }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-open-txt-file', async () => {
+    try {
+      const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
+      const result = await dialog.showOpenDialog(focusedWindow!, {
+        title: '选择样本文本文件 (.txt)',
+        properties: ['openFile'],
+        filters: [
+          { name: '纯文本文件', extensions: ['txt'] }
+        ]
+      })
+      
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true }
+      }
+      
+      const filePath = result.filePaths[0]
+      let content = fs.readFileSync(filePath, 'utf8')
+      if (content.length > 5000) {
+        content = content.substring(0, 5000)
+      }
+      
+      return { success: true, content }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
   // 12. 核心流式聊天与沙箱动作拦截 IPC 通道
   ipcMain.handle('chat-stream', async (event, payload: {
     characterId: string
@@ -3782,6 +4227,21 @@ ${memoryContent}
     // 所有 db.saveMessage 已完成，现在安全清理 activeElectronChats
     if (isElectronEvent) {
       activeElectronChats.delete(characterId)
+    }
+
+    // 异步触发 AI 小说写手（不阻塞前台返回）
+    if (characterId !== CREATOR_BOT_ID && chatMode !== 'director') {
+      const modelConfigStr = db.getSetting('model_config')
+      if (modelConfigStr) {
+        try {
+          const settings = JSON.parse(modelConfigStr)
+          const secondaryModelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+          const novelService = new NovelWriterService(secondaryModelAdapter)
+          novelService.checkAndGenerateChapter(characterId).catch(err => {
+            console.error('[NovelWriter] 触发小说写手检查异常:', err)
+          })
+        } catch (_) {}
+      }
     }
 
     return {
