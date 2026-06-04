@@ -9977,11 +9977,18 @@ if (typeof window !== 'undefined' && !(window as any).api) {
 
   // 在局域网手机端初始化 SSE 双向主动推送连接
   try {
-    const eventSource = new EventSource(`${baseUrl}/api/events`);
+    const lastId = localStorage.getItem('last_sse_event_id') || '-1'
+    const eventSource = new EventSource(`${baseUrl}/api/events?lastEventId=${lastId}`);
     
     eventSource.onmessage = (event) => {
+      if (event.lastEventId) {
+        localStorage.setItem('last_sse_event_id', event.lastEventId)
+      }
       try {
         const payload = JSON.parse(event.data);
+        if (payload.sseId) {
+          localStorage.setItem('last_sse_event_id', String(payload.sseId))
+        }
         const { channel, data } = payload;
         if (listeners[channel]) {
           listeners[channel].forEach(callback => callback(data));
@@ -14618,9 +14625,32 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
 
     // 🚀 局域网 Web 双通道分流拦截：
     // 在任何局域网连入的 Web 客户端上（含手机、平板及电脑浏览器），为了彻底杜绝局域网 fetch 回调延迟返回与 SSE 广播撞车造成的双份消息 BUG，
-    // 发送端的 fetch 回调直接静默 return 拦截，100% 交由绝对不超时、高保真的 SSE done / receive-message 接收器去触发唯一一次的分段仿真渲染！
+    // 发送端的 fetch 回调直接静默 return 拦截，100% 交由绝对不超时、高保真 SSE done / receive-message 接收器去触发唯一一次的分段仿真渲染！
     if (!window.electron || (window.api && (window.api as any).isIpcBridge)) {
       clearReplyTimeout() // 局域网端交由 SSE 保活，此处清除 fetch 定时器
+      
+      // 🚀 增加 1.5 秒延迟自愈保底检查，防止大模型生成期间局域网 SSE 遭遇瞬断丢包
+      if (res.content && res.messageId) {
+        setTimeout(async () => {
+          const msgs = allMessages[char.id] || []
+          const hasReceived = msgs.some(m => m.id === res.messageId)
+          if (!hasReceived && streamingCharsSet.has(char.id)) {
+            console.warn('[Sync Gate Fetch Recovery] 检测到局域网 SSE 丢失广播，触发 fetch 保底自愈渲染！')
+            streamingCharsSet.delete(char.id)
+            streamingCharacterId.value = ''
+            
+            await handleAssistantResponse(
+              char,
+              res.content,
+              res.redPacketAction,
+              res.prompt_tokens,
+              res.completion_tokens,
+              res.cached_tokens,
+              res.messageId
+            )
+          }
+        }, 1500)
+      }
       return
     }
 
@@ -14691,10 +14721,21 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
     // 局域网 Web 客户端静默忽略 fetch 超时断连报错，因为后台大模型依然在完美生成，且 100% 最终会由 SSE 强力救活！
     if (!window.electron || (window.api && (window.api as any).isIpcBridge)) {
       console.warn('[Web Bridge Fetch Handshake Disconnect] 局域网 Web 客户端管手超时/断开（属正常自愈范畴），静默移交 SSE 保活接管。');
-      // 🚀 核心修复：局域网端虽然依赖 SSE，但如果是真实接口报错（非握手断连），必须释放正在输入锁定，杜绝卡死
+      // 🚀 核心修复：局域网端虽然依赖 SSE，但如果是真实接口报错（非握手断连），必须释放正在输入锁定，杜绝卡死，并追加报错提示气泡
       if (err && err.message && !err.message.includes('handshake')) {
         streamingCharsSet.delete(char.id)
         streamingCharacterId.value = ''
+        
+        const msgs = allMessages[char.id] || []
+        msgs.push({
+          id: 'msg_error_' + Date.now(),
+          role: 'assistant',
+          content: `[网络或系统异常]: 发送消息失败，请检查 Docker / 局域网连接。详细错误: ${err.message || err}`,
+          created_at: new Date().toISOString(),
+          timestamp: Date.now(),
+          sender_id: char.id
+        })
+        nextTick(() => scrollToBottom())
       }
       return;
     }

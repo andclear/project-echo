@@ -2,6 +2,7 @@ import './utils/AppUserDataLock'
 import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, screen } from 'electron'
 import path, { join, extname, basename } from 'path'
 import fs from 'fs'
+import crypto from 'crypto'
 import zlib from 'zlib'
 import * as http from 'http'
 import * as https from 'https'
@@ -100,7 +101,7 @@ function stripThinkingTags(content: string): string {
 // SSE 广播函数
 export function broadcastToSse(channel: string, data: any) {
   const id = ++sseMessageIdCounter
-  const payload = JSON.stringify({ channel, data })
+  const payload = JSON.stringify({ channel, data, sseId: id })
   const raw = `id: ${id}\ndata: ${payload}\n\n`
 
   // 存入环形缓冲区（淘汰最旧条目）
@@ -6864,9 +6865,14 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
 
   // GET /api/events — SSE 持久推送通道
   if (req.method === 'GET' && req.url && req.url.startsWith('/api/events')) {
-    // 解析客户端最后收到的消息 id（断线重连时浏览器自动携带）
-    const rawLastId = req.headers['last-event-id']
-    const lastReceivedId = rawLastId ? parseInt(rawLastId as string, 10) : -1
+    // 解析客户端最后收到的消息 id（断线重连时浏览器自动携带，或作为 URL query 参数传入以兼容移动端主动重连）
+    let queryLastId = null;
+    try {
+      const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      queryLastId = parsedUrl.searchParams.get('lastEventId');
+    } catch (_) {}
+    const rawLastId = req.headers['last-event-id'] || queryLastId;
+    const lastReceivedId = rawLastId ? parseInt(rawLastId as string, 10) : -1;
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
