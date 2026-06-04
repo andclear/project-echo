@@ -56,6 +56,9 @@ jobs:
         run: |
           npx electron-builder install-app-deps --arch x64
           npx electron-builder --mac --x64 --publish never
+          # 暂存 x64 产物以防被后续的 arm64 构建任务清空目录
+          mkdir -p dist-x64-temp
+          mv dist/*.dmg dist-x64-temp/
 
       - name: Build Electron Installers (macOS - Apple Silicon arm64)
         if: matrix.os == 'macos-latest'
@@ -90,7 +93,7 @@ jobs:
           
           # 2. 物理重命名 Mac 安装包 (.dmg)
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            MAC_X64_FILE=$(find dist/ -type f -name "*x64*.dmg" | head -n 1)
+            MAC_X64_FILE=$(find dist-x64-temp/ -type f -name "*x64*.dmg" | head -n 1)
             if [ -n "$MAC_X64_FILE" ]; then
               cp "$MAC_X64_FILE" "release-dist/echo-$VERSION-intel.dmg"
               echo "Successfully renamed Mac Intel: $MAC_X64_FILE -> echo-$VERSION-intel.dmg"
