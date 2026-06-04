@@ -541,7 +541,18 @@ async function submitNewFeedback() {
   }
 
   submitting.value = true
-  const feedbackId = crypto.randomUUID()
+  // 兼容非安全上下文的UUID生成，防止 crypto.randomUUID 报 is not a function
+  const generateUUID = () => {
+    if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID()
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0
+      const v = c === 'x' ? r : (r & 0x3) | 0x8
+      return v.toString(16)
+    })
+  }
+  const feedbackId = generateUUID()
   const createdTimestamp = Date.now()
 
   const payload = {

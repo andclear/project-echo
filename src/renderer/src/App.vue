@@ -10612,7 +10612,17 @@ function increaseFontSize() {
   }
 }
 
-
+// 兼容非安全上下文(如移动端局域网IP访问)的UUID生成器，防止 crypto.randomUUID 报 is not a function
+function generateUUID(): string {
+  if (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
 
 const showStyleDropdown = ref(false)
 
@@ -11092,7 +11102,7 @@ async function saveNovelStyle() {
   }
   try {
     const payload = {
-      id: editingStyle.value ? editingStyle.value.id : crypto.randomUUID(),
+      id: editingStyle.value ? editingStyle.value.id : generateUUID(),
       name: styleForm.name.trim(),
       prompt: styleForm.prompt.trim(),
       createdAt: editingStyle.value ? editingStyle.value.createdAt : Date.now()
@@ -11210,7 +11220,7 @@ async function saveExtractedStyle() {
   }
   try {
     const payload = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       name: extractedName.value.trim(),
       prompt: extractedPrompt.value.trim(),
       createdAt: Date.now()
