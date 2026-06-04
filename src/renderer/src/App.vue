@@ -17615,7 +17615,6 @@ onMounted(async () => {
     window.api.receive('novel-chapter-rewritten', (data: { characterId: string; chapterId: string }) => {
       if (selectedCharacterId.value === data.characterId) {
         loadNovelChapters(data.characterId)
-        showCustomAlert('章节重写完成', '章节内容已成功重新生成并已更新。', 'success')
       }
       // 热刷新当前重写后章节的内容
       if (selectedBookId.value === data.characterId) {
