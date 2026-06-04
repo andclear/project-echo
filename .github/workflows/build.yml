@@ -15,14 +15,22 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.os }} - ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
-        # 🚀 采用 Matrix 原生编译矩阵！
-        # 针对含有 C++ 原生模块 (better-sqlite3) 的 Electron 项目，在各自原生虚拟机上进行编译是 100% 防崩、防架构不匹配的唯一标准实践！
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        # 🚀 采用 Matrix 原生编译矩阵的 include 维度进行细化拆分！
+        # 将 macOS 的 x64 和 arm64 分别放在两台独立的物理虚拟机上并行打包，彻底实现独立构建、独立发布，杜绝本地覆盖冲突。
+        include:
+          - os: macos-latest
+            arch: x64
+          - os: macos-latest
+            arch: arm64
+          - os: windows-latest
+            arch: x64
+          - os: ubuntu-latest
+            arch: x64
 
     steps:
       - name: Checkout Source Code
@@ -51,18 +59,15 @@ jobs:
         run: npm run build
 
       - name: Build Electron Installers (macOS - Intel x64)
-        if: matrix.os == 'macos-latest'
-        # 显式针对 x64 架构编译原生依赖并打包 x64 客户端
+        if: matrix.os == 'macos-latest' && matrix.arch == 'x64'
+        # 针对 x64 架构编译原生依赖并打包 x64 客户端，独占该虚拟机
         run: |
           npx electron-builder install-app-deps --arch x64
           npx electron-builder --mac --x64 --publish never
-          # 暂存 x64 产物以防被后续的 arm64 构建任务清空目录
-          mkdir -p dist-x64-temp
-          mv dist/*.dmg dist-x64-temp/
 
       - name: Build Electron Installers (macOS - Apple Silicon arm64)
-        if: matrix.os == 'macos-latest'
-        # 显式针对 arm64 架构编译原生依赖并打包 arm64 客户端
+        if: matrix.os == 'macos-latest' && matrix.arch == 'arm64'
+        # 针对 arm64 架构编译原生依赖并打包 arm64 客户端，独占该虚拟机
         run: |
           npx electron-builder install-app-deps --arch arm64
           npx electron-builder --mac --arm64 --publish never
@@ -91,21 +96,25 @@ jobs:
             fi
           fi
           
-          # 2. 物理重命名 Mac 安装包 (.dmg)
-          if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            MAC_X64_FILE=$(find dist-x64-temp/ -type f -name "*x64*.dmg" | head -n 1)
+          # 2. 物理重命名 Mac Intel 安装包 (.dmg)
+          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.arch }}" = "x64" ]; then
+            MAC_X64_FILE=$(find dist/ -type f -name "*.dmg" | head -n 1)
             if [ -n "$MAC_X64_FILE" ]; then
               cp "$MAC_X64_FILE" "release-dist/echo-$VERSION-intel.dmg"
               echo "Successfully renamed Mac Intel: $MAC_X64_FILE -> echo-$VERSION-intel.dmg"
             fi
-            MAC_ARM_FILE=$(find dist/ -type f -name "*arm64*.dmg" | head -n 1)
+          fi
+          
+          # 3. 物理重命名 Mac ARM 安装包 (.dmg)
+          if [ "${{ matrix.os }}" = "macos-latest" ] && [ "${{ matrix.arch }}" = "arm64" ]; then
+            MAC_ARM_FILE=$(find dist/ -type f -name "*.dmg" | head -n 1)
             if [ -n "$MAC_ARM_FILE" ]; then
               cp "$MAC_ARM_FILE" "release-dist/echo-$VERSION-arm.dmg"
               echo "Successfully renamed Mac ARM: $MAC_ARM_FILE -> echo-$VERSION-arm.dmg"
             fi
           fi
           
-          # 3. 物理重命名 Linux 安装包 (.AppImage)
+          # 4. 物理重命名 Linux 安装包 (.AppImage)
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             LINUX_FILE=$(find dist/ -type f -name "*.AppImage" | head -n 1)
             if [ -n "$LINUX_FILE" ]; then
