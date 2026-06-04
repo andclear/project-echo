@@ -368,7 +368,9 @@ function formatMessageContentForLLM(content: string, role?: string): string {
       const jsonStr = content.substring('[wechat_red_packet]:'.length)
       const rp = JSON.parse(jsonStr)
       const statusDesc = rp.status === 'received' ? '（已领取）' : rp.status === 'returned' ? '（已退回）' : '（待处理）'
-      return `[微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}]`
+      // 明确方向：用户发的还是角色发的，避免模型混淆红包归属
+      const directionDesc = role === 'user' ? '用户给你发送了' : '你给用户发送了'
+      return `[${directionDesc}一个微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}]`
     } catch (_) {
       return '[微信红包]'
     }
@@ -3732,8 +3734,11 @@ ${memoryContent}
       })
     }
 
-    // 🚀 极致缓存前缀保温：把 100% 原始的大模型流式输出写入内存字典以供下一轮无缝还原
-    LastAssistantRawResponse[characterId] = accumulatedResponse
+    // 缓存前缀保温：改用已清洗的 finalResponse（而非含控制符/思考链的原始 accumulatedResponse）
+    // 原因：accumulatedResponse 含有控制符（[SEND_RED_PACKET]、[RECEIVE_RED_PACKET] 等）和 <cot> 思考链，
+    // 若还原进历史 assistant 消息，模型下一轮会把这些控制符当成正常输出示范（few-shot 污染），
+    // 导致角色频繁发红包、角色混淆等问题。代价是前缀缓存命中率略降，但逻辑正确性更重要。
+    LastAssistantRawResponse[characterId] = finalResponse
 
 
     // 触发静默记忆提炼（延迟确认模式：结果暂存为草稿，等待用户下次发消息时核验后落盘）

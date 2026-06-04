@@ -844,18 +844,19 @@ export class ModelAdapter {
             // 🚀 核心自愈 2：将机械冰冷的“系统提示”红包指令重构为沉浸式的角色扮演第三人称动作描写
             // 彻底干掉 Few-shot 复读偏置，避免角色一旦开始发红包就陷入无限连环发送的死循环
             if (msg.role === 'user') {
-              // 用户发给角色的红包
-              msg.content = `（你收到了用户发送的一个金额为 ${amount} 元的红包，附言：“${title}”）`
+              // 用户发给角色的红包 —— 保留在上下文，让角色知道"收到过红包"
+              msg.content = `（用户给你发送了一个金额为 ${amount} 元的红包，附言："${title}"）`
             } else if (msg.role === 'assistant') {
-              // 角色发给用户的红包
-              msg.content = `*向用户发送了一个金额为 ${amount} 元的红包，附言：“${title}”*`
+              // 角色发给用户的红包 —— 改为系统历史注记，保留记忆但不以动作描写形式出现（避免 Few-shot 示范）
+              msg.content = `[历史记录：你曾给用户发送了一个${amount} 元的红包，附言"${title}"。这是已发生的过去事件，当前无需重复发送。]`
             }
           } catch (_) {
             // 容错兜底
           }
         }
       }
-      return cloned
+      // 过滤掉 content 被置空的消息（即角色发出的红包消息，已被物理剔除出上下文）
+      return cloned.filter(m => m.content !== '')
     } catch (error) {
       console.error('[ModelAdapter] 消息上下文预处理失败:', error)
     }
