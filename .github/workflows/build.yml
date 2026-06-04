@@ -119,5 +119,6 @@ jobs:
         with:
           files: release-dist/*
           fail_on_unmatched_files: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
