@@ -1842,6 +1842,13 @@
               
               <!-- 单章操作按钮组 -->
               <div v-if="selectedBookChapterId && bookChapters.length > 0" class="flex items-center space-x-3.5">
+                <!-- 字号微调 -->
+                <div class="flex items-center space-x-1 border border-outline-variant/20 bg-surface-low/30 px-1.5 py-0.5 rounded-lg text-xs mr-1 select-none">
+                  <button @click="decreaseFontSize" class="w-6 h-6 flex items-center justify-center font-bold hover:text-primary transition-colors text-on-surface-variant/70 active:scale-95" title="减小字号">A-</button>
+                  <span class="text-[10px] font-bold px-1 select-none border-x border-outline-variant/10 text-on-surface-variant/60">{{ readerFontSize }}px</span>
+                  <button @click="increaseFontSize" class="w-6 h-6 flex items-center justify-center font-bold hover:text-primary transition-colors text-on-surface-variant/70 active:scale-95" title="增大字号">A+</button>
+                </div>
+
                 <!-- 评分星级 -->
                 <div class="flex items-center space-x-1 border border-outline-variant/20 bg-surface-low/30 px-2 py-1 rounded-lg text-xs">
                   <span class="text-[10px] text-on-surface-variant/70 pr-0.5">本章评分:</span>
@@ -1881,7 +1888,7 @@
                     第{{ bookChapters.find(c => c.id === selectedBookChapterId)?.chapter_index }}章 {{ bookChapters.find(c => c.id === selectedBookChapterId)?.title }}
                   </h1>
                   <!-- 段落正文 -->
-                  <div class="flex-1 text-sm text-on-surface leading-relaxed space-y-5 select-text text-justify" style="text-justify: inter-ideograph;">
+                  <div class="flex-1 text-on-surface leading-relaxed space-y-5 select-text text-justify" :style="{ fontSize: readerFontSize + 'px', textJustify: 'inter-ideograph' }">
                     <p v-for="(p, idx) in currentChapterContent.split('\n').map(p => p.trim()).filter(Boolean)" :key="idx" class="select-text" style="text-indent: 2em;">
                       {{ p }}
                     </p>
@@ -1992,6 +1999,12 @@
                   <span>目录</span>
                 </button>
                 <div class="flex items-center space-x-3.5 select-none">
+                  <!-- 字号微调 -->
+                  <div class="flex items-center space-x-1 border border-outline-variant/20 bg-surface-low/30 px-1 py-0.5 rounded text-[10px] mr-0.5">
+                    <button @click="decreaseFontSize" class="w-5 h-5 flex items-center justify-center font-bold hover:text-primary text-on-surface-variant/70 active:scale-90">A-</button>
+                    <span class="text-[9px] font-bold px-0.5 text-on-surface-variant/60">{{ readerFontSize }}px</span>
+                    <button @click="increaseFontSize" class="w-5 h-5 flex items-center justify-center font-bold hover:text-primary text-on-surface-variant/70 active:scale-90">A+</button>
+                  </div>
                   <button @click="triggerBookChapterRewrite(selectedBookChapterId!)" class="text-[10px] font-bold text-primary">重写</button>
                   <button @click="triggerBookChapterDelete(selectedBookChapterId!)" class="text-[10px] font-bold text-red-500">删除</button>
                 </div>
@@ -2001,7 +2014,7 @@
                 <h1 class="text-base font-bold text-center text-on-surface pb-4 border-b border-outline-variant/30 mb-5 select-text">
                   第{{ bookChapters.find(c => c.id === selectedBookChapterId)?.chapter_index }}章 {{ bookChapters.find(c => c.id === selectedBookChapterId)?.title }}
                 </h1>
-                <div class="text-xs text-on-surface leading-relaxed space-y-4 select-text text-justify" style="text-justify: inter-ideograph;">
+                <div class="text-on-surface leading-relaxed space-y-4 select-text text-justify" :style="{ fontSize: readerFontSize + 'px', textJustify: 'inter-ideograph' }">
                   <p v-for="(p, idx) in currentChapterContent.split('\n').map(p => p.trim()).filter(Boolean)" :key="idx" class="select-text" style="text-indent: 2em;">
                     {{ p }}
                   </p>
@@ -10579,6 +10592,22 @@ const novelPov = ref('third_user')
 const novelAdaptation = ref('moderate')
 const novelActiveTab = ref<'library' | 'extract'>('library')
 const novelContinuingMap = ref<Record<string, boolean>>({})
+
+// 小说阅读字体大小设置（存储在浏览器 localStorage 中）
+const readerFontSize = ref(Number(localStorage.getItem('novel_reader_font_size')) || 15)
+function decreaseFontSize() {
+  if (readerFontSize.value > 12) {
+    readerFontSize.value--
+    localStorage.setItem('novel_reader_font_size', String(readerFontSize.value))
+  }
+}
+function increaseFontSize() {
+  if (readerFontSize.value < 28) {
+    readerFontSize.value++
+    localStorage.setItem('novel_reader_font_size', String(readerFontSize.value))
+  }
+}
+
 
 
 const showStyleDropdown = ref(false)

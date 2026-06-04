@@ -40,6 +40,48 @@ export class NovelWriterService {
   private modelAdapter: ModelAdapter
   private static readonly MAX_RETRIES = 3
 
+  // 全局小说生成串行队列
+  private static taskQueue: Array<{
+    characterId: string
+    action: () => Promise<void>
+    onDone?: (err?: any) => void
+  }> = []
+  private static isProcessing = false
+
+  private static enqueue(characterId: string, action: () => Promise<void>): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.taskQueue.push({
+        characterId,
+        action,
+        onDone: (err) => {
+          if (err) reject(err)
+          else resolve()
+        }
+      })
+      this.processQueue()
+    })
+  }
+
+  private static async processQueue() {
+    if (this.isProcessing) return
+    this.isProcessing = true
+
+    while (this.taskQueue.length > 0) {
+      const task = this.taskQueue.shift()
+      if (task) {
+        try {
+          await task.action()
+          if (task.onDone) task.onDone()
+        } catch (err) {
+          console.error(`[NovelWriterService] 全局小说队列任务执行失败:`, err)
+          if (task.onDone) task.onDone(err)
+        }
+      }
+    }
+
+    this.isProcessing = false
+  }
+
   constructor(modelAdapter: ModelAdapter) {
     this.modelAdapter = modelAdapter
   }
@@ -105,65 +147,211 @@ export class NovelWriterService {
   }
 
   /**
-   * 核心小说生成流程
+   * 核心小说生成流程（已接入全局串行队列）
    */
   public async generateChapter(characterId: string, options: { isFirstChapter: boolean }): Promise<void> {
+    console.log(`[NovelWriterService] 角色 ${characterId} 触发小说生成，正在加入全局串行队列...`)
+    await NovelWriterService.enqueue(characterId, async () => {
+      await this.generateChaptersFromPendingDialogue(characterId, options.isFirstChapter)
+    })
+  }
+
+  /**
+   * 估算单条消息消耗的 tokens 数量
+   */
+  private estimateMessageTokens(msg: any): number {
+    if (msg.token_usage && msg.token_usage > 0) {
+      return msg.token_usage
+    }
+    const content = msg.content || ''
+    return Math.ceil(content.length * 1.5) + 10
+  }
+
+  /**
+   * 按照约 3000 tokens 切割 pending 的原始对话消息
+   */
+  private chunkMessagesByToken(messages: any[], targetTokenLimit = 3000): any[][] {
+    const chunks: any[][] = []
+    let currentChunk: any[] = []
+    let currentTokens = 0
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i]
+      const tokens = this.estimateMessageTokens(msg)
+
+      currentChunk.push(msg)
+      currentTokens += tokens
+
+      // 当累加 tokens 达到限制，且当前消息是角色回复（以 assistant 结尾以结束一轮完整对话）时，进行切分
+      if (currentTokens >= targetTokenLimit && msg.role === 'assistant') {
+        chunks.push(currentChunk)
+        currentChunk = []
+        currentTokens = 0
+      }
+    }
+
+    if (currentChunk.length > 0) {
+      // 边缘优化：如果最后一个遗留片段没有包含角色的回复（无 assistant 消息），
+      // 且 chunks 中已经有切好的前序分段，为了避免废章，我们直接并入上一个分段
+      const hasAssistant = currentChunk.some(m => m.role === 'assistant')
+      if (!hasAssistant && chunks.length > 0) {
+        chunks[chunks.length - 1].push(...currentChunk)
+      } else {
+        chunks.push(currentChunk)
+      }
+    }
+
+    return chunks
+  }
+
+  /**
+   * 辅助获取当前设定的用户名
+   */
+  private getUserName(): string {
+    const db = getDatabaseService()
+    const profileStr = db.getSetting('echo_user_profile')
+    if (profileStr) {
+      try {
+        const parsed = JSON.parse(profileStr)
+        if (parsed.nickname) return parsed.nickname
+      } catch (_) {}
+    }
+    return '用户'
+  }
+
+  /**
+   * 从 pending 对话中分段并串行生成多章节
+   */
+  private async generateChaptersFromPendingDialogue(characterId: string, isFirstChapter: boolean): Promise<void> {
+    const db = getDatabaseService()
+
+    // 1. 读取当前未改编的聊天消息
+    const lastEndTs = isFirstChapter ? 0 : parseInt(db.getSetting(`last_novel_chapter_end_ts_${characterId}`) || '0', 10)
+    const rawMessages = db.db.prepare(`
+      SELECT * FROM Messages 
+      WHERE character_id = ? AND timestamp > ? 
+      ORDER BY timestamp ASC
+    `).all(characterId, lastEndTs) as any[]
+
+    if (rawMessages.length === 0) {
+      console.log(`[NovelWriterService] 没有新的聊天记录用于改编角色 ${characterId} 的小说章节。`)
+      return
+    }
+
+    // 2. 调用分段算法切分
+    const chunks = this.chunkMessagesByToken(rawMessages, 3000)
+    console.log(`[NovelWriterService] 角色 ${characterId} 未改编对话共 ${rawMessages.length} 条，已切分为 ${chunks.length} 个分段进行生成。`)
+
+    // 3. 获取角色元数据与设定文件夹
+    const char = db.db.prepare('SELECT * FROM Characters WHERE id = ?').get(characterId) as any
+    if (!char) {
+      console.warn(`[NovelWriterService] 找不到角色 ${characterId}，生成终止。`)
+      return
+    }
+
+    const folderName = char.folder_name
+    const storageManager = new CharacterStorageManager()
+
+    // 读取设定文件
+    const soulContent = storageManager.readCharacterFile(folderName, 'Soul.md') || ''
+    const worldContent = storageManager.readCharacterFile(folderName, 'World.md') || ''
+    const charUserProfile = storageManager.readCharacterFile(folderName, 'USER.md') || ''
+    
+    const globalUserPath = join(app.getPath('userData'), 'config', 'USER.md')
+    const globalUserProfile = fs.existsSync(globalUserPath) ? fs.readFileSync(globalUserPath, 'utf8') : ''
+
+    // 读取文风设置
+    const styleId = db.getSetting(`novel_style_id_${characterId}`) || ''
+    const stylesStr = db.getSetting('novel_styles')
+    let stylePrompt = ''
+    if (stylesStr) {
+      try {
+        const styles = JSON.parse(stylesStr) as any[]
+        const matchedStyle = styles.find(s => s.id === styleId)
+        if (matchedStyle && matchedStyle.prompt) {
+          stylePrompt = matchedStyle.prompt
+        }
+      } catch (_) {}
+    }
+
+    // 叙事人称与改编尺度设置
+    const pov = db.getSetting(`novel_pov_${characterId}`) || 'third_user'
+    const adaptation = db.getSetting(`novel_adaptation_${characterId}`) || 'moderate'
+
+    const userName = this.getUserName()
+    const charName = char.name
+
+    const povInstruction = this.getPovInstruction(pov, userName, charName)
+    const adaptationInstruction = this.getAdaptationInstruction(adaptation)
+
+    const contextOptions = {
+      stylePrompt,
+      soulContent,
+      worldContent,
+      globalUserProfile,
+      charUserProfile,
+      povInstruction,
+      adaptationInstruction
+    }
+
+    // 4. 依次串行循环生成每一段
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkMessages = chunks[i]
+      const chunkIsFirst = isFirstChapter && (i === 0)
+      console.log(`[NovelWriterService] 正在串行生成分段 ${i + 1}/${chunks.length}（包含 ${chunkMessages.length} 条对话）...`)
+      
+      try {
+        await this.generateSingleChapter(characterId, chunkMessages, {
+          isFirstChapter: chunkIsFirst,
+          ...contextOptions
+        })
+      } catch (err: any) {
+        console.error(`[NovelWriterService] 串行生成分段 ${i + 1} 时失败，中断后续生成:`, err.message || err)
+        throw err
+      }
+    }
+  }
+
+  /**
+   * 生成单个章节并落盘
+   */
+  private async generateSingleChapter(
+    characterId: string,
+    rawMessages: any[],
+    options: {
+      isFirstChapter: boolean;
+      stylePrompt: string;
+      soulContent: string;
+      worldContent: string;
+      globalUserProfile: string;
+      charUserProfile: string;
+      povInstruction: string;
+      adaptationInstruction: string;
+    }
+  ): Promise<void> {
     const db = getDatabaseService()
 
     // 1. 获取并发锁，保证推理不并发，杜绝卡顿
     await InferenceMutex.lock()
 
     try {
-      // 2. 获取角色元数据与设定文件夹
       const char = db.db.prepare('SELECT * FROM Characters WHERE id = ?').get(characterId) as any
       if (!char) {
-        console.warn(`[NovelWriterService] 找不到角色 ${characterId}，生成终止。`)
+        console.warn(`[NovelWriterService] generateSingleChapter: 找不到角色 ${characterId}`)
         return
       }
 
-      const folderName = char.folder_name
-      const storageManager = new CharacterStorageManager()
-      const charDir = join(storageManager.getBaseDir(), folderName)
-
-      // 3. 读取设定文件
-      const soulContent = storageManager.readCharacterFile(folderName, 'Soul.md') || ''
-      const worldContent = storageManager.readCharacterFile(folderName, 'World.md') || ''
-      const charUserProfile = storageManager.readCharacterFile(folderName, 'USER.md') || ''
-      
-      const globalUserPath = join(app.getPath('userData'), 'config', 'USER.md')
-      const globalUserProfile = fs.existsSync(globalUserPath) ? fs.readFileSync(globalUserPath, 'utf8') : ''
-
-      // 4. 读取当前未改编的聊天消息
-      const lastEndTs = options.isFirstChapter ? 0 : parseInt(db.getSetting(`last_novel_chapter_end_ts_${characterId}`) || '0', 10)
-      const rawMessages = db.db.prepare(`
-        SELECT * FROM Messages 
-        WHERE character_id = ? AND timestamp > ? 
-        ORDER BY timestamp ASC
-      `).all(characterId, lastEndTs) as any[]
-
-      if (rawMessages.length === 0) {
-        console.log(`[NovelWriterService] 没有新的聊天记录用于改编角色 ${characterId} 的小说章节。`)
-        return
-      }
+      const charName = char.name
+      const userName = this.getUserName()
 
       // 获取这批消息的起止时间戳
       const dialogue_start_ts = rawMessages[0].timestamp
       const dialogue_end_ts = rawMessages[rawMessages.length - 1].timestamp
 
-      // 5. 格式化聊天记录
-      const profileStr = db.getSetting('echo_user_profile')
-      let userName = '用户'
-      if (profileStr) {
-        try {
-          const parsed = JSON.parse(profileStr)
-          if (parsed.nickname) userName = parsed.nickname
-        } catch (_) {}
-      }
-      const charName = char.name
-
+      // 格式化聊天记录
       const formattedDialogue = this.preprocessMessages(rawMessages, userName, charName)
 
-      // 6. 读取已有章节的摘要与最近 2 章全文 (连贯性注入)
+      // 读取已有章节的摘要与最近 2 章全文 (连贯性注入)
       const allChapters = db.getNovelChapters(characterId)
       let prevSummaries = ''
       allChapters.forEach((ch: any) => {
@@ -182,45 +370,24 @@ export class NovelWriterService {
         }
       }
 
-      // 7. 读取文风设置
-      const styleId = db.getSetting(`novel_style_id_${characterId}`) || ''
-      const stylesStr = db.getSetting('novel_styles')
-      let stylePrompt = ''
-      if (stylesStr) {
-        try {
-          const styles = JSON.parse(stylesStr) as any[]
-          const matchedStyle = styles.find(s => s.id === styleId)
-          if (matchedStyle && matchedStyle.prompt) {
-            stylePrompt = matchedStyle.prompt
-          }
-        } catch (_) {}
-      }
-
-      // 8. 叙事人称与改编尺度设置
-      const pov = db.getSetting(`novel_pov_${characterId}`) || 'third_user'
-      const adaptation = db.getSetting(`novel_adaptation_${characterId}`) || 'moderate'
-
-      const povInstruction = this.getPovInstruction(pov, userName, charName)
-      const adaptationInstruction = this.getAdaptationInstruction(adaptation)
-
-      // 9. 组装 System Prompt 与 User Prompt
+      // 组装 System Prompt 与 User Prompt
       const systemPrompt = this.buildWriterSystemPrompt(
-        soulContent,
-        worldContent,
-        globalUserProfile,
-        charUserProfile,
-        stylePrompt,
+        options.soulContent,
+        options.worldContent,
+        options.globalUserProfile,
+        options.charUserProfile,
+        options.stylePrompt,
         prevSummaries,
         prevFullChapters,
-        povInstruction,
-        adaptationInstruction,
+        options.povInstruction,
+        options.adaptationInstruction,
         options.isFirstChapter
       )
 
       const userPrompt = `【待改编的对话原材料（按时间顺序）】
 ${formattedDialogue}
 
-请立即将以上对话改编成一个完整的小说章节。
+请立即以小说叙事手法将以上对话改编成一个完整的小说章节。
 创作要点（核心硬性指标）：
 ① 剧情至上：小说的核心是连贯精彩的情节和画面感，绝对禁止像剧本一样逐条翻译台词！
 ② 大胆剪辑：无用的日常废话和重复拉扯必须剔除，或者概括性带过。把字数留给真正的矛盾和情感冲突。
@@ -232,7 +399,6 @@ ${formattedDialogue}
 
 【关于章节标题】由你自行拟定，简洁有力、贴合本章情感基调，6~15字为宜，无需使用"第X章"字样。`
 
-      // 10. 调用大模型生成章节正文 (辅助模型)
       const chatMessages: ChatMessage[] = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
@@ -241,29 +407,27 @@ ${formattedDialogue}
       console.log(`[NovelWriterService] 开始调用大模型生成小说正文...`)
       const res = await this.chatWithRetry(chatMessages, { usePrimary: true, skipSystemInjection: true }, '正文生成')
       
-      // 新章节序号使用 MAX(chapter_index)+1，避免删除中间章节后序号冲突
       const newChapterIndex = allChapters.length > 0
         ? Math.max(...allChapters.map((ch: any) => ch.chapter_index)) + 1
         : 1
 
       const { title: rawTitle, content: rawContent } = this.parseChapterOutput(res.content, newChapterIndex)
       
-      // 11. 使用辅助模型判断是否拆分章节并获取拆分结果
-      const splitParts = await this.splitIntoChapters(rawContent, stylePrompt)
+      // 使用辅助模型判断是否拆分章节并获取拆分结果
+      const splitParts = await this.splitIntoChapters(rawContent, options.stylePrompt)
 
-      // 12. 循环处理每个拆分后的章节
-      // chapterIndex 基于 newChapterIndex（MAX(chapter_index)+1），保证删除章节后序号不冲突
+      // 循环处理每个拆分后的章节
       for (let i = 0; i < splitParts.length; i++) {
         const part = splitParts[i]
         const partTitle = splitParts.length === 1
           ? rawTitle
           : (part.title && part.title.trim() ? part.title.trim() : `${rawTitle}（${i + 1}）`)
-        // 暂时注释去 AI 味润色与审阅
-        // const polished = await this.polishAndReview(part.content, stylePrompt)
+
         const polished = part.content
         const partSummary = await this.generateChapterSummary(polished, charName)
         const chapterId = crypto.randomUUID()
         const chapterIndex = newChapterIndex + i
+
         db.insertNovelChapter({
           id: chapterId,
           character_id: characterId,
@@ -277,8 +441,10 @@ ${formattedDialogue}
           rating: 0,
           created_at: Date.now()
         })
+
         // 更新最新章节结束时间戳
         db.setSetting(`last_novel_chapter_end_ts_${characterId}`, dialogue_end_ts.toString())
+
         // 广播事件给前端
         BrowserWindow.getAllWindows().forEach(w => {
           w.webContents.send('novel-chapter-added', {
@@ -289,10 +455,11 @@ ${formattedDialogue}
           })
         })
       }
-      console.log(`[NovelWriterService] 章节生成成功！第 ${newChapterIndex} 章：《${rawTitle}》已落盘。`)
+      console.log(`[NovelWriterService] 分段章节生成落盘成功！`)
 
     } catch (err: any) {
-      console.error(`[NovelWriterService] 生成小说章节时发生致命错误:`, err.message || err)
+      console.error(`[NovelWriterService] 生成单个小说章节时发生致命错误:`, err.message || err)
+      throw err
     } finally {
       // 15. 释放互斥锁
       InferenceMutex.unlock()
