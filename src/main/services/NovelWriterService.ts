@@ -12,11 +12,56 @@ export const NOVEL_TOKEN_THRESHOLD: Record<string, number> = {
   descriptive: 3500,
 }
 
+/**
+ * 用户未配置文风时使用的默认文风档
+ */
+export const DEFAULT_STYLE_PROMPT = `## 整体语感
+- 句长偏好：长短均衡，以中短句（8~20字）为主，情绪爆发点切换为3~8字短句叠加，营造节奏冲击；日常松弛段落偶尔穿插一两句长句舒缓呼吸
+- 标点习惯：善用破折号制造话语中断与转折；省略号仅在真正的沉默或欲言又止时使用，每千字不超过2处；感叹号克制，平均每千字不超过1个
+- 段落节奏：一段只承载一个核心动作或信息变化，段落长度参差交错——短段（1~2句）与中段（3~5句）穿插，避免连续出现相同长度的段落
+
+## 对话风格
+- 潜台词模式：角色说话不直球表达内心，善用答非所问、语气反差、刻意岔开话题来暗示真实情感。示例："你吃了吗？" ——实际在问"你还好吗"
+- 对话标签习惯：用微动作穿插替代"说"标签（如"她低头搅着杯子里的吸管"替代"她说"），动作与对话织在同一段内呈现
+- 角色语气特点：口语化、生活化，不写书面腔（"我觉得不靠谱"而非"我认为此事不妥"），不同角色有各自的口头禅和语气节奏
+
+## 情绪表达
+- 情绪展示手法：用身体反应和具体行为展示情绪——紧张时"指甲掐进掌心"、愤怒时"筷子在桌上磕出声响"、心动时"视线不自觉地追着对方的背影走"；绝对不写"他很紧张""她很伤心"等直接情绪词
+- 基调切换节奏：紧张与松弛、甜蜜与酸涩交替穿插，同一章内至少有一次明显的情绪起伏转折，避免全篇同一基调
+
+## 写法技巧
+1. 善用留白：在对话间隙以沉默、停顿、小动作暗示未说出口的潜台词，让读者自行补全情感
+2. 五感细节锚定场景：每个重要场景至少调动两种以上感官（气味、触感、声音、光线等），不写空洞的"环境很好"
+3. 动作链叙事：用连续的小动作串联人物状态变化，不拆成"发生→感知→反应"三段分写
+4. 克制的温柔基调：整体氛围温柔而含蓄，情感浓度在字面之下流动，不滥用浓烈的修辞
+5. 结尾用动作或对话收束：章尾以一个具体动作、一句未说完的话或一个悬念画面收尾，不写哲理感悟式总结`
+
 export class NovelWriterService {
   private modelAdapter: ModelAdapter
+  private static readonly MAX_RETRIES = 3
 
   constructor(modelAdapter: ModelAdapter) {
     this.modelAdapter = modelAdapter
+  }
+
+  /**
+   * 带自动重试的大模型调用，失败后等待 2 秒重试，最多 MAX_RETRIES 次
+   */
+  private async chatWithRetry(messages: ChatMessage[], options: any, label: string): Promise<any> {
+    for (let attempt = 1; attempt <= NovelWriterService.MAX_RETRIES; attempt++) {
+      try {
+        return await this.modelAdapter.chat(messages, options)
+      } catch (err: any) {
+        console.error(`[NovelWriterService] ${label}调用失败（第${attempt}/${NovelWriterService.MAX_RETRIES}次）:`, err.message || err)
+        if (attempt >= NovelWriterService.MAX_RETRIES) {
+          throw err // 重试耗尽，向上抛出
+        }
+        // 等待 2 秒后重试
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        console.log(`[NovelWriterService] ${label}正在第 ${attempt + 1} 次重试...`)
+      }
+    }
+    throw new Error(`${label}重试耗尽`) // 理论上不会到达
   }
 
   /**
@@ -181,17 +226,25 @@ export class NovelWriterService {
       ]
 
       console.log(`[NovelWriterService] 开始调用大模型生成小说正文...`)
-      const res = await this.modelAdapter.chat(chatMessages, { useSecondary: true, skipSystemInjection: true })
+      const res = await this.chatWithRetry(chatMessages, { usePrimary: true, skipSystemInjection: true }, '正文生成')
       
-      const { title, content } = this.parseChapterOutput(res.content, allChapters.length + 1)
+      // 新章节序号使用 MAX(chapter_index)+1，避免删除中间章节后序号冲突
+      const newChapterIndex = allChapters.length > 0
+        ? Math.max(...allChapters.map((ch: any) => ch.chapter_index)) + 1
+        : 1
+
+      const { title, content: rawContent } = this.parseChapterOutput(res.content, newChapterIndex)
       
-      // 11. 生成 200 字以内的摘要
+      // 11. 去 AI 味润色与审阅
+      console.log(`[NovelWriterService] 开始去 AI 味润色与审阅...`)
+      const content = await this.polishAndReview(rawContent, stylePrompt)
+
+      // 12. 生成 200 字以内的摘要
       console.log(`[NovelWriterService] 开始生成本章故事摘要...`)
       const summary = await this.generateChapterSummary(content, charName)
 
       // 12. 写入数据库
       const newChapterId = crypto.randomUUID()
-      const newChapterIndex = allChapters.length + 1
       db.insertNovelChapter({
         id: newChapterId,
         character_id: characterId,
@@ -360,15 +413,19 @@ export class NovelWriterService {
       ]
 
       console.log(`[NovelWriterService] 重写章节：开始调用大模型重新生成正文...`)
-      const res = await this.modelAdapter.chat(chatMessages, { useSecondary: true, skipSystemInjection: true })
+      const res = await this.chatWithRetry(chatMessages, { usePrimary: true, skipSystemInjection: true }, '重写正文')
       
-      const { title, content } = this.parseChapterOutput(res.content, chapterIndex)
+      const { title, content: rawContent } = this.parseChapterOutput(res.content, chapterIndex)
       
-      // 11. 生成 200 字以内的摘要
+      // 11. 去 AI 味润色与审阅
+      console.log(`[NovelWriterService] 重写章节：开始去 AI 味润色与审阅...`)
+      const content = await this.polishAndReview(rawContent, stylePrompt)
+
+      // 12. 生成 200 字以内的摘要
       console.log(`[NovelWriterService] 重写章节：开始生成本章故事摘要...`)
       const summary = await this.generateChapterSummary(content, charName)
 
-      // 12. 更新数据库
+      // 13. 更新数据库
       db.updateNovelChapterContent(chapterId, content, summary, title)
 
       console.log(`[NovelWriterService] 章节重写成功！第 ${chapterIndex} 章：《${title}》已覆盖。`)
@@ -398,9 +455,13 @@ export class NovelWriterService {
         const roleName = m.role === 'user' ? userName : charName
         let content = m.content || ''
         
-        // 过滤微信图片描述
+        // 过滤微信图片描述：用户图片替换为文字描述，assistant 图片完全过滤
         if (content.startsWith('[wechat_image_media]:')) {
-          content = m.role === 'user' ? `（${userName}发来了一张图片）` : '（发来了一张图片）'
+          if (m.role === 'user') {
+            content = `（${userName}发来了一张图片）`
+          } else {
+            return '' // assistant 生成的图片消息不传入写手
+          }
         }
         // 过滤日记描述
         if (content.startsWith('[character_diary]:')) {
@@ -444,7 +505,7 @@ export class NovelWriterService {
         return `请以 ${charName}（角色）的第一人称视角创作，使用「我」指代 ${charName}，用「他/她」指代 ${userName}。`
       case 'third_user':
       default:
-        return `请以 third_user（第三人称，用户为主角）视角创作，以 ${userName} 为叙事主角，重点刻画 ${userName} 的内心感受与行动，${charName} 作为对手戏角色呈现。`
+        return `请以第三人称视角创作，以 ${userName} 为叙事主角，重点刻画 ${userName} 的内心感受与行动，${charName} 作为对手戏角色呈现。`
     }
   }
 
@@ -488,6 +549,9 @@ export class NovelWriterService {
         }
       }
       styleSection = `\n【文风档】\n${stylePrompt.trim()}\n${sampleExcerptSection}\n`
+    } else {
+      // 用户未配置文风时注入默认文风
+      styleSection = `\n【文风档（系统默认）】\n${DEFAULT_STYLE_PROMPT}\n`
     }
 
     return `你是专职将聊天记录精编扩写为小说的 AI 专业写手。
@@ -580,6 +644,79 @@ ${adaptationInstruction}
   }
 
   /**
+   * 二次调用主模型，对生成的章节进行去 AI 味润色与审阅
+   */
+  private async polishAndReview(rawContent: string, stylePrompt: string): Promise<string> {
+    try {
+      console.log(`[NovelWriterService] 开始去 AI 味润色与审阅...`)
+
+      const styleRef = stylePrompt.trim()
+        ? `\n【参考文风】\n${stylePrompt.trim()}\n`
+        : `\n【参考文风】\n${DEFAULT_STYLE_PROMPT}\n`
+
+      const messages: ChatMessage[] = [
+        {
+          role: 'system',
+          content: `你是一名资深网文编辑，专精「去 AI 味」润色与质量审阅。你的任务是对下面这篇 AI 生成的小说章节进行一轮精修，使其读起来像真人作家的手笔。
+
+【你必须执行的修改】
+1. **消灭 AI 指纹词**：替换或删除以下高频 AI 写作痕迹——
+   "不禁""仿佛""似乎""嘴角微微上扬""眼眸""轻笑""宛如""此刻""心中涌起""一抹""目光落在""轻声道""嘴角勾起""淡淡的""微微一怔""下意识""不由得""心头一紧""莫名""缓缓开口"
+   用更具体、更口语化、更有画面感的表达替代，不要简单删除。
+
+2. **修正不自然的叙述**：
+   - 删除多余的心理旁白解释（如"他知道，这一刻很重要"）
+   - 将总结式情绪描写改为具体行为展示（Show Don't Tell）
+   - 消除重复的句式结构（如连续三句都以人名开头）
+   - 避免段尾出现哲理感悟式总结
+
+3. **对话自然化**：
+   - 让对话更口语、更生活化，去除书面腔
+   - 减少对话中不必要的称呼（真实对话很少每句都叫对方名字）
+   - 用动作和停顿替代"说""道""回答道"等标签
+
+4. **节奏与结构**：
+   - 段落长短交错，避免连续相同长度段落
+   - 在情绪转折处适当换行留白
+   - 章节结尾用动作或悬念收束，不要写感悟式总结
+${styleRef}
+【硬性规则】
+- 保留原文的情节、人物、对话内容不变，只改写法和措辞
+- 不要增加新情节或删除现有情节
+- 不要添加任何编辑批注、评论或说明
+- 直接输出润色后的完整正文，不要有任何前缀或后缀
+- 保持简体中文`
+        },
+        {
+          role: 'user',
+          content: `【待润色的章节原文】\n${rawContent}\n\n请直接输出润色后的完整正文：`
+        }
+      ]
+
+      const res = await this.chatWithRetry(messages, { usePrimary: true, skipSystemInjection: true }, '去AI味润色')
+      let polished = res.content.trim()
+
+      // 去除可能的思维链标签
+      polished = polished.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+
+      // 去除可能的 markdown 代码块包围
+      polished = polished.replace(/^```[\s\S]*?\n/, '').replace(/\n```\s*$/, '').trim()
+
+      // 如果润色结果过短（大模型异常），回退到原文
+      if (polished.length < rawContent.length * 0.3) {
+        console.warn(`[NovelWriterService] 润色结果异常过短（${polished.length}字 vs 原文${rawContent.length}字），回退使用原文。`)
+        return rawContent
+      }
+
+      console.log(`[NovelWriterService] 去 AI 味润色完成。原文 ${rawContent.length} 字 → 润色后 ${polished.length} 字。`)
+      return polished
+    } catch (err: any) {
+      console.error(`[NovelWriterService] 去 AI 味润色失败，使用原始正文:`, err.message || err)
+      return rawContent
+    }
+  }
+
+  /**
    * 二次调用辅助大模型，生成本章摘要
    */
   private async generateChapterSummary(chapterContent: string, charName: string): Promise<string> {
@@ -595,7 +732,7 @@ ${adaptationInstruction}
         }
       ]
       
-      const res = await this.modelAdapter.chat(messages, { useSecondary: true, skipSystemInjection: true })
+      const res = await this.chatWithRetry(messages, { useSecondary: true, skipSystemInjection: true }, '摘要生成')
       let summary = res.content.trim()
       
       // 去除可能含有的思维链标签

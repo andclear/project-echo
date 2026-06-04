@@ -6792,16 +6792,16 @@
 
             <!-- 下拉展开选项 -->
             <div 
-              v-if="showStyleDropdown && novelStyles.length > 0"
+              v-if="showStyleDropdown"
               class="absolute top-full left-0 right-0 mt-1.5 bg-surface border border-outline-variant rounded-xl shadow-xl z-50 p-1 flex flex-col space-y-0.5 max-h-40 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-100"
             >
-              <!-- 未配置/无注入项 -->
+              <!-- 系统默认文风 -->
               <div 
                 @click="selectStyle('')"
                 class="px-3 py-2 rounded-lg text-xs hover:bg-surface-high cursor-pointer transition-all truncate"
                 :class="{ 'text-primary font-bold bg-primary/5': novelStyleId === '' }"
               >
-                不将文风注入到 Prompt (无文风)
+                默认文风（内置，建议自行在设置页面配置）
               </div>
               <div 
                 v-for="style in novelStyles" 
@@ -6857,7 +6857,7 @@
             </div>
           </div>
 
-          <!-- 章节目录与打分/重写/删除列表 -->
+          <!-- 章节目录 -->
           <div v-if="novelChaptersList.length > 0" class="flex flex-col space-y-2 pt-2 border-t border-outline-variant/30">
             <label class="text-xs font-bold text-on-surface flex items-center justify-between">
               <span>已生成章节 ({{ novelChaptersList.length }}章)</span>
@@ -6866,25 +6866,12 @@
                 <button @click="triggerNovelExport('html')" class="text-[10px] text-primary hover:underline font-bold">导出HTML</button>
               </div>
             </label>
-            <div class="flex flex-col space-y-2.5 max-h-48 overflow-y-auto pr-1">
-              <div v-for="ch in novelChaptersList" :key="ch.id" class="p-3 bg-surface-high/20 rounded-xl border border-outline-variant/10 text-xs flex flex-col space-y-2 animate-in fade-in duration-200">
-                <div class="flex items-center justify-between">
-                  <span class="font-bold text-on-surface truncate pr-2">第{{ ch.chapter_index }}章 {{ ch.title }}</span>
-                  <span class="text-[9px] text-on-surface-variant/60 shrink-0 font-mono">{{ new Date(ch.created_at).toLocaleDateString() }}</span>
-                </div>
-                <div class="text-[10px] text-on-surface-variant/80 line-clamp-2 leading-relaxed bg-surface/50 p-1.5 rounded-lg border border-outline-variant/5">
-                  {{ ch.summary }}
-                </div>
-                <!-- 底部操作区：评分 + 重写 + 删除 -->
-                <div class="flex items-center justify-between pt-1 flex-wrap gap-1">
-                  <!-- 评分 -->
-                  <div class="flex items-center space-x-1">
-                    <span v-for="star in 5" :key="star" @click="triggerNovelRate(ch.id, star)" class="cursor-pointer text-[13px] filter transition-all hover:scale-115" :class="star <= ch.rating ? 'grayscale-0 text-amber-500' : 'grayscale text-stone-400'">★</span>
-                  </div>
-                  <div class="flex items-center space-x-2.5">
-                    <button @click="triggerNovelRewrite(ch.id)" class="text-[10px] font-bold text-primary hover:underline" title="使用相同的对话范围重新生成此章节">重写</button>
-                    <button @click="triggerNovelDelete(ch.id)" class="text-[10px] font-bold text-red-500 hover:underline">删除</button>
-                  </div>
+            <div class="flex flex-col space-y-1 max-h-40 overflow-y-auto pr-1">
+              <div v-for="ch in novelChaptersList" :key="ch.id" class="px-3 py-2 bg-surface-high/20 rounded-lg border border-outline-variant/10 text-xs flex items-center justify-between animate-in fade-in duration-200">
+                <span class="font-bold text-on-surface truncate pr-2">第{{ ch.chapter_index }}章 {{ ch.title }}</span>
+                <div class="flex items-center space-x-2.5 shrink-0">
+                  <button @click="triggerNovelRewrite(ch.id)" class="text-[10px] font-bold text-primary hover:underline" title="使用相同的对话范围重新生成此章节">重写</button>
+                  <button @click="triggerNovelDelete(ch.id)" class="text-[10px] font-bold text-red-500 hover:underline">删除</button>
                 </div>
               </div>
             </div>
@@ -10168,9 +10155,9 @@ const novelActiveTab = ref<'library' | 'extract'>('library')
 const showStyleDropdown = ref(false)
 
 const getSelectedStyleName = computed(() => {
-  if (!novelStyleId.value) return '不注入任何文风 (无文风)'
+  if (!novelStyleId.value) return '默认文风'
   const matched = novelStyles.value.find(s => s.id === novelStyleId.value)
-  return matched ? matched.name : '不注入任何文风 (无文风)'
+  return matched ? matched.name : '默认文风'
 })
 
 function selectStyle(id: string) {
@@ -10180,19 +10167,7 @@ function selectStyle(id: string) {
 }
 
 function clickNovelStyleSelector() {
-  if (novelStyles.value.length === 0) {
-    showCustomConfirm(
-      '文风库为空',
-      '您当前尚未创建任何自定义文风。是否立即前往 [系统设置 - AI小说] 页面新建或提取您的文风？',
-      () => {
-        showNovelPanel.value = false
-        sideView.value = 'settings'
-        activeSettingsTab.value = 'novel'
-      }
-    )
-  } else {
-    showStyleDropdown.value = !showStyleDropdown.value
-  }
+  showStyleDropdown.value = !showStyleDropdown.value
 }
 
 // 文风库
