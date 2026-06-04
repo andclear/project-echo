@@ -17008,9 +17008,13 @@ onMounted(async () => {
       if (!isDuplicate && charModeForDedup === 'dialogue') {
         const normBroadcastShort = normBroadcast.slice(0, 80)
         for (const pending of pendingDialogueContents) {
-          if (pending.includes(normBroadcastShort) || normBroadcast.includes(pending.slice(0, 50))) {
+          // 🔒 修复：只有当 pending 与 broadcast 内容精确相等（去空白后），才判定为重复广播。
+          // 原来用 pending.includes(normBroadcastShort) 会误拦截"你好"这样的短气泡，
+          // 因为"你好"是"你好你想要点什么"的子串，导致 receive-message 把合法分段气泡丢弃。
+          // 分段气泡的显示由 playbackChain 串行弹射负责，receive-message 不应该干涉。
+          if (pending === normBroadcastShort || normBroadcast === pending.slice(0, normBroadcast.length)) {
             isDuplicate = true
-            console.log('[Sync Gate] dialogue pendingContent 同步匹配成功，完美拦截广播重复。')
+            console.log('[Sync Gate] dialogue pendingContent 精确匹配，拦截完整回复广播重复。')
             break
           }
         }
