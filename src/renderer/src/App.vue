@@ -10246,6 +10246,8 @@ async function openNovelPanel() {
   await loadNovelSettings(charId)
   await loadNovelChapters(charId)
   await loadNovelStyles()
+  // 确保默认设置值持久化到数据库（首次打开时数据库可能无值）
+  await triggerSaveNovelSettings()
 }
 
 // 调起阅读器
