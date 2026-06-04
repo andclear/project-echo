@@ -464,28 +464,6 @@ export class NovelWriterService {
   }
 
   /**
-   * 默认文风定义
-   */
-  private getFallbackStylePrompt(): string {
-    return `## 整体语感
-- 句长偏好：长短均衡，以中短句为主，情绪高点切换为短句叠加
-- 段落节奏：一段一个动作或信息变化，长短交错，避免连续同长度段
-
-## 对话风格
-- 潜台词模式：以行为替代说话标签，用动作穿插对话
-- 角色语气特点：口语化，避免书面腔，不同角色语气有所区分
-
-## 情绪表达
-- 情绪展示手法：用身体反应和行为展示情绪，不直接写「他很紧张/悲伤/愤怒」
-- 基调切换节奏：适度穿插轻松与紧张，避免一路同调
-
-## 写法技巧
-1. 以现代都市言情风格为基础，语言细腻流畅
-2. 注重人物内心刻画，但用行为而非独白展示
-3. 对话自然真实，整体基调温柔而克制`
-  }
-
-  /**
    * 构建写手 System Prompt
    */
   private buildWriterSystemPrompt(
@@ -500,15 +478,16 @@ export class NovelWriterService {
     adaptationInstruction: string,
     isFirstChapter: boolean
   ): string {
-    const finalStyle = stylePrompt.trim() || this.getFallbackStylePrompt()
-
-    // 检查文风档案是否包含「原文示范片段」
-    let sampleExcerptSection = ''
-    if (finalStyle.includes('## 原文示范片段') || finalStyle.includes('示范片段')) {
-      const match = finalStyle.match(/(?:## 原文示范片段|示范片段)[\s\S]*/)
-      if (match) {
-        sampleExcerptSection = `\n【写作手法示范（few-shot）】\n以下原文片段展示了目标文风的典型写法，请模仿其手法，不要抄袭字句：\n${match[0]}`
+    let styleSection = ''
+    if (stylePrompt.trim()) {
+      let sampleExcerptSection = ''
+      if (stylePrompt.includes('## 原文示范片段') || stylePrompt.includes('示范片段')) {
+        const match = stylePrompt.match(/(?:## 原文示范片段|示范片段)[\s\S]*/)
+        if (match) {
+          sampleExcerptSection = `\n【写作手法示范（few-shot）】\n以下原文片段展示了目标文风的典型写法，请模仿其手法，不要抄袭字句：\n${match[0]}`
+        }
       }
+      styleSection = `\n【文风档】\n${stylePrompt.trim()}\n${sampleExcerptSection}\n`
     }
 
     return `你是专职将聊天记录精编扩写为小说的 AI 专业写手。
@@ -526,10 +505,7 @@ ${globalUserProfile}
 
 角色视角的用户侧写（角色专属 USER.md）：
 ${charUserProfile}
-
-【文风档】
-${finalStyle}
-${sampleExcerptSection}
+${styleSection}
 
 【多章节连贯性参考】
 以下是本故事已有章节的摘要，仅供你把握整体进展与情感弧线，不要照搬其中的内容：

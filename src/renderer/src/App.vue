@@ -2696,17 +2696,21 @@
               <!-- AI 小说设置 (Tab: novel) -->
               <div v-else-if="activeSettingsTab === 'novel'" class="space-y-6 animate-in fade-in duration-200">
                 <!-- 子标签页切换 -->
-                <div class="flex border-b border-outline-variant/30 bg-surface-low/30 p-1 rounded-xl w-fit">
+                <div class="flex bg-surface-high/60 border border-outline-variant/10 rounded-xl p-1 space-x-1">
                   <button
                     @click="novelActiveTab = 'library'"
-                    class="px-4 py-1.5 text-xs font-bold rounded-lg transition-all"
-                    :class="novelActiveTab === 'library' ? 'bg-surface shadow-sm text-primary' : 'text-on-surface-variant hover:text-on-surface'"
-                  >文风库</button>
+                    class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-center cursor-pointer font-sans"
+                    :class="novelActiveTab === 'library' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-high/30'"
+                  >
+                    文风库
+                  </button>
                   <button
                     @click="novelActiveTab = 'extract'"
-                    class="px-4 py-1.5 text-xs font-bold rounded-lg transition-all"
-                    :class="novelActiveTab === 'extract' ? 'bg-surface shadow-sm text-primary' : 'text-on-surface-variant hover:text-on-surface'"
-                  >提取文风</button>
+                    class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-center cursor-pointer font-sans"
+                    :class="novelActiveTab === 'extract' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-high/30'"
+                  >
+                    提取文风
+                  </button>
                 </div>
 
                 <!-- 子标签页 A: 文风库 -->
@@ -2724,18 +2728,6 @@
 
                   <!-- 文风卡片列表 -->
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- 内置默认文风 -->
-                    <div class="bg-surface-low/30 border border-outline-variant/20 rounded-2xl p-4 space-y-2 select-text">
-                      <div class="flex items-center justify-between border-b border-outline-variant/10 pb-2">
-                        <span class="text-xs font-bold text-on-surface flex items-center space-x-1.5">
-                          <span>✨</span>
-                          <span>默认（系统内置都市言情）</span>
-                        </span>
-                        <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-outline-variant/20 text-on-surface-variant font-bold scale-90">只读</span>
-                      </div>
-                      <p class="text-[10px] text-on-surface-variant/80 line-clamp-4 leading-relaxed font-mono whitespace-pre-wrap">以现代都市言情风格为基础，语言细腻流畅，注重人物内心描写与动作交互...</p>
-                    </div>
-
                     <!-- 用户自定义文风 -->
                     <div v-for="style in novelStyles" :key="style.id" class="bg-surface-low/30 border border-outline-variant/20 rounded-2xl p-4 space-y-2 flex flex-col justify-between animate-in fade-in duration-200">
                       <div>
@@ -2781,7 +2773,7 @@
                       class="flex items-center space-x-1.5 text-xs text-white bg-primary hover:bg-primary/90 px-4 py-2 rounded-xl transition-all font-bold disabled:opacity-50 disabled:cursor-not-allowed shadow-md cursor-pointer"
                     >
                       <span v-if="isExtractingStyle" class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      <span>{{ isExtractingStyle ? '正在分析并提取文风...' : '🔍 分析并提取文风' }}</span>
+                      <span>{{ isExtractingStyle ? '正在分析并提取文风...' : '分析并提取文风' }}</span>
                     </button>
                   </div>
 
@@ -5423,7 +5415,7 @@
                       @click="openNovelPanel(); showTopMoreMenu = false"
                       class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-all select-none w-full text-left relative"
                     >
-                      <span class="text-[14px]">📖</span>
+                      <BookIcon class="w-4 h-4 text-primary" />
                       <span>AI小说写手</span>
                       <span v-if="novelNewChapterBadges[activeCharacter.id]" class="ml-auto min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5">{{ novelNewChapterBadges[activeCharacter.id] }}</span>
                     </button>
@@ -5449,7 +5441,7 @@
                       @click="openDiaryPanel(); showTopMoreMenu = false"
                       class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-on-surface/5 transition-all select-none w-full text-left"
                     >
-                      <BookOpenIcon class="w-4 h-4 text-green-500" />
+                      <FileLockIcon class="w-4 h-4 text-green-500" />
                       <span>查看角色日记</span>
                     </button>
                     <button
@@ -5490,7 +5482,7 @@
                     class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-primary transition-all relative flex items-center justify-center cursor-pointer select-none"
                     title="AI小说写手"
                   >
-                    <span class="text-[15px] leading-none">📖</span>
+                    <BookIcon class="w-4 h-4" stroke-width="1.5" />
                     <span v-if="novelNewChapterBadges[activeCharacter.id]" class="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5 scale-90">{{ novelNewChapterBadges[activeCharacter.id] }}</span>
                   </button>
 
@@ -5522,7 +5514,7 @@
                   class="p-1.5 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all"
                   title="查看角色日记"
                 >
-                  <BookOpenIcon class="w-4 h-4" stroke-width="1.5" />
+                  <FileLockIcon class="w-4 h-4" stroke-width="1.5" />
                 </button>
 
                 <!-- 大脑图标：查看/编辑群聊记忆与大事记 (仅群聊模式可见) -->
@@ -6760,45 +6752,67 @@
       </div>
     </div>
 
-    <!-- ========================= 抽屉：AI小说写手 ========================= -->
+    <!-- ========================= 弹窗：AI小说写手 ========================= -->
     <div v-if="showNovelPanel && activeCharacter" class="modal-overlay z-[9999]" @click.self="showNovelPanel = false">
-      <div class="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-surface rounded-t-2xl shadow-2xl p-6 transform transition-transform duration-300 select-none animate-in slide-in-from-bottom duration-300 max-h-[85vh] flex flex-col border-t border-outline-variant/30">
+      <div class="modal-panel w-[500px] max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200 select-none">
         <!-- 头部 -->
-        <div class="flex items-center justify-between pb-4 border-b border-outline-variant/30 flex-shrink-0">
-          <div class="flex items-center space-x-2 text-primary">
-            <span class="text-xl">📖</span>
-            <span class="text-sm font-bold text-on-surface">AI 小说写手 ({{ activeCharacter.name }})</span>
+        <div class="modal-header flex-shrink-0">
+          <div class="flex items-center space-x-2">
+            <BookIcon class="w-4.5 h-4.5 text-primary" />
+            <span>AI 小说写手 ({{ activeCharacter.name }})</span>
           </div>
-          <button @click="showNovelPanel = false" class="p-1 rounded-lg hover:bg-surface-high/60 text-on-surface-variant hover:text-on-surface transition-all">
-            <XIcon class="w-5 h-5" />
-          </button>
+          <button @click="showNovelPanel = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
         </div>
 
         <!-- 内容区域 -->
-        <div class="flex-1 overflow-y-auto py-4 space-y-5 min-h-0">
+        <div class="flex-1 overflow-y-auto p-5 space-y-5 min-h-0">
           <!-- 开启开关 -->
           <div class="flex items-center justify-between bg-surface-high/20 p-3.5 rounded-xl border border-outline-variant/10">
             <div class="flex flex-col">
               <span class="text-xs font-bold text-on-surface">开启 AI 写手</span>
               <span class="text-[10px] text-on-surface-variant/70 mt-0.5">等积累足够对话历史后，将静默生成新章节</span>
             </div>
-            <label class="relative inline-flex items-center cursor-pointer select-none">
-              <input type="checkbox" v-model="novelEnabled" @change="triggerSaveNovelSettings" class="sr-only peer">
-              <div class="w-9 h-5 bg-outline-variant/40 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-            </label>
+            <button @click="novelEnabled = !novelEnabled; triggerSaveNovelSettings();" class="relative w-11 h-6 rounded-full transition-all duration-300 focus:outline-none cursor-pointer flex-shrink-0" :class="novelEnabled ? 'bg-primary' : 'bg-outline-variant'">
+              <span class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all duration-300 shadow-md" :class="novelEnabled ? 'left-5.5' : 'left-0.5'"></span>
+            </button>
           </div>
 
-          <!-- 文风选择 -->
-          <div class="flex flex-col space-y-1.5">
+          <!-- 自定义文风选择 -->
+          <div class="flex flex-col space-y-1.5 relative select-none">
             <label class="text-xs font-bold text-on-surface">文风选择</label>
-            <select
-              v-model="novelStyleId"
-              @change="triggerSaveNovelSettings"
-              class="w-full bg-surface border border-outline-variant/60 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none focus:border-primary cursor-pointer transition-all"
+            
+            <!-- 下拉框触发器按钮 -->
+            <div 
+              @click="clickNovelStyleSelector"
+              class="w-full bg-surface border border-outline-variant/60 rounded-xl px-3 py-2 text-xs text-on-surface cursor-pointer flex items-center justify-between transition-all hover:border-primary/50"
             >
-              <option value="">默认（系统内置都市言情）</option>
-              <option v-for="style in novelStyles" :key="style.id" :value="style.id">{{ style.name }}</option>
-            </select>
+              <span class="truncate font-semibold">{{ getSelectedStyleName }}</span>
+              <ChevronDownIcon class="w-4 h-4 text-on-surface-variant transition-transform duration-200" :class="{ 'transform rotate-180': showStyleDropdown }" />
+            </div>
+
+            <!-- 下拉展开选项 -->
+            <div 
+              v-if="showStyleDropdown && novelStyles.length > 0"
+              class="absolute top-full left-0 right-0 mt-1.5 bg-surface border border-outline-variant rounded-xl shadow-xl z-50 p-1 flex flex-col space-y-0.5 max-h-40 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-100"
+            >
+              <!-- 未配置/无注入项 -->
+              <div 
+                @click="selectStyle('')"
+                class="px-3 py-2 rounded-lg text-xs hover:bg-surface-high cursor-pointer transition-all truncate"
+                :class="{ 'text-primary font-bold bg-primary/5': novelStyleId === '' }"
+              >
+                不将文风注入到 Prompt (无文风)
+              </div>
+              <div 
+                v-for="style in novelStyles" 
+                :key="style.id"
+                @click="selectStyle(style.id)"
+                class="px-3 py-2 rounded-lg text-xs hover:bg-surface-high cursor-pointer transition-all truncate"
+                :class="{ 'text-primary font-bold bg-primary/5': novelStyleId === style.id }"
+              >
+                {{ style.name }}
+              </div>
+            </div>
           </div>
 
           <!-- 叙事人称 -->
@@ -6878,12 +6892,12 @@
         </div>
 
         <!-- 底部大阅读按钮 -->
-        <div v-if="novelChaptersList.length > 0" class="pt-4 border-t border-outline-variant/30 flex-shrink-0">
+        <div v-if="novelChaptersList.length > 0" class="p-4 border-t border-outline-variant/30 flex-shrink-0">
           <button
             @click="triggerNovelOpenReader"
             class="w-full rounded-xl border border-primary text-primary hover:bg-primary hover:text-white font-bold py-2.5 text-xs transition-all duration-200 flex items-center justify-center space-x-2"
           >
-            <span>📖</span>
+            <BookIcon class="w-4 h-4" />
             <span>阅读小说正文</span>
           </button>
         </div>
@@ -7047,7 +7061,7 @@
       <div class="modal-panel w-[660px] h-[480px] flex flex-col">
         <div class="modal-header flex-shrink-0">
           <div class="flex items-center space-x-2">
-            <BookOpenIcon class="w-4 h-4 text-secondary" />
+            <FileLockIcon class="w-4 h-4 text-secondary" />
             <span>{{ activeCharacter?.name || (characterList.find(c => c.id === selectedContactId)?.name) }} · 日记簿</span>
           </div>
           <button @click="showDiaryPanel = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
@@ -7080,7 +7094,7 @@
           <!-- 右侧日记正文 -->
           <div class="flex-1 p-5 overflow-y-auto flex flex-col bg-surface-lowest">
             <div v-if="parsedDiariesList.length === 0" class="flex-1 flex flex-col items-center justify-center text-center text-on-surface-variant/40">
-              <BookOpenIcon class="w-12 h-12 mb-3 opacity-25" />
+              <FileLockIcon class="w-12 h-12 mb-3 opacity-25" />
               <p class="text-sm font-semibold">寂静如水</p>
               <p class="text-xs mt-1">角色最早也要在17点之后才会写日记</p>
             </div>
@@ -9406,6 +9420,8 @@ import {
   Image as ImageIcon,
   User as UserIcon,
   Brain as BrainIcon,
+  Book as BookIcon,
+  FileLock as FileLockIcon,
   BookOpen as BookOpenIcon,
   Smile as SmileIcon,
   Gift as GiftIcon,
@@ -10149,6 +10165,36 @@ const novelPov = ref('third_user')
 const novelAdaptation = ref('moderate')
 const novelActiveTab = ref<'library' | 'extract'>('library')
 
+const showStyleDropdown = ref(false)
+
+const getSelectedStyleName = computed(() => {
+  if (!novelStyleId.value) return '不注入任何文风 (无文风)'
+  const matched = novelStyles.value.find(s => s.id === novelStyleId.value)
+  return matched ? matched.name : '不注入任何文风 (无文风)'
+})
+
+function selectStyle(id: string) {
+  novelStyleId.value = id
+  showStyleDropdown.value = false
+  triggerSaveNovelSettings()
+}
+
+function clickNovelStyleSelector() {
+  if (novelStyles.value.length === 0) {
+    showCustomConfirm(
+      '文风库为空',
+      '您当前尚未创建任何自定义文风。是否立即前往 [系统设置 - AI小说] 页面新建或提取您的文风？',
+      () => {
+        showNovelPanel.value = false
+        sideView.value = 'settings'
+        activeSettingsTab.value = 'novel'
+      }
+    )
+  } else {
+    showStyleDropdown.value = !showStyleDropdown.value
+  }
+}
+
 // 文风库
 const novelStyles = ref<any[]>([])
 const showAddStyleModal = ref(false)
@@ -10218,6 +10264,7 @@ async function openNovelPanel() {
   const charId = selectedCharacterId.value
   if (!charId) return
   showNovelPanel.value = true
+  showStyleDropdown.value = false
   // 清除新章节红点角标
   novelNewChapterBadges[charId] = 0
   
