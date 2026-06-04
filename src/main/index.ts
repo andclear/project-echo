@@ -2942,7 +2942,6 @@ ${soulContent}
 
       // 4. 依次流式唤醒队列中的 AI 成员 (限制连续级联深度不超过 4 轮)
       let currentRound = 0
-      await InferenceMutex.lock() // 锁定大模型
 
       try {
         while (speakerQueue.length > 0 && currentRound < 4) {
@@ -3245,7 +3244,7 @@ ${formattedHistory}
           await new Promise(r => setTimeout(r, 600)) // 角色气泡流式生成的间隔物理微缓冲
         }
       } finally {
-        InferenceMutex.unlock() // 释放锁
+        // 移除前台大模型并发锁释放，保障并发畅通
       }
 
       return { success: true }
@@ -3372,9 +3371,6 @@ ${formattedHistory}
         }
         creatorSessions.set(CREATOR_BOT_ID, session)
       }
-
-      // 获取当前大模型并发锁，确保流式输出安全
-      await InferenceMutex.lock()
 
       try {
           // 创角 Bot AI 调用重试工具（最多重试 3 次，失败后退避等待）
@@ -3671,7 +3667,7 @@ ${formattedHistory}
         event.sender.send('chat-chunk', { characterId, content: '', done: true })
         return { success: false, error: err.message || err }
       } finally {
-        InferenceMutex.unlock()
+        // 移除前台大模型并发锁释放，保障并发畅通
       }
     }
 
@@ -3939,9 +3935,6 @@ ${memoryContent}
       activeElectronChats.add(characterId)
     }
 
-    // 开启前台流式聊天，获取并发锁，阻塞后台任务
-    await InferenceMutex.lock()
-
     let accumulatedResponse = ''
     const streamSplit = new StreamSplitController()
     let lastObservation = ''
@@ -4101,8 +4094,7 @@ ${memoryContent}
       // event.sender.send('chat-chunk', { content: '', done: true })
 
     } finally {
-      // 绝对确保锁的安全释放，唤醒并发队列
-      InferenceMutex.unlock()
+      // 移除前台大模型并发锁释放，保障并发畅通
       // 注意：activeElectronChats 的清理在 db.saveMessage 全部完成后（chat-chunk done 之后）进行
     }
 
