@@ -205,6 +205,19 @@
           >
             <BookmarkIcon class="w-5 h-5" />
           </button>
+
+          <!-- 书架 (仅当存在任意小说时开启) -->
+          <button
+            @click="sideView = 'bookshelf'; loadBookshelf()"
+            class="nav-icon-btn transition-all duration-300 relative"
+            :class="[
+              sideView === 'bookshelf' ? 'nav-icon-btn-active' : '',
+              'opacity-100 cursor-pointer'
+            ]"
+            title="小说书架"
+          >
+            <LibraryIcon class="w-5 h-5" />
+          </button>
         </div>
 
         <!-- 底部：数据统计 + 亮暗切换 + 设置 -->
@@ -240,10 +253,10 @@
 
       <!-- ====== 中间会话/联系人列表 ====== -->
       <aside 
-        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites'" 
+        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites' && (sideView !== 'bookshelf' || selectedBookId)" 
         :style="!isMobile ? { width: sidebarWidth + 'px' } : {}" 
         class="h-full flex flex-col bg-sidebar backdrop-blur-md flex-shrink-0 overflow-hidden relative"
-        :class="{ 'hidden md:flex': isRightPanelActive, 'w-full': isMobile }"
+        :class="{ 'hidden md:flex': isRightPanelActive || (sideView === 'bookshelf' && selectedBookId), 'w-full': isMobile }"
       >
 
         <!-- ── 对话列表视图 ── -->
@@ -588,11 +601,46 @@
             </button>
           </div>
         </template>
+
+        <!-- ── 小说阅读器目录左栏 ── -->
+        <template v-else-if="sideView === 'bookshelf' && selectedBookId">
+          <div class="h-full flex flex-col min-h-0 bg-sidebar border-r border-sidebar-border/30">
+            <!-- 顶部操作栏：返回书架 -->
+            <div class="h-14 px-4 flex items-center justify-between border-b border-outline-variant/30 flex-shrink-0">
+              <button @click="closeBook" class="flex items-center space-x-1.5 text-xs text-on-surface-variant hover:text-primary transition-all">
+                <ChevronLeftIcon class="w-4 h-4" />
+                <span class="font-bold">返回书架</span>
+              </button>
+              <button @click="triggerBookExportTxt(selectedBookId)" class="text-[10px] font-bold text-primary hover:underline">
+                导出整书
+              </button>
+            </div>
+            
+            <!-- 目录列表 -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
+              <div v-if="bookChapters.length === 0" class="text-xs text-on-surface-variant/40 text-center py-10">
+                暂无章节内容
+              </div>
+              <button
+                v-for="ch in bookChapters"
+                :key="ch.id"
+                @click="loadChapterContent(ch.id)"
+                class="w-full text-left px-3.5 py-2.5 rounded-xl border text-xs flex items-center justify-between transition-all"
+                :class="selectedBookChapterId === ch.id
+                  ? 'border-primary bg-primary/5 font-bold text-primary animate-in fade-in duration-200'
+                  : 'border-transparent bg-surface-low/30 hover:bg-surface-high/30 text-on-surface'"
+              >
+                <span class="truncate pr-2">第{{ ch.chapter_index }}章 {{ ch.title }}</span>
+                <span v-if="ch.rating > 0" class="text-[9px] text-amber-500 shrink-0 font-normal">★ {{ ch.rating }}</span>
+              </button>
+            </div>
+          </div>
+        </template>
       </aside>
 
       <!-- 会话列表与聊天视窗之间的可拖拽分割线 -->
       <div 
-        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites'"
+        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites' && (sideView !== 'bookshelf' || selectedBookId)"
         @mousedown="startResize" 
         class="hidden md:block w-[1px] hover:w-[2px] bg-sidebar-border hover:bg-primary cursor-col-resize transition-all h-full z-20 flex-shrink-0"
         title="拖动调整宽度"
@@ -602,7 +650,7 @@
       <main 
         class="flex-1 h-full flex flex-col min-w-0 bg-chat-bg overflow-hidden relative"
         :class="{
-          'hidden md:flex': !['stats', 'moments', 'forum', 'favorites'].includes(sideView) && !isRightPanelActive,
+          'hidden md:flex': !['stats', 'moments', 'forum', 'favorites', 'bookshelf'].includes(sideView) && !isRightPanelActive,
           'w-full': isMobile
         }"
       >
@@ -1713,6 +1761,277 @@
                 <BookmarkIcon class="w-14 h-14 opacity-25 mb-3 animate-pulse" />
                 <p class="text-xs font-bold">请在左侧选择一篇收藏进行阅读 🐾</p>
                 <p class="text-[10px] opacity-75 mt-1">对话、朋友圈、论坛、日记等一切灵光，都可以被安全存放并支持筛选</p>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── 小说书架与内嵌阅读器 ── -->
+        <template v-else-if="sideView === 'bookshelf'">
+          <!-- 状态 A：PC 端大网格书架展示（!selectedBookId 且非移动端） -->
+          <div v-if="!isMobile && !selectedBookId" class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+              <div class="text-sm font-bold text-on-surface flex items-center space-x-2">
+                <LibraryIcon class="w-4 h-4 text-primary" />
+                <span>小说书架</span>
+              </div>
+            </header>
+            
+            <div class="flex-1 overflow-y-auto p-8 min-h-0">
+              <div class="max-w-6xl mx-auto w-full">
+                <!-- 空状态 -->
+                <div v-if="bookshelfList.length === 0" class="flex flex-col items-center justify-center text-center py-24 text-on-surface-variant/40 select-none animate-in fade-in duration-300">
+                  <LibraryIcon class="w-16 h-16 opacity-25 mb-4 text-primary animate-pulse" />
+                  <p class="text-sm font-bold text-on-surface">书架空空如也 🐾</p>
+                  <p class="text-xs opacity-75 mt-2 max-w-sm leading-relaxed">
+                    在角色配置中开启「AI写手」后，系统会根据你们的聊天对话自动改编为小说并收录于此。
+                  </p>
+                  <button @click="sideView = 'chat'" class="mt-6 px-5 py-2 bg-primary text-white rounded-xl text-xs font-bold shadow-md hover:bg-primary/95 active:scale-95 transition-all">
+                    前去对话生成
+                  </button>
+                </div>
+
+                <div v-else class="flex flex-col space-y-6">
+                  <div
+                    v-for="(row, rowIndex) in bookshelfRows"
+                    :key="rowIndex"
+                    class="w-full flex flex-col"
+                  >
+                    <!-- 每一行之间使用横线隔开，与网格容器同宽并居中 -->
+                    <hr v-if="rowIndex > 0" class="border-t border-outline-variant/20 mb-6 w-full max-w-[720px] mx-auto" />
+                    
+                    <!-- 每行固定 4 个，限制最大宽度并水平居中 -->
+                    <div class="grid grid-cols-4 gap-6 w-full max-w-[720px] mx-auto">
+                      <div
+                        v-for="book in row"
+                        :key="book.characterId"
+                        class="group flex flex-col space-y-3 cursor-pointer bg-surface-low/20 hover:bg-surface-high/30 p-3 rounded-2xl transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5"
+                        @click="openBook(book.characterId)"
+                      >
+                        <!-- 2:3 竖图封面，无外边框，点击直接阅读 -->
+                        <div class="aspect-[2/3] w-full rounded-lg overflow-hidden bg-surface relative shadow-md">
+                          <img :src="book.coverUrl" class="w-full h-full object-cover select-none pointer-events-none" />
+                        </div>
+                        <!-- 小说书名 -->
+                        <div class="text-xs font-bold text-on-surface truncate text-center group-hover:text-primary transition-all">
+                          {{ book.novelTitle }}
+                        </div>
+                        <!-- 操作工具区，Hover 时优雅淡入，点击阻止冒泡以防止触发阅读 -->
+                        <div class="flex items-center justify-center space-x-2.5 text-[10px] font-semibold text-on-surface-variant/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 h-4" @click.stop>
+                          <button @click="openEditBookModal(book)" class="hover:text-primary transition-colors">修改名称</button>
+                          <span class="text-on-surface-variant/15 select-none">|</span>
+                          <button @click="changeBookCover(book.characterId)" class="hover:text-primary transition-colors">更换封面</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 状态 B：PC 端双栏阅读器的右侧正文区（selectedBookId 且非移动端） -->
+          <div v-else-if="!isMobile && selectedBookId" class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <!-- 顶部正文操作 Header -->
+            <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none">
+              <div class="text-xs font-bold text-on-surface flex items-center space-x-2">
+                <span>正文阅读</span>
+                <span class="text-on-surface-variant/40 font-normal">|</span>
+                <span class="text-primary">{{ bookshelfList.find(b => b.characterId === selectedBookId)?.novelTitle }}</span>
+              </div>
+              
+              <!-- 单章操作按钮组 -->
+              <div v-if="selectedBookChapterId && bookChapters.length > 0" class="flex items-center space-x-3.5">
+                <!-- 评分星级 -->
+                <div class="flex items-center space-x-1 border border-outline-variant/20 bg-surface-low/30 px-2 py-1 rounded-lg text-xs">
+                  <span class="text-[10px] text-on-surface-variant/70 pr-0.5">本章评分:</span>
+                  <button 
+                    v-for="star in 5" 
+                    :key="star" 
+                    @click="rateChapter(selectedBookChapterId, star)"
+                    class="text-xs hover:scale-115 transition-transform"
+                  >
+                    <span :class="star <= (bookChapters.find(c => c.id === selectedBookChapterId)?.rating || 0) ? 'text-amber-500' : 'text-on-surface-variant/20'">★</span>
+                  </button>
+                </div>
+
+                <button @click="triggerBookChapterRewrite(selectedBookChapterId)" class="text-xs font-semibold text-primary hover:underline flex items-center space-x-1">
+                  <span>重写此章</span>
+                </button>
+                <button @click="triggerBookChapterDelete(selectedBookChapterId)" class="text-xs font-semibold text-red-500 hover:underline flex items-center space-x-1">
+                  <span>删除本章</span>
+                </button>
+              </div>
+            </header>
+
+            <!-- 正文显示区 -->
+            <div class="flex-1 overflow-y-auto p-8 bg-surface-low/10 min-h-0 select-text novel-reader-content-scroll">
+              <div class="max-w-2xl mx-auto bg-surface border border-outline-variant/10 rounded-3xl shadow-sm p-10 min-h-full flex flex-col">
+                <div v-if="isChapterLoading" class="flex-1 flex flex-col items-center justify-center py-20 text-on-surface-variant/50">
+                  <span class="inline-block w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin mb-3"></span>
+                  <p class="text-xs">正在加载小说正文...</p>
+                </div>
+                <div v-else-if="!selectedBookChapterId" class="flex-1 flex flex-col items-center justify-center py-20 text-on-surface-variant/40">
+                  <BookOpenIcon class="w-12 h-12 opacity-35 mb-3" />
+                  <p class="text-xs">请选择左侧章节开始阅读 🐾</p>
+                </div>
+                <template v-else>
+                  <!-- 标题 -->
+                  <h1 class="text-xl font-bold text-center text-on-surface pb-6 border-b border-outline-variant/30 mb-8 select-text">
+                    第{{ bookChapters.find(c => c.id === selectedBookChapterId)?.chapter_index }}章 {{ bookChapters.find(c => c.id === selectedBookChapterId)?.title }}
+                  </h1>
+                  <!-- 段落正文 -->
+                  <div class="flex-1 text-sm text-on-surface leading-relaxed space-y-5 select-text text-justify" style="text-justify: inter-ideograph;">
+                    <p v-for="(p, idx) in currentChapterContent.split('\n').map(p => p.trim()).filter(Boolean)" :key="idx" class="select-text" style="text-indent: 2em;">
+                      {{ p }}
+                    </p>
+                  </div>
+                  <!-- 上一章 / 下一章 导航按钮栏 -->
+                  <div class="mt-12 pt-6 border-t border-outline-variant/30 flex items-center justify-between text-xs font-semibold text-on-surface-variant select-none">
+                    <button
+                      v-if="prevChapter"
+                      @click="loadChapterContent(prevChapter.id)"
+                      class="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-surface-low hover:bg-surface-high border border-outline-variant/20 hover:text-primary transition-all active:scale-95"
+                    >
+                      <ChevronLeftIcon class="w-4 h-4" />
+                      <span>上一章</span>
+                    </button>
+                    <div v-else class="w-10"></div>
+
+                    <span class="text-[10px] text-on-surface-variant/40 font-normal">
+                      第 {{ bookChapters.findIndex(c => c.id === selectedBookChapterId) + 1 }} / {{ bookChapters.length }} 章
+                    </span>
+
+                    <button
+                      v-if="nextChapter"
+                      @click="loadChapterContent(nextChapter.id)"
+                      class="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-surface-low hover:bg-surface-high border border-outline-variant/20 hover:text-primary transition-all active:scale-95"
+                    >
+                      <span>下一章</span>
+                      <ChevronRightIcon class="w-4 h-4" />
+                    </button>
+                    <div v-else class="w-10"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- 状态 C：移动端折叠阅读器视图（isMobile） -->
+          <div v-else class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <!-- C1. 书架大网格展示（mobileReadLayer === 'shelf'） -->
+            <div v-if="mobileReadLayer === 'shelf'" class="flex-1 flex flex-col min-h-0 bg-surface">
+              <header class="h-14 px-4 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 font-bold select-none">
+                <div class="text-sm font-bold text-on-surface flex items-center space-x-2">
+                  <LibraryIcon class="w-4 h-4 text-primary" />
+                  <span>我的书架</span>
+                </div>
+              </header>
+              <div class="flex-1 overflow-y-auto p-4 min-h-0">
+                <!-- 空状态 -->
+                <div v-if="bookshelfList.length === 0" class="h-full flex flex-col items-center justify-center text-center p-8 text-on-surface-variant/40 select-none animate-in fade-in duration-300">
+                  <LibraryIcon class="w-12 h-12 opacity-25 mb-4 text-primary animate-pulse" />
+                  <p class="text-xs font-bold text-on-surface">书架空空如也 🐾</p>
+                  <p class="text-[10px] opacity-75 mt-1.5 max-w-[200px] leading-relaxed mx-auto">
+                    在角色配置中开启「AI写手」后，改编小说章节会自动呈现在这里。
+                  </p>
+                  <button @click="sideView = 'chat'" class="mt-4 px-4 py-2 bg-primary text-white rounded-xl text-[10px] font-bold shadow-md hover:bg-primary/95 active:scale-95 transition-all">
+                    前去对话生成
+                  </button>
+                </div>
+
+                <div v-else class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div
+                    v-for="book in bookshelfList"
+                    :key="book.characterId"
+                    class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-2.5 flex flex-col items-center space-y-2 cursor-pointer active:scale-98 transition-transform animate-in fade-in duration-200"
+                    @click="openBook(book.characterId)"
+                  >
+                    <div class="aspect-[2/3] w-full rounded-xl overflow-hidden relative shadow border border-outline-variant/10 bg-surface-high/15">
+                      <img :src="book.coverUrl" class="w-full h-full object-cover" />
+                    </div>
+                    <span class="text-xs font-bold text-on-surface truncate max-w-full text-center">{{ book.novelTitle }}</span>
+                    <!-- 手机端便捷操作 -->
+                    <div class="flex items-center space-x-2 pt-1 border-t border-outline-variant/10 w-full justify-around" @click.stop>
+                      <button @click="openEditBookModal(book)" class="text-[10px] text-primary font-semibold">修改</button>
+                      <button @click="changeBookCover(book.characterId)" class="text-[10px] text-primary font-semibold">换封面</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- C2. 章节目录列表展示（mobileReadLayer === 'catalog'） -->
+            <div v-else-if="mobileReadLayer === 'catalog'" class="flex-1 flex flex-col min-h-0 bg-surface">
+              <header class="h-14 px-4 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0">
+                <button @click="closeBook" class="flex items-center space-x-1 text-xs text-on-surface-variant font-semibold">
+                  <ChevronLeftIcon class="w-4 h-4" />
+                  <span>书架</span>
+                </button>
+                <span class="text-xs font-bold text-on-surface truncate max-w-[150px]">{{ bookshelfList.find(b => b.characterId === selectedBookId)?.novelTitle }}</span>
+                <button @click="triggerBookExportTxt(selectedBookId!)" class="text-[10px] font-bold text-primary font-semibold">导出TXT</button>
+              </header>
+              <div class="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
+                <button
+                  v-for="ch in bookChapters"
+                  :key="ch.id"
+                  @click="loadChapterContent(ch.id)"
+                  class="w-full text-left px-3.5 py-3 rounded-xl border border-outline-variant/10 bg-surface-low/30 text-xs flex items-center justify-between"
+                >
+                  <span class="truncate pr-2 font-semibold">第{{ ch.chapter_index }}章 {{ ch.title }}</span>
+                  <span v-if="ch.rating > 0" class="text-[9px] text-amber-500 shrink-0 font-normal">★ {{ ch.rating }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- C3. 章节正文阅读展示（mobileReadLayer === 'reader'） -->
+            <div v-else-if="mobileReadLayer === 'reader'" class="flex-1 flex flex-col min-h-0 bg-surface select-text">
+              <header class="h-14 px-4 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0">
+                <button @click="mobileReadLayer = 'catalog'" class="flex items-center space-x-1 text-xs text-on-surface-variant font-semibold select-none">
+                  <ChevronLeftIcon class="w-4 h-4" />
+                  <span>目录</span>
+                </button>
+                <div class="flex items-center space-x-3.5 select-none">
+                  <button @click="triggerBookChapterRewrite(selectedBookChapterId!)" class="text-[10px] font-bold text-primary">重写</button>
+                  <button @click="triggerBookChapterDelete(selectedBookChapterId!)" class="text-[10px] font-bold text-red-500">删除</button>
+                </div>
+              </header>
+              <!-- 正文显示区 -->
+              <div class="flex-1 overflow-y-auto p-4 select-text novel-reader-content-scroll-mobile">
+                <h1 class="text-base font-bold text-center text-on-surface pb-4 border-b border-outline-variant/30 mb-5 select-text">
+                  第{{ bookChapters.find(c => c.id === selectedBookChapterId)?.chapter_index }}章 {{ bookChapters.find(c => c.id === selectedBookChapterId)?.title }}
+                </h1>
+                <div class="text-xs text-on-surface leading-relaxed space-y-4 select-text text-justify" style="text-justify: inter-ideograph;">
+                  <p v-for="(p, idx) in currentChapterContent.split('\n').map(p => p.trim()).filter(Boolean)" :key="idx" class="select-text" style="text-indent: 2em;">
+                    {{ p }}
+                  </p>
+                </div>
+                <!-- 上一章 / 下一章 导航按钮栏 -->
+                <div class="mt-8 pt-5 border-t border-outline-variant/30 flex items-center justify-between text-[11px] font-semibold text-on-surface-variant select-none">
+                  <button
+                    v-if="prevChapter"
+                    @click="loadChapterContent(prevChapter.id)"
+                    class="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-surface-low border border-outline-variant/20 hover:text-primary transition-all active:scale-95"
+                  >
+                    <ChevronLeftIcon class="w-3.5 h-3.5" />
+                    <span>上一章</span>
+                  </button>
+                  <div v-else class="w-8"></div>
+
+                  <span class="text-[9px] text-on-surface-variant/40 font-normal">
+                    {{ bookChapters.findIndex(c => c.id === selectedBookChapterId) + 1 }} / {{ bookChapters.length }}
+                  </span>
+
+                  <button
+                    v-if="nextChapter"
+                    @click="loadChapterContent(nextChapter.id)"
+                    class="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-surface-low border border-outline-variant/20 hover:text-primary transition-all active:scale-95"
+                  >
+                    <span>下一章</span>
+                    <ChevronRightIcon class="w-3.5 h-3.5" />
+                  </button>
+                  <div v-else class="w-8"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -6857,50 +7176,68 @@
             </div>
           </div>
 
-          <!-- 章节目录 -->
-          <div v-if="novelChaptersList.length > 0" class="flex flex-col space-y-2 pt-2 border-t border-outline-variant/30">
-            <label class="text-xs font-bold text-on-surface flex items-center justify-between">
-              <span>已生成章节 ({{ novelChaptersList.length }}章)</span>
-              <div class="flex items-center space-x-2">
-                <button @click="triggerNovelExport('txt')" class="text-[10px] text-primary hover:underline font-bold">导出TXT</button>
-                <button @click="triggerNovelExport('html')" class="text-[10px] text-primary hover:underline font-bold">导出HTML</button>
-              </div>
-            </label>
-            <div class="flex flex-col space-y-1 max-h-40 overflow-y-auto pr-1">
-              <div v-for="ch in novelChaptersList" :key="ch.id" class="px-3 py-2 bg-surface-high/20 rounded-lg border border-outline-variant/10 text-xs flex items-center justify-between animate-in fade-in duration-200">
-                <span class="font-bold text-on-surface truncate pr-2">第{{ ch.chapter_index }}章 {{ ch.title }}</span>
-                <div class="flex items-center space-x-2.5 shrink-0">
-                  <button @click="triggerNovelRewrite(ch.id)" class="text-[10px] font-bold text-primary hover:underline" title="使用相同的对话范围重新生成此章节">重写</button>
-                  <button @click="triggerNovelDelete(ch.id)" class="text-[10px] font-bold text-red-500 hover:underline">删除</button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <!-- 底部操作区 -->
-        <div class="p-4 border-t border-outline-variant/30 flex-shrink-0 space-y-2">
+        <div class="p-4 border-t border-outline-variant/30 flex-shrink-0">
           <!-- 续写小说按钮：始终显示，允许用户手动触发写作 -->
           <button
             @click="triggerNovelContinue"
-            :disabled="isNovelContinuing"
+            :disabled="!!novelContinuingMap[selectedCharacterId || '']"
             class="w-full rounded-xl font-bold py-2.5 text-xs transition-all duration-200 flex items-center justify-center space-x-2"
-            :class="isNovelContinuing
+            :class="novelContinuingMap[selectedCharacterId || '']
               ? 'bg-outline-variant/30 text-on-surface-variant cursor-not-allowed'
               : 'bg-primary text-white hover:bg-primary/90 active:scale-[0.98] shadow-sm shadow-primary/20'"
           >
-            <SparklesIcon v-if="!isNovelContinuing" class="w-4 h-4" />
-            <span v-if="isNovelContinuing" class="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-            <span>{{ isNovelContinuing ? '正在续写中，请稍候...' : '立即续写小说' }}</span>
+            <SparklesIcon v-if="!novelContinuingMap[selectedCharacterId || '']" class="w-4 h-4" />
+            <span v-if="novelContinuingMap[selectedCharacterId || '']" class="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            <span>{{ novelContinuingMap[selectedCharacterId || ''] ? '正在续写中，请稍候...' : '立即续写小说' }}</span>
           </button>
-          <!-- 阅读按钮：仅在有章节时显示 -->
-          <button
-            v-if="novelChaptersList.length > 0"
-            @click="triggerNovelOpenReader"
-            class="w-full rounded-xl border border-primary text-primary hover:bg-primary hover:text-white font-bold py-2.5 text-xs transition-all duration-200 flex items-center justify-center space-x-2"
-          >
-            <BookIcon class="w-4 h-4" />
-            <span>阅读小说正文</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：编辑小说属性（书名与封面） ========================= -->
+    <div v-if="showEditBookModal" class="modal-overlay z-[10000] animate-in fade-in duration-200" @click.self="showEditBookModal = false">
+      <div class="modal-panel w-[420px] flex flex-col animate-in zoom-in-95 duration-200 select-none">
+        <div class="modal-header">
+          <div class="flex items-center space-x-2">
+            <BookOpenIcon class="w-4 h-4 text-primary" stroke-width="2" />
+            <span class="text-xs font-bold">编辑小说属性</span>
+          </div>
+          <button @click="showEditBookModal = false" class="modal-close-btn"><XIcon class="w-4 h-4" /></button>
+        </div>
+
+        <div class="p-6 space-y-5 flex-1 min-h-0">
+          <!-- 封面图展示与点击更换 -->
+          <div class="flex flex-col items-center space-y-3">
+            <label class="text-[11px] font-bold text-on-surface-variant/70">小说封面</label>
+            <div class="relative group aspect-[2/3] w-28 rounded-xl overflow-hidden shadow border border-outline-variant/15 bg-surface-high/20 cursor-pointer" @click="changeBookCover(editingBook.characterId)">
+              <img :src="editingBook.coverUrl" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+              <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[10px] text-white font-bold">
+                点击更换封面
+              </div>
+            </div>
+          </div>
+
+          <!-- 书名输入框 -->
+          <div class="flex flex-col space-y-1.5">
+            <label class="text-[11px] font-bold text-on-surface-variant/70">小说书名</label>
+            <input
+              v-model="editingBookTitle"
+              type="text"
+              placeholder="请输入小说名称"
+              class="w-full bg-surface border border-outline-variant/60 rounded-xl px-3.5 py-2.5 text-xs text-on-surface focus:outline-none focus:border-primary"
+            />
+          </div>
+        </div>
+
+        <div class="p-4 bg-surface-low border-t border-outline-variant/20 flex items-center justify-end space-x-2.5">
+          <button @click="showEditBookModal = false" class="px-4 py-2 border border-outline-variant/50 text-on-surface-variant text-[11px] font-bold rounded-xl hover:bg-surface-high transition-all">
+            取消
+          </button>
+          <button @click="saveBookTitle" class="px-4 py-2 bg-primary text-white text-[11px] font-bold rounded-xl hover:bg-primary/90 active:scale-95 transition-all">
+            保存修改
           </button>
         </div>
       </div>
@@ -8903,26 +9240,84 @@
         <span class="text-[9px] scale-90 font-semibold tracking-tighter">论坛</span>
       </button>
 
-      <!-- 5. 收藏 -->
+      <!-- 5. 更多 -->
       <button 
-        @click="sideView = 'favorites'; loadFavoritesList(); selectedFavorite = null;" 
-        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
-        :class="{ 'text-primary font-bold': sideView === 'favorites' }"
+        @click="showMobileMoreDrawer = true" 
+        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary relative transition-all active:scale-90"
+        :class="{ 'text-primary font-bold': ['favorites', 'bookshelf', 'settings'].includes(sideView) }"
       >
-        <BookmarkIcon class="w-5 h-5" />
-        <span class="text-[9px] scale-90 font-semibold tracking-tighter">收藏</span>
+        <MenuIcon class="w-5 h-5" />
+        <!-- 如果小说有新章节，红点提醒 -->
+        <span v-if="Object.values(novelNewChapterBadges).reduce((a, b) => a + b, 0) > 0" class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm"></span>
+        <span class="text-[9px] scale-90 font-semibold tracking-tighter">更多</span>
       </button>
+    </div>
 
-
-      <!-- 7. 设置 -->
-      <button 
-        @click="sideView = 'settings'; isMobileSettingsActive = false" 
-        class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
-        :class="{ 'text-primary font-bold': sideView === 'settings' }"
-      >
-        <SettingsIcon class="w-5 h-5" />
-        <span class="text-[9px] scale-90 font-semibold tracking-tighter">设置</span>
-      </button>
+    <!-- 移动端“更多”遮罩抽屉 (Bottom Drawer) -->
+    <div v-if="isMobile && showMobileMoreDrawer" class="fixed inset-0 z-50 flex flex-col justify-end" @click.self="showMobileMoreDrawer = false">
+      <!-- 遮罩背景 -->
+      <div class="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300"></div>
+      
+      <!-- 抽屉主体面板 -->
+      <div class="relative bg-surface-low border-t border-outline-variant/30 rounded-t-[32px] px-5 pb-8 pt-5 flex flex-col space-y-5 animate-in slide-in-from-bottom duration-300 select-none">
+        <!-- 抽屉顶部小提手 -->
+        <div class="w-12 h-1 bg-outline-variant/60 rounded-full mx-auto mb-2"></div>
+        
+        <div class="text-xs font-bold text-on-surface-variant/60 px-1">更多功能</div>
+        
+        <div class="grid grid-cols-3 gap-3">
+          <!-- 1. 书架 -->
+          <button
+            @click="
+              sideView = 'bookshelf';
+              showMobileMoreDrawer = false;
+              mobileReadLayer = 'shelf';
+              loadBookshelf();
+            "
+            class="flex flex-col items-center justify-center p-4 rounded-2xl border transition-all active:scale-95"
+            :class="sideView === 'bookshelf'
+              ? 'border-primary bg-primary/5 text-primary'
+              : 'border-outline-variant/20 bg-surface text-on-surface'"
+          >
+            <div class="relative">
+              <LibraryIcon class="w-6 h-6 mb-1.5" />
+              <span v-if="Object.values(novelNewChapterBadges).reduce((a, b) => a + b, 0) > 0" class="absolute -top-1 -right-2 bg-red-500 text-[8px] text-white px-1.5 py-0.5 rounded-full font-bold leading-none scale-75">
+                {{ Object.values(novelNewChapterBadges).reduce((a, b) => a + b, 0) }}
+              </span>
+            </div>
+            <span class="text-[10px] font-bold">小说书架</span>
+          </button>
+          
+          <!-- 2. 收藏 -->
+          <button
+            @click="sideView = 'favorites'; loadFavoritesList(); selectedFavorite = null; showMobileMoreDrawer = false;"
+            class="flex flex-col items-center justify-center p-4 rounded-2xl border transition-all active:scale-95"
+            :class="sideView === 'favorites'
+              ? 'border-primary bg-primary/5 text-primary'
+              : 'border-outline-variant/20 bg-surface text-on-surface'"
+          >
+            <BookmarkIcon class="w-6 h-6 mb-1.5" />
+            <span class="text-[10px] font-bold">我的收藏</span>
+          </button>
+          
+          <!-- 3. 设置 -->
+          <button
+            @click="sideView = 'settings'; isMobileSettingsActive = false; showMobileMoreDrawer = false;"
+            class="flex flex-col items-center justify-center p-4 rounded-2xl border transition-all active:scale-95"
+            :class="sideView === 'settings'
+              ? 'border-primary bg-primary/5 text-primary'
+              : 'border-outline-variant/20 bg-surface text-on-surface'"
+          >
+            <SettingsIcon class="w-6 h-6 mb-1.5" />
+            <span class="text-[10px] font-bold">系统设置</span>
+          </button>
+        </div>
+        
+        <!-- 关闭按钮 -->
+        <button @click="showMobileMoreDrawer = false" class="w-full py-3 bg-surface-high/40 hover:bg-surface-high/60 active:scale-98 rounded-2xl text-xs font-bold text-on-surface transition-all">
+          关闭
+        </button>
+      </div>
     </div>
 
     <!-- 转发消息好友选择弹窗 (iOS/WeChat 同款高颜值磨砂升级版) -->
@@ -9425,6 +9820,7 @@ import {
   Book as BookIcon,
   FileLock as FileLockIcon,
   BookOpen as BookOpenIcon,
+  Library as LibraryIcon,
   Smile as SmileIcon,
   Gift as GiftIcon,
   Coffee as CoffeeIcon,
@@ -9461,6 +9857,7 @@ import {
   Terminal as TerminalIcon,
   Scroll as ScrollIcon,
   Bookmark as BookmarkIcon,
+  Menu as MenuIcon,
   Copy as CopyIcon,
   Scissors as ScissorsIcon,
   Share2 as Share2Icon,
@@ -9792,7 +10189,22 @@ const handleRestartAndInstall = async () => {
   }
 }
 const isClockView = ref(window.location.search.includes('view=clock'))
-const sideView = ref<'chat' | 'contacts' | 'settings' | 'stats' | 'moments' | 'forum' | 'favorites' | 'music'>('chat')
+const sideView = ref<'chat' | 'contacts' | 'settings' | 'stats' | 'moments' | 'forum' | 'favorites' | 'music' | 'bookshelf'>('chat')
+const hasAnyNovel = ref(false)
+
+const checkGlobalNovelStatus = async () => {
+  try {
+    const res = await window.api.invoke('novel-has-chapters')
+    if (res && res.success) {
+      hasAnyNovel.value = res.hasChapters
+      if (!hasAnyNovel.value && sideView.value === 'bookshelf') {
+        sideView.value = 'chat'
+      }
+    }
+  } catch (err) {
+    console.error('[Bookshelf] 检查小说状态异常:', err)
+  }
+}
 const activeView = ref<'chat' | 'import'>('chat')
 
 // ===================== 音乐专属响应式状态 =====================
@@ -10166,7 +10578,7 @@ const novelStyleId = ref('')
 const novelPov = ref('third_user')
 const novelAdaptation = ref('moderate')
 const novelActiveTab = ref<'library' | 'extract'>('library')
-const isNovelContinuing = ref(false) // 续写小说按钮 loading 状态
+const novelContinuingMap = ref<Record<string, boolean>>({})
 
 
 const showStyleDropdown = ref(false)
@@ -10190,6 +10602,7 @@ function clickNovelStyleSelector() {
 // 文风库
 const novelStyles = ref<any[]>([])
 const showAddStyleModal = ref(false)
+const showMobileMoreDrawer = ref(false)
 const editingStyle = ref<any>(null)
 const styleForm = reactive({
   name: '',
@@ -10202,6 +10615,246 @@ const extractedPrompt = ref('')
 const extractedName = ref('我的提取文风')
 const isExtractingStyle = ref(false)
 const uploadTxtInput = ref<HTMLInputElement | null>(null)
+
+// ===================== 书架与内嵌阅读器状态及逻辑 =====================
+const bookshelfList = ref<any[]>([])
+const bookshelfRows = computed(() => {
+  const chunks: any[][] = []
+  for (let i = 0; i < bookshelfList.value.length; i += 4) {
+    chunks.push(bookshelfList.value.slice(i, i + 4))
+  }
+  return chunks
+})
+const selectedBookId = ref<string | null>(null)
+const selectedBookChapterId = ref<string | null>(null)
+const bookChapters = ref<any[]>([])
+const prevChapter = computed(() => {
+  if (!selectedBookChapterId.value || bookChapters.value.length === 0) return null
+  const currentIndex = bookChapters.value.findIndex(c => c.id === selectedBookChapterId.value)
+  if (currentIndex <= 0) return null
+  return bookChapters.value[currentIndex - 1]
+})
+const nextChapter = computed(() => {
+  if (!selectedBookChapterId.value || bookChapters.value.length === 0) return null
+  const currentIndex = bookChapters.value.findIndex(c => c.id === selectedBookChapterId.value)
+  if (currentIndex === -1 || currentIndex >= bookChapters.value.length - 1) return null
+  return bookChapters.value[currentIndex + 1]
+})
+const currentChapterContent = ref('')
+const isChapterLoading = ref(false)
+
+// 修改书名与封面Modal状态
+const showEditBookModal = ref(false)
+const editingBook = ref<any>(null)
+const editingBookTitle = ref('')
+
+// 移动端书架与阅读器导航层级控制: 'shelf' | 'catalog' | 'reader'
+const mobileReadLayer = ref<'shelf' | 'catalog' | 'reader'>('shelf')
+
+// 加载书架列表
+async function loadBookshelf() {
+  try {
+    const res = await window.api.invoke('novel-get-bookshelf')
+    if (res && res.success) {
+      bookshelfList.value = res.bookshelf
+    }
+  } catch (err) {
+    console.error('[Bookshelf] 加载书架失败:', err)
+  }
+}
+
+// 监听 sideView 切换为 bookshelf 时加载书架
+watch(sideView, async (newVal) => {
+  if (newVal === 'bookshelf') {
+    selectedBookId.value = null
+    selectedBookChapterId.value = null
+    currentChapterContent.value = ''
+    mobileReadLayer.value = 'shelf'
+    await loadBookshelf()
+  }
+})
+
+// 打开某本书并进入阅读器
+async function openBook(characterId: string) {
+  selectedBookId.value = characterId
+  selectedBookChapterId.value = null
+  currentChapterContent.value = ''
+  mobileReadLayer.value = 'catalog'
+  try {
+    const res = await window.api.invoke('novel-get-chapters', { characterId })
+    if (res.success && res.chapters) {
+      bookChapters.value = res.chapters
+      if (res.chapters.length > 0) {
+        // 读取上次阅读的进度
+        const savedChapterId = localStorage.getItem(`read_chapter_${characterId}`)
+        const hasSaved = res.chapters.some((c: any) => c.id === savedChapterId)
+        if (savedChapterId && hasSaved) {
+          await loadChapterContent(savedChapterId)
+        } else {
+          await loadChapterContent(res.chapters[0].id)
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Bookshelf] 打开小说失败:', err)
+  }
+}
+
+// 返回书架
+async function closeBook() {
+  selectedBookId.value = null
+  selectedBookChapterId.value = null
+  currentChapterContent.value = ''
+  mobileReadLayer.value = 'shelf'
+  await loadBookshelf()
+}
+
+// 加载指定章节的内容
+async function loadChapterContent(chapterId: string) {
+  selectedBookChapterId.value = chapterId
+  isChapterLoading.value = true
+  try {
+    const res = await window.api.invoke('novel-get-chapter-content', { chapterId })
+    if (res.success) {
+      currentChapterContent.value = res.content || ''
+      // 存储阅读进度至浏览器端
+      if (selectedBookId.value) {
+        localStorage.setItem(`read_chapter_${selectedBookId.value}`, chapterId)
+      }
+      // 平滑滚回顶端
+      nextTick(() => {
+        const pcContainer = document.querySelector('.novel-reader-content-scroll')
+        if (pcContainer) pcContainer.scrollTop = 0
+        const mobileContainer = document.querySelector('.novel-reader-content-scroll-mobile')
+        if (mobileContainer) mobileContainer.scrollTop = 0
+      })
+      if (isMobile.value) {
+        mobileReadLayer.value = 'reader'
+      }
+    }
+  } catch (err) {
+    console.error('[Bookshelf] 加载章节内容失败:', err)
+  } finally {
+    isChapterLoading.value = false
+  }
+}
+
+// 打开编辑小说Modal
+function openEditBookModal(book: any) {
+  editingBook.value = book
+  editingBookTitle.value = book.novelTitle
+  showEditBookModal.value = true
+}
+
+// 保存小说标题
+async function saveBookTitle() {
+  if (!editingBookTitle.value.trim()) {
+    showToast('小说名称不能为空！')
+    return
+  }
+  try {
+    const res = await window.api.invoke('novel-update-book-title', {
+      characterId: editingBook.value.characterId,
+      novelTitle: editingBookTitle.value.trim()
+    })
+    if (res && res.success) {
+      showToast('小说名称修改成功！')
+      showEditBookModal.value = false
+      await loadBookshelf()
+    } else {
+      showToast(`保存失败: ${res.error || '未知错误'}`)
+    }
+  } catch (err: any) {
+    showToast(`保存出错: ${err.message || err}`)
+  }
+}
+
+// 更换小说封面
+async function changeBookCover(characterId: string) {
+  try {
+    const res = await window.api.invoke('novel-update-book-cover', { characterId })
+    if (res && res.success) {
+      showToast('封面更换成功！')
+      await loadBookshelf()
+      if (editingBook.value && editingBook.value.characterId === characterId) {
+        editingBook.value.coverUrl = res.coverUrl
+      }
+    } else if (res && res.error) {
+      showToast(`封面更换失败: ${res.error}`)
+    }
+  } catch (err: any) {
+    showToast(`封面更换出错: ${err.message || err}`)
+  }
+}
+
+// 重写书籍中的章节
+async function triggerBookChapterRewrite(chapterId: string) {
+  try {
+    const res = await window.api.invoke('novel-rewrite-chapter', { chapterId })
+    if (res && res.success) {
+      showToast('重写章节任务已启动，正在后台生成中，请稍候...')
+    }
+  } catch (err: any) {
+    showToast(`触发重写失败: ${err.message || err}`)
+  }
+}
+
+// 删除章节
+async function triggerBookChapterDelete(chapterId: string) {
+  if (!confirm('确定要永久删除这一章小说吗？删除后对应段落的历史对话需要重新满足阈值才能重新生成小说。')) return
+  try {
+    const res = await window.api.invoke('novel-delete-chapter', { chapterId })
+    if (res && res.success) {
+      showToast('章节已成功删除')
+      await checkGlobalNovelStatus()
+      if (selectedBookId.value) {
+        const chaptersRes = await window.api.invoke('novel-get-chapters', { characterId: selectedBookId.value })
+        if (chaptersRes.success && chaptersRes.chapters) {
+          bookChapters.value = chaptersRes.chapters
+          if (chaptersRes.chapters.length > 0) {
+            const stillExists = chaptersRes.chapters.some((c: any) => c.id === selectedBookChapterId.value)
+            if (stillExists) {
+              await loadChapterContent(selectedBookChapterId.value!)
+            } else {
+              await loadChapterContent(chaptersRes.chapters[0].id)
+            }
+          } else {
+            await closeBook()
+          }
+        }
+      }
+    }
+  } catch (err: any) {
+    showToast(`删除章节失败: ${err.message || err}`)
+  }
+}
+
+// 导出整书TXT
+async function triggerBookExportTxt(characterId: string) {
+  try {
+    const res = await window.api.invoke('novel-export', { characterId, format: 'txt' })
+    if (res && res.success) {
+      showToast(`小说已成功导出至：\n${res.path}`)
+    } else if (res && res.error) {
+      showToast(`导出失败: ${res.error}`)
+    }
+  } catch (err: any) {
+    showToast(`导出出错: ${err.message || err}`)
+  }
+}
+
+// 给章节评分
+async function rateChapter(chapterId: string, rating: number) {
+  try {
+    const res = await window.api.invoke('novel-rate-chapter', { chapterId, rating })
+    if (res && res.success) {
+      const ch = bookChapters.value.find(c => c.id === chapterId)
+      if (ch) ch.rating = rating
+    }
+  } catch (err: any) {
+    showToast(`评分失败: ${err.message || err}`)
+  }
+}
 
 // 加载指定角色的章节列表
 async function loadNovelChapters(characterId: string) {
@@ -10304,21 +10957,21 @@ async function triggerNovelExport(format: 'txt' | 'html') {
 // 手动触发续写小说
 async function triggerNovelContinue() {
   const charId = selectedCharacterId.value
-  if (!charId || isNovelContinuing.value) return
-  isNovelContinuing.value = true
+  if (!charId || novelContinuingMap.value[charId]) return
+  novelContinuingMap.value[charId] = true
   try {
     const res = await window.api.invoke('novel-continue', { characterId: charId })
     if (!res.success) {
       // 校验失败（如未开启、无新对话），直接提示用户
       showCustomAlert('续写失败', res.error || '续写失败，请检查设置。', 'error')
-      isNovelContinuing.value = false
+      novelContinuingMap.value[charId] = false
     } else {
       showToast('✨ AI 正在后台续写小说，完成后将通知您...')
       // loading 状态将由 novel-continue-done 事件解除
     }
   } catch (err: any) {
     showCustomAlert('续写失败', err.message || err, 'error')
-    isNovelContinuing.value = false
+    novelContinuingMap.value[charId] = false
   }
 }
 
@@ -16873,6 +17526,9 @@ function rejectAgreement() {
 
 // ===================== 生命周期 =====================
 onMounted(async () => {
+  // 检查小说可用状态
+  await checkGlobalNovelStatus()
+
   // 微信个人号状态自愈与登录事件广播接入
   if (window.api && window.api.receive) {
     window.api.receive('wechat-status-updated', (status: any) => {
@@ -16884,24 +17540,51 @@ onMounted(async () => {
     })
     // AI小说写手广播事件监听
     window.api.receive('novel-chapter-added', (data: { characterId: string; chapterId: string; chapterIndex: number; title: string }) => {
+      checkGlobalNovelStatus()
       if (selectedCharacterId.value === data.characterId) {
         loadNovelChapters(data.characterId)
-        showCustomAlert('新章节已生成', `《${data.title}》已生成完毕，快点击 📖 按钮阅读吧！`, 'success')
+        showCustomAlert('新章节已生成', `《${data.title}》已生成完毕，快前往书架阅读吧！`, 'success')
       }
       if (!novelNewChapterBadges[data.characterId]) {
         novelNewChapterBadges[data.characterId] = 0
       }
       novelNewChapterBadges[data.characterId]++
+      
+      // 热刷新书架与当前阅读的书籍目录
+      if (sideView.value === 'bookshelf') {
+        loadBookshelf()
+        if (selectedBookId.value === data.characterId) {
+          // 静默重新加载目录，不打扰阅读
+          window.api.invoke('novel-get-chapters', { characterId: data.characterId }).then((res: any) => {
+            if (res.success && res.chapters) {
+              bookChapters.value = res.chapters
+            }
+          })
+        }
+      }
     })
     window.api.receive('novel-chapter-rewritten', (data: { characterId: string; chapterId: string }) => {
       if (selectedCharacterId.value === data.characterId) {
         loadNovelChapters(data.characterId)
         showCustomAlert('章节重写完成', '章节内容已成功重新生成并已更新。', 'success')
       }
+      // 热刷新当前重写后章节的内容
+      if (selectedBookId.value === data.characterId) {
+        window.api.invoke('novel-get-chapters', { characterId: data.characterId }).then((res: any) => {
+          if (res.success && res.chapters) {
+            bookChapters.value = res.chapters
+            if (selectedBookChapterId.value) {
+              loadChapterContent(selectedBookChapterId.value)
+            }
+          }
+        })
+      }
     })
     // 续写任务完成/失败的通知
     window.api.receive('novel-continue-done', (data: { characterId: string; success: boolean; error?: string }) => {
-      isNovelContinuing.value = false
+      if (data.characterId) {
+        novelContinuingMap.value[data.characterId] = false
+      }
       if (data.success) {
         if (selectedCharacterId.value === data.characterId) {
           loadNovelChapters(data.characterId)

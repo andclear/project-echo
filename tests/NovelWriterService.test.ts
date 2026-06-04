@@ -129,10 +129,18 @@ describe('NovelWriterService 自动章节生成与改编服务测试', () => {
 
     const mockModelAdapter = {
       chat: vi.fn().mockImplementation(async (msgs: any[]) => {
-        // 判断是否是摘要任务
-        const isSummary = msgs[0].content.includes('提炼助手')
-        if (isSummary) {
+        const sysMsg = msgs.find(m => m.role === 'system')?.content || ''
+        if (sysMsg.includes('提炼助手')) {
           return { content: '首章故事摘要。' }
+        }
+        if (sysMsg.includes('拆分专家')) {
+          return { content: 'NO_SPLIT' }
+        }
+        if (sysMsg.includes('网文润色专家')) {
+          const userMsg = msgs.find(m => m.role === 'user')?.content || ''
+          const rawMatch = userMsg.match(/【待润色的章节原文】\n([\s\S]+?)\n\n请直接输出/)
+          const raw = rawMatch ? rawMatch[1].trim() : '第一章小说的完整正文。'
+          return { content: raw }
         }
         return { content: '第一章小说的完整正文。\n### TITLE: 歌剧院之始', tokenUsage: 500 }
       })
@@ -169,8 +177,19 @@ describe('NovelWriterService 自动章节生成与改编服务测试', () => {
 
     const mockModelAdapter = {
       chat: vi.fn().mockImplementation(async (msgs: any[]) => {
-        const isSummary = msgs[0].content.includes('提炼助手')
-        if (isSummary) return { content: '第二章故事摘要。' }
+        const sysMsg = msgs.find(m => m.role === 'system')?.content || ''
+        if (sysMsg.includes('提炼助手')) {
+          return { content: '第二章故事摘要。' }
+        }
+        if (sysMsg.includes('拆分专家')) {
+          return { content: 'NO_SPLIT' }
+        }
+        if (sysMsg.includes('网文润色专家')) {
+          const userMsg = msgs.find(m => m.role === 'user')?.content || ''
+          const rawMatch = userMsg.match(/【待润色的章节原文】\n([\s\S]+?)\n\n请直接输出/)
+          const raw = rawMatch ? rawMatch[1].trim() : '第二章小说的完整正文。'
+          return { content: raw }
+        }
         return { content: '第二章小说的完整正文。\n### TITLE: 晴空之下', tokenUsage: 600 }
       })
     } as unknown as ModelAdapter

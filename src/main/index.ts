@@ -2278,13 +2278,28 @@ ${soulContent}
         return { success: false, error: '小说还没有生成任何章节，无法导出！' }
       }
       
-      const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(payload.characterId) as any
+      const char = db.db.prepare('SELECT name, folder_name FROM Characters WHERE id = ?').get(payload.characterId) as any
       const charName = char ? char.name : '未知角色'
+      let novelTitle = `${charName}的故事`
+
+      if (char) {
+        try {
+          const storageManager = new CharacterStorageManager()
+          const charDir = join(storageManager.getBaseDir(), char.folder_name)
+          const profilePath = join(charDir, 'novel_profile.json')
+          if (fs.existsSync(profilePath)) {
+            const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
+            if (profile.novelTitle) {
+              novelTitle = profile.novelTitle
+            }
+          }
+        } catch (_) {}
+      }
       
       const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
       const result = await dialog.showSaveDialog(focusedWindow!, {
         title: '导出小说',
-        defaultPath: `${charName}的故事.${payload.format}`,
+        defaultPath: `${novelTitle}.${payload.format}`,
         filters: [
           { name: payload.format === 'txt' ? '纯文本文件' : 'HTML网页文件', extensions: [payload.format] }
         ]
@@ -2296,7 +2311,7 @@ ${soulContent}
       
       let fileContent = ''
       if (payload.format === 'txt') {
-        fileContent = `${charName}的故事\n\n`
+        fileContent = `${novelTitle}\n\n`
         for (const ch of chapters) {
           const contentRes = db.getNovelChapterContent(ch.id)
           const content = contentRes ? contentRes.content : ''
@@ -2328,7 +2343,7 @@ ${soulContent}
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>${charName}的故事</title>
+  <title>${novelTitle}</title>
   <style>
     body {
       background-color: #f9f9ff;
@@ -2356,7 +2371,7 @@ ${soulContent}
 </head>
 <body>
   <div class="container">
-    <h1>${charName}的故事</h1>
+    <h1>${novelTitle}</h1>
     ${bodyHtml}
   </div>
 </body>
@@ -2365,6 +2380,160 @@ ${soulContent}
       
       fs.writeFileSync(result.filePath, fileContent, 'utf8')
       return { success: true, path: result.filePath }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // ====== 书架与内嵌阅读器管理接口 ======
+
+  ipcMain.handle('novel-has-chapters', async () => {
+    try {
+      const db = getDatabaseService()
+      const row = db.db.prepare('SELECT 1 FROM NovelChapters LIMIT 1').get()
+      return { success: true, hasChapters: !!row }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-get-bookshelf', async () => {
+    try {
+      const db = getDatabaseService()
+      const rows = db.db.prepare('SELECT DISTINCT character_id FROM NovelChapters').all() as any[]
+      const bookshelf: any[] = []
+      const storageManager = new CharacterStorageManager()
+
+      for (const row of rows) {
+        const charId = row.character_id
+        const char = db.db.prepare('SELECT name, folder_name FROM Characters WHERE id = ?').get(charId) as any
+        if (!char) continue
+
+        const folderName = char.folder_name
+        const charDir = join(storageManager.getBaseDir(), folderName)
+        const profilePath = join(charDir, 'novel_profile.json')
+
+        let novelTitle = `${char.name}的小说`
+        let customCoverBase64 = ''
+
+        if (fs.existsSync(profilePath)) {
+          try {
+            const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
+            if (profile.novelTitle) novelTitle = profile.novelTitle
+            if (profile.customCoverName) {
+              const coverPath = join(charDir, profile.customCoverName)
+              if (fs.existsSync(coverPath)) {
+                const buffer = fs.readFileSync(coverPath)
+                customCoverBase64 = `data:image/png;base64,${buffer.toString('base64')}`
+              }
+            }
+          } catch (err) {
+            console.error(`[IPC] 读取小说配置 novel_profile.json 失败 (角色: ${char.name}):`, err)
+          }
+        }
+
+        // 获取角色默认头像作为兜底
+        let defaultAvatarBase64 = ''
+        const avatarPath = join(charDir, 'avatar.png')
+        if (fs.existsSync(avatarPath)) {
+          const buffer = fs.readFileSync(avatarPath)
+          defaultAvatarBase64 = `data:image/png;base64,${buffer.toString('base64')}`
+        }
+
+        bookshelf.push({
+          characterId: charId,
+          characterName: char.name,
+          folderName,
+          novelTitle,
+          coverUrl: customCoverBase64 || defaultAvatarBase64,
+          hasCustomCover: !!customCoverBase64
+        })
+      }
+
+      return { success: true, bookshelf }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-update-book-title', async (_, payload: { characterId: string; novelTitle: string }) => {
+    try {
+      const db = getDatabaseService()
+      const char = db.db.prepare('SELECT folder_name FROM Characters WHERE id = ?').get(payload.characterId) as any
+      if (!char) throw new Error('找不到指定角色')
+
+      const storageManager = new CharacterStorageManager()
+      const charDir = join(storageManager.getBaseDir(), char.folder_name)
+      if (!fs.existsSync(charDir)) {
+        fs.mkdirSync(charDir, { recursive: true })
+      }
+      const profilePath = join(charDir, 'novel_profile.json')
+
+      let profile: any = {}
+      if (fs.existsSync(profilePath)) {
+        try {
+          profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
+        } catch (_) {}
+      }
+
+      profile.novelTitle = payload.novelTitle
+      fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2), 'utf8')
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-update-book-cover', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const char = db.db.prepare('SELECT name, folder_name FROM Characters WHERE id = ?').get(payload.characterId) as any
+      if (!char) throw new Error('找不到指定角色')
+
+      const storageManager = new CharacterStorageManager()
+      const charDir = join(storageManager.getBaseDir(), char.folder_name)
+      if (!fs.existsSync(charDir)) {
+        fs.mkdirSync(charDir, { recursive: true })
+      }
+
+      const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
+      const result = await dialog.showOpenDialog(focusedWindow!, {
+        title: '选择小说封面图片',
+        filters: [{ name: '图片文件', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+        properties: ['openFile']
+      })
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, canceled: true }
+      }
+
+      const sourcePath = result.filePaths[0]
+      const ext = sourcePath.split('.').pop() || 'png'
+      const customCoverName = `novel_cover_${Date.now()}.${ext}`
+      const targetPath = join(charDir, customCoverName)
+
+      // 删除旧自定义封面
+      const profilePath = join(charDir, 'novel_profile.json')
+      let profile: any = {}
+      if (fs.existsSync(profilePath)) {
+        try {
+          profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
+          if (profile.customCoverName) {
+            const oldCoverPath = join(charDir, profile.customCoverName)
+            if (fs.existsSync(oldCoverPath)) {
+              fs.unlinkSync(oldCoverPath)
+            }
+          }
+        } catch (_) {}
+      }
+
+      fs.copyFileSync(sourcePath, targetPath)
+      profile.customCoverName = customCoverName
+      fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2), 'utf8')
+
+      const buffer = fs.readFileSync(targetPath)
+      const coverUrl = `data:image/${ext === 'webp' ? 'webp' : 'png'};base64,${buffer.toString('base64')}`
+      return { success: true, coverUrl }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
