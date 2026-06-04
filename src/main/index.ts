@@ -2244,6 +2244,32 @@ ${soulContent}
     }
   })
 
+  // 用户手动触发续写小说（绕过 token 阈值）
+  ipcMain.handle('novel-continue', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const configStr = db.getSetting('model_config')
+      if (!configStr) throw new Error('模型未配置')
+      const settings = JSON.parse(configStr)
+      const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+      const novelService = new NovelWriterService(modelAdapter)
+      // 后台异步执行，立即返回让前端解除等待；完成/失败后通过 IPC 事件通知前端
+      novelService.continueNow(payload.characterId).then(() => {
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('novel-continue-done', { characterId: payload.characterId, success: true })
+        }
+      }).catch((err: any) => {
+        console.error('[novel-continue] 续写失败:', err)
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('novel-continue-done', { characterId: payload.characterId, success: false, error: err.message })
+        }
+      })
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
   ipcMain.handle('novel-export', async (_, payload: { characterId: string; format: 'txt' | 'html' }) => {
     try {
       const db = getDatabaseService()

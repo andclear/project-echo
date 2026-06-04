@@ -217,7 +217,7 @@ export class NovelWriterService {
         options.isFirstChapter
       )
 
-      const userPrompt = `【待改编的对话原材料（按时间顺序）】\n${formattedDialogue}\n\n请立即根据对话内容、角色人称和改编尺度，将其创作成一章精彩的小说。不要写任何开场白或多余解释，正文完成后另起一行输出标题，格式固定为：\n### TITLE: {章节标题}`
+      const userPrompt = `【待改编的对话原材料（按时间顺序）】\n${formattedDialogue}\n\n请立即根据对话内容、角色人称和改编尺度，将其创作成一章精彩的小说。不要写任何开场白或多余解释，正文完成后另起一行输出标题，格式固定为：\n### TITLE: {章节标题}\n\n【关于章节标题】章节标题由你自行拟定，要求简洁有力、贴合本章情感基调，字数6~15字为宜，无需使用"第X章"字样。`
 
       // 10. 调用大模型生成章节正文 (辅助模型)
       const chatMessages: ChatMessage[] = [
@@ -239,14 +239,16 @@ export class NovelWriterService {
       const splitParts = await this.splitIntoChapters(rawContent, stylePrompt)
 
       // 12. 循环处理每个拆分后的章节
-      const baseIndex = db.getNovelChapterCount(characterId) + 1
+      // chapterIndex 基于 newChapterIndex（MAX(chapter_index)+1），保证删除章节后序号不冲突
       for (let i = 0; i < splitParts.length; i++) {
         const part = splitParts[i]
-        const partTitle = splitParts.length === 1 ? rawTitle : `${rawTitle} - Part ${i + 1}`
+        const partTitle = splitParts.length === 1
+          ? rawTitle
+          : (part.title && part.title.trim() ? part.title.trim() : `${rawTitle}（${i + 1}）`)
         const polished = await this.polishAndReview(part.content, stylePrompt)
         const partSummary = await this.generateChapterSummary(polished, charName)
         const chapterId = crypto.randomUUID()
-        const chapterIndex = baseIndex + i
+        const chapterIndex = newChapterIndex + i
         db.insertNovelChapter({
           id: chapterId,
           character_id: characterId,
@@ -664,7 +666,11 @@ ${adaptationInstruction}
    * 若模型返回 "NO_SPLIT"，返回单章节数组 [{ title: '', content: rawContent }]
    */
   private async splitIntoChapters(rawContent: string, stylePrompt: string): Promise<Array<{title: string, content: string}>> {
-    const systemPrompt = `你是章节拆分专家。请根据以下正文内容的长度、信息密度以及整体结构，判断是否需要拆分成多个章节。若需要拆分，请返回 JSON 数组，每个元素包含 "title"（章节标题，可自行生成）和 "content"（该章节的正文），保持内容的连贯性。若不需要拆分，请仅返回字符串 "NO_SPLIT"。请勿返回其它说明文字。`;
+    const systemPrompt = `你是章节拆分专家。请根据以下正文内容的长度、信息密度以及整体结构，判断是否需要拆分成多个章节。
+
+若需要拆分，请返回 JSON 数组，每个元素包含 "title"（章节参考标题，供主写手参考，主写手在最终写作时有权自行修改为更贴切的标题）和 "content"（该章节的正文内容），保持内容的连贯性，不要省略任何正文内容。
+
+若不需要拆分，请仅返回字符串 "NO_SPLIT"。请勿返回其它说明文字，直接输出 JSON 数组或 "NO_SPLIT"。`;
     const userPrompt = `正文内容：\n${rawContent}`;
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -672,12 +678,17 @@ ${adaptationInstruction}
     ];
     try {
       const res = await this.chatWithRetry(messages, { usePrimary: false, skipSystemInjection: true }, '章节拆分判断');
-      const reply = res.content.trim();
-      if (reply === 'NO_SPLIT') {
+      let reply = res.content.trim();
+
+      // 剥去可能的 markdown 代码块包装（```json ... ``` 或 ``` ... ```）
+      reply = reply.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+      // 大小写不敏感地匹配 NO_SPLIT
+      if (/^no_split$/i.test(reply)) {
         return [{ title: '', content: rawContent }];
       }
       const parsed = JSON.parse(reply);
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map(item => ({ title: item.title || '', content: item.content || '' }));
       }
       return [{ title: '', content: rawContent }];
@@ -685,6 +696,7 @@ ${adaptationInstruction}
       console.error('[NovelWriterService] 拆分章节失败，回退为单章节', e);
       return [{ title: '', content: rawContent }];
     }
+
   }
 
   /**
@@ -820,5 +832,41 @@ ${styleRef}
       console.error(`[NovelWriterService] 生成摘要失败，采用默认字词截断。`, e)
       return chapterContent.substring(0, 150) + '...'
     }
+  }
+
+  /**
+   * 用户手动触发续写：绕过 token 阈值直接调用 generateChapter。
+   * generateChapter 内部在写完后会更新 last_novel_chapter_end_ts，自动重置 token 计数。
+   */
+  public async continueNow(characterId: string): Promise<void> {
+    const db = getDatabaseService()
+    const novelEnabled = db.getSetting(`novel_enabled_${characterId}`) === '1'
+    if (!novelEnabled) {
+      throw new Error('该角色尚未开启 AI 小说写手，请先在弹窗中开启。')
+    }
+
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive'
+    if (chatMode === 'director') {
+      throw new Error('导演模式不支持自动写小说。')
+    }
+
+    // 检查是否有新对话内容（上一章结束时间戳之后是否有 assistant 消息）
+    const isFirstChapter = db.getNovelChapterCount(characterId) === 0
+    const lastEndTs = isFirstChapter
+      ? 0
+      : parseInt(db.getSetting(`last_novel_chapter_end_ts_${characterId}`) || '0', 10)
+
+    const hasNewMessages = (db.db.prepare(`
+      SELECT 1 FROM Messages
+      WHERE character_id = ? AND timestamp > ? AND role = 'assistant'
+      LIMIT 1
+    `).get(characterId, lastEndTs)) != null
+
+    if (!hasNewMessages) {
+      throw new Error('当前没有新的对话内容，无法续写。')
+    }
+
+    console.log(`[NovelWriterService] 用户手动触发续写，角色 ${characterId}`)
+    await this.generateChapter(characterId, { isFirstChapter })
   }
 }

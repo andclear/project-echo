@@ -6878,9 +6878,24 @@
           </div>
         </div>
 
-        <!-- 底部大阅读按钮 -->
-        <div v-if="novelChaptersList.length > 0" class="p-4 border-t border-outline-variant/30 flex-shrink-0">
+        <!-- 底部操作区 -->
+        <div class="p-4 border-t border-outline-variant/30 flex-shrink-0 space-y-2">
+          <!-- 续写小说按钮：始终显示，允许用户手动触发写作 -->
           <button
+            @click="triggerNovelContinue"
+            :disabled="isNovelContinuing"
+            class="w-full rounded-xl font-bold py-2.5 text-xs transition-all duration-200 flex items-center justify-center space-x-2"
+            :class="isNovelContinuing
+              ? 'bg-outline-variant/30 text-on-surface-variant cursor-not-allowed'
+              : 'bg-primary text-white hover:bg-primary/90 active:scale-[0.98] shadow-sm shadow-primary/20'"
+          >
+            <SparklesIcon v-if="!isNovelContinuing" class="w-4 h-4" />
+            <span v-if="isNovelContinuing" class="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            <span>{{ isNovelContinuing ? '正在续写中，请稍候...' : '✨ 立即续写小说' }}</span>
+          </button>
+          <!-- 阅读按钮：仅在有章节时显示 -->
+          <button
+            v-if="novelChaptersList.length > 0"
             @click="triggerNovelOpenReader"
             class="w-full rounded-xl border border-primary text-primary hover:bg-primary hover:text-white font-bold py-2.5 text-xs transition-all duration-200 flex items-center justify-center space-x-2"
           >
@@ -10151,6 +10166,8 @@ const novelStyleId = ref('')
 const novelPov = ref('third_user')
 const novelAdaptation = ref('moderate')
 const novelActiveTab = ref<'library' | 'extract'>('library')
+const isNovelContinuing = ref(false) // 续写小说按钮 loading 状态
+
 
 const showStyleDropdown = ref(false)
 
@@ -10283,6 +10300,27 @@ async function triggerNovelExport(format: 'txt' | 'html') {
 }
 
 // 重写章节
+// 手动触发续写小说
+async function triggerNovelContinue() {
+  const charId = selectedCharacterId.value
+  if (!charId || isNovelContinuing.value) return
+  isNovelContinuing.value = true
+  try {
+    const res = await window.api.invoke('novel-continue', { characterId: charId })
+    if (!res.success) {
+      // 校验失败（如未开启、无新对话），直接提示用户
+      showCustomAlert('续写失败', res.error || '续写失败，请检查设置。', 'error')
+      isNovelContinuing.value = false
+    } else {
+      showToast('✨ AI 正在后台续写小说，完成后将通知您...')
+      // loading 状态将由 novel-continue-done 事件解除
+    }
+  } catch (err: any) {
+    showCustomAlert('续写失败', err.message || err, 'error')
+    isNovelContinuing.value = false
+  }
+}
+
 async function triggerNovelRewrite(chapterId: string) {
   try {
     showToast('正在后台重新创作章节中，请稍候...📖')
@@ -16858,6 +16896,18 @@ onMounted(async () => {
       if (selectedCharacterId.value === data.characterId) {
         loadNovelChapters(data.characterId)
         showCustomAlert('章节重写完成', '章节内容已成功重新生成并已更新。', 'success')
+      }
+    })
+    // 续写任务完成/失败的通知
+    window.api.receive('novel-continue-done', (data: { characterId: string; success: boolean; error?: string }) => {
+      isNovelContinuing.value = false
+      if (data.success) {
+        if (selectedCharacterId.value === data.characterId) {
+          loadNovelChapters(data.characterId)
+        }
+        // novel-chapter-added 事件会在同一次任务中触发，不再重复弹窗
+      } else {
+        showCustomAlert('续写失败', data.error || '后台续写任务失败，请检查模型设置。', 'error')
       }
     })
   }
