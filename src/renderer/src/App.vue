@@ -6891,7 +6891,7 @@
           >
             <SparklesIcon v-if="!isNovelContinuing" class="w-4 h-4" />
             <span v-if="isNovelContinuing" class="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-            <span>{{ isNovelContinuing ? '正在续写中，请稍候...' : '✨ 立即续写小说' }}</span>
+            <span>{{ isNovelContinuing ? '正在续写中，请稍候...' : '立即续写小说' }}</span>
           </button>
           <!-- 阅读按钮：仅在有章节时显示 -->
           <button
@@ -10220,15 +10220,16 @@ async function loadNovelChapters(characterId: string) {
 async function loadNovelSettings(characterId: string) {
   if (!characterId) return
   try {
-    const enabled = await window.api.invoke('get-setting', { key: `novel_enabled_${characterId}` })
-    const styleId = await window.api.invoke('get-setting', { key: `novel_style_id_${characterId}` })
-    const pov = await window.api.invoke('get-setting', { key: `novel_pov_${characterId}` })
-    const adaptation = await window.api.invoke('get-setting', { key: `novel_adaptation_${characterId}` })
+    const enabledRes = await window.api.invoke('get-setting', { key: `novel_enabled_${characterId}` })
+    const styleIdRes = await window.api.invoke('get-setting', { key: `novel_style_id_${characterId}` })
+    const povRes = await window.api.invoke('get-setting', { key: `novel_pov_${characterId}` })
+    const adaptationRes = await window.api.invoke('get-setting', { key: `novel_adaptation_${characterId}` })
 
-    novelEnabled.value = enabled === '1'
-    novelStyleId.value = styleId || ''
-    novelPov.value = pov || 'third_user'
-    novelAdaptation.value = adaptation || 'moderate'
+    // get-setting 返回 { success, value }，需要从 .value 中提取实际值
+    novelEnabled.value = enabledRes?.value === '1'
+    novelStyleId.value = styleIdRes?.value || ''
+    novelPov.value = povRes?.value || 'third_user'
+    novelAdaptation.value = adaptationRes?.value || 'moderate'
   } catch (err) {
     console.error('[App.vue] 加载小说设置失败:', err)
   }

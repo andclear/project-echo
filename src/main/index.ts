@@ -7360,18 +7360,31 @@ app.whenReady().then(() => {
     
     // 级联事件广播总线：当有任何新消息保存到 SQLite 数据库时，双路并发广播给所有端
     db.registerOnMessageSaved((msg) => {
-      // 判断晢语次是否是 本机 Electron 正在流式处理的 AI 对话回复
+      // 判断该消息是否是本机 Electron 正在流式处理的 AI 对话回复
       // 若是，桌面端已通过 chat-chunk 渲染，跳过 IPC 广播防止重复气泡
       const isElectronAssistantMsg = msg.role === 'assistant' && activeElectronChats.has(msg.character_id)
       
       // 路径 1：Electron 桌面端（透过 ipcRenderer 监听）
-      // 第一条：如果是本机 Electron 正在流式处理的 AI 回复（dialogue 展开分次存盘），则跳过，防止重复渲染
+      // 如果是本机 Electron 正在流式处理的 AI 回复（dialogue 展开分次存盘），则跳过，防止重复渲染
       if (!isElectronAssistantMsg && mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('receive-message', msg)
+        
+        // 🔧 修复：当手机端/Web端触发了 AI 回复时（非本机流式），event.sender.send 是 broadcastToSse，
+        // 因此 chat-chunk done 信号只发给了 SSE 客户端（手机端），电脑端 IPC 收不到，
+        // 导致电脑端 streamingCharsSet 永远不清除，"对方正在输入..."动画永久卡住。
+        // 解决：额外通过 mainWindow IPC 补发一个仅含 done=true 的 chat-chunk 信号。
+        if (msg.role === 'assistant') {
+          mainWindow.webContents.send('chat-chunk', {
+            characterId: msg.character_id,
+            content: '',   // 内容已通过 receive-message 传递，此处仅发送状态清除信号
+            done: true
+          })
+        }
       }
       // 路径 2：局域网 Web 端 / 手机端（透过 SSE 监听）始终广播
       broadcastToSse('receive-message', msg)
     })
+
 
     const customPortStr = db.getSetting('ipc_bridge_port')
     let port = 3000
