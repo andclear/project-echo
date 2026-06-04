@@ -169,10 +169,10 @@ describe('NovelWriterService 自动章节生成与改编服务测试', () => {
     ]
     mockChapterCount = 1
 
-    // 新的交互消息
+    // 新的交互消息，内容加长以达到 1500 tokens 的阈值条件 (1500 / 1.3 ≈ 1150个汉字)
     mockMessages = [
-      { id: '3', role: 'user', content: '今天天气不错', timestamp: 3000 },
-      { id: '4', role: 'assistant', content: '适合去歌剧院演出呢。', timestamp: 4000 }
+      { id: '3', role: 'user', content: '今天天气不错，适合出去散步聊天放松心情。'.repeat(100), timestamp: 3000 },
+      { id: '4', role: 'assistant', content: '确实，非常适合去歌剧院看演出呢，我已经准备好了。'.repeat(100), timestamp: 4000 }
     ]
 
     const mockModelAdapter = {

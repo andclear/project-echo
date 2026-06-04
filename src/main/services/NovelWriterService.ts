@@ -115,7 +115,7 @@ export class NovelWriterService {
     if (!novelEnabled) return
 
     // 导演模式 (director) 不支持小说生成，只支持 descriptive 和 dialogue 模式
-    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive'
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'dialogue'
     if (chatMode === 'director') return
 
     const chapterCount = db.getNovelChapterCount(characterId)
@@ -135,13 +135,23 @@ export class NovelWriterService {
       return
     }
 
-    // 2. 后续章节：按 token 累积阈值触发
+    // 2. 后续章节：按仅包含对话内容的 token 累积阈值触发
     const threshold = NOVEL_TOKEN_THRESHOLD[chatMode] ?? 3500
     const lastEndTs = parseInt(db.getSetting(`last_novel_chapter_end_ts_${characterId}`) || '0', 10)
-    const newTokens = db.sumMessageTokensSince(characterId, lastEndTs)
+    
+    const pendingMessages = db.db.prepare(`
+      SELECT content FROM Messages
+      WHERE character_id = ? AND timestamp > ?
+    `).all(characterId, lastEndTs) as any[]
 
+    let newTokens = 0
+    for (const msg of pendingMessages) {
+      newTokens += this.estimateMessageTokens(msg)
+    }
+
+    console.log(`[NovelWriterService] 角色 ${characterId} 自动检查：当前未改编对话估算 token 量为 ${newTokens}，生成阈值为 ${threshold}`)
     if (newTokens >= threshold) {
-      console.log(`[NovelWriterService] 角色 ${characterId} 的新增 token 量为 ${newTokens}，达到阈值 ${threshold}，开始生成续章。`)
+      console.log(`[NovelWriterService] 角色 ${characterId} 已达到阈值条件，开始生成续章小说。`)
       await this.generateChapter(characterId, { isFirstChapter: false })
     }
   }
@@ -157,14 +167,26 @@ export class NovelWriterService {
   }
 
   /**
-   * 估算单条消息消耗的 tokens 数量
+   * 精准估算消息本身的纯文本 tokens 数量，排除 API 调用的上下文开销
    */
   private estimateMessageTokens(msg: any): number {
-    if (msg.token_usage && msg.token_usage > 0) {
-      return msg.token_usage
-    }
     const content = msg.content || ''
-    return Math.ceil(content.length * 1.5) + 10
+    // 剔除可能的思维链以准确估算真实输出长度
+    const cleanContent = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+    return Math.ceil(cleanContent.length * 1.3) + 5
+  }
+
+  /**
+   * 将消息时间戳格式化为可读的 YYYY-MM-DD HH:mm 格式，供 AI 识别时间线
+   */
+  private formatTimestamp(ts: number): string {
+    const date = new Date(ts)
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    const hh = String(date.getHours()).padStart(2, '0')
+    const mm = String(date.getMinutes()).padStart(2, '0')
+    return `${y}-${m}-${d} ${hh}:${mm}`
   }
 
   /**
@@ -238,9 +260,12 @@ export class NovelWriterService {
       return
     }
 
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'dialogue'
+    const threshold = NOVEL_TOKEN_THRESHOLD[chatMode] ?? 3500
+
     // 2. 调用分段算法切分
-    const chunks = this.chunkMessagesByToken(rawMessages, 3000)
-    console.log(`[NovelWriterService] 角色 ${characterId} 未改编对话共 ${rawMessages.length} 条，已切分为 ${chunks.length} 个分段进行生成。`)
+    const chunks = this.chunkMessagesByToken(rawMessages, threshold)
+    console.log(`[NovelWriterService] 角色 ${characterId}（模式: ${chatMode}）未改编对话共 ${rawMessages.length} 条，已切分为 ${chunks.length} 个分段进行生成（分段阈值: ${threshold}）。`)
 
     // 3. 获取角色元数据与设定文件夹
     const char = db.db.prepare('SELECT * FROM Characters WHERE id = ?').get(characterId) as any
@@ -384,15 +409,18 @@ export class NovelWriterService {
         options.isFirstChapter
       )
 
-      const userPrompt = `【待改编的对话原材料（按时间顺序）】
+      const userPrompt = `【待改编的对话原材料（每行开头带有 [YYYY-MM-DD HH:mm] 格式的聊天发生时间，按时间顺序）】
 ${formattedDialogue}
 
 请立即以小说叙事手法将以上对话改编成一个完整的小说章节。
 创作要点（核心硬性指标）：
 ① 剧情至上：小说的核心是连贯精彩的情节和画面感，绝对禁止像剧本一样逐条翻译台词！
-② 大胆剪辑：无用的日常废话和重复拉扯必须剔除，或者概括性带过。把字数留给真正的矛盾和情感冲突。
-③ 用场景和微动作包裹留下的台词，且让读者始终清楚说话者是谁。
-④ 用行动和身体反应展示情绪，绝不直接陈述情绪。
+② 合理时间过渡：注意每条消息开头的时间戳，如果两次对话之间跨度较大（比如隔了数个小时或几天），必须在小说里描写合理的时间流逝、天色变迁、或日期转换（例如「第二天清晨」、「过了几个小时」等），确保故事的发展脉络在时间线上完全对齐，严禁将不同时间段的对话生硬地挤在同一天内发生。
+③ 丰满 NPC 角色：当对话中出现第三方 NPC（或在多人群聊中）时，必须赋予 NPC 独立的说话内容、面部表情、肢体动作与情绪反应，使其作为一个鲜活的小说配角参与互动，决不能只做只提名字的背景板，也不要让他们在两位主角对话的间隙“凭空消失”。
+④ 大胆剪辑：无用的日常废话和重复拉扯必须剔除，或者概括性带过。把字数留给真正的矛盾和情感冲突。
+⑤ 用场景和微动作包裹留下的台词，且让读者始终清楚说话者是谁。
+⑥ 用行动和身体反应展示情绪，绝不直接陈述情绪。
+${options.isFirstChapter ? '⑦ 首章铺垫规范（仅限首章）：绝对严禁以第一句聊天对话或日常问候作为小说正文的开头。你必须先用至少两个段落的篇幅（描写当前场景、时间、氛围、或物理背景），交代清楚故事背景和初始情境，随后再以戏剧化的方式引入第一句对话。' : ''}
 
 不要写任何开场白或多余解释，正文完成后另起一行输出章节标题，格式固定为：
 ### TITLE: {章节标题}
@@ -588,15 +616,18 @@ ${formattedDialogue}
         chapterIndex === 1
       )
 
-      const userPrompt = `【待改编的对话原材料（按时间顺序）】
+      const userPrompt = `【待改编的对话原材料（每行开头带有 [YYYY-MM-DD HH:mm] 格式的聊天发生时间，按时间顺序）】
 ${formattedDialogue}
 
 请立即将以上对话改编成一个完整的小说章节。
 创作要点（核心硬性指标）：
 ① 剧情至上：小说的核心是连贯精彩的情节和画面感，绝对禁止像剧本一样逐条翻译台词！
-② 大胆剪辑：无用的日常废话和重复拉扯必须剔除，或者概括性带过。把字数留给真正的矛盾和情感冲突。
-③ 用场景和微动作包裹留下的台词，且让读者始终清楚说话者是谁。
-④ 用行动和身体反应展示情绪，绝不直接陈述情绪。
+② 合理时间过渡：注意每条消息开头的时间戳，如果两次对话之间跨度较大（比如隔了数个小时或几天），必须在小说里描写合理的时间流逝、天色变迁、或日期转换（例如「第二天清晨」、「过了几个小时」等），确保故事的发展脉络在时间线上完全对齐，严禁将不同时间段的对话生硬地挤在同一天内发生。
+③ 丰满 NPC 角色：当对话中出现第三方 NPC（或在多人群聊中）时，必须赋予 NPC 独立的说话内容、面部表情、肢体动作与情绪反应，使其作为一个鲜活的小说配角参与互动，决不能只做只提名字的背景板，也不要让他们在两位主角对话的间隙“凭空消失”。
+④ 大胆剪辑：无用的日常废话和重复拉扯必须剔除，或者概括性带过。把字数留给真正的矛盾和情感冲突。
+⑤ 用场景和微动作包裹留下的台词，且让读者始终清楚说话者是谁。
+⑥ 用行动和身体反应展示情绪，绝不直接陈述情绪。
+${chapterIndex === 1 ? '⑦ 首章铺垫规范（仅限首章）：绝对严禁以第一句聊天对话或日常问候作为小说正文的开头。你必须先用至少两个段落的篇幅（描写当前场景、时间、氛围、或物理背景），交代清楚故事背景和初始情境，随后再以戏剧化的方式引入第一句对话。' : ''}
 
 不要写任何开场白或多余解释，正文完成后另起一行输出章节标题，格式固定为：
 ### TITLE: {章节标题}`
@@ -643,9 +674,6 @@ ${formattedDialogue}
     }
   }
 
-  /**
-   * 格式化消息内容为 AI 写手可以理解的原始剧本/对话格式
-   */
   private preprocessMessages(messages: any[], userName: string, charName: string): string {
     return messages
       .map(m => {
@@ -683,7 +711,8 @@ ${formattedDialogue}
         content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
 
         if (!content) return ''
-        return `[${roleName}]: ${content}`
+        const timeStr = this.formatTimestamp(m.timestamp || Date.now())
+        return `[${timeStr}] [${roleName}]: ${content}`
       })
       .filter(Boolean)
       .join('\n')
@@ -823,12 +852,18 @@ ${povInstruction}
 【改编尺度】
 ${adaptationInstruction}
 
+【NPC 角色刻画与互动规范】
+当聊天记录中出现第三方 NPC（如家人、朋友、同事、路人等）时，请务必充实其戏剧存在感，拒绝扁平化和背景板：
+- 独立的言行举止：为 NPC 补充具体的微动作（如「局促地揉揉裤脚」、「在一旁擦拭着杯子」）、表情及神态，有独立的情绪起伏。
+- 丰满的对手戏：NPC 必须主动参与当前的交流，有自己的态度、情绪和立场，他们会打趣、起哄、质疑、围观或在主角对话的间歇中合理插嘴。
+- 绝不“人间蒸发”：多人群聊或多人场景中，NPC 的行动线必须保持连贯，严禁出现前半段还在说话，后半段两位主角私聊时就毫无反应、彻底消失的情况。
+
 【核心创作指令】
 1. 正文完成后，另起一行输出章节标题，格式固定为：
    ### TITLE: {标题内容}
 2. 全程使用简体中文创作。字数根据对话内容量弹性调整：对话内容少时 800~1200 字足够，不强行堆砌；内容丰富时可写到 1800~2500 字。
-3. ${isFirstChapter ? '这是故事的第一章，重点交代背景、引入人物关系与初始情境，为故事奠定基调。' : '根据前情进展和本次对话内容，自然续写下一章，确保情节和文笔的连贯性。'}
-4. 对话中出现的第三方 NPC 角色（如朋友、家人、路人等），必须作为故事角色自然融入小说叙事中，赋予其合理的动作和对话描写。
+3. ${isFirstChapter ? '这是故事的第一章，非常关键。你必须进行充分的背景铺垫与初始情境介绍：①绝对严禁一上来就平铺直叙地写聊天记录里的第一句台词；②必须在章节开头使用 1~2 个自然段（约 200~400 字）来进行细腻的场景描写、气氛烘托与背景介绍（如当时的物理环境、天气色调、人物所处的境遇或状态）；③交代清楚两位主角的关系起点或他们当下各自面临的困境、所处的基调，为整个故事拉开序幕；④接着再将背景自然过渡、平滑接入对话材料，以此打破生硬的开头感，创造真正优秀的网文式开局。' : '根据前情进展和本次对话内容，自然续写下一章，确保情节和文笔的连贯性。'}
+4. 拒绝单薄 NPC：当对话中出现第三方 NPC 时，必须赋予其独立的台词、动作、行为和自主的情绪变化，使其作为一个有血有肉的小说配角参与互动，禁止让他们做只提名字的背景板。
 5. 每一段引号对白都必须让读者清楚知道是谁在说话——通过微动作标签、段落归属或视角切换实现，严禁出现连续多行引号对白却让读者分不清说话人的情况。
 
 
@@ -866,6 +901,7 @@ ${adaptationInstruction}
 - 60%+对话不加标签，用动作引出。普通「说」可保留，禁用「沉声道」「淡淡地说」「缓缓开口」等公式化标签
 - 允许答非所问、打断、沉默、省略——真实对话不必逻辑完整，也可以转化为间接引语或心理描写
 - 减少对话中不必要的称呼（真实对话很少每句都叫对方名字）
+- 赋予 NPC 生命力：NPC 说话时必须配有神态动作，严禁只有冰冷的台词而无行为细节；当两位主角在说话时，NPC 应在一旁以眼神、动作或吐槽来动态展示其存在，使多人群戏更生动。
 
 修饰词原则：
 - 一次只用一个形容词修饰，不堆砌。「白色的药片」→「药片」；「飞驰的汽车」→「车」
@@ -1094,7 +1130,7 @@ ${styleRef}
       throw new Error('该角色尚未开启 AI 写手功能，请先在弹窗中开启。')
     }
 
-    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive'
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'dialogue'
     if (chatMode === 'director') {
       throw new Error('导演模式不支持自动写小说。')
     }

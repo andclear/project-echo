@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-full bg-surface text-on-surface select-none font-sans text-xs">
+  <div class="relative flex flex-col h-full bg-surface text-on-surface select-none font-sans text-xs">
     
     <!-- ── 头部导航 ── -->
     <div class="flex items-center justify-between p-4 border-b border-outline-variant/20 flex-shrink-0 bg-surface">
@@ -15,6 +15,13 @@
           class="px-2.5 py-1 text-xs border border-outline text-on-surface-variant hover:text-on-surface hover:bg-surface-high rounded-[2px] cursor-pointer transition-all duration-200 active:scale-95"
         >
           返回列表
+        </button>
+        <button 
+          v-if="currentView === 'detail' && activeFeedback"
+          @click="deleteFeedback(activeFeedback.id)"
+          class="px-2.5 py-1 text-xs border border-red-500/30 text-red-500 hover:bg-red-500/5 hover:border-red-500 rounded-[2px] cursor-pointer transition-all duration-200 active:scale-95 font-bold flex items-center gap-1 select-none"
+        >
+          <span>删除此条</span>
         </button>
         <button 
           v-if="currentView === 'list'"
@@ -243,27 +250,57 @@
     </div>
 
     <!-- ── 自定义高保真提示弹窗 ── -->
-    <div v-if="dialogVisible" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm select-none animate-fade-in">
-      <div class="bg-surface border border-outline-variant w-[280px] p-6 rounded-[2px] shadow-[0_12px_40px_-6px_rgba(0,0,0,0.5)] flex flex-col items-center text-center">
-        <!-- 成功状态图标 -->
-        <div v-if="isDialogSuccess" class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center mb-3">
-          <CheckIcon class="w-5 h-5 text-primary" />
+    <div v-if="dialogVisible" class="absolute inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center select-none animate-in fade-in duration-200" @click.self="closeDialog">
+      <div class="modal-panel max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200 shadow-2xl rounded-2xl border bg-surface select-none">
+        <div class="flex items-start space-x-3.5">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+               :class="isDialogSuccess ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'">
+            <CheckCircleIcon v-if="isDialogSuccess" class="w-5 h-5 animate-pulse" />
+            <XCircleIcon v-else class="w-5 h-5" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h4 class="text-sm font-bold text-on-surface leading-tight">
+              {{ isDialogSuccess ? '提示' : '警告' }}
+            </h4>
+            <p class="text-xs text-on-surface-variant mt-2 leading-relaxed whitespace-pre-wrap break-all select-text">
+              {{ dialogMessage }}
+            </p>
+          </div>
         </div>
-        <!-- 失败/警告状态图标 -->
-        <div v-else class="w-10 h-10 bg-error/10 rounded-full flex items-center justify-center mb-3">
-          <AlertCircleIcon class="w-5 h-5 text-error" />
+        <div class="flex justify-end space-x-2 pt-1 select-none">
+          <button @click="closeDialog" class="btn-primary text-xs py-1.5 px-4 font-bold rounded-lg active:scale-95 transition-all cursor-pointer">确定</button>
         </div>
-        
-        <p class="text-xs font-bold text-on-surface leading-relaxed mb-5 select-text">
-          {{ dialogMessage }}
-        </p>
-        
-        <button 
-          @click="closeDialog"
-          class="w-full py-1.5 bg-primary text-on-primary rounded-[2px] font-bold text-xs hover:opacity-95 active:scale-95 transition-all cursor-pointer"
-        >
-          确定
-        </button>
+      </div>
+    </div>
+
+    <!-- ── 自定义高保真确认弹窗 (Confirm) ── -->
+    <div v-if="confirmVisible" class="absolute inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center select-none animate-in fade-in duration-200" @click.self="handleConfirmAction(false)">
+      <div class="modal-panel max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-200 shadow-2xl rounded-2xl border bg-surface select-none">
+        <div class="flex items-start space-x-3.5">
+          <div class="w-10 h-10 rounded-xl bg-red-500/10 text-red-500 flex items-center justify-center flex-shrink-0 animate-pulse">
+            <AlertCircleIcon class="w-5 h-5" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <h4 class="text-sm font-bold text-on-surface leading-tight">确认删除</h4>
+            <p class="text-xs text-on-surface-variant mt-2 leading-relaxed whitespace-pre-wrap break-all select-text">
+              {{ confirmMessage }}
+            </p>
+          </div>
+        </div>
+        <div class="flex justify-end space-x-2 pt-1 select-none">
+          <button 
+            @click="handleConfirmAction(false)" 
+            class="btn-secondary text-xs py-1.5 px-4 rounded-lg active:scale-95 transition-all cursor-pointer"
+          >
+            取消
+          </button>
+          <button 
+            @click="handleConfirmAction(true)" 
+            class="btn-primary bg-red-500 text-white hover:bg-red-600 border-none text-xs py-1.5 px-4 font-bold rounded-lg active:scale-95 transition-all cursor-pointer"
+          >
+            确定删除
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -280,7 +317,9 @@ import {
   Lightbulb as LightbulbIcon,
   HelpCircle as HelpCircleIcon,
   Send as SendIcon,
-  Check as CheckIcon
+  Check as CheckIcon,
+  CheckCircle as CheckCircleIcon,
+  XCircle as XCircleIcon
 } from 'lucide-vue-next'
 
 // ── 类型定义 ──
@@ -329,6 +368,25 @@ const deviceId = ref('')
 const dialogVisible = ref(false)
 const dialogMessage = ref('')
 const isDialogSuccess = ref(true)
+
+// 自定义高保真确认弹窗 (Confirm) 状态
+const confirmVisible = ref(false)
+const confirmMessage = ref('')
+let onConfirmCallback: (() => void) | null = null
+
+function showConfirm(message: string, onConfirm: () => void) {
+  confirmMessage.value = message
+  onConfirmCallback = onConfirm
+  confirmVisible.value = true
+}
+
+function handleConfirmAction(agreed: boolean) {
+  confirmVisible.value = false
+  if (agreed && onConfirmCallback) {
+    onConfirmCallback()
+  }
+  onConfirmCallback = null
+}
 
 function showCustomDialog(message: string, isSuccess = true) {
   dialogMessage.value = message
@@ -647,6 +705,41 @@ async function sendChatReply() {
   } finally {
     sendingReply.value = false
   }
+}
+
+async function deleteFeedback(id: string) {
+  console.log('[FeedbackPanel] deleteFeedback called with id:', id)
+  showConfirm('确定要在本地删除这条意见反馈吗？\n（此操作仅删除本地记录，不影响云端已提交的反馈）🐾', async () => {
+    if (window.api && window.api.invoke) {
+      try {
+        const res = await window.api.invoke('delete-user-feedback', { id })
+        if (!res.success) {
+          showCustomDialog(res.error || '本地数据库删除失败', false)
+          return
+        }
+      } catch (err: any) {
+        console.error('删除 SQLite 反馈失败:', err)
+        showCustomDialog('本地数据库删除失败', false)
+        return
+      }
+    } else {
+      // 网页端降级 localStorage 缓存删除
+      const localStr = localStorage.getItem('echo_local_feedbacks')
+      if (localStr) {
+        try {
+          let localList: FeedbackRecord[] = JSON.parse(localStr)
+          localList = localList.filter(item => item.id !== id)
+          localStorage.setItem('echo_local_feedbacks', JSON.stringify(localList))
+        } catch (_) {}
+      }
+    }
+
+    // 移出 feedbacksList
+    feedbacksList.value = feedbacksList.value.filter(item => item.id !== id)
+    activeFeedback.value = null
+    showCustomDialog('反馈记录已在本地删除！🐾', true)
+    switchView('list')
+  })
 }
 
 // ── 辅助函数 ──

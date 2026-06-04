@@ -1247,6 +1247,19 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // 4.5. 删除本地意见反馈记录
+  ipcMain.handle('delete-user-feedback', async (_, payload: { id: string }) => {
+    try {
+      const db = getDatabaseService()
+      const stmt = db.db.prepare(`DELETE FROM UserFeedbacks WHERE id = ?`)
+      stmt.run(payload.id)
+      return { success: true }
+    } catch (err: any) {
+      console.error('[IPC delete-user-feedback] 异常:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
   // 3. 全局设置保存 IPC 通道
   ipcMain.handle('save-settings', async (_, payload: { primary: ModelConfig; secondary: ModelConfig | null; enableSecondary: boolean }) => {
     try {
@@ -2440,15 +2453,23 @@ ${soulContent}
           defaultAvatarBase64 = `data:image/png;base64,${buffer.toString('base64')}`
         }
 
+        // 获取小说最新章节的创建时间
+        const lastChapter = db.db.prepare('SELECT MAX(created_at) as last_updated FROM NovelChapters WHERE character_id = ?').get(charId) as any
+        const lastUpdated = lastChapter?.last_updated || 0
+
         bookshelf.push({
           characterId: charId,
           characterName: char.name,
           folderName,
           novelTitle,
           coverUrl: customCoverBase64 || defaultAvatarBase64,
-          hasCustomCover: !!customCoverBase64
+          hasCustomCover: !!customCoverBase64,
+          lastUpdated: lastUpdated
         })
       }
+
+      // 按照最新章节的创建时间降序排序，使有更新的小说排在最前面
+      bookshelf.sort((a, b) => b.lastUpdated - a.lastUpdated)
 
       return { success: true, bookshelf }
     } catch (e: any) {

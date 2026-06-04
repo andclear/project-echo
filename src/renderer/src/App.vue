@@ -217,6 +217,8 @@
             title="小说书架"
           >
             <LibraryIcon class="w-5 h-5" />
+            <!-- 书架更新全局红点 -->
+            <span v-if="Object.values(novelNewChapterBadges).reduce((a, b) => a + b, 0) > 0" class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm animate-pulse"></span>
           </button>
         </div>
 
@@ -1811,6 +1813,8 @@
                         <!-- 2:3 竖图封面，无外边框，点击直接阅读 -->
                         <div class="aspect-[2/3] w-full rounded-lg overflow-hidden bg-surface relative shadow-md">
                           <img :src="book.coverUrl" class="w-full h-full object-cover select-none pointer-events-none" />
+                          <!-- 小说封面未读红点角标 -->
+                          <span v-if="novelNewChapterBadges[book.characterId]" class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-surface shadow-sm animate-pulse"></span>
                         </div>
                         <!-- 小说书名 -->
                         <div class="text-xs font-bold text-on-surface truncate text-center group-hover:text-primary transition-all">
@@ -1888,7 +1892,7 @@
                     第{{ bookChapters.find(c => c.id === selectedBookChapterId)?.chapter_index }}章 {{ bookChapters.find(c => c.id === selectedBookChapterId)?.title }}
                   </h1>
                   <!-- 段落正文 -->
-                  <div class="flex-1 text-on-surface leading-relaxed space-y-5 select-text text-justify" :style="{ fontSize: readerFontSize + 'px', textJustify: 'inter-ideograph' }">
+                  <div class="flex-1 text-on-surface leading-relaxed space-y-5 select-text text-justify" :style="{ fontSize: readerFontSize + 'px' }" style="text-justify: inter-ideograph;">
                     <p v-for="(p, idx) in currentChapterContent.split('\n').map(p => p.trim()).filter(Boolean)" :key="idx" class="select-text" style="text-indent: 2em;">
                       {{ p }}
                     </p>
@@ -1956,6 +1960,8 @@
                   >
                     <div class="aspect-[2/3] w-full rounded-xl overflow-hidden relative shadow border border-outline-variant/10 bg-surface-high/15">
                       <img :src="book.coverUrl" class="w-full h-full object-cover" />
+                      <!-- 小说封面未读红点角标 -->
+                      <span v-if="novelNewChapterBadges[book.characterId]" class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-surface shadow-sm animate-pulse"></span>
                     </div>
                     <span class="text-xs font-bold text-on-surface truncate max-w-full text-center">{{ book.novelTitle }}</span>
                     <!-- 手机端便捷操作 -->
@@ -2014,7 +2020,7 @@
                 <h1 class="text-base font-bold text-center text-on-surface pb-4 border-b border-outline-variant/30 mb-5 select-text">
                   第{{ bookChapters.find(c => c.id === selectedBookChapterId)?.chapter_index }}章 {{ bookChapters.find(c => c.id === selectedBookChapterId)?.title }}
                 </h1>
-                <div class="text-on-surface leading-relaxed space-y-4 select-text text-justify" :style="{ fontSize: readerFontSize + 'px', textJustify: 'inter-ideograph' }">
+                <div class="text-on-surface leading-relaxed space-y-4 select-text text-justify" :style="{ fontSize: readerFontSize + 'px' }" style="text-justify: inter-ideograph;">
                   <p v-for="(p, idx) in currentChapterContent.split('\n').map(p => p.trim()).filter(Boolean)" :key="idx" class="select-text" style="text-indent: 2em;">
                     {{ p }}
                   </p>
@@ -5749,7 +5755,6 @@
                     >
                       <BookIcon class="w-4 h-4 text-primary" />
                       <span>AI写手</span>
-                      <span v-if="novelNewChapterBadges[activeCharacter.id]" class="ml-auto min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5">{{ novelNewChapterBadges[activeCharacter.id] }}</span>
                     </button>
 
                     <button
@@ -5815,7 +5820,6 @@
                     title="AI写手"
                   >
                     <BookIcon class="w-4 h-4" stroke-width="1.5" />
-                    <span v-if="novelNewChapterBadges[activeCharacter.id]" class="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-red-500 text-white text-[8px] font-bold px-0.5 scale-90">{{ novelNewChapterBadges[activeCharacter.id] }}</span>
                   </button>
 
                   <!-- 梦境图标：手动触发角色睡眠反思进化 -->
@@ -10705,6 +10709,8 @@ watch(sideView, async (newVal) => {
 
 // 打开某本书并进入阅读器
 async function openBook(characterId: string) {
+  // 清除新章节红点角标
+  novelNewChapterBadges[characterId] = 0
   selectedBookId.value = characterId
   selectedBookChapterId.value = null
   currentChapterContent.value = ''
@@ -11292,6 +11298,11 @@ const acknowledgementsList = ref([
     projectName: 'FlutterCppWangWangPhone',
     author: 'Liunian06',
     url: 'https://github.com/Liunian06/FlutterCppWangWangPhone'
+  },
+  {
+    projectName: 'Oh Story ClaudeCode',
+    author: 'worldwonderer',
+    url: 'https://github.com/worldwonderer/oh-story-claudecode'
   }
 ])
 
@@ -17572,7 +17583,6 @@ onMounted(async () => {
       checkGlobalNovelStatus()
       if (selectedCharacterId.value === data.characterId) {
         loadNovelChapters(data.characterId)
-        showCustomAlert('新章节已生成', `《${data.title}》已生成完毕，快前往书架阅读吧！`, 'success')
       }
       if (!novelNewChapterBadges[data.characterId]) {
         novelNewChapterBadges[data.characterId] = 0
