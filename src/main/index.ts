@@ -258,31 +258,10 @@ function createWindow(): void {
     }
   });
 
-  // 监听窗口显示事件，在 macOS 上同步显示 Dock 图标并确保设置高清晰度应用图标，防范系统因 show/hide 导致的图标丢失 Bug
+  // 监听窗口显示事件，在 macOS 上同步显示 Dock 图标，防范系统因 show/hide 导致的图标丢失 Bug
   win.on('show', () => {
     if (process.platform === 'darwin' && app.dock) {
       app.dock.show()
-      
-      // 🚀 核心修复：强行重新设置一次 Dock 图标，解决 macOS 在隐藏后重新 show 导致的图标丢失或退化为默认原子图标的 Bug
-      try {
-        const iconPath = app.isPackaged
-          ? join(process.resourcesPath, 'icon.png')
-          : join(app.getAppPath(), 'icon.png');
-        
-        if (fs.existsSync(iconPath)) {
-          const dockIcon = nativeImage.createFromPath(iconPath);
-          app.dock.setIcon(dockIcon);
-        } else {
-          // 优雅降级兜底：使用 tray.png 作为 Dock 图标
-          const fallbackPath = join(getResourcesPath(), 'tray.png');
-          if (fs.existsSync(fallbackPath)) {
-            const fallbackIcon = nativeImage.createFromPath(fallbackPath);
-            app.dock.setIcon(fallbackIcon);
-          }
-        }
-      } catch (e) {
-        console.error('[Mac Dock] 设置应用图标异常:', e);
-      }
     }
   })
 
