@@ -5953,6 +5953,10 @@
               </div>
               <p class="text-sm font-semibold text-on-surface">{{ isGroupActive ? activeGroupChat?.name : activeCharacter?.name }}</p>
               <p class="text-xs text-on-surface-variant/50 mt-1">发送消息开始对话</p>
+              <div v-if="!isGroupActive" class="mt-4 px-4 py-2.5 bg-primary/5 rounded-xl flex flex-col items-center space-y-1.5 text-xs text-primary font-medium max-w-[320px] leading-relaxed">
+                <p>💡 建议先在右上角配置聊天模式。</p>
+                <p>✍🏻 请在右上角确定是否要打开AI写手功能。</p>
+              </div>
             </div>
 
             <!-- 弹性垫片：当消息少时，强力拉伸将气泡顶到最底部；当消息多时自适应压缩归零，绝不影响滚动！ -->
@@ -17092,7 +17096,6 @@ async function executeNovelAiImageGeneration(targetCharId?: string, targetFolder
       // 不需要手动 push 到 allMessages：
       // echo:message 广播 → handleEchoMessage → restoreMessageProps 异步加载图片后自动渲染
 
-      refreshAnlas()
     } else {
       showCustomAlert('生图失败', `${res.error || '绘图引擎出错了，请检查设置。'}`, 'error')
     }
@@ -17745,11 +17748,6 @@ async function initializeCoreApp() {
       novelai.fixedArtistIndex = typeof novelai.fixedArtistIndex === 'number' ? novelai.fixedArtistIndex : 0
       if (novelai.fixedArtistIndex >= novelai.artistStringList.length || novelai.fixedArtistIndex < 0) {
         novelai.fixedArtistIndex = 0
-      }
-
-      if (novelai.apiKey) {
-        // 🚀 延迟 3.5 秒静默刷新余额
-        setTimeout(() => refreshAnlas(true), 3500)
       }
     }
   } catch (e) {
