@@ -404,6 +404,14 @@ export class DatabaseService {
               } catch (_) {}
             }
           } catch (_) {}
+
+          // ── 4. 初始化一次性匿名设备量统计状态 ──
+          try {
+            const checkReport = db.prepare("SELECT value FROM Settings WHERE key = 'telemetry_reported'").get() as any
+            if (!checkReport) {
+              db.prepare("INSERT INTO Settings (key, value) VALUES ('telemetry_reported', '0')").run()
+            }
+          } catch (_) {}
         }
       }
     ]

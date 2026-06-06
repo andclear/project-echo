@@ -32,8 +32,8 @@ import { NovelWriterService, NOVEL_TOKEN_THRESHOLD } from './services/NovelWrite
 import { UpdateService } from './services/UpdateService'
 import { WeChatService } from './services/WeChatService'
 import { WeatherService } from './utils/WeatherService'
-import { SseManager } from './services/SseManager'
 import { MessageBusService, EchoMessage, MessageType } from './services/MessageBusService'
+import { parseMemoryMd, parseUserMd } from './utils/MarkdownMetadataParser'
 
 
 
@@ -55,6 +55,9 @@ if (!gotTheLock) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
+      if (process.platform === 'darwin' && app.dock) {
+        app.dock.show()
+      }
     }
   })
 }
@@ -182,6 +185,9 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => {
     win.show()
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.show()
+    }
   })
 
   // 处理外部链接跳转
@@ -204,6 +210,11 @@ function createWindow(): void {
       const db = getDatabaseService()
       db.setSetting('window_bounds', JSON.stringify(mainWindow!.getBounds()))
     } catch (_) { }
+
+    // 🚀 开发模式下直接物理关闭退出，不转为隐藏后台，极大优化 HMR 重启体验，避免 Dock 图标丢失和端口占用！
+    if (is.dev) {
+      return
+    }
 
     // 只有当用户没有点击托盘中的“退出”时，我们才拦截关闭并转为隐藏
     if (!(app as any).isQuiting) {
@@ -231,6 +242,11 @@ function createWindow(): void {
   // 启动时自动检查更新（限制每天仅执行一次，避免频繁请求）
   const db = getDatabaseService()
   UpdateService.getInstance().startAutoCheck(win, db)
+
+  // 🚀 开发及启动双保险：启动时无条件强力激活 macOS Dock 图标，防范时序丢失 Bug
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.show()
+  }
 }
 
 interface CreatorSession {
@@ -2076,7 +2092,11 @@ ${soulContent}
         return { success: true, content: '' }
       }
       const storageManager = new CharacterStorageManager()
-      const content = storageManager.readCharacterFile(payload.folderName, payload.fileName)
+      let content = storageManager.readCharacterFile(payload.folderName, payload.fileName) || ''
+      // 若是记忆或专属用户画像，剥离头部的 HTML 注释元数据 block
+      if (payload.fileName === 'Memory.md' || payload.fileName === 'USER.md') {
+        content = content.replace(/^<!--[\s\S]*?-->/g, '').trim()
+      }
       return { success: true, content }
     } catch (error: any) {
       console.error(`[IPC] 读取角色文件 ${payload.fileName} 失败:`, error)
@@ -3292,12 +3312,22 @@ ${formattedHistory}
 
       // 推送系统提示气泡的辅助函数（不存 DB）
       const sendAdminTip = (msg: string) => {
-        event.sender.send('chat-chunk', {
+        const payload = {
           characterId,
           content: msg,
           done: true,
           isSystem: true
-        })
+        }
+        // A. 本地主窗口直接通知（若原生 invoke 触发）
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('chat-chunk', payload)
+        }
+        // B. 广播给 SSE（局域网桥接端或 bridge proxy 触发）
+        SseManager.getInstance().broadcast('chat-chunk', payload)
+        // C. 兼容 event.sender.send 调用
+        try {
+          event.sender.send('chat-chunk', payload)
+        } catch (_) {}
       }
 
       const args = userMessage.trim().split(/\s+/)
@@ -3306,14 +3336,14 @@ ${formattedHistory}
       // 获取当前角色信息
       const char = db.getAllCharacters().find((c: any) => c.id === characterId)
       if (!char) {
-        sendAdminTip('⚠️ 命令有误')
+        sendAdminTip('⚠️ 命令有误：未找到当前角色')
         return { success: true }
       }
 
       // 获取模型配置
       const configStr = db.getSetting('model_config')
       if (!configStr) {
-        sendAdminTip('⚠️ 命令有误')
+        sendAdminTip('⚠️ 命令有误：全局大模型未配置')
         return { success: true }
       }
       const modelConfig = JSON.parse(configStr)
@@ -3334,6 +3364,7 @@ ${formattedHistory}
         }
         agentEngine.generateActiveBehavior(char, adminModelAdapter, wakeResult).catch((e: any) => {
           console.error('[Admin] 搭讪触发失败:', e)
+          sendAdminTip(`❌ 搭讪触发失败: ${e.message || e}`)
         })
 
       } else if (cmd === '日记') {
@@ -3344,6 +3375,7 @@ ${formattedHistory}
         const agentEngine = new AgentLifeEngine()
         agentEngine.writeDiaryForChar(char, adminModelAdapter).catch((e: any) => {
           console.error('[Admin] 写日记失败:', e)
+          sendAdminTip(`❌ 写日记失败: ${e.message || e}`)
         })
 
       } else if (cmd === '朋友圈') {
@@ -3353,6 +3385,7 @@ ${formattedHistory}
         const socialService = new SocialMediaService()
         socialService.generateMoment(char, adminModelAdapter, forcePic, forceNsfw).catch((e: any) => {
           console.error('[Admin] 朋友圈触发失败:', e)
+          sendAdminTip(`❌ 朋友圈触发失败: ${e.message || e}`)
         })
 
       } else if (cmd === '论坛') {
@@ -3362,6 +3395,7 @@ ${formattedHistory}
         const socialService = new SocialMediaService()
         socialService.generateForumPost(char, adminModelAdapter, forcePic, forceNsfw).catch((e: any) => {
           console.error('[Admin] 论坛发帖触发失败:', e)
+          sendAdminTip(`❌ 论坛发帖触发失败: ${e.message || e}`)
         })
 
       } else if (cmd === 'nai' && args[2] === 'on') {
@@ -4772,6 +4806,142 @@ ${memoryContent}
     }
   })
 
+  // 15.31 修改普通聊天消息内容（单聊，含延迟落盘草稿重整）
+  ipcMain.handle('edit-message-content', async (_, payload: { characterId: string; messageId: string; content: string }) => {
+    try {
+      const { characterId, messageId, content } = payload
+      const db = getDatabaseService()
+
+      // 1. 获取消息原本的信息，以校验并提取其 role / round_id 等
+      const msgRow = db.db.prepare('SELECT role, round_id, timestamp FROM Messages WHERE id = ?').get(messageId) as { role: string; round_id: string; timestamp: number } | undefined
+      if (!msgRow) {
+        throw new Error('未找到指定消息')
+      }
+
+      // 2. 物理覆写 SQLite 中的消息内容
+      db.updateMessageContent(messageId, content)
+
+      // 广播给其他客户端与多端同步该消息的修改
+      const updatePayload = { characterId, messageId, content }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('message-content-edited', updatePayload)
+      }
+      SseManager.getInstance().broadcast('message-content-edited', updatePayload)
+
+      // 3. 处理记忆延迟确认草稿（仅限单聊，且该消息属于最后一轮对话时）
+      // 判断是否为群聊，如果是群聊则直接返回，不提取草稿（群聊没有延迟记忆草稿机制）
+      const isGroup = db.db.prepare('SELECT id FROM GroupChats WHERE id = ?').get(characterId) !== undefined
+      if (isGroup) {
+        return { success: true }
+      }
+
+      // 判断是否为最后一轮：最新消息的 round_id 是否与该消息的 round_id 一致
+      const latestMsg = db.db.prepare("SELECT round_id, timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp DESC LIMIT 1").get(characterId) as { round_id: string; timestamp: number } | undefined
+      
+      if (latestMsg && latestMsg.round_id === msgRow.round_id) {
+        const settingKey = `pending_memory_diff_${characterId}`
+        
+        // A. 物理清理该角色的旧记忆草稿
+        db.db.prepare('DELETE FROM Settings WHERE key = ?').run(settingKey)
+        console.log(`[IPC edit-message-content] 物理删除角色 [${characterId}] 的旧记忆草稿，准备重新自省提取。`)
+
+        // B. 异步运行重新提取，不阻塞前台返回
+        const runReExtract = async () => {
+          try {
+            // 获取大模型配置
+            const settingsStr = db.getSetting('model_config')
+            if (!settingsStr) return
+            const settings = JSON.parse(settingsStr)
+            const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+            const memoryService = new MemoryAgentService(modelAdapter)
+
+            // 获取角色专属物理目录信息
+            const charRow = db.db.prepare('SELECT folder_name FROM Characters WHERE id = ?').get(characterId) as { folder_name: string } | undefined
+            if (!charRow) return
+            const folderName = charRow.folder_name
+
+            const storageManager = new CharacterStorageManager()
+            const baseDir = storageManager.getBaseDir()
+            const charDir = join(baseDir, folderName)
+            const memoryPath = join(charDir, 'Memory.md')
+            const charUserPath = join(charDir, 'USER.md')
+
+            // 构造 extractMemoryAndProfile 传入的 userMessage 和 assistantMessage
+            // 最新一轮对话在 Messages 表中由该 round_id 标识的所有消息
+            const roundMsgs = db.db.prepare(
+              "SELECT role, content, timestamp FROM Messages WHERE character_id = ? AND round_id = ? ORDER BY seq ASC"
+            ).all(characterId, msgRow.round_id) as { role: string; content: string; timestamp: number }[]
+
+            if (roundMsgs.length === 0) return
+
+            // 寻找 user 发送的消息
+            const userMsg = roundMsgs.find(m => m.role === 'user')
+            // 将 assistant 发送的消息（可能有多个气泡）进行文本拼接
+            const assistantMsgs = roundMsgs.filter(m => m.role === 'assistant')
+            
+            // 提取第一条 AI 消息的时间戳作为 anchorTs
+            const anchorTs = assistantMsgs.length > 0 ? assistantMsgs[0].timestamp : latestMsg.timestamp
+
+            // 清洗红包和表情包等特殊的 DB 存储字符串，以还原纯文本，防止大模型认知污染
+            const cleanMessageText = (text: string) => {
+              if (text.startsWith('[wechat_red_packet]:')) {
+                try {
+                  const data = JSON.parse(text.replace('[wechat_red_packet]:', ''))
+                  return `[红包] ${data.title || '发来红包'}`
+                } catch {
+                  return '[红包]'
+                }
+              }
+              if (text.startsWith('[wechat_custom_emoji]:')) {
+                try {
+                  const data = JSON.parse(text.replace('[wechat_custom_emoji]:', ''))
+                  return `[表情: ${data.meaning || '表情包'}]`
+                } catch {
+                  return '[表情]'
+                }
+              }
+              return text
+            }
+
+            const cleanUserText = userMsg ? cleanMessageText(userMsg.content) : ''
+            const cleanAssistantText = assistantMsgs
+              .map(m => cleanMessageText(m.content))
+              .filter(t => t.trim() !== '')
+              .join('\n')
+
+            if (!cleanUserText && !cleanAssistantText) {
+              console.log('[IPC edit-message-content] 清洗后的消息内容为空，跳过记忆重新提取。')
+              return
+            }
+
+            console.log(`[IPC edit-message-content] 开始异步为 [${characterId}] 重新提取记忆。anchorTs=${anchorTs}`)
+            const pendingDiff = await memoryService.extractMemoryAndProfile(
+              memoryPath,
+              charUserPath,
+              cleanUserText,
+              cleanAssistantText,
+              false,
+              anchorTs
+            )
+
+            if (pendingDiff) {
+              db.setSetting(settingKey, JSON.stringify(pendingDiff))
+              console.log(`[IPC edit-message-content] 基于修改后内容的全新记忆草稿已暂存，anchorTs=${anchorTs}`)
+            }
+          } catch (reErr) {
+            console.error('[IPC edit-message-content] 异步重新提取记忆草稿失败:', reErr)
+          }
+        }
+
+        runReExtract() // 执行异步提取
+      }
+
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
   // 15.4 物理保存单条聊天记录（用于前端即时消息落盘）
   ipcMain.handle('save-message', async (_, payload: {
     id: string
@@ -4875,8 +5045,16 @@ ${memoryContent}
         return { success: false, error: '虚拟角色无需修改记忆文件' }
       }
       const storageManager = new CharacterStorageManager()
-      storageManager.writeCharacterFile(payload.folderName, 'Memory.md', payload.content)
-      console.log(`[IPC] Memory.md 手动保存成功: ${payload.folderName}`)
+      
+      // 解析纯 Markdown，同步提取 stm 与 ltm 元数据对象
+      const { stm, ltm } = parseMemoryMd(payload.content)
+      const jsonData = { stm, ltm }
+      const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`
+      const fullFileContent = `${jsonComment}\n\n${payload.content.trim()}`
+      
+      storageManager.writeCharacterFile(payload.folderName, 'Memory.md', fullFileContent)
+      console.log(`[IPC] Memory.md 手动保存成功并自动同步元数据 JSON: ${payload.folderName}`)
+      
       // 🚀 广播通知其他局域网客户端与电脑端记忆文件已更新，触发秒级同步
       const memoryBroadcast = { folderName: payload.folderName, fileName: 'Memory.md', content: payload.content }
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
@@ -4897,8 +5075,15 @@ ${memoryContent}
         return { success: false, error: '虚拟角色无需修改专属画像文件' }
       }
       const storageManager = new CharacterStorageManager()
-      storageManager.writeCharacterFile(payload.folderName, 'USER.md', payload.content)
-      console.log(`[IPC] 角色专属 USER.md 手动保存成功: ${payload.folderName}`)
+      
+      // 解析纯 Markdown，同步提取专属画像事实列表
+      const facts = parseUserMd(payload.content)
+      const jsonData = { character_specific_facts: facts }
+      const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`
+      const fullFileContent = `${jsonComment}\n\n${payload.content.trim()}`
+
+      storageManager.writeCharacterFile(payload.folderName, 'USER.md', fullFileContent)
+      console.log(`[IPC] 角色专属 USER.md 手动保存成功并自动同步元数据 JSON: ${payload.folderName}`)
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -6757,6 +6942,7 @@ ${soulContent}
     try {
       const db = getDatabaseService()
       db.setSetting('agreement_accepted', 'true')
+      checkAndSendTelemetry() // 触发一次性匿名设备量遥测
       return { success: true }
     } catch (e: any) {
       console.error('[IPC] 保存协议状态失败:', e)
@@ -6768,6 +6954,101 @@ ${soulContent}
   ipcMain.handle('exit-app', () => {
     app.quit()
   })
+}
+
+// 一次性匿名设备量遥测心跳
+function checkAndSendTelemetry(): void {
+  try {
+    const isTestMode = process.env.TELEMETRY_TEST === 'true'
+
+    // 0. 开发模式下跳过匿名遥测上报，避免开发测试数据污染生产环境的真实用户统计。
+    // 如果您需要显式测试遥测功能，请配置环境变量 TELEMETRY_TEST=true 启动
+    if (is.dev && !isTestMode) {
+      console.log('[Telemetry] 检测到当前处于开发环境且未开启测试模式 (TELEMETRY_TEST=true)，已静默跳过一次性匿名设备量遥测。')
+      return
+    }
+
+    const db = getDatabaseService()
+    // 1. 如果尚未同意协议，绝对不要进行任何上报，以确保隐私合规
+    const accepted = db.getSetting('agreement_accepted')
+    if (accepted !== 'true') {
+      if (isTestMode) {
+        console.log(`[Telemetry Test] 提示：当前本地数据库 agreement_accepted != 'true' (当前值为: ${accepted})，但由于开启了测试模式，强制继续发送遥测请求。`)
+      } else {
+        return
+      }
+    }
+
+    // 2. 如果已经上报过，直接退出，只统计一次（在开启测试模式时，强制允许发送以供验证）
+    const reported = db.getSetting('telemetry_reported')
+    if (reported === '1') {
+      if (isTestMode) {
+        console.log('[Telemetry Test] 提示：当前本地数据库 telemetry_reported == \'1\'，但由于开启了测试模式，强制继续发送遥测请求。')
+      } else {
+        return
+      }
+    }
+
+    const deviceId = db.getSetting('device_id') || 'unknown'
+    if (deviceId === 'unknown') {
+      console.warn('[Telemetry] device_id 为 unknown，取消上报。')
+      return
+    }
+
+    // 3. 区分平台 (win/mac/docker)
+    let platform = process.platform === 'win32' ? 'win' : 'mac'
+    if (process.env.IS_DOCKER || process.env.DOCKER_ENV) {
+      platform = 'docker'
+    }
+
+    const postData = JSON.stringify({
+      deviceId,
+      platform
+    })
+
+    const telemetryHost = process.env.TELEMETRY_HOST || 'echo-kanban.jiuwo.me'
+    const telemetryPort = process.env.TELEMETRY_PORT ? parseInt(process.env.TELEMETRY_PORT) : 443
+    const isHttps = telemetryPort === 443 || telemetryHost.includes('jiuwo.me')
+
+    console.log(`[Telemetry] 准备发起设备量上报。目标: ${telemetryHost}:${telemetryPort}, 设备ID: ${deviceId}, 平台: ${platform}`)
+
+    const options = {
+      hostname: telemetryHost,
+      port: telemetryPort,
+      path: '/api/telemetry/ping',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 10000 // 10秒超时
+    }
+
+    const client = isHttps ? https : http
+    const req = client.request(options, (res) => {
+      console.log(`[Telemetry] 收到上报响应。状态码: ${res.statusCode}`)
+      if (res.statusCode === 204 || res.statusCode === 200) {
+        // 上报成功，本地存盘标记，此后终生不再上报
+        const dbSave = getDatabaseService()
+        dbSave.setSetting('telemetry_reported', '1')
+        console.log(`[Telemetry] 一次性匿名设备统计上报成功 (目标: ${telemetryHost}:${telemetryPort})，已标记本地数据库。`)
+      }
+    })
+
+    req.on('error', (e) => {
+      console.error('[Telemetry] 匿名设备统计上报请求失败:', e.message || e)
+    })
+
+    req.on('timeout', () => {
+      console.warn('[Telemetry] 匿名设备统计上报请求超时。')
+      req.destroy()
+    })
+
+    req.write(postData)
+    req.end()
+  } catch (error) {
+    console.warn('[Telemetry] 匿名统计处理发生异常，不影响程序运行:', error)
+  }
 }
 
 // 极快获取本机局域网 IP 地址的辅助函数，零外部库依赖，绝对健壮
@@ -7201,9 +7482,13 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
               // 标识此次调用来自局域网 HTTP 桥接（手机端/Web 端），而非 Electron 本机
               isIpcBridge: true,
               send: (ch: string, data: any) => {
-                // IPC bridge 中，对无需推送的内部信号直接记录日志
-                console.log(`[IPC Bridge Proxy send] channel: ${ch} (SSE 不再转发内部信号)`)
-                // 注意：内部信号（chat-chunk等）不况播到 SSE，防止污染缓冲区
+                if (ch === 'chat-chunk' && data && data.isSystem) {
+                  // $admin 调试系统提示消息，特许通过 SSE 广播给所有客户端
+                  SseManager.getInstance().broadcast('chat-chunk', data)
+                } else {
+                  // IPC bridge 中，对无需推送的内部信号直接记录日志
+                  console.log(`[IPC Bridge Proxy send] channel: ${ch} (SSE 不再转发内部信号)`)
+                }
               }
             }
           }
@@ -7433,6 +7718,9 @@ app.whenReady().then(() => {
 
   // 注册 IPC 处理程序
   registerIpcHandlers()
+
+  // 启动后静默尝试一次性匿名设备量遥测
+  checkAndSendTelemetry()
 
   // 启动微信个人号托管守护服务 (若开启)
   try {

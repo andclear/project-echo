@@ -8,7 +8,7 @@ import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { NovelAiService } from './NovelAiService';
 import { WeatherService } from '../utils/WeatherService';
-
+import { SseManager } from './SseManager';
 
 export class SocialMediaService {
   private storageManager: CharacterStorageManager;
@@ -357,6 +357,7 @@ Constraints:
       if (windows.length > 0) {
         windows[0].webContents.send('social-moment-updated', moment);
       }
+      SseManager.getInstance().broadcast('social-moment-updated', moment);
 
       // 触发社交互动评估（点赞/评论）
       // forceInteract=true → 100% 点赞/评论（调试模式）；false → 正常 30% 概率随机互动
@@ -701,6 +702,7 @@ Constraints:
       if (windows.length > 0) {
         windows[0].webContents.send('social-forum-updated', post);
       }
+      SseManager.getInstance().broadcast('social-forum-updated', post);
 
       // 触发社交互动评估（评论）
       // forceInteract=true → 100% 评论（调试模式）；false → 正常 30% 概率随机互动
@@ -774,6 +776,12 @@ Constraints:
               targetAuthorId: target.character_id || 'user'
             });
           }
+          SseManager.getInstance().broadcast('social-moment-liked-broadcast', { 
+            momentId: target.id, 
+            characterId: char.id, 
+            authorName: char.name,
+            targetAuthorId: target.character_id || 'user'
+          });
         }
       }
 
@@ -976,6 +984,7 @@ Instructions:
               if (windows.length > 0) {
                 windows[0].webContents.send('social-moment-comment-added', comment);
               }
+              SseManager.getInstance().broadcast('social-moment-comment-added', comment);
             } else {
               const comment = {
                 id: `comment_forum_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -997,6 +1006,7 @@ Instructions:
               if (windows.length > 0) {
                 windows[0].webContents.send('social-forum-comment-added', comment);
               }
+              SseManager.getInstance().broadcast('social-forum-comment-added', comment);
             }
           }
         } catch (e) {
@@ -1288,6 +1298,7 @@ Instructions:
           if (windows.length > 0) {
             windows[0].webContents.send('social-moment-comment-added', newComment);
           }
+          SseManager.getInstance().broadcast('social-moment-comment-added', newComment);
 
           // 开启递归评估，以评估其他角色或本角色的进一步回复 (自动带入 1s 延迟增加活人真实感)
           setTimeout(() => {
@@ -1317,6 +1328,7 @@ Instructions:
           if (windows.length > 0) {
             windows[0].webContents.send('social-forum-comment-added', newComment);
           }
+          SseManager.getInstance().broadcast('social-forum-comment-added', newComment);
 
           setTimeout(() => {
             this.evaluateCommentReply(newComment, 'forum', modelAdapter).catch(err => {
@@ -1545,6 +1557,7 @@ Instructions:
           if (windows.length > 0) {
             windows[0].webContents.send('social-moment-comment-added', newComment);
           }
+          SseManager.getInstance().broadcast('social-moment-comment-added', newComment);
         } else {
           const newComment = {
             id: `comment_forum_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -1566,6 +1579,7 @@ Instructions:
           if (windows.length > 0) {
             windows[0].webContents.send('social-forum-comment-added', newComment);
           }
+          SseManager.getInstance().broadcast('social-forum-comment-added', newComment);
         }
       }
     } catch (e) {

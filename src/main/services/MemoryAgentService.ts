@@ -1072,9 +1072,7 @@ Target JSON 格式：
     const facts = JSON.parse(match[0]) as string[];
 
     // 不直接物理落盘写入，而是组装成完整的 USER.md 大文本格式返回给前端，等待确认
-    const jsonData = { character_specific_facts: facts };
-    const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`;
-    let markdown = `${jsonComment}\n\n# 角色专属用户侧写\n\n`;
+    let markdown = `# 角色专属用户侧写\n\n`;
     markdown += `> 本侧写由该 AI 角色在与您的互动交往中，自发通过做梦反思总结提炼生成，展现千人千面的默契。\n\n`;
     markdown += `## 专属画像事实 (Facts)\n`;
     if (facts.length === 0) {
@@ -1177,9 +1175,7 @@ Target JSON 格式：
       ltmContent = Object.entries(cleanedLtm).map(([k, v]) => `- **${k}**：${v}`).join('\n');
     }
 
-    const jsonData = { stm: currentStm, ltm: cleanedLtm };
-    const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`;
-    const markdown = `${jsonComment}\n\n# 记忆存储区\n\n## 短期记忆 (Short-Term Memory)\n${stmContent}\n\n## 长期记忆 (Long-Term Memory)\n${ltmContent}`;
+    const markdown = `# 记忆存储区\n\n## 短期记忆 (Short-Term Memory)\n${stmContent}\n\n## 长期记忆 (Long-Term Memory)\n${ltmContent}`;
 
     return markdown;
   }

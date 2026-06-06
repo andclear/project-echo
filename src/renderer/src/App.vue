@@ -6808,6 +6808,10 @@
           <RefreshCwIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
           <span>重新回复</span>
         </button>
+        <button v-if="canEditMessage(contextMenu.message)" class="ctx-menu-item" @click="ctxEditMessage">
+          <EditIcon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
+          <span>修改消息</span>
+        </button>
         <button class="ctx-menu-item" @click="ctxForwardMessage">
           <Share2Icon class="w-3.5 h-3.5 mr-2 text-primary" stroke-width="2" />
           <span>转发</span>
@@ -7818,6 +7822,34 @@
             :disabled="!tempEmojiMeaning.trim()"
             class="btn-primary text-xs py-1.5 px-4 font-bold rounded-lg disabled:opacity-40"
           >确认添加</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：修改消息内容 ========================= -->
+    <div v-if="showEditMessageModal" class="modal-overlay z-[99999]" @click.self="showEditMessageModal = false">
+      <div class="modal-panel w-[420px] p-5 space-y-4 animate-fade-in shadow-2xl rounded-2xl border bg-surface select-none">
+        <div class="text-center font-bold text-xs text-on-surface">修改消息内容</div>
+        
+        <div class="form-group">
+          <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">
+            {{ activeEditingMessage?.role === 'user' ? '修改我的发送内容' : '修改角色回复内容' }}
+          </label>
+          <textarea
+            v-model="editingMessageText"
+            rows="6"
+            placeholder="请输入修改后的消息内容..."
+            class="form-input text-xs w-full resize-none p-2 border rounded-lg bg-surface-low text-on-surface font-sans"
+          ></textarea>
+        </div>
+        
+        <div class="flex justify-end space-x-2 pt-1 select-none">
+          <button @click="showEditMessageModal = false" class="btn-secondary text-xs py-1.5 px-4 rounded-lg">取消</button>
+          <button
+            @click="confirmEditMessage"
+            :disabled="!editingMessageText.trim()"
+            class="btn-primary text-xs py-1.5 px-4 font-bold rounded-lg disabled:opacity-40"
+          >保存修改</button>
         </div>
       </div>
     </div>
@@ -10045,6 +10077,12 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     // 监听所有业务事件类型
     eventSource.addEventListener('echo:message', handleSseEvent)
     eventSource.addEventListener('echo:unread-update', handleSseEvent)
+    eventSource.addEventListener('chat-chunk', handleSseEvent)
+    eventSource.addEventListener('social-moment-updated', handleSseEvent)
+    eventSource.addEventListener('social-forum-updated', handleSseEvent)
+    eventSource.addEventListener('social-moment-liked-broadcast', handleSseEvent)
+    eventSource.addEventListener('social-moment-comment-added', handleSseEvent)
+    eventSource.addEventListener('social-forum-comment-added', handleSseEvent)
 
     eventSource.onerror = (err) => {
       console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err)
@@ -11472,7 +11510,17 @@ Echo-回音（本软件）是一个用户与AI进行角色扮演对话的工具�
 
 ---
 
-## 五、免责声明
+## 五、关于匿名统计与隐私声明
+
+本工具承诺绝不收集您的任何聊天记录、人设配置、密钥及其他个人隐私数据。为了能够统计本项目软件在各个平台（Windows、macOS、Docker）上的活跃使用数量以及平台分布，本软件会在您同意本协议并启动时，进行一次**极其纯净的匿名用户数量统计上报**：
+1. **收集数据极简且唯一**：本工具仅会上报由系统生成的匿名设备ID（deviceId）以及运行平台类型（win/mac/docker）。**除此之外，绝不统计也绝不上传您的IP地址、地理位置、个人微信号、聊天记录或模型密钥等任何其他数据。**
+2. **终生仅上报一次**：本工具在首次成功上报后，会在本地数据库中做出永久标记。在后续的日常使用中，**本工具绝不会再次发送任何统计请求**，亦不会在后台常驻运行任何遥测脚本，最大限度地节省您的网络与系统资源。
+
+开发者为此条款负无限责任。
+
+---
+
+## 六、免责声明
 
 1. **“按原样”提供：** 本工具按“现状”提供，不包含任何明示或暗示的保证（包括但不限于适销性、特定用途适用性或不侵权性）。
 
@@ -11482,7 +11530,7 @@ Echo-回音（本软件）是一个用户与AI进行角色扮演对话的工具�
 
 ---
 
-## 六、协议修改
+## 七、协议修改
 
 开发者保留在任何时候修改本协议的权利。修改后的协议将在项目发布页面更新。如果您在协议更新后继续使用本工具，即表示您接受修改后的协议。`
 
@@ -13368,6 +13416,9 @@ function shouldShowTime(msg: any, prevMsg: any): boolean {
 const showEmojiPanel = ref(false)
 const emojiActiveTab = ref<'default' | 'favorites'>('default')
 const showAddEmojiModal = ref(false)
+const showEditMessageModal = ref(false)
+const editingMessageText = ref('')
+const activeEditingMessage = ref<any>(null)
 const emojiFileInput = ref<HTMLInputElement | null>(null)
 const tempEmojiBase64 = ref('')
 const tempEmojiMeaning = ref('')
@@ -18056,6 +18107,17 @@ onMounted(async () => {
     }
   })
 
+  // 监听多端/局域网消息内容修改广播
+  window.api.receive('message-content-edited', (data: { characterId: string; messageId: string; content: string }) => {
+    const msgs = allMessages[data.characterId]
+    if (msgs) {
+      const target = msgs.find(m => m.id === data.messageId)
+      if (target) {
+        target.content = data.content
+      }
+    }
+  })
+
   window.api.receive('chat-window-cleared', (data: { characterId: string }) => {
     allMessages[data.characterId] = []
   })
@@ -18583,6 +18645,59 @@ onMounted(async () => {
   // 统一走 echo:message IPC → handleEchoMessage → MessageQueueManager 去重分发。
   // 未读计数由 MessageBusService → echo:unread-update → onUnreadUpdate 回调权威维护。
 
+  // 🚀 全图模式自动生图判定与触发函数
+  async function checkAndTriggerAutoNai(charId: string, content: string) {
+    try {
+      const naiModeRes = await window.api.invoke('get-setting', { key: 'admin_nai_auto_mode' })
+      if (naiModeRes?.value === '1' && novelai.apiKey) {
+        // 确保当前消息是有实质内容的文字消息，排除图片、表情、红包及日记，规避死循环
+        if (!content || 
+            content.startsWith('[wechat_image_media]:') || 
+            content.startsWith('[wechat_custom_emoji]:') || 
+            content.startsWith('[wechat_red_packet]:') ||
+            content.startsWith('[character_diary]:')) {
+          return
+        }
+
+        // 二次保底：核验最后的最新消息状态，确保不因流式时序重叠产生误判
+        const msgs = allMessages[charId] || []
+        if (msgs.length > 0) {
+          const lastMsg = msgs[msgs.length - 1]
+          if (lastMsg && (
+            lastMsg.role !== 'assistant' ||
+            !lastMsg.content ||
+            lastMsg.content.startsWith('[wechat_image_media]:') ||
+            lastMsg.content.startsWith('[wechat_custom_emoji]:') ||
+            lastMsg.content.startsWith('[wechat_red_packet]:') ||
+            lastMsg.content.startsWith('[character_diary]:')
+          )) {
+            return
+          }
+        }
+
+        const char = characterList.value.find(c => c.id === charId)
+        if (!char) return
+        const recentMsgs = (allMessages[charId] || []).slice(-20)
+        const promptRes = await window.api.invoke('analyze-chat-image-prompt', {
+          characterId: charId,
+          folderName: char.folder_name,
+          recentMessages: JSON.parse(JSON.stringify(recentMsgs))
+        })
+        if (promptRes.success && promptRes.prompt) {
+          // 直接写入上下文，强制自动执行 NovelAI 生图流程并推入会话中
+          activeDrawingContextMap[charId] = {
+            prompt: promptRes.prompt,
+            description: promptRes.description || '',
+            dimensions: (novelai.defaultDimensions as 'portrait' | 'landscape' | 'square') || 'portrait'
+          }
+          await executeNovelAiImageGeneration(charId, char.folder_name)
+        }
+      }
+    } catch (e) {
+      console.warn('[NAI Auto Mode] 全图模式自动生图异常:', e)
+    }
+  }
+
   // ────────────────────────────────────────────────────────
   // handleEchoMessage：接收并处理来自任意端（Electron IPC / SSE）的 echo:message
   // 由 MessageQueueManager 调用（已在 init 时注册），MessageQueueManager 负责去重
@@ -18810,6 +18925,10 @@ onMounted(async () => {
                 msg.cached_tokens,
                 msg.id
               )
+              // 自动生图检测（打字播放完成后延迟 800ms 运行）
+              setTimeout(() => {
+                checkAndTriggerAutoNai(charId, msg.content)
+              }, 800)
             } catch (err) {
               console.error(`[playbackChain] handleAssistantResponse 异常 (charId=${charId}):`, err)
             } finally {
@@ -18837,6 +18956,11 @@ onMounted(async () => {
             streamingCharacterId.value = null
           }
           clearReplyTimeout()
+
+          // 自动生图检测（文字气泡推送后延迟 800ms 运行）
+          setTimeout(() => {
+            checkAndTriggerAutoNai(charId, msg.content)
+          }, 800)
 
           // 若携带红包动作（AI 领取/退回用户红包），触发钱包状态更新
           // dialogue 模式由 handleAssistantResponse 内部处理；descriptive/director 需在此处额外触发
@@ -19566,6 +19690,118 @@ function openMessageContextMenu(e: MouseEvent, msg: any) {
   contextMenu.char = activeCharacter.value || activeGroupChat.value
   contextMenu.message = msg
   contextMenu.type = 'message'
+}
+
+function canEditMessage(msg: any) {
+  if (!msg) return false
+  const char = activeCharacter.value || activeGroupChat.value
+  if (!char) return false
+
+  // 1. 如果 AI 正在回复或打字弹射，为了避免冲突，一律禁止编辑
+  if (streamingCharsSet.has(char.id)) return false
+
+  // 2. 物理过滤系统协议格式消息（红包、自定义表情包、图片等），只允许修改普通文本
+  if (msg.content && (
+    msg.content.startsWith('[wechat_red_packet]:') ||
+    msg.content.startsWith('[wechat_custom_emoji]:') ||
+    msg.content.startsWith('[wechat_image_media]:')
+  )) {
+    return false
+  }
+
+  const msgs = allMessages[char.id] || []
+  if (msgs.length === 0) return false
+
+  if (msg.role === 'user') {
+    // 寻找最后一个 user 消息
+    let lastUserIdx = -1
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'user') {
+        lastUserIdx = i
+        break
+      }
+    }
+    return lastUserIdx !== -1 && msgs[lastUserIdx].id === msg.id
+  } else if (msg.role === 'assistant') {
+    // 寻找最后一个 assistant 消息
+    let lastAssistantIdx = -1
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') {
+        lastAssistantIdx = i
+        break
+      }
+    }
+    if (lastAssistantIdx === -1) return false
+
+    // 如果找到了，那么只要它属于最后一轮回复就可以了。
+    // 在有 round_id 的情况下，同属于最后一个 assistant 消息的 round_id 的所有消息都属于最后一轮。
+    const lastAssistant = msgs[lastAssistantIdx]
+    if (lastAssistant.round_id && msg.round_id) {
+      return lastAssistant.round_id === msg.round_id
+    }
+
+    // 兜底（如果无 round_id）：只要在最后一条 user 消息之后的所有 assistant 消息，都视为最后一轮。
+    let lastUserIdx = -1
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'user') {
+        lastUserIdx = i
+        break
+      }
+    }
+
+    // 获取 msg 在数组中的索引
+    const msgIdx = msgs.findIndex(m => m.id === msg.id)
+    if (msgIdx === -1) return false
+
+    // msgIdx 必须在 lastUserIdx 之后，且在这个区间内只有 assistant 消息
+    return msgIdx > lastUserIdx
+  }
+
+  return false
+}
+
+function ctxEditMessage() {
+  const msg = contextMenu.message
+  if (!msg) return
+  activeEditingMessage.value = msg
+  editingMessageText.value = msg.content || ''
+  showEditMessageModal.value = true
+  contextMenu.visible = false
+}
+
+async function confirmEditMessage() {
+  const msg = activeEditingMessage.value
+  const char = activeCharacter.value || activeGroupChat.value
+  if (!msg || !char) return
+
+  const content = editingMessageText.value.trim()
+  if (!content) return
+
+  try {
+    const res = await window.api.invoke('edit-message-content', {
+      characterId: char.id,
+      messageId: msg.id,
+      content: content
+    })
+    if (res.success) {
+      showToast('消息修改成功！')
+      const msgs = allMessages[char.id]
+      if (msgs) {
+        const target = msgs.find(m => m.id === msg.id)
+        if (target) {
+          target.content = content
+        }
+      }
+    } else {
+      showToast(`修改失败: ${res.error}`)
+    }
+  } catch (err: any) {
+    showToast(`修改异常: ${err.message || err}`)
+  } finally {
+    showEditMessageModal.value = false
+    activeEditingMessage.value = null
+    editingMessageText.value = ''
+  }
 }
 
 function ctxCopyMessage() {
