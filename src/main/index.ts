@@ -2088,13 +2088,25 @@ ${soulContent}
 
   // ====== AI 小说写手功能专属 IPC 通道 ======
 
-  ipcMain.handle('novel-save-settings', async (_, payload: { characterId: string; enabled: boolean; styleId: string; pov: string; adaptation: string }) => {
+  ipcMain.handle('novel-save-settings', async (_, payload: { characterId: string; enabled: boolean; styleId: string; pov: string; adaptation: string; startFrom?: 'today' | 'all' }) => {
     try {
       const db = getDatabaseService()
       db.setSetting(`novel_enabled_${payload.characterId}`, payload.enabled ? '1' : '0')
       db.setSetting(`novel_style_id_${payload.characterId}`, payload.styleId)
       db.setSetting(`novel_pov_${payload.characterId}`, payload.pov)
       db.setSetting(`novel_adaptation_${payload.characterId}`, payload.adaptation)
+
+      if (payload.enabled) {
+        const chapterCount = db.getNovelChapterCount(payload.characterId)
+        if (chapterCount === 0) {
+          const currentStartTs = db.getSetting(`novel_start_ts_${payload.characterId}`)
+          if (!currentStartTs || payload.startFrom !== undefined) {
+            const startTs = payload.startFrom === 'today' ? Date.now().toString() : '0'
+            db.setSetting(`novel_start_ts_${payload.characterId}`, startTs)
+          }
+        }
+      }
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -2140,7 +2152,7 @@ ${soulContent}
       const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
       const novelService = new NovelWriterService(modelAdapter)
 
-      novelService.rewriteChapter(payload.chapterId).catch(err => {
+      novelService.rewriteChapter(payload.chapterId).catch((err: any) => {
         console.error('[NovelWriter] 重写章节后台任务异常:', err)
       })
       return { success: true }
@@ -2152,13 +2164,23 @@ ${soulContent}
   ipcMain.handle('novel-delete-chapter', async (_, payload: { chapterId: string }) => {
     try {
       const db = getDatabaseService()
-      // 读取被删除章节的信息，以便恢复时间戳
       const chapter = db.db.prepare('SELECT character_id, chapter_index FROM NovelChapters WHERE id = ?').get(payload.chapterId) as any
-      db.deleteNovelChapter(payload.chapterId)
       if (chapter) {
-        const prev = db.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE character_id = ? AND chapter_index < ? ORDER BY chapter_index DESC LIMIT 1').get(chapter.character_id, chapter.chapter_index) as any
-        const newTs = prev ? prev.dialogue_end_ts : 0
-        db.setSetting(`last_novel_chapter_end_ts_${chapter.character_id}`, `${newTs}`)
+        const { character_id, chapter_index } = chapter
+        // 物理连带删除该章节及其后续所有章节
+        db.db.prepare('DELETE FROM NovelChapters WHERE character_id = ? AND chapter_index >= ?').run(character_id, chapter_index)
+        
+        // 重新获取删除后的前序最大章节的结束时间戳作为新游标
+        const prev = db.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE character_id = ? AND chapter_index < ? ORDER BY chapter_index DESC LIMIT 1').get(character_id, chapter_index) as any
+        
+        let newTs = '0'
+        if (prev) {
+          newTs = prev.dialogue_end_ts.toString()
+        } else {
+          const startTsStr = db.getSetting(`novel_start_ts_${character_id}`) || '0'
+          newTs = startTsStr
+        }
+        db.setSetting(`last_novel_chapter_end_ts_${character_id}`, newTs)
       }
       return { success: true }
     } catch (e: any) {

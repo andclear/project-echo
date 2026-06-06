@@ -7113,6 +7113,21 @@
             </button>
           </div>
 
+          <!-- 首次开启写手时，选择首章改编起始点 -->
+          <div v-if="novelEnabled && novelChaptersList.length === 0" class="flex flex-col space-y-2 bg-surface-high/10 p-3.5 rounded-xl border border-outline-variant/10 animate-in fade-in duration-200">
+            <span class="text-xs font-bold text-on-surface">首章改编起点选择</span>
+            <div class="flex items-center space-x-6 mt-1">
+              <label class="flex items-center space-x-1.5 cursor-pointer text-xs text-on-surface">
+                <input type="radio" name="novelStartFrom" value="today" v-model="novelStartFrom" @change="triggerSaveNovelSettings" class="accent-primary" />
+                <span>从今天开始改编</span>
+              </label>
+              <label class="flex items-center space-x-1.5 cursor-pointer text-xs text-on-surface">
+                <input type="radio" name="novelStartFrom" value="all" v-model="novelStartFrom" @change="triggerSaveNovelSettings" class="accent-primary" />
+                <span>从头（历史第一条）开始</span>
+              </label>
+            </div>
+          </div>
+
           <!-- 自定义文风选择 -->
           <div class="flex flex-col space-y-1.5 relative select-none">
             <label class="text-xs font-bold text-on-surface">文风选择</label>
@@ -10629,6 +10644,7 @@ const novelPov = ref('third_user')
 const novelAdaptation = ref('moderate')
 const novelActiveTab = ref<'library' | 'extract'>('library')
 const novelContinuingMap = ref<Record<string, boolean>>({})
+const novelStartFrom = ref('today')
 
 // 小说阅读字体大小设置（存储在浏览器 localStorage 中）
 const readerFontSize = ref(Number(localStorage.getItem('novel_reader_font_size')) || 15)
@@ -10879,7 +10895,7 @@ async function triggerBookChapterRewrite(chapterId: string) {
 
 // 删除章节
 async function triggerBookChapterDelete(chapterId: string) {
-  if (!confirm('确定要永久删除这一章小说吗？删除后对应段落的历史对话需要重新满足阈值才能重新生成小说。')) return
+  if (!confirm('确定要删除这一章小说吗？注意：为确保故事一致性，删除此章将会物理连带删除后续的所有小说章节。此操作不可逆！')) return
   try {
     const res = await window.api.invoke('novel-delete-chapter', { chapterId })
     if (res && res.success) {
@@ -10955,12 +10971,14 @@ async function loadNovelSettings(characterId: string) {
     const styleIdRes = await window.api.invoke('get-setting', { key: `novel_style_id_${characterId}` })
     const povRes = await window.api.invoke('get-setting', { key: `novel_pov_${characterId}` })
     const adaptationRes = await window.api.invoke('get-setting', { key: `novel_adaptation_${characterId}` })
+    const startTsRes = await window.api.invoke('get-setting', { key: `novel_start_ts_${characterId}` })
 
     // get-setting 返回 { success, value }，需要从 .value 中提取实际值
     novelEnabled.value = enabledRes?.value === '1'
     novelStyleId.value = styleIdRes?.value || ''
     novelPov.value = povRes?.value || 'third_user'
     novelAdaptation.value = adaptationRes?.value || 'moderate'
+    novelStartFrom.value = startTsRes?.value === '0' ? 'all' : 'today'
   } catch (err) {
     console.error('[App.vue] 加载小说设置失败:', err)
   }
@@ -10976,7 +10994,8 @@ async function triggerSaveNovelSettings() {
       enabled: novelEnabled.value,
       styleId: novelStyleId.value,
       pov: novelPov.value,
-      adaptation: novelAdaptation.value
+      adaptation: novelAdaptation.value,
+      startFrom: novelStartFrom.value
     })
   } catch (err) {
     console.error('[App.vue] 保存小说设置失败:', err)
@@ -11069,6 +11088,7 @@ async function triggerNovelRewrite(chapterId: string) {
 async function triggerNovelDelete(chapterId: string) {
   const charId = selectedCharacterId.value
   if (!charId) return
+  if (!confirm('确定要删除这一章小说吗？注意：为确保故事一致性，删除此章将会物理连带删除后续的所有小说章节。此操作不可逆！')) return
   try {
     const res = await window.api.invoke('novel-delete-chapter', { chapterId })
     if (res.success) {
