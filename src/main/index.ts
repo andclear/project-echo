@@ -32,6 +32,8 @@ import { NovelWriterService } from './services/NovelWriterService'
 import { UpdateService } from './services/UpdateService'
 import { WeChatService } from './services/WeChatService'
 import { WeatherService } from './utils/WeatherService'
+import { SseManager } from './services/SseManager'
+import { MessageBusService, EchoMessage, MessageType } from './services/MessageBusService'
 
 
 
@@ -61,26 +63,8 @@ let globalLifeEngine: AgentLifeEngine | null = null
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
-// SSE 局域网推送客户端集合
-export const sseClients = new Set<any>()
-
 // 🚀 极致缓存前缀保温还原全局内存字典：以角色ID为键值，缓存最近一次大模型吐出的 100% 原始未清洗的 assistant 消息内容
 export const LastAssistantRawResponse: Record<string, string> = {}
-
-// SSE 消息环形缓冲区（最近 50 条），用于断线重连后的消息补偿
-interface SseBufferedMsg {
-  id: number;
-  channel: string;
-  data: any;
-  raw: string;
-}
-const sseMessageBuffer: SseBufferedMsg[] = []
-let sseMessageIdCounter = 0
-const SSE_BUFFER_MAX = 50
-
-// 🚀 记录当前 Electron 本机正在流式处理的单聊请求（characterId 集合）
-// 用于消息广播时区分本机流式回复（已由 chat-chunk 渲染）和外设备推送的消息
-const activeElectronChats = new Set<string>()
 
 /**
  * 全局公共工具：物理剔除大模型思维链标签及其内容
@@ -96,27 +80,6 @@ function stripThinkingTags(content: string): string {
     .replace(fullTagsReg, '')
     .replace(halfOpenTagReg, '')
     .trim()
-}
-
-// SSE 广播函数
-export function broadcastToSse(channel: string, data: any) {
-  const id = ++sseMessageIdCounter
-  const payload = JSON.stringify({ channel, data, sseId: id })
-  const raw = `id: ${id}\ndata: ${payload}\n\n`
-
-  // 存入环形缓冲区（淘汰最旧条目）
-  sseMessageBuffer.push({ id, channel, data, raw })
-  if (sseMessageBuffer.length > SSE_BUFFER_MAX) {
-    sseMessageBuffer.shift()
-  }
-
-  for (const client of sseClients) {
-    try {
-      client.write(raw)
-    } catch (e) {
-      sseClients.delete(client)
-    }
-  }
 }
 
 // 级联反向流式拼合器：将数据库中连续的、时间相近的角色分段气泡，融合成单条高密度大消息
@@ -180,7 +143,7 @@ function createWindow(): void {
           return bounds
         }
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // 首次启动：按主屏逻辑分辨率计算舒适默认值，带上上下限
     const { width: sw, height: sh } = screen.getPrimaryDisplay().workArea
@@ -214,12 +177,8 @@ function createWindow(): void {
 
   const win = mainWindow!
 
-  // 劫持 webContents.send 用于 SSE 局域网桥接主动推送
-  const originalSend = win.webContents.send.bind(win.webContents)
-  win.webContents.send = (channel: string, ...args: any[]) => {
-    originalSend(channel, ...args)
-    broadcastToSse(channel, args[0])
-  }
+  // 绑定 MessageBusService 主窗口（注意：不要劫持 webContents.send，让 MessageBusService 直接使用原始 send）
+  MessageBusService.getInstance().bindMainWindow(() => mainWindow)
 
   win.on('ready-to-show', () => {
     win.show()
@@ -244,13 +203,13 @@ function createWindow(): void {
     try {
       const db = getDatabaseService()
       db.setSetting('window_bounds', JSON.stringify(mainWindow!.getBounds()))
-    } catch (_) {}
+    } catch (_) { }
 
     // 只有当用户没有点击托盘中的“退出”时，我们才拦截关闭并转为隐藏
     if (!(app as any).isQuiting) {
       event.preventDefault(); // 阻断物理关闭退出
       win.hide();       // 隐式退至后台运行
-      
+
       // 🚀 核心修复：仅在用户主动点 “X” 关闭窗口将其隐式隐藏到后台时，才物理隐藏 Dock 图标！
       // 彻底解决全局监听 win.on('hide') 误杀窗口最小化、挂机挂后台系统 App Nap 导致的 Dock 图标和整个窗口莫名不见丢失的重大 macOS 交互 Bug！
       if (process.platform === 'darwin' && app.dock) {
@@ -428,7 +387,7 @@ function registerIpcHandlers(): void {
     try {
       const wechatService = WeChatService.getInstance();
       await wechatService.stopService();
-      
+
       const db = getDatabaseService();
       db.setSetting('wechat_token', '');
       db.setSetting('wechat_sync_buf', '');
@@ -454,7 +413,7 @@ function registerIpcHandlers(): void {
       const { friendId, characterId } = payload;
       const db = getDatabaseService();
       const mappings = db.getWeChatMappings();
-      
+
       if (characterId) {
         mappings[friendId] = characterId;
       } else {
@@ -462,7 +421,7 @@ function registerIpcHandlers(): void {
       }
 
       db.saveWeChatMapping(mappings);
-      
+
       const wechatService = WeChatService.getInstance();
       // 广播状态更新给 Vue
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
@@ -529,7 +488,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('export-project-data', async () => {
     try {
       const userDataPath = app.getPath('userData')
-      
+
       // 🚀 Docker 部署环境下：直接将打包的备份文件静默输出到 backups 映射目录下，不拉起物理保存窗口
       if (process.env.DOCKER_MODE === 'true') {
         const backupDir = path.join(userDataPath, 'backups')
@@ -549,7 +508,7 @@ function registerIpcHandlers(): void {
             const fullPath = path.join(currentDir, item)
             const relPath = path.join(relativeRoot, item)
             const stat = fs.statSync(fullPath)
-            
+
             if (stat.isDirectory()) {
               traverseDirectory(fullPath, relPath)
             } else if (stat.isFile()) {
@@ -610,7 +569,7 @@ function registerIpcHandlers(): void {
           const fullPath = path.join(currentDir, item)
           const relPath = path.join(relativeRoot, item)
           const stat = fs.statSync(fullPath)
-          
+
           if (stat.isDirectory()) {
             traverseDirectory(fullPath, relPath)
           } else if (stat.isFile()) {
@@ -718,7 +677,7 @@ function registerIpcHandlers(): void {
       }
 
       const userDataPath = app.getPath('userData')
-      
+
       // 🚀 Docker 模式路径越界安全防御
       if (process.env.DOCKER_MODE === 'true') {
         const backupDir = path.join(userDataPath, 'backups')
@@ -787,7 +746,7 @@ function registerIpcHandlers(): void {
       try {
         for (const fileItem of backupObj.files) {
           if (!fileItem.relativePath || typeof fileItem.content !== 'string') continue
-          
+
           // 路径防越界安全校验 (Path Traversal Protection)
           const normalizedPath = path.normalize(fileItem.relativePath)
           if (normalizedPath.startsWith('..') || path.isAbsolute(normalizedPath)) {
@@ -837,7 +796,7 @@ function registerIpcHandlers(): void {
       // 恢复成功后，清理临时安全目录
       try {
         fs.rmSync(tempRestoreBackupDir, { recursive: true, force: true })
-      } catch (_) {}
+      } catch (_) { }
 
       console.log(`[Backup] 数据解包与覆盖还原成功，共解包恢复了 ${backupObj.files.length} 个文件！即将重启应用。`)
 
@@ -909,10 +868,10 @@ function registerIpcHandlers(): void {
     try {
       const db = getDatabaseService()
       db.setSetting('echo_user_profile', JSON.stringify(payload))
-      
+
       // 广播通知其他局域网客户端
       mainWindow?.webContents.send('user-profile-updated', payload)
-      
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -938,10 +897,10 @@ function registerIpcHandlers(): void {
     try {
       const db = getDatabaseService()
       db.setSetting('echo_custom_emojis', JSON.stringify(payload))
-      
+
       // 广播通知其他局域网客户端
       mainWindow?.webContents.send('custom-emojis-updated', payload)
-      
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -1053,7 +1012,7 @@ function registerIpcHandlers(): void {
       } else if (Array.isArray(result)) {
         models = result.map((m: any) => m.id || m.name || String(m))
       }
-      
+
       return {
         success: true,
         models
@@ -1104,31 +1063,31 @@ function registerIpcHandlers(): void {
     try {
       console.log('[IPC] 收到物理删除消息请求，ID:', payload.messageId)
       const db = getDatabaseService()
-      
+
       // 1. 先查出此条消息的内容
       const stmt = db.db.prepare('SELECT * FROM Messages WHERE id = ?')
       const msg = stmt.get(payload.messageId) as { character_id: string; content: string } | undefined
-      
+
       // 2. 如果存在且是图片消息，物理硬删除它
       if (msg && msg.content && msg.content.startsWith('[wechat_image_media]:')) {
         const relativePath = msg.content.substring('[wechat_image_media]:'.length) // e.g. "media/drawing_xxxx.png"
-        
+
         // 3. 查出对应角色的 folder_name
         const charStmt = db.db.prepare('SELECT folder_name FROM Characters WHERE id = ?')
         const charRow = charStmt.get(msg.character_id) as { folder_name: string } | undefined
-        
+
         if (charRow) {
           const storageManager = new CharacterStorageManager()
           const charDir = join(storageManager.getBaseDir(), charRow.folder_name)
           const pngPath = join(charDir, relativePath)
           const jsonPath = pngPath.replace('.png', '.json')
-          
+
           console.log('[IPC] 正在物理硬删除消息对应的图片:', pngPath)
           if (fs.existsSync(pngPath)) {
-            try { fs.unlinkSync(pngPath) } catch (err) {}
+            try { fs.unlinkSync(pngPath) } catch (err) { }
           }
           if (fs.existsSync(jsonPath)) {
-            try { fs.unlinkSync(jsonPath) } catch (err) {}
+            try { fs.unlinkSync(jsonPath) } catch (err) { }
           }
         }
       }
@@ -1138,30 +1097,20 @@ function registerIpcHandlers(): void {
       // 🚀 物理删除消息后，立即触发秒级自愈同步：广播给电脑软件前端和局域网连接的所有手机浏览器（SSE 通道）
       if (msg) {
         const charId = msg.character_id
-        
+
         // 1. 广播给电脑端前端
         if (mainWindow && !mainWindow.webContents.isDestroyed()) {
           mainWindow.webContents.send('message-deleted', { characterId: charId, messageId: payload.messageId })
         }
-        
+
         // 2. 广播给所有连入局域网的客户端 SSE 通道
-        const ssePayload = {
-          channel: 'message-deleted',
-          data: { characterId: charId, messageId: payload.messageId }
-        }
-        for (const client of sseClients) {
-          try {
-            client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
-          } catch (_) {
-            sseClients.delete(client)
-          }
-        }
+        SseManager.getInstance().broadcast('message-deleted', { characterId: charId, messageId: payload.messageId })
 
         // 3. 清除该角色的待确认记忆草稿（防止被删消息的记忆被延迟写入污染上下文）
         try {
           db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${charId}`)
           console.log(`[IPC] 删除消息时清除角色 ${charId} 的记忆草稿。`)
-        } catch (_) {}
+        } catch (_) { }
 
         // 4. 清除进程内存级前缀缓存（防止删除最后一条 AI 消息后，旧原始内容被还原进下一轮 history 造成上下文污染）
         delete LastAssistantRawResponse[charId]
@@ -1269,8 +1218,8 @@ function registerIpcHandlers(): void {
     try {
       const db = getDatabaseService()
       db.setSetting(`chat_mode_${payload.characterId}`, payload.mode)
-      // 通过 broadcastToSse 广播，保证写入环形缓冲区，其他端断线重连后也能补偿收到
-      broadcastToSse('character-chat-mode-changed', { characterId: payload.characterId, mode: payload.mode })
+      // 通过 SseManager.broadcast 广播给所有 SSE 客户端
+      SseManager.getInstance().broadcast('character-chat-mode-changed', { characterId: payload.characterId, mode: payload.mode })
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 设置角色聊天模式失败:', error)
@@ -1343,7 +1292,7 @@ function registerIpcHandlers(): void {
         try {
           const config = JSON.parse(configStr)
           baseUrl = config.baseUrl
-        } catch (_) {}
+        } catch (_) { }
       }
       const anlas = await NovelAiService.fetchAnlas(payload.apiKey, baseUrl)
       return { success: true, anlas }
@@ -1428,17 +1377,7 @@ function registerIpcHandlers(): void {
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('character-file-updated', appearanceBroadcast)
       }
-      const appearanceSse = {
-        channel: 'character-file-updated',
-        data: appearanceBroadcast
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(appearanceSse)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('character-file-updated', appearanceBroadcast)
 
       return { success: true }
     } catch (error: any) {
@@ -1477,7 +1416,7 @@ function registerIpcHandlers(): void {
       }
 
       // 组装最终提示词：画师串 + 外貌特征 + 当前动作场景 + 质量提示词
-      let finalPrompt = appearancePrompt 
+      let finalPrompt = appearancePrompt
         ? `${appearancePrompt}, ${payload.prompt}`
         : payload.prompt
 
@@ -1556,7 +1495,7 @@ function registerIpcHandlers(): void {
         ) {
           const filePath = join(mediaDir, file)
           const stat = fs.statSync(filePath)
-          
+
           let meta: any = {}
           const metaPath = filePath.replace('.png', '.json')
           if (fs.existsSync(metaPath)) {
@@ -1566,7 +1505,7 @@ function registerIpcHandlers(): void {
               console.error('读取图片 metadata 失败:', e)
             }
           }
-          
+
           list.push({
             filename: file,
             relativePath: `media/${file}`,
@@ -1601,10 +1540,10 @@ function registerIpcHandlers(): void {
       const jsonPath = pngPath.replace('.png', '.json')
 
       if (fs.existsSync(pngPath)) {
-        try { fs.unlinkSync(pngPath) } catch (err) {}
+        try { fs.unlinkSync(pngPath) } catch (err) { }
       }
       if (fs.existsSync(jsonPath)) {
-        try { fs.unlinkSync(jsonPath) } catch (err) {}
+        try { fs.unlinkSync(jsonPath) } catch (err) { }
       }
       return { success: true }
     } catch (error: any) {
@@ -1612,14 +1551,14 @@ function registerIpcHandlers(): void {
       return { success: false, error: error.message || String(error) }
     }
   })
-  ipcMain.handle('analyze-chat-image-prompt', async (_, payload: { 
-    characterId: string; 
+  ipcMain.handle('analyze-chat-image-prompt', async (_, payload: {
+    characterId: string;
     folderName: string;
     recentMessages: any[];
   }) => {
     try {
       const db = getDatabaseService()
-      
+
       // A. 读取 Memory.md 记忆系统与 Soul.md 人设文件
       const storageManager = new CharacterStorageManager()
       const memoryContent = storageManager.readCharacterFile(payload.folderName, 'Memory.md') || ''
@@ -1672,7 +1611,7 @@ function registerIpcHandlers(): void {
             : (m.content || '')
           return `${label}: ${content}`
         }).join('\n')
-      
+
       const messages: ChatMessage[] = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `【角色设定 Soul.md】：\n${soulContent}\n\n【角色记忆 Memory.md】：\n${memoryContent}\n\n【最近聊天上下文】：\n${contextText}\n\n请帮我生成当前画面场景的生图 Prompt 和描述。` }
@@ -1781,7 +1720,7 @@ function registerIpcHandlers(): void {
           const configStr = db.getSetting('model_config')
           const settings = configStr ? JSON.parse(configStr) : { primary: null, secondary: null }
           const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
-          
+
           const prompt = `你是一个背景人设分析专家。你需要分析角色与用户 {{user}} 在背景设定（Lore）中原有的亲密关系级别。
 角色的人设背景（Soul.md）内容如下：
 """
@@ -1808,7 +1747,7 @@ ${soulContent}
           ])
 
           console.log('[evaluateInitialIntimacy] 大模型亲密度评估原始响应:', response)
-          
+
           const match = response.content.match(/\{[\s\S]*?\}/)
           let score = 20 // 兜底
           if (match) {
@@ -1817,10 +1756,10 @@ ${soulContent}
               score = Math.max(0, Math.min(100, parsed.intimacy))
             }
           }
-          
+
           const statePath = join(storageManager.getBaseDir(), folderName, 'State.md')
           const state = StateReaderWriter.readState(statePath)
-          
+
           const intimacyItem = state.items.find(i => i.key === 'intimacy')
           if (intimacyItem) {
             intimacyItem.value = score
@@ -1885,7 +1824,7 @@ ${soulContent}
       console.log(`[IPC] ➜ 收到创建群聊请求, ID: ${groupId}, 名称: ${name}, 成员数: ${memberIds.length}`)
 
       const db = getDatabaseService()
-      
+
       // 1. 初始化物理群聊目录并写入 Memory.md 与 拼贴头像
       const groupDir = join(app.getPath('userData'), 'groups', groupId)
       if (!fs.existsSync(groupDir)) {
@@ -1926,7 +1865,7 @@ ${soulContent}
     try {
       const db = getDatabaseService()
       const groups = db.getAllGroupChats()
-      
+
       // 携带群成员 ID 列表
       const richGroups = groups.map(g => {
         const memberIds = db.getGroupMembers(g.id)
@@ -1936,7 +1875,7 @@ ${soulContent}
           memberIds
         }
       })
-      
+
       return { success: true, groups: richGroups }
     } catch (error: any) {
       console.error('[IPC] 获取群聊列表失败:', error)
@@ -2008,13 +1947,13 @@ ${soulContent}
       const { groupId } = payload
       console.log(`[IPC] ➜ 收到删除群聊请求, ID: ${groupId}`)
       const db = getDatabaseService()
-      
+
       // 1. 物理清空磁盘群目录
       const groupDir = join(app.getPath('userData'), 'groups', groupId)
       if (fs.existsSync(groupDir)) {
         fs.rmSync(groupDir, { recursive: true, force: true })
       }
-      
+
       // 2. 数据库级联物理删除
       db.deleteGroupChat(groupId)
       console.log(`[IPC] ✔ 群聊 ${groupId} 已被物理彻底擦除`)
@@ -2046,15 +1985,15 @@ ${soulContent}
     try {
       const storageManager = new CharacterStorageManager()
       const avatarPath = join(storageManager.getBaseDir(), payload.folderName, 'avatar.png')
-      
+
       // 去除 Base64 头部声明，提取纯数据字节
       const base64Str = payload.base64Data.replace(/^data:image\/\w+;base64,/, '')
       const buffer = Buffer.from(base64Str, 'base64')
-      
+
       // 物理写盘覆盖
       fs.writeFileSync(avatarPath, buffer)
       console.log(`[IPC] 成功为角色 [${payload.folderName}] 覆盖替换了新头像`)
-      
+
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 更新角色头像失败:', error)
@@ -2096,17 +2035,7 @@ ${soulContent}
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('character-settings-updated', settingsBroadcast)
       }
-      const settingsSse = {
-        channel: 'character-settings-updated',
-        data: settingsBroadcast
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(settingsSse)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('character-settings-updated', settingsBroadcast)
 
       return { success: true }
     } catch (error: any) {
@@ -2128,11 +2057,11 @@ ${soulContent}
       if (!char) {
         return { success: false, error: '未找到指定角色' }
       }
-      
+
       // 更新数据库名字
       char.name = payload.name
       db.saveCharacterMetadata(char)
-      
+
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 重命名角色失败:', error)
@@ -2210,7 +2139,7 @@ ${soulContent}
       const settings = JSON.parse(configStr)
       const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
       const novelService = new NovelWriterService(modelAdapter)
-      
+
       novelService.rewriteChapter(payload.chapterId).catch(err => {
         console.error('[NovelWriter] 重写章节后台任务异常:', err)
       })
@@ -2270,7 +2199,7 @@ ${soulContent}
       if (chapters.length === 0) {
         return { success: false, error: '小说还没有生成任何章节，无法导出！' }
       }
-      
+
       const char = db.db.prepare('SELECT name, folder_name FROM Characters WHERE id = ?').get(payload.characterId) as any
       const charName = char ? char.name : '未知角色'
       let novelTitle = `${charName}的故事`
@@ -2286,9 +2215,9 @@ ${soulContent}
               novelTitle = profile.novelTitle
             }
           }
-        } catch (_) {}
+        } catch (_) { }
       }
-      
+
       const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
       const result = await dialog.showSaveDialog(focusedWindow!, {
         title: '导出小说',
@@ -2297,11 +2226,11 @@ ${soulContent}
           { name: payload.format === 'txt' ? '纯文本文件' : 'HTML网页文件', extensions: [payload.format] }
         ]
       })
-      
+
       if (result.canceled || !result.filePath) {
         return { success: false, canceled: true }
       }
-      
+
       let fileContent = ''
       if (payload.format === 'txt') {
         fileContent = `${novelTitle}\n\n`
@@ -2321,7 +2250,7 @@ ${soulContent}
             .filter(Boolean)
             .map(p => `<p style="margin-bottom: 1.5em; text-indent: 2em; text-align: justify; text-justify: inter-ideograph;">${p}</p>`)
             .join('\n')
-            
+
           bodyHtml += `
             <section style="margin-bottom: 4rem; border-bottom: 1px solid #eee; padding-bottom: 2rem;">
               <h2 style="color: #4648d4; font-size: 1.6rem; margin-bottom: 1.5rem; font-family: 'Noto Serif SC', serif;">第${ch.chapter_index}章 ${ch.title}</h2>
@@ -2331,7 +2260,7 @@ ${soulContent}
             </section>
           `
         }
-        
+
         fileContent = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2370,7 +2299,7 @@ ${soulContent}
 </body>
 </html>`
       }
-      
+
       fs.writeFileSync(result.filePath, fileContent, 'utf8')
       return { success: true, path: result.filePath }
     } catch (e: any) {
@@ -2474,7 +2403,7 @@ ${soulContent}
       if (fs.existsSync(profilePath)) {
         try {
           profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
-        } catch (_) {}
+        } catch (_) { }
       }
 
       profile.novelTitle = payload.novelTitle
@@ -2525,7 +2454,7 @@ ${soulContent}
               fs.unlinkSync(oldCoverPath)
             }
           }
-        } catch (_) {}
+        } catch (_) { }
       }
 
       fs.copyFileSync(sourcePath, targetPath)
@@ -2547,13 +2476,13 @@ ${soulContent}
       if (chapters.length === 0) {
         return { success: false, error: '小说还没有章节生成，请先与角色聊天吧！' }
       }
-      
+
       const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(payload.characterId) as any
       const charName = char ? char.name : '未知角色'
-      
+
       let tocHtml = '<ul style="list-style-type: none; padding: 0; margin: 0; font-size: 0.95rem; line-height: 1.8;">'
       let bodyHtml = ''
-      
+
       for (const ch of chapters) {
         const contentRes = db.getNovelChapterContent(ch.id)
         const content = contentRes ? contentRes.content : ''
@@ -2563,9 +2492,9 @@ ${soulContent}
           .filter(Boolean)
           .map(p => `<p style="margin-bottom: 1.5em; text-indent: 2em; text-align: justify;">${p}</p>`)
           .join('\n')
-          
+
         tocHtml += `<li style="margin-bottom: 8px;"><a href="#chapter-${ch.id}" style="color: #4648d4; text-decoration: none; font-weight: 500;">第${ch.chapter_index}章 ${ch.title}</a></li>`
-        
+
         bodyHtml += `
           <section id="chapter-${ch.id}" style="margin-bottom: 5rem; border-bottom: 1px solid #eee; padding-bottom: 3rem; scroll-margin-top: 20px;">
             <h2 style="color: #4648d4; font-size: 1.8rem; margin-top: 0; margin-bottom: 2rem; font-family: 'Noto Serif SC', serif; border-left: 4px solid #4648d4; padding-left: 12px;">第${ch.chapter_index}章 ${ch.title}</h2>
@@ -2576,7 +2505,7 @@ ${soulContent}
         `
       }
       tocHtml += '</ul>'
-      
+
       const htmlContent = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2652,15 +2581,15 @@ ${soulContent}
   </div>
 </body>
 </html>`
-      
+
       const tempDir = join(app.getPath('userData'), 'temp')
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true })
       }
-      
+
       const filePath = join(tempDir, `novel_reader_${payload.characterId}.html`)
       fs.writeFileSync(filePath, htmlContent, 'utf8')
-      
+
       shell.openExternal(`file://${filePath}`)
       return { success: true }
     } catch (e: any) {
@@ -2676,7 +2605,7 @@ ${soulContent}
       if (raw) {
         try {
           styles = JSON.parse(raw)
-        } catch (_) {}
+        } catch (_) { }
       }
       return { success: true, styles }
     } catch (e: any) {
@@ -2692,9 +2621,9 @@ ${soulContent}
       if (raw) {
         try {
           styles = JSON.parse(raw)
-        } catch (_) {}
+        } catch (_) { }
       }
-      
+
       const existingIdx = styles.findIndex(s => s.id === payload.id)
       if (existingIdx !== -1) {
         styles[existingIdx] = {
@@ -2710,7 +2639,7 @@ ${soulContent}
           createdAt: payload.createdAt || Date.now()
         })
       }
-      
+
       db.setSetting('novel_styles', JSON.stringify(styles))
       return { success: true }
     } catch (e: any) {
@@ -2726,9 +2655,9 @@ ${soulContent}
       if (raw) {
         try {
           styles = JSON.parse(raw)
-        } catch (_) {}
+        } catch (_) { }
       }
-      
+
       styles = styles.filter(s => s.id !== payload.styleId)
       db.setSetting('novel_styles', JSON.stringify(styles))
       return { success: true }
@@ -2744,7 +2673,7 @@ ${soulContent}
       if (!configStr) throw new Error('大模型未配置，请先保存配置')
       const settings = JSON.parse(configStr)
       const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
-      
+
       const systemPrompt = `你是网文文风分析专家。分析以下小说文本片段的写作风格，按照指定格式输出一份「文风档」，用于指导 AI 小说创作。
 
 输出格式（严格按 Markdown 结构输出，不要添加额外解释）：
@@ -2773,11 +2702,11 @@ ${soulContent}
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `【样本文本】\n${payload.sampleText}\n\n请输出文风分析结果：` }
       ]
-      
+
       const res = await modelAdapter.chat(messages, { useSecondary: true, skipSystemInjection: true })
       let promptText = res.content.trim()
       promptText = promptText.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
-      
+
       return { success: true, prompt: promptText }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -2794,17 +2723,17 @@ ${soulContent}
           { name: '纯文本文件', extensions: ['txt'] }
         ]
       })
-      
+
       if (result.canceled || result.filePaths.length === 0) {
         return { success: false, canceled: true }
       }
-      
+
       const filePath = result.filePaths[0]
       let content = fs.readFileSync(filePath, 'utf8')
       if (content.length > 5000) {
         content = content.substring(0, 5000)
       }
-      
+
       return { success: true, content }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -2839,21 +2768,21 @@ ${soulContent}
           ])
         }
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // ===================== 群聊模式专属级联调度与流式生成引擎 =====================
     if (isGroup) {
       const groupId = characterId // 群聊时 characterId 传入的是 groupId
       console.log(`[Group Chat] ➜ 收到群聊流式请求. 会话群组: ${groupId}, 发送消息: "${userMessage}"`)
-      
+
       const db = getDatabaseService()
-      
+
       // 1. 获取群聊元数据与全局模型设置
       const groupMeta = db.getGroupChat(groupId)
       if (!groupMeta) {
         throw new Error('未找到指定的群聊会话，请先创建或刷新群聊！')
       }
-      
+
       const configStr = db.getSetting('model_config')
       if (!configStr) {
         throw new Error('未配置全局大模型参数，请前往设置中心先进行配置保存！')
@@ -2873,16 +2802,21 @@ ${soulContent}
 
       // 2. 将用户的发言首先持久化存盘入库
       const userMsgId = payload.userMsgId || crypto.randomUUID()
+      const groupRoundId = crypto.randomUUID()  // 本轮群聊交互的唯一 round ID
       if (!payload.isRegenerate) {
-        db.saveMessage({
+        // 用户消息通过 MessageBusService 存盘并推送（群聊用户消息不増加未读）
+        MessageBusService.getInstance().publish({
           id: userMsgId,
+          round_id: groupRoundId,
+          seq: 0,
           character_id: groupId,
           role: 'user',
+          msg_type: 'text',
           content: payload.dbMessage || userMessage,
           timestamp: Date.now(),
           token_usage: 0,
           sender_id: 'user'
-        })
+        }, { skipUnreadUpdate: true })
       }
 
       // 3. 核心决策：决定当前发言人队列 speakerQueue
@@ -2955,7 +2889,7 @@ ${soulContent}
           const storageManager = new CharacterStorageManager()
           const speakerDir = join(storageManager.getBaseDir(), currentSpeakerId)
           const soulPath = join(speakerDir, 'Soul.md')
-          
+
           const globalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
           const realUserName = (globalProfile.name || '').trim()
           const allMemberNames = [realUserName || '用户', ...aiMembers.map(m => m.name)]
@@ -3067,7 +3001,7 @@ ${formattedHistory}
                     console.log(`[Group Economy] 成员 ${currentSpeaker.name} 自主发送了群红包：金额 ${finalAmount} 元（原始申请 ${amount} 元）`)
                   }
                 }
-              } catch (_) {}
+              } catch (_) { }
             }
           }
 
@@ -3117,9 +3051,9 @@ ${formattedHistory}
               const emojisStr = db.getSetting('echo_custom_emojis')
               const customEmojis = emojisStr ? JSON.parse(emojisStr) : []
               // 🌟 语义高阶包含关系模糊匹配自愈
-              const matchedEmoji = customEmojis.find((e: any) => 
-                e.meaning === targetMeaning || 
-                targetMeaning.includes(e.meaning) || 
+              const matchedEmoji = customEmojis.find((e: any) =>
+                e.meaning === targetMeaning ||
+                targetMeaning.includes(e.meaning) ||
                 e.meaning.includes(targetMeaning)
               )
               if (matchedEmoji) {
@@ -3142,54 +3076,62 @@ ${formattedHistory}
             .replace(/\[RETURN_RED_PACKET\]/g, '')
             .trim()
 
-          // E. 保存 AI 回复至 Messages 聊天记录表（🚀 仅在文本内容不为空时才保存文字气泡，彻底防止空白消息气泡生成）
-          const assistantMsgId = crypto.randomUUID()
+          // E. 通过 MessageBusService 存盘并推送 AI 回复（群聊多成员序列化推送）
+          let groupSeq = 1  // 用户消息占 seq=0
+          const groupMsgBatch: EchoMessage[] = []
+          const groupAssistantMsgId = crypto.randomUUID()
+
           if (finalResponse.trim().length > 0) {
-            db.saveMessage({
-              id: assistantMsgId,
+            groupMsgBatch.push({
+              id: groupAssistantMsgId,
+              round_id: groupRoundId,
+              seq: groupSeq++,
               character_id: groupId,
               role: 'assistant',
+              msg_type: 'text',
               content: finalResponse,
               timestamp: Date.now(),
               token_usage: 0,
-              sender_id: currentSpeakerId
+              sender_id: currentSpeakerId,
+              redPacketAction: redPacketAction
             })
           }
 
           if (redPacketSend) {
-            db.saveMessage({
+            groupMsgBatch.push({
               id: crypto.randomUUID(),
+              round_id: groupRoundId,
+              seq: groupSeq++,
               character_id: groupId,
               role: 'assistant',
+              msg_type: 'red_packet',
               content: `[wechat_red_packet]:${JSON.stringify(redPacketSend)}`,
               timestamp: Date.now() + 10,
               token_usage: 0,
-              sender_id: currentSpeakerId
+              sender_id: currentSpeakerId,
+              redPacketAction: 'send'
             })
           }
 
           if (customEmojiSend) {
-            db.saveMessage({
+            groupMsgBatch.push({
               id: crypto.randomUUID(),
+              round_id: groupRoundId,
+              seq: groupSeq++,
               character_id: groupId,
               role: 'assistant',
+              msg_type: 'custom_emoji',
               content: `[wechat_custom_emoji]:${JSON.stringify(customEmojiSend)}`,
               timestamp: Date.now() + 20,
               token_usage: 0,
-              sender_id: currentSpeakerId
+              sender_id: currentSpeakerId,
+              customEmojiSend
             })
           }
 
-          // F. 发送 done 信号给前台
-          event.sender.send('chat-chunk', {
-            characterId: groupId,
-            content: finalResponse,
-            done: true,
-            senderId: currentSpeakerId,
-            redPacketAction: redPacketAction,
-            redPacketSend: redPacketSend ? JSON.parse(JSON.stringify(redPacketSend)) : null,
-            customEmojiSend: customEmojiSend ? JSON.parse(JSON.stringify(customEmojiSend)) : null
-          })
+          if (groupMsgBatch.length > 0) {
+            MessageBusService.getInstance().publishBatch(groupMsgBatch)
+          }
 
           // G. 每一满 10 条消息时，异步触发群聊专属记忆提取与大事记合并压缩
           try {
@@ -3373,28 +3315,28 @@ ${formattedHistory}
       }
 
       try {
-          // 创角 Bot AI 调用重试工具（最多重试 3 次，失败后退避等待）
-          const callWithRetry = async (messages: { role: 'system' | 'user' | 'assistant'; content: string }[]): Promise<string> => {
-            const MAX_RETRIES = 3
-            let lastError: any
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-              try {
-                const gen = modelAdapter.chatStream(messages, { usePrimary: true })
-                let result = ''
-                for await (const chunk of gen) {
-                  result += chunk.content
-                }
-                return stripThinkingTags(result)
-              } catch (err) {
-                lastError = err
-                console.warn(`[CreatorBot] 第 ${attempt} 次 AI 调用失败${attempt < MAX_RETRIES ? '，准备重试...' : '，已达最大重试次数'}`, err)
-                if (attempt < MAX_RETRIES) {
-                  await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
-                }
+        // 创角 Bot AI 调用重试工具（最多重试 3 次，失败后退避等待）
+        const callWithRetry = async (messages: { role: 'system' | 'user' | 'assistant'; content: string }[]): Promise<string> => {
+          const MAX_RETRIES = 3
+          let lastError: any
+          for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+              const gen = modelAdapter.chatStream(messages, { usePrimary: true })
+              let result = ''
+              for await (const chunk of gen) {
+                result += chunk.content
+              }
+              return stripThinkingTags(result)
+            } catch (err) {
+              lastError = err
+              console.warn(`[CreatorBot] 第 ${attempt} 次 AI 调用失败${attempt < MAX_RETRIES ? '，准备重试...' : '，已达最大重试次数'}`, err)
+              if (attempt < MAX_RETRIES) {
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
               }
             }
-            throw lastError
           }
+          throw lastError
+        }
 
         if (session.step === 1) {
           // 步骤 1：第一轮提问 - 世界观锚定 + 角色当下处境情绪
@@ -3759,7 +3701,7 @@ ${formattedHistory}
 
     // 🚀 识别导演模式下黄金开局专属斜杠命令
     const isOpeningCommand = chatMode === 'director' && (
-      userMessage.trim() === '/开始' || 
+      userMessage.trim() === '/开始' ||
       userMessage.trim() === '/开始剧情'
     )
 
@@ -3769,7 +3711,7 @@ ${formattedHistory}
 
     if (isOpeningCommand) {
       console.log(`[Director Command] 识别到导演模式黄金开篇斜杠命令: "${userMessage.trim()}"，启动专属特化 Prompt 生成！`)
-      
+
       const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : ''
       const worldContent = fs.existsSync(worldPath) ? fs.readFileSync(worldPath, 'utf8') : ''
       const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : ''
@@ -3804,29 +3746,20 @@ ${memoryContent}
    * **⚠️ 主角发声说话授权：在小说叙事中，主角（即用户 ${userName}）和角色 ${charName} 都具有平等的话语声权！AI 可以且应当根据小说情节合理发展的逻辑，直接描写并输出主角和各个角色当下想要说的话，并用标准双引号 "" 括起来，创造流畅自然的言行交互**。
 2. **名字指代规则（不可有占位符）**：在创作正文时，你**必须直接使用故事中的真实姓名指代他们，绝对禁止使用字面占位符（如 {{char}}、{{user}} 等）**。角色的中文真实名字是“${charName}”，用户的中文真实名字是“${userName}”。
 3. **黄金开场技巧 (In Medias Res)**：拒绝平庸的铺垫、无聊 of 琐碎打招呼或日常醒来起床动作。开篇即是冲突、危机、压抑的渴望或变故现场。把镜头对准某个充满张力的事件中央，让读者一眼就感受到极高的戏剧压力。
-4. **具象化呈现 (Show, Don't Tell)**：禁止直接使用抽象词汇定义感情（例如：“他很愤怒”、“她很害羞”）。    // 1. 先存盘大模型的对话纯文字内容（如果存在文字的话）
-    if (finalResponse.trim().length > 0) {
-      let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
-      let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
-      let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
-      
-      const isLast = !redPacketSend
-      db.saveMessage({
-        id: assistantMsgId,
-        character_id: characterId,
-        role: 'assistant',
-        content: finalResponse,
-        timestamp: finalMsgTimestamp,
-        token_usage: isLast ? (finalPromptTokens + finalCompletionTokens) : 0,
-        prompt_tokens: isLast ? finalPromptTokens : undefined,
-        completion_tokens: isLast ? finalCompletionTokens : undefined,
-        cached_tokens: isLast ? finalCachedTokens : undefined
-      })
-    }�视。
-2. **正文输出包裹**：思考完毕后，你**必须且仅能**把创作的“开篇小说正文与剧情走向抉择选项”（包含末尾的走向抉择模块）全部输出并包裹在 \`<content>\` 和 \`</content>\` 标签对内。
-3. **排除杂质文字**：你**绝对禁止**在 \`<content>\` 之外输出任何其他的自我陈述、前言、废话、以及非开场白之外的任何文字。正文必须从 \`<content>\` 立即开始，以 \`</content>\` 彻底宣告结束。
+4. **具象化呈现 (Show, Don't Tell)**：禁止直接使用抽象词汇定义感情（例如：“他很愤怒”、“她很害羞”）。改用感官细节、肢体语言、内心独白和环境烘托来间接传达人物的情绪与心理状态。让读者自己感受，而不是被动接受定义。
+5. **感官沉浸描写**：小说须调动视觉、听觉、嗅觉、触觉、味觉五种感官，以精准的综合细节构建立体的场景质感。
+6. **剧情走向抉择模块**：在开篇正文结尾，必须附上以下格式的走向抉择模块，让读者选择接下来的剧情方向：
+   【 🎭 剧情走向抉择 】
+   1. 合理向：（顺理成章的情节延续）
+   2. 脑洞向：（出人意料的奇特转折）
+   3. 反转向：（颠覆预期的反转）
+   4. NSFW向：（情色/感官刺激向，如果角色人设允许）
 
 ## 输出规范
+1. **思考结构**：先在 \`<cot>\` 标签内进行内容规划，分析角色人设与世界观，构思开篇场景、核心冲突和细节；完成后在 \`<content>\` 标签内输出正式小说正文，不要将思考过程混入正文。
+2. **正文输出包裹**：思考完毕后，你**必须且仅能**把创作的开篇小说正文与剧情走向抉择选项全部包裹在 \`<content>\` 和 \`</content>\` 标签对内。
+3. **排除杂质文字**：你**绝对禁止**在 \`<content>\` 之外输出任何其他的自我陈述、前言、废话、以及非开场白之外的任何文字。正文必须从 \`<content>\` 立即开始，以 \`</content>\` 彻底宣告结束。
+
 (直接按以下格式进行流式输出，除 <cot> 和 <content> 外不吐出任何其他字)
 <cot>
 你的思考过程
@@ -3917,23 +3850,33 @@ ${memoryContent}
     // 🚀 提前存盘用户消息（在 AI 调用前）：让 SSE 立即广播给手机端，不再等 AI 回复完成
     const userMsgId = payload.userMsgId || crypto.randomUUID()
     if (!payload.isRegenerate) {
-      db.saveMessage({
+      // 用户消息直接通过 MessageBusService 存盘（跨端同步）
+      // skipUnreadUpdate=true：自己发的消息不增加未读计数
+      // skipElectronPush：仅当来自 Electron 本机时跳过推回（前端 UI 已显示）；
+      //                   手机端（IPC bridge）调用时必须推给 Electron 主窗口以实现桌面同步！
+      const isFromIpcBridge = !!(event as any)?.sender?.isIpcBridge
+      const roundId = crypto.randomUUID()
+      ; (payload as any)._roundId = roundId  // 将 roundId 共享给后续 AI 回复消息使用
+      const userMsgType = dbContent.startsWith('[wechat_image_media]:') ? 'image' : 'text'
+      MessageBusService.getInstance().publish({
         id: userMsgId,
+        round_id: roundId,
+        seq: 0,
         character_id: characterId,
         role: 'user',
+        msg_type: userMsgType,
         content: dbContent,
         timestamp: Date.now(),
-        token_usage: 0  // token 用量在 AI 完成后才知道，用户消息暂存 0
+        token_usage: 0
+      }, {
+        skipElectronPush: !isFromIpcBridge,  // 手机端来源必须推给桌面端
+        skipSsePush: false,                  // 始终广播给 SSE（同步其他手机端）
+        skipUnreadUpdate: true
       })
     }
 
-    // 🚀 如果是 Electron 本机的流式对话请求，注册到 activeElectronChats
-    // 这样 registerOnMessageSaved 回调可以识别并跳过本机 AI 段落的 IPC 广播，防止重复渲染
-    // 判断依据：真正 Electron event.sender 有 id 属性，HTTP 桥接的 mockEvent.sender 没有
-    const isElectronEvent = typeof (event.sender as any).id === 'number'
-    if (isElectronEvent) {
-      activeElectronChats.add(characterId)
-    }
+    // 从 payload 中取出 roundId，若没有（重新回复情形）则新生成一个
+    const _roundId: string = (payload as any)._roundId || crypto.randomUUID()
 
     let accumulatedResponse = ''
     const streamSplit = new StreamSplitController()
@@ -4114,13 +4057,13 @@ ${memoryContent}
     if (sendMatch) {
       const amount = parseFloat(sendMatch[1])
       let title = sendMatch[3].trim()
-      
+
       // 读取角色当前钱包余额进行校验阻断
       const statePath = join(charDir, 'State.md')
       const charState = StateReaderWriter.readState(statePath)
       const balanceItem = charState.items.find(i => i.key === 'balance')
       const currentBalance = balanceItem ? Number(balanceItem.value) : 5200.0
-      
+
       if (!isNaN(amount) && amount > 0) {
         if (amount <= currentBalance) {
           // 余额充足，扣除余额写盘，允许发送红包
@@ -4164,7 +4107,7 @@ ${memoryContent}
 
     // 对 AI 回复进行系统控制符代码全局擦除，原汁原味地保留 AI 输出的所有对话描述与转账口语台词，杜绝暴力屏蔽带来的残损体验
     const halfBracketReg = /[（(][^）)]*$/g // 🚀 针对流式生成中断导致的未闭合半截括号动作（如：“(红”）进行优雅自愈擦除
-    
+
     // 用全局工具函数对 AI 回复进行思维链标签的物理擦除
     let finalResponse = stripThinkingTags(accumulatedResponse)
     // A3. [自定义表情包动作决策] (仅在非导演模式下触发)
@@ -4179,9 +4122,9 @@ ${memoryContent}
         const emojisStr = db.getSetting('echo_custom_emojis')
         const customEmojis = emojisStr ? JSON.parse(emojisStr) : []
         // 🌟 语义高阶包含关系模糊匹配自愈
-        const matchedEmoji = customEmojis.find((e: any) => 
-          e.meaning === targetMeaning || 
-          targetMeaning.includes(e.meaning) || 
+        const matchedEmoji = customEmojis.find((e: any) =>
+          e.meaning === targetMeaning ||
+          targetMeaning.includes(e.meaning) ||
           e.meaning.includes(targetMeaning)
         )
         if (matchedEmoji) {
@@ -4212,12 +4155,12 @@ ${memoryContent}
       .replace(/\[RETURN_RED_PACKET\]/g, '')
       .replace(sendRegGlobal, '')
       .replace(emojiRegGlobal, '')
-      
+
     // 🚀 降维干涉：如果已成功提取了红包 Payload，采取精准字面量强制擦除，100% 排除正则可能匹配不到的漏网情况
     if (sendMatch && sendMatch[0]) {
       finalResponse = finalResponse.replace(sendMatch[0], '')
     }
-    
+
     finalResponse = finalResponse
       .replace(halfBracketReg, '')
       .trim()
@@ -4253,27 +4196,30 @@ ${memoryContent}
     // 根据聊天模式进行物理存盘分段处理
     let finalMsgTimestamp = Date.now() + 50
     // 记录该批 AI 消息中第一条的时间戳，作为延迟确认记忆草稿的锚点（anchorTs）
-    // 对话模式下有多条气泡，anchorTs 取第一条（最小时间戳）以确保"只要任意一条仍存在就提交草稿"
     let firstBubbleTs = finalMsgTimestamp
 
     // 1. 先存盘大模型的对话纯文字内容（如果存在文字的话）
+    const msgBatch: EchoMessage[] = []
+    const roundId = _roundId
+    let seqCounter = 1  // 用户消息已用 seq=0
+
     if (finalResponse.trim().length > 0) {
       if (chatMode === 'dialogue') {
         // 纯对话模式：采用微信级智能分句重组算法拆分为多条独立的消息持久化，确保重启后历史记录天然为极其自然的微信短气泡
         const paragraphs: string[] = []
         const lines = finalResponse.split('\n').map(l => l.trim()).filter(Boolean)
-        
+
         for (const line of lines) {
           if (line.length <= 25) {
             paragraphs.push(line)
             continue
           }
-          
+
           // 基于标准句尾标点进行高精度二次拆分
           const sentences = line.split(/(?<=[。；！？!?])\s*/)
             .map(s => s.trim())
             .filter(Boolean)
-            
+
           let currentTemp = ''
           for (const s of sentences) {
             if (currentTemp.length === 0) {
@@ -4292,26 +4238,32 @@ ${memoryContent}
             paragraphs.push(currentTemp)
           }
         }
-        
+
         let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
         let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
         let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
 
         paragraphs.forEach((p, idx) => {
           const pTimestamp = Date.now() + 50 + idx * 100
-          // 记录第一条气泡的时间戳作为锚点（后续 commitPendingMemory 使用）
           if (idx === 0) firstBubbleTs = pTimestamp
-          const isLast = (idx === paragraphs.length - 1) && !redPacketSend
-          db.saveMessage({
-            id: crypto.randomUUID(),
+          const isLastText = (idx === paragraphs.length - 1) // 最后一条文字气泡（无论后面是否有红包）
+          const isLast = isLastText && !redPacketSend       // 整批最后一条（用于携带 token 统计）
+          msgBatch.push({
+            // 最后一条文字分段消息使用 assistantMsgId，与 chat-stream 的 res.messageId 对齐，
+            // 确保前端保底检查 msgs.some(m => m.id === res.messageId) 能正确命中
+            id: isLastText ? assistantMsgId : crypto.randomUUID(),
+            round_id: roundId,
+            seq: seqCounter++,
             character_id: characterId,
             role: 'assistant',
+            msg_type: 'text',
             content: p,
             timestamp: pTimestamp,
             token_usage: isLast ? (finalPromptTokens + finalCompletionTokens) : 0,
             prompt_tokens: isLast ? finalPromptTokens : undefined,
             completion_tokens: isLast ? finalCompletionTokens : undefined,
-            cached_tokens: isLast ? finalCachedTokens : undefined
+            cached_tokens: isLast ? finalCachedTokens : undefined,
+            redPacketAction: isLast ? redPacketAction : undefined
           })
           finalMsgTimestamp = pTimestamp
         })
@@ -4320,58 +4272,75 @@ ${memoryContent}
         let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
         let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
         let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
-        
+
         const isLast = !redPacketSend
-        db.saveMessage({
+        msgBatch.push({
           id: assistantMsgId,
+          round_id: roundId,
+          seq: seqCounter++,
           character_id: characterId,
           role: 'assistant',
+          msg_type: 'text',
           content: finalResponse,
           timestamp: finalMsgTimestamp,
           token_usage: isLast ? (finalPromptTokens + finalCompletionTokens) : 0,
           prompt_tokens: isLast ? finalPromptTokens : undefined,
           completion_tokens: isLast ? finalCompletionTokens : undefined,
-          cached_tokens: isLast ? finalCachedTokens : undefined
+          cached_tokens: isLast ? finalCachedTokens : undefined,
+          redPacketAction: isLast ? redPacketAction : undefined
         })
       }
     }
 
-    // 2. 如果存在主动发送红包，则再单独保存一条 [wechat_red_packet] 格式的消息，且排在文字气泡的最后面
+    // 2. 如果存在主动发送红包，则再单独保存一条 [wechat_red_packet] 格式的消息且排在文字气泡的最后面
     if (redPacketSend) {
       let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
       let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
       let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
 
-      db.saveMessage({
+      msgBatch.push({
         id: crypto.randomUUID(),
+        round_id: roundId,
+        seq: seqCounter++,
         character_id: characterId,
         role: 'assistant',
+        msg_type: 'red_packet',
         content: `[wechat_red_packet]:${JSON.stringify(redPacketSend)}`,
-        timestamp: finalMsgTimestamp + 500, // 稍微延迟 500ms 确保排在文字气泡后面
+        timestamp: finalMsgTimestamp + 500,
         token_usage: finalPromptTokens + finalCompletionTokens,
         prompt_tokens: finalPromptTokens,
         completion_tokens: finalCompletionTokens,
-        cached_tokens: finalCachedTokens
+        cached_tokens: finalCachedTokens,
+        redPacketAction: 'send'
       })
     }
 
-    // 3. 如果存在主动发送自定义表情包，则再单独保存一条 [wechat_custom_emoji] 格式的消息，且排在文字气泡的最后面
+    // 3. 如果存在主动发送自定义表情包，则再单独保存一条 [wechat_custom_emoji] 格式的消息
     if (customEmojiSend) {
       let finalPromptTokens = lastUsage?.prompt_tokens ?? inputTokens
       let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
       let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
 
-      db.saveMessage({
+      msgBatch.push({
         id: crypto.randomUUID(),
+        round_id: roundId,
+        seq: seqCounter++,
         character_id: characterId,
         role: 'assistant',
+        msg_type: 'custom_emoji',
         content: `[wechat_custom_emoji]:${JSON.stringify(customEmojiSend)}`,
-        timestamp: finalMsgTimestamp + 600, // 稍微延迟 600ms 确保排在文字气泡后面
+        timestamp: finalMsgTimestamp + 600,
         token_usage: finalPromptTokens + finalCompletionTokens,
         prompt_tokens: finalPromptTokens,
         completion_tokens: finalCompletionTokens,
-        cached_tokens: finalCachedTokens
+        cached_tokens: finalCachedTokens,
+        customEmojiSend
       })
+    }
+
+    // 批量存盘并推送所有 AI 回复消息（原子事务 + 多端双路推送）
+    if (msgBatch.length > 0) {
+      MessageBusService.getInstance().publishBatch(msgBatch)
     }
 
     // 缓存前缀保温：改用已清洗的 finalResponse（而非含控制符/思考链的原始 accumulatedResponse）
@@ -4408,21 +4377,8 @@ ${memoryContent}
     let finalCompletionTokens = lastUsage?.completion_tokens ?? outputTokens
     let finalCachedTokens = lastUsage?.cached_tokens ?? undefined
 
-    event.sender.send('chat-chunk', {
-      characterId,
-      content: finalResponse,
-      done: true,
-      messageId: assistantMsgId,
-      redPacketAction: redPacketAction,   // 携带领取/退回决策，供前端红包状态更新
-      prompt_tokens: finalPromptTokens,
-      completion_tokens: finalCompletionTokens,
-      cached_tokens: finalCachedTokens
-    })
-
-    // 所有 db.saveMessage 已完成，现在安全清理 activeElectronChats
-    if (isElectronEvent) {
-      activeElectronChats.delete(characterId)
-    }
+    // 所有存盘已通过 MessageBusService.publishBatch 完成，不再需要 event.sender.send
+    // activeElectronChats 已卸载（新架构中不再需要该标识符）
 
     // 异步触发 AI 小说写手（不阻塞前台返回）
     if (characterId !== CREATOR_BOT_ID && chatMode !== 'director') {
@@ -4435,7 +4391,7 @@ ${memoryContent}
           novelService.checkAndGenerateChapter(characterId).catch(err => {
             console.error('[NovelWriter] 触发小说写手检查异常:', err)
           })
-        } catch (_) {}
+        } catch (_) { }
       }
     }
 
@@ -4536,17 +4492,7 @@ ${memoryContent}
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('chat-window-cleared', { characterId })
       }
-      const ssePayload = {
-        channel: 'chat-window-cleared',
-        data: { characterId }
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('chat-window-cleared', { characterId })
 
       return { success: true }
     } catch (e: any) {
@@ -4608,13 +4554,13 @@ ${memoryContent}
       db.clearCharacterSettings(characterId)
       try {
         db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`last_schedule_goals_msg_count_${characterId}`)
-      } catch (_) {}
+      } catch (_) { }
 
       // F1. 明确删除 pending_memory_diff 记忆草稿（不依赖 LIKE 模糊匹配，100% 确保清除；
       //     若清空后立即对话，commitPendingMemory 仍持有旧草稿，会将被删的记忆重新落盘）
       try {
         db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${characterId}`)
-      } catch (_) {}
+      } catch (_) { }
 
       // G. 清空 Diary.md 日记文件（角色自省写下的日记，会被 ContextAssembler 读取并注入
       //    System Prompt，不清除则角色会通过"日记"感知到已被删除的历史内容）
@@ -4635,17 +4581,7 @@ ${memoryContent}
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('history-memory-cleared', { characterId })
       }
-      const ssePayload = {
-        channel: 'history-memory-cleared',
-        data: { characterId }
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('history-memory-cleared', { characterId })
 
       return { success: true }
     } catch (e: any) {
@@ -4710,7 +4646,7 @@ ${memoryContent}
       if (!fs.existsSync(groupDir)) {
         fs.mkdirSync(groupDir, { recursive: true })
       }
-      
+
       const memoryInitContent = `<!--\n{\n  "stm": [],\n  "ltm": {}\n}\n-->\n# 记忆存储区\n\n## 短期记忆 (Short-Term Memory)\n暂无短期记忆。\n\n## 长期记忆 (Long-Term Memory)\n暂无长期记忆。`
       fs.writeFileSync(join(groupDir, 'Memory.md'), memoryInitContent, 'utf8')
 
@@ -4724,17 +4660,7 @@ ${memoryContent}
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('history-memory-cleared', { characterId: groupId })
       }
-      const ssePayload = {
-        channel: 'history-memory-cleared',
-        data: { characterId: groupId }
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('history-memory-cleared', { characterId: groupId })
 
       return { success: true }
     } catch (e: any) {
@@ -4763,6 +4689,9 @@ ${memoryContent}
     content: string
     timestamp: number
     token_usage?: number
+    msg_type?: string
+    round_id?: string
+    seq?: number
   }) => {
     try {
       const db = getDatabaseService()
@@ -4772,7 +4701,10 @@ ${memoryContent}
         role: payload.role,
         content: payload.content,
         timestamp: payload.timestamp,
-        token_usage: payload.token_usage || 0
+        token_usage: payload.token_usage || 0,
+        msg_type: payload.msg_type || 'text',
+        round_id: payload.round_id,
+        seq: payload.seq ?? 0
       })
       return { success: true }
     } catch (e: any) {
@@ -4785,23 +4717,23 @@ ${memoryContent}
     try {
       const globalConfigDir = join(app.getPath('userData'), 'config')
       const globalUserPath = join(globalConfigDir, 'USER.md')
-      
+
       console.log(`[IPC read-global-user-md] 读取路径: ${globalUserPath}`)
-      
+
       if (!fs.existsSync(globalConfigDir)) {
         fs.mkdirSync(globalConfigDir, { recursive: true })
       }
-      
+
       if (!fs.existsSync(globalUserPath)) {
         // 物理画像初始化只写入空字符串，绝不产生任何占位内容，彻底留白给用户
         fs.writeFileSync(globalUserPath, '', 'utf-8')
       }
-      
+
       const content = fs.readFileSync(globalUserPath, 'utf-8')
       const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
-      
+
       console.log(`[IPC read-global-user-md] 读取完成, 字节=${Buffer.byteLength(content, 'utf8')}, nickname=${profile.name}`)
-      
+
       return { success: true, content, nickname: profile.name }
     } catch (e: any) {
       console.error(`[IPC read-global-user-md] 读取失败:`, e)
@@ -4814,9 +4746,9 @@ ${memoryContent}
     try {
       const globalConfigDir = join(app.getPath('userData'), 'config')
       const globalUserPath = join(globalConfigDir, 'USER.md')
-      
+
       console.log(`[IPC save-global-user-md] 收到保存请求, source=${payload.source}, content长度=${(payload.content || '').length}, path=${globalUserPath}`)
-      
+
       if (!fs.existsSync(globalConfigDir)) {
         fs.mkdirSync(globalConfigDir, { recursive: true })
       }
@@ -4837,7 +4769,7 @@ ${memoryContent}
       const finalContent = fs.readFileSync(globalUserPath, 'utf-8')
       const finalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
       console.log(`[IPC save-global-user-md] 写盘后校验: 文件字节=${Buffer.byteLength(finalContent, 'utf8')}, nickname=${finalProfile.name}`)
-      
+
       return { success: true, updatedContent: finalContent, nickname: finalProfile.name }
     } catch (e: any) {
       console.error(`[IPC save-global-user-md] 保存失败:`, e)
@@ -4859,17 +4791,7 @@ ${memoryContent}
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('character-file-updated', memoryBroadcast)
       }
-      const memorySse = {
-        channel: 'character-file-updated',
-        data: memoryBroadcast
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(memorySse)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('character-file-updated', memoryBroadcast)
 
       return { success: true }
     } catch (e: any) {
@@ -4991,7 +4913,7 @@ ${memoryContent}
         }
 
         console.log(`[IPC] 开始物理硬删除角色专属目录，目标路径: ${charDir}`);
-        
+
         // A. 物理硬删除该角色文件夹下的全部内容（包含 media、人设、记忆、日记、梦境等）
         if (fs.existsSync(charDir)) {
           try {
@@ -5044,7 +4966,7 @@ ${memoryContent}
         const fileBuffer = fs.readFileSync(fullPath)
         const ext = extname(fullPath).toLowerCase()
         const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
-        
+
         let meta: any = null
         const jsonPath = fullPath.replace(ext, '.json')
         if (fs.existsSync(jsonPath)) {
@@ -5059,13 +4981,13 @@ ${memoryContent}
               createdAt: rawMeta.createdAt || fs.statSync(fullPath).mtimeMs,
               prefixType: rawMeta.prefixType || (payload.mediaPath.includes('social_') ? 'social' : payload.mediaPath.includes('proactive_') ? 'proactive' : 'chat')
             }
-          } catch (_) {}
+          } catch (_) { }
         }
 
-        return { 
-          success: true, 
+        return {
+          success: true,
           base64: `data:${mimeType};base64,${fileBuffer.toString('base64')}`,
-          meta 
+          meta
         }
       }
       return { success: false, error: '文件不存在' }
@@ -5078,11 +5000,25 @@ ${memoryContent}
   ipcMain.handle('save-conversation-meta', async (_, payload: { characterId: string; pinned?: boolean; unread?: number; muted?: boolean; hidden?: boolean }) => {
     try {
       const db = getDatabaseService()
+      // 1. 向后兼容：保持 Settings 表的 JSON 存储
       db.setSetting(`meta_${payload.characterId}`, JSON.stringify(payload))
-      
+      // 2. 同步更新 ConversationMeta 表（MessageBusService 使用的权威表）
+      if (payload.unread !== undefined) {
+        db.setConversationMetaField(payload.characterId, 'unread', payload.unread)
+      }
+      if (payload.pinned !== undefined) {
+        db.setConversationMetaField(payload.characterId, 'pinned', payload.pinned ? 1 : 0)
+      }
+      if (payload.muted !== undefined) {
+        db.setConversationMetaField(payload.characterId, 'muted', payload.muted ? 1 : 0)
+      }
+      if (payload.hidden !== undefined) {
+        db.setConversationMetaField(payload.characterId, 'hidden', payload.hidden ? 1 : 0)
+      }
+
       // 广播给所有客户端（包括通过 SSE 长连接的手机端）
       mainWindow?.webContents.send('conversation-meta-updated', payload)
-      
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -5157,12 +5093,12 @@ ${memoryContent}
       }
       const settings = JSON.parse(configStr)
       const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
-      
+
       const storageManager = new CharacterStorageManager()
       const charDir = join(storageManager.getBaseDir(), payload.folderName)
       const soulPath = join(charDir, 'Soul.md')
       const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : ''
-      
+
       const chatMode = db.getSetting(`chat_mode_${payload.characterId}`) || 'descriptive'
       const isDialogue = chatMode === 'dialogue'
       const limit = isDialogue ? 30 : 10
@@ -5214,7 +5150,7 @@ Please output in exactly this XML format:
       // 使用辅助大模型写日记
       const response = await modelAdapter.chat(messages, { useSecondary: true })
       const rawContent = response.content.trim()
-      
+
       const diaryMatch = rawContent.match(/<diary>([\s\S]*?)<\/diary>/)
       const diaryText = diaryMatch ? diaryMatch[1].trim() : ''
 
@@ -5224,7 +5160,7 @@ Please output in exactly this XML format:
         const timeHeader = `\n\n### 📓 ${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
         const entry = `${timeHeader}\n${diaryText}`
         fs.appendFileSync(diaryPath, entry, 'utf8')
-        
+
         // 保存今日写日记标记 [前面已乐观占位，这里再次确保写入]
         db.setSetting(`last_diary_date_${payload.characterId}`, todayStr)
 
@@ -5236,25 +5172,19 @@ Please output in exactly this XML format:
           excerpt: excerpt
         })
 
-        const msgId = `diary_${payload.characterId}_${Date.now()}`
-        const newMsg = {
-          id: msgId,
+        const diaryMsgId = `diary_${payload.characterId}_${Date.now()}`
+        // 通过 MessageBusService 存盘并推送日记卡片消息
+        MessageBusService.getInstance().publish({
+          id: diaryMsgId,
+          round_id: diaryMsgId,
+          seq: 0,
           character_id: payload.characterId,
           role: 'assistant',
+          msg_type: 'diary',
           content: diaryMsgContent,
           timestamp: Date.now(),
           token_usage: 0
-        }
-        db.saveMessage(newMsg)
-
-        // 精确推送到渲染进程，点亮会话列表的未读数与消息流
-        const windows = BrowserWindow.getAllWindows()
-        if (windows.length > 0) {
-          windows[0].webContents.send('proactive-chat-message', {
-            characterId: payload.characterId,
-            message: newMsg
-          })
-        }
+        })
 
         return { success: true, diaryText }
       } else {
@@ -5268,7 +5198,7 @@ Please output in exactly this XML format:
         try {
           const db = getDatabaseService()
           db.setSetting(`last_diary_date_${payload.characterId}`, '')
-        } catch (_) {}
+        } catch (_) { }
       }
       return { success: false, error: err.message || err }
     }
@@ -5309,14 +5239,14 @@ Please output in exactly this XML format:
   ipcMain.handle('get-stats-data', async () => {
     try {
       const db = getDatabaseService()
-      
+
       // 平滑兼容性迁移：若 ModelStats 刚创建还没有数据，自动把 Messages 对话历史平滑迁移导入
       try {
         const testStatsRow = db.db.prepare("SELECT COUNT(*) AS total FROM ModelStats").get() as any
         if (testStatsRow && testStatsRow.total === 0) {
           console.log('[Stats] 首次检测到 ModelStats 为空，启动平滑向下兼容迁移，将 Messages 对话历史记入 ModelStats...')
           const allUserMessages = db.db.prepare("SELECT timestamp, token_usage FROM Messages WHERE role = 'user'").all() as any[]
-          
+
           let primaryModelName = 'primary_model'
           try {
             const configStr = db.getSetting('model_config')
@@ -5324,7 +5254,7 @@ Please output in exactly this XML format:
               const settings = JSON.parse(configStr)
               primaryModelName = settings.primary?.model || 'primary_model'
             }
-          } catch (_) {}
+          } catch (_) { }
 
           // 事务化批量导入以保障极致性能
           const insertStmt = db.db.prepare(`
@@ -5357,7 +5287,7 @@ Please output in exactly this XML format:
           const settings = JSON.parse(configStr)
           hasSecondary = !!(settings.enableSecondary === true && settings.secondary && settings.secondary.model)
         }
-      } catch (_) {}
+      } catch (_) { }
 
       // 1. 查询总计数据（累计、主模型、辅助模型）
       const totalCallsRow = db.db.prepare("SELECT COUNT(*) AS total FROM ModelStats").get() as any
@@ -5382,13 +5312,13 @@ Please output in exactly this XML format:
         const dStart = new Date()
         dStart.setHours(0, 0, 0, 0)
         dStart.setDate(dStart.getDate() - i)
-        
+
         const dEnd = new Date(dStart)
         dEnd.setDate(dEnd.getDate() + 1)
-        
+
         const startMs = dStart.getTime()
         const endMs = dEnd.getTime()
-        
+
         const row = db.db.prepare(`
           SELECT 
             COUNT(*) AS calls, 
@@ -5400,7 +5330,7 @@ Please output in exactly this XML format:
           FROM ModelStats
           WHERE timestamp >= ? AND timestamp < ?
         `).get(startMs, endMs) as any
-        
+
         const label = `${dStart.getMonth() + 1}/${dStart.getDate()}`
         statsDays.push({
           label,
@@ -5420,7 +5350,7 @@ Please output in exactly this XML format:
       for (let i = 7; i >= 0; i--) {
         const startMs = nowMs - (i + 1) * 7 * oneDayMs
         const endMs = nowMs - i * 7 * oneDayMs
-        
+
         const row = db.db.prepare(`
           SELECT 
             COUNT(*) AS calls, 
@@ -5432,14 +5362,14 @@ Please output in exactly this XML format:
           FROM ModelStats
           WHERE timestamp >= ? AND timestamp < ?
         `).get(startMs, endMs) as any
-        
+
         const startDate = new Date(startMs)
         const endDate = new Date(endMs)
         // 简写：只显示起始日期（月/日），避免折叠重叠
         const label = `${startDate.getMonth() + 1}/${startDate.getDate()}`
         // 完整显示日期区间，供 Hover Tooltip
         const fullLabel = `${startDate.getFullYear()}年${startDate.getMonth() + 1}月${startDate.getDate()}日 - ${endDate.getFullYear()}年${endDate.getMonth() + 1}月${endDate.getDate()}日`
-        
+
         statsWeeks.push({
           label,
           fullLabel,
@@ -5480,10 +5410,10 @@ Please output in exactly this XML format:
       if (!configStr) {
         return { success: false, isConfigured: false, error: '未配置全局大模型' }
       }
-      
+
       const settings = JSON.parse(configStr)
       let apiKey = ''
-      
+
       if (settings.primary && settings.primary.provider === 'deepseek') {
         apiKey = settings.primary.apiKey
       } else if (settings.secondary && settings.secondary.provider === 'deepseek') {
@@ -5557,17 +5487,17 @@ Please output in exactly this XML format:
       const characters = db.getAllCharacters()
       const activeChars = characters.filter(c => {
         if (db.getChatHistory(c.id, 1).length === 0) return false
-        
+
         const metaStr = db.getSetting(`meta_${c.id}`)
         if (metaStr) {
           try {
             const meta = JSON.parse(metaStr)
             if (meta.muted) return false
-          } catch (_) {}
+          } catch (_) { }
         }
         return true
       })
-      
+
       if (activeChars.length === 0) {
         return { success: true, cached: false, moments: [], error: '当前没有任何处于活跃状态（有过对话）的角色。' }
       }
@@ -5613,13 +5543,13 @@ Please output in exactly this XML format:
       const characters = db.getAllCharacters()
       const activeChars = characters.filter(c => {
         if (db.getChatHistory(c.id, 1).length === 0) return false
-        
+
         const metaStr = db.getSetting(`meta_${c.id}`)
         if (metaStr) {
           try {
             const meta = JSON.parse(metaStr)
             if (meta.muted) return false
-          } catch (_) {}
+          } catch (_) { }
         }
         return true
       })
@@ -5652,7 +5582,7 @@ Please output in exactly this XML format:
   ipcMain.handle('trigger-image-debug', async (_, payload: { type: 'moment' | 'forum' }) => {
     try {
       const db = getDatabaseService()
-      
+
       // 获取大模型配置
       const configStr = db.getSetting('model_config')
       if (!configStr) throw new Error('未配置全局大模型')
@@ -5665,7 +5595,7 @@ Please output in exactly this XML format:
       if (activeChars.length === 0) {
         activeChars = characters
       }
-      
+
       if (activeChars.length === 0) {
         return { success: true, moments: [], posts: [], error: '系统暂无任何角色数据' }
       }
@@ -5674,7 +5604,7 @@ Please output in exactly this XML format:
       const targetChars = activeChars.slice(0, 3)
 
       const socialMedia = new SocialMediaService()
-      
+
       if (payload.type === 'moment') {
         const newMoments: any[] = []
         for (const char of targetChars) {
@@ -5716,17 +5646,7 @@ Please output in exactly this XML format:
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('social-moment-updated')
       }
-      const ssePayload = {
-        channel: 'social-moment-updated',
-        data: {}
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('social-moment-updated', {})
 
       return { success: true }
     } catch (e: any) {
@@ -5747,17 +5667,7 @@ Please output in exactly this XML format:
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('social-forum-updated')
       }
-      const ssePayload = {
-        channel: 'social-forum-updated',
-        data: {}
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('social-forum-updated', {})
 
       return { success: true }
     } catch (e: any) {
@@ -5856,7 +5766,7 @@ Please output in exactly this XML format:
         const modelConfig = JSON.parse(configStr)
         const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary)
         const socialMedia = new SocialMediaService()
-        
+
         // 智能检测用户评论中是否 @ 了通讯录活跃角色 (采用零宽与空格免疫的极致防御方案)
         const characters = db.getAllCharacters()
         let atTriggered = false
@@ -5911,16 +5821,16 @@ Please output in exactly this XML format:
   ipcMain.handle('fetch-forum-post-detail', async (_, payload: { postId: string }) => {
     try {
       const db = getDatabaseService()
-      
+
       // 只有在当前运行周期内首次阅读时，才增加 views 并标记为已读
       if (!viewedPostIds.has(payload.postId)) {
         db.incrementForumPostViews(payload.postId)
         viewedPostIds.add(payload.postId)
       }
-      
+
       const post = db.db.prepare('SELECT * FROM ForumPosts WHERE id = ?').get(payload.postId) as any
       if (!post) throw new Error('该帖子已被物理删除')
-      
+
       const comments = db.getForumComments(payload.postId)
       return { success: true, post, comments }
     } catch (e: any) {
@@ -5997,7 +5907,7 @@ Please output in exactly this XML format:
         const modelConfig = JSON.parse(configStr)
         const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary)
         const socialMedia = new SocialMediaService()
-        
+
         // 智能检测用户评论中是否 @ 了通讯录活跃角色 (采用零宽与空格免疫的极致防御方案)
         const characters = db.getAllCharacters()
         let atTriggered = false
@@ -6184,17 +6094,7 @@ Please output in exactly this XML format:
           if (mainWindow && !mainWindow.webContents.isDestroyed()) {
             mainWindow.webContents.send('message-deleted', { characterId: payload.characterId, messageId: deletedMsgId })
           }
-          const ssePayload = {
-            channel: 'message-deleted',
-            data: { characterId: payload.characterId, messageId: deletedMsgId }
-          }
-          for (const client of sseClients) {
-            try {
-              client.write(`data: ${JSON.stringify(ssePayload)}\n\n`)
-            } catch (_) {
-              sseClients.delete(client)
-            }
-          }
+          SseManager.getInstance().broadcast('message-deleted', { characterId: payload.characterId, messageId: deletedMsgId })
         } else {
           break
         }
@@ -6208,7 +6108,7 @@ Please output in exactly this XML format:
       try {
         db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${payload.characterId}`)
         console.log(`[regenerate-reply] 清除角色 ${payload.characterId} 的记忆草稿。`)
-      } catch (_) {}
+      } catch (_) { }
 
       console.log(`[regenerate-reply] 成功擦除连续 ${deleteCount} 条旧回复气泡。`)
       return { success: true }
@@ -6241,17 +6141,7 @@ Please output in exactly this XML format:
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('character-state-updated', stateBroadcast)
       }
-      const stateSse = {
-        channel: 'character-state-updated',
-        data: stateBroadcast
-      }
-      for (const client of sseClients) {
-        try {
-          client.write(`data: ${JSON.stringify(stateSse)}\n\n`)
-        } catch (_) {
-          sseClients.delete(client)
-        }
-      }
+      SseManager.getInstance().broadcast('character-state-updated', stateBroadcast)
 
       return { success: true }
     } catch (e: any) {
@@ -6265,13 +6155,13 @@ Please output in exactly this XML format:
       const storageManager = new CharacterStorageManager()
       const statePath = join(storageManager.getBaseDir(), payload.folderName, 'State.md')
       const state = StateReaderWriter.readState(statePath)
-      
+
       // 检查老角色是否有 intimacy，如果没有，补充上默认值并自动触发评估
       let intimacyItem = state.items.find(i => i.key === 'intimacy')
       if (!intimacyItem) {
         state.items.unshift({ key: "intimacy", label: "亲密度", value: 20, emoji: "❤️", min: 0, max: 100, type: 'number' })
         StateReaderWriter.writeState(statePath, state)
-        
+
         // 异步后台自动评估老角色的亲密度
         const soulPath = join(storageManager.getBaseDir(), payload.folderName, 'Soul.md')
         if (fs.existsSync(soulPath)) {
@@ -6327,18 +6217,18 @@ ${soulContent}
           evaluateOldCharIntimacy()
         }
       }
-      
+
       // 去掉可能残存的老角色孤独感
       let filteredItems = state.items.filter(item => item.key !== 'loneliness')
-      
+
       // 读取全局预设状态栏
       const db = getDatabaseService()
       const presetsStr = db.getSetting('state_presets')
       const presets = presetsStr ? JSON.parse(presetsStr) : []
       const globalPresets = presets.filter((p: any) => p.is_global)
-      
+
       let stateChanged = filteredItems.length !== state.items.length
-      
+
       // 遍历并动态注入全局预设状态栏
       for (const gp of globalPresets) {
         const existingItem = filteredItems.find(i => i.key === gp.id)
@@ -6365,7 +6255,7 @@ ${soulContent}
           }
         }
       }
-      
+
       // 对列表项进行精密的层级排序：基础内置属性 -> 全局预设属性 -> 局部自定义属性
       const order = ['intimacy', 'mood']
       filteredItems.sort((a, b) => {
@@ -6374,14 +6264,14 @@ ${soulContent}
         if (aPre !== -1 && bPre !== -1) return aPre - bPre
         if (aPre !== -1) return -1
         if (bPre !== -1) return 1
-        
+
         const aIsGlobal = globalPresets.some((gp: any) => gp.id === a.key)
         const bIsGlobal = globalPresets.some((gp: any) => gp.id === b.key)
         if (aIsGlobal && !bIsGlobal) return -1
         if (!aIsGlobal && bIsGlobal) return 1
         return 0
       })
-      
+
       if (stateChanged) {
         state.items = filteredItems
         StateReaderWriter.writeState(statePath, state)
@@ -6390,7 +6280,7 @@ ${soulContent}
         state.items = filteredItems
         StateReaderWriter.writeState(statePath, state)
       }
-      
+
       return { success: true, states: state.items }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -6413,20 +6303,20 @@ ${soulContent}
   ipcMain.handle('save-state-presets', async (_, payload: { presets: any[] }) => {
     try {
       const db = getDatabaseService()
-      
+
       // 读取旧的 presets 配置，以确定哪些全局预设被取消或删除了
       const oldPresetsStr = db.getSetting('state_presets')
       const oldPresets: any[] = oldPresetsStr ? JSON.parse(oldPresetsStr) : []
       const oldGlobalIds = oldPresets.filter(p => p.is_global).map(p => p.id)
-      
+
       db.setSetting('state_presets', JSON.stringify(payload.presets, null, 2))
-      
+
       const globalPresets = payload.presets.filter(p => p.is_global)
       const currentGlobalIds = globalPresets.map(p => p.id)
-      
+
       // 找出所有被“取消全局”或被“彻底删除”的旧全局 Preset IDs
       const removedGlobalIds = oldGlobalIds.filter(id => !currentGlobalIds.includes(id))
-      
+
       const storageManager = new CharacterStorageManager()
       const baseDir = storageManager.getBaseDir()
       if (fs.existsSync(baseDir)) {
@@ -6438,7 +6328,7 @@ ${soulContent}
           if (fs.existsSync(statePath)) {
             const state = StateReaderWriter.readState(statePath)
             let updated = false
-            
+
             // A. 对于新增或保留的全局预设：自动应用/刷新
             for (const gp of globalPresets) {
               const existingItem = state.items.find(i => i.key === gp.id)
@@ -6461,7 +6351,7 @@ ${soulContent}
                 if (existingItem.label !== gp.label) { existingItem.label = gp.label; itemChanged = true; }
                 if (existingItem.rule !== gp.rule) { existingItem.rule = gp.rule; itemChanged = true; }
                 if (existingItem.meaning !== gp.meaning) { existingItem.meaning = gp.meaning; itemChanged = true; }
-                
+
                 if (existingItem.type !== gp.type) {
                   existingItem.type = gp.type
                   existingItem.emoji = gp.type === 'number' ? '📊' : '🏷️'
@@ -6476,13 +6366,13 @@ ${soulContent}
                   }
                   itemChanged = true
                 }
-                
+
                 if (itemChanged) {
                   updated = true
                 }
               }
             }
-            
+
             // B. 对于被取消全局或彻底删除的预设：物理同步清除，杜绝数据残留污染
             if (removedGlobalIds.length > 0) {
               const beforeCount = state.items.length
@@ -6491,7 +6381,7 @@ ${soulContent}
                 updated = true
               }
             }
-            
+
             if (updated) {
               StateReaderWriter.writeState(statePath, state)
             }
@@ -6544,11 +6434,11 @@ ${soulContent}
       const characters = fs.readdirSync(baseDir).filter(f => {
         return fs.statSync(join(baseDir, f)).isDirectory()
       })
-      
+
       const randomId = Math.random().toString(36).substring(2, 8)
       const key = `custom_${randomId}`
       const emoji = payload.type === 'number' ? '📊' : '🏷️'
-      
+
       const newItem: StateItem = {
         key,
         label: payload.label,
@@ -6559,7 +6449,7 @@ ${soulContent}
         meaning: payload.meaning || '',
         ...(payload.type === 'number' ? { min: 0, max: 100 } : {})
       }
-      
+
       // 仅物理持久化写入当前所选角色的 State.md 中，实现各角色指标的独立隔离、互不通用
       const statePath = join(baseDir, payload.folderName, 'State.md')
       if (fs.existsSync(statePath)) {
@@ -6569,11 +6459,11 @@ ${soulContent}
           StateReaderWriter.writeState(statePath, state)
         }
       }
-      
+
       // 返回当前角色的所有状态，以用于立即重渲染
       const curStatePath = join(baseDir, payload.folderName, 'State.md')
       const curState = StateReaderWriter.readState(curStatePath)
-      
+
       return { success: true, states: curState.items }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -6585,12 +6475,12 @@ ${soulContent}
     try {
       const storageManager = new CharacterStorageManager()
       const baseDir = storageManager.getBaseDir()
-      
+
       // 绝对红线限制：预置状态绝对不允许删除
       if (['intimacy', 'mood'].includes(payload.key)) {
         return { success: false, error: '预置基础内心指标不允许删除' }
       }
-      
+
       const statePath = join(baseDir, payload.folderName, 'State.md')
       if (fs.existsSync(statePath)) {
         const state = StateReaderWriter.readState(statePath)
@@ -6598,7 +6488,7 @@ ${soulContent}
         state.items = state.items.filter(i => i.key !== payload.key)
         state.last_updated = new Date().toISOString().split('T')[0]
         StateReaderWriter.writeState(statePath, state)
-        
+
         return { success: true, states: state.items }
       }
       return { success: false, error: '未找到该角色的状态文件' }
@@ -6681,7 +6571,7 @@ ${soulContent}
       if (!configStr) throw new Error('未配置全局大模型')
       const settings = JSON.parse(configStr)
       const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
-      
+
       const service = new SoulEvolutionService()
       const draft = await service.evaluateEvolution(payload.characterId, modelAdapter)
       if (draft) {
@@ -6699,7 +6589,7 @@ ${soulContent}
     try {
       const db = getDatabaseService()
       db.setSetting('general_config', JSON.stringify(payload))
-      
+
       // 实时热重启生命引擎以应用最新的扫档排程周期
       if (globalLifeEngine) {
         let cronExpr = '*/30 * * * *'
@@ -6855,86 +6745,29 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
     return true;
   }
 
-  // GET /api/events — SSE 持久推送通道
+  // GET /api/events — SSE 持久推送通道（由 SseManager 统一管理）
   if (req.method === 'GET' && req.url && req.url.startsWith('/api/events')) {
-    // 解析客户端最后收到的消息 id（断线重连时浏览器自动携带，或作为 URL query 参数传入以兼容移动端主动重连）
-    let queryLastId = null;
+    // 解析客户端最后收到的 sseSeq（断线重连时浏览器自动携带，或作为 URL query 参数传入以兼容移动端主动重连）
+    let lastReceivedSeq = -1
     try {
-      const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-      queryLastId = parsedUrl.searchParams.get('lastEventId');
-    } catch (_) {}
-    const rawLastId = req.headers['last-event-id'] || queryLastId;
-    const lastReceivedId = rawLastId ? parseInt(rawLastId as string, 10) : -1;
+      const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+      const queryLastId = parsedUrl.searchParams.get('lastEventId')
+      const headerLastId = req.headers['last-event-id']
+      const rawLastId = headerLastId || queryLastId
+      if (rawLastId) lastReceivedSeq = parseInt(rawLastId as string, 10)
+    } catch (_) { }
 
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',   // 防止 nginx/反向代理缓冲 SSE 数据包
-      'Access-Control-Allow-Origin': '*'
-    })
-    res.write(': sse-connected\n\n')
-    sseClients.add(res)
-
-    // 补发断线期间错过的消息：仅补发 id > lastReceivedId（严格大于，杜绝重复）
-    if (lastReceivedId >= 0 && sseMessageBuffer.length > 0) {
-      const missed = sseMessageBuffer.filter(m => m.id > lastReceivedId)
-
-      // 🚀 核心自愈去重折叠：对于同一条聊天消息（相同的 data.id），在极速重连时只需补发最新、最完整的一条，
-      // 彻底消除客户端在短时间内同时收到同一条消息的多段流式片段而引发的“包含误杀去重”和“异步队列时序错乱”的重大BUG！
-      const collapsed: SseBufferedMsg[] = []
-      const seenMsgIds = new Set<string>()
-
-      // 从后往前遍历，确保对同一个 data.id 只保留最新（即自增 id 最大）的那一条
-      for (let i = missed.length - 1; i >= 0; i--) {
-        const item = missed[i]
-        const msgId = item.data?.id
-
-        if (item.channel === 'receive-message' && msgId) {
-          if (seenMsgIds.has(msgId)) {
-            // 已经是较旧的流式段落，直接丢弃
-            continue
-          }
-          seenMsgIds.add(msgId)
-        }
-        collapsed.unshift(item)
-      }
-
-      if (collapsed.length > 0) {
-        // 🚀 极致仿真时延与防沾包：开启后台异步协程发送补偿队列，每条消息之间加上 60ms 的物理延迟，
-        // 物理切分并避免 TCP 沾包，确保前端 EventSource 有序、间隔触发 onmessage，完美配合 dialogue 播放队列模拟真人多气泡连续发送体验！
-        (async () => {
-          for (const m of collapsed) {
-            try {
-              res.write(m.raw)
-              await new Promise(resolve => setTimeout(resolve, 60))
-            } catch (_) {
-              break // 连接若被切断，安全退出
-            }
-          }
-          console.log(`[SSE] 断线重连折叠补偿发送完成: 原始 ${missed.length} 条, 折叠后补发 ${collapsed.length} 条 (id > ${lastReceivedId})`)
-        })()
-      }
-    }
-
-    // 每 20 秒发送一次 SSE comment 心跳包（": ping"），防止路由器/NAT/iOS 系统因 TCP 长时间无活动而强制回收连接
-    // 浏览器收到 comment 行会直接丢弃，不触发 onmessage，对业务完全透明
-    const heartbeatTimer = setInterval(() => {
-      try {
-        res.write(': ping\n\n');
-      } catch (_) {
-        // 写入失败说明连接已断，清理资源
-        clearInterval(heartbeatTimer);
-        sseClients.delete(res);
-      }
-    }, 20000);
+    // 委托给 SseManager：设置响应头、注册客户端、断线补偿（仅补业务消息）
+    const sseManager = SseManager.getInstance()
+    sseManager.addClient(res, lastReceivedSeq)
 
     req.on('close', () => {
-      clearInterval(heartbeatTimer);
-      sseClients.delete(res);
-    });
-    return true;
+      sseManager.removeClient(res)
+    })
+    return true
   }
+
+
 
 
   // ====== 新增：GET /api/music/download 内存零落地音乐流式下载接口 ======
@@ -7011,18 +6844,18 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
 
         // 4. 读取写入完成 of the final tagged audio
         const taggedBuffer = fs.readFileSync(tempPath);
-        
+
         // 5. 异步删除临时文件
         try {
           fs.unlinkSync(tempPath);
-        } catch (_) {}
+        } catch (_) { }
 
         // 6. 流式输出音频附件
         const sanitizedFilename = `${singer} - ${name}${ext}`.replace(/[\\/:*?"<>|]/g, '');
         const encodedFilename = encodeURIComponent(sanitizedFilename);
 
         console.log(`[Music Server] 注入打标成功！正在向用户客户端流式输出附件: ${sanitizedFilename}`);
-        
+
         res.writeHead(200, {
           'Content-Type': ext === '.flac' ? 'audio/flac' : 'audio/mpeg',
           'Content-Disposition': `attachment; filename*=UTF-8''${encodedFilename}`,
@@ -7059,7 +6892,7 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
           const fullPath = path.join(currentDir, item);
           const relPath = path.join(relativeRoot, item);
           const stat = fs.statSync(fullPath);
-          
+
           if (stat.isDirectory()) {
             traverseDirectory(fullPath, relPath);
           } else if (stat.isFile()) {
@@ -7088,7 +6921,7 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
       const compressedBuffer = zlib.gzipSync(Buffer.from(jsonStr, 'utf-8'));
 
       console.log(`[Backup Server] 压缩顺利完成！大小: ${(compressedBuffer.length / 1024 / 1024).toFixed(2)} MB。正在写入流式 Response 附件...`);
-      
+
       const safeDateStr = new Date().toISOString().slice(0, 10);
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',
@@ -7110,7 +6943,7 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
   if (req.method === 'POST' && req.url && req.url.startsWith('/api/backups/import')) {
     console.log('[Backup Server] 收到跨网流式备份导入请求，正在接收数据流...');
     const chunks: Buffer[] = [];
-    
+
     req.on('data', (chunk) => {
       chunks.push(chunk);
     });
@@ -7185,7 +7018,7 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
         try {
           for (const fileItem of backupObj.files) {
             if (!fileItem.relativePath || typeof fileItem.content !== 'string') continue;
-            
+
             // 路径安全防越界校验
             const normalizedPath = path.normalize(fileItem.relativePath);
             if (normalizedPath.startsWith('..') || path.isAbsolute(normalizedPath)) {
@@ -7234,12 +7067,12 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
         // 成功，清理临时安全防灾文件夹
         try {
           fs.rmSync(tempRestoreBackupDir, { recursive: true, force: true });
-        } catch (_) {}
+        } catch (_) { }
 
         console.log('[Backup Server] 数据解压缩与物理还原覆盖全面成功！向前端广播重启...');
-        
+
         // 广播通知前端
-        broadcastToSse('docker-restore-success', { success: true });
+        SseManager.getInstance().broadcast('docker-restore-success', { success: true });
 
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ success: true, message: '备份还原成功！服务器即将在 1.5 秒后完成热重启！🐾' }));
@@ -7268,18 +7101,21 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
     req.on('end', async () => {
       try {
         const { channel, payload } = JSON.parse(body);
-        
+
         // 从 Electron 的 ipcMain 内部 handlers Map 中寻找对应的 Channel 处理器
         const handler = (ipcMain as any)._invokeHandlers?.get(channel);
         if (handler) {
           const mockEvent = {
             sender: {
+              // 标识此次调用来自局域网 HTTP 桥接（手机端/Web 端），而非 Electron 本机
+              isIpcBridge: true,
               send: (ch: string, data: any) => {
-                console.log(`[IPC Bridge Proxy send] channel: ${ch}`);
-                broadcastToSse(ch, data);
+                // IPC bridge 中，对无需推送的内部信号直接记录日志
+                console.log(`[IPC Bridge Proxy send] channel: ${ch} (SSE 不再转发内部信号)`)
+                // 注意：内部信号（chat-chunk等）不况播到 SSE，防止污染缓冲区
               }
             }
-          };
+          }
           const result = await handler(mockEvent, payload);
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify(result));
@@ -7333,7 +7169,7 @@ export function startLanMappingServer(port: number) {
           const u = new URL(viteUrl);
           const localIp = getLocalIpAddress();
           const targetRedirectUrl = `http://${localIp}:${u.port}${req.url || '/'}`;
-          
+
           res.writeHead(302, {
             'Location': targetRedirectUrl
           });
@@ -7421,7 +7257,7 @@ export function stopLanMappingServer() {
     try {
       lanMappingServerInstance.close();
       console.log('[LanMappingServer] 局域网静态文件托管 Web 服务器已成功安全退役。🐾');
-    } catch (_) {}
+    } catch (_) { }
     lanMappingServerInstance = null;
     currentLanMappingPort = null;
   }
@@ -7449,16 +7285,10 @@ export function startIpcBridgeServer(port: number = 3000) {
 
     server.listen(port, '0.0.0.0', () => {
       console.log(`[IPC Bridge Server] 局域网桥接服务器已在 0.0.0.0:${port} 成功启动！🐾`);
-      
+
       // 定时向所有连入的客户端发送心跳维持连接
       ipcBridgeHeartbeatInterval = setInterval(() => {
-        for (const client of sseClients) {
-          try {
-            client.write(': keepalive\n\n');
-          } catch (_) {
-            sseClients.delete(client);
-          }
-        }
+        // SseManager 内置心跳，此处无需手动维护
       }, 15000);
 
       try {
@@ -7494,7 +7324,7 @@ export function stopIpcBridgeServer() {
     try {
       ipcBridgeServerInstance.close();
       console.log('[IPC Bridge Server] 局域网桥接服务器已成功安全退役。🐾');
-    } catch (_) {}
+    } catch (_) { }
     ipcBridgeServerInstance = null;
   }
 }
@@ -7524,34 +7354,9 @@ app.whenReady().then(() => {
   // 启动局域网 IPC 桥接服务器，支持通过 Settings 数据库动态自定义端口
   try {
     const db = getDatabaseService()
-    
-    // 级联事件广播总线：当有任何新消息保存到 SQLite 数据库时，双路并发广播给所有端
-    db.registerOnMessageSaved((msg) => {
-      // 判断该消息是否是本机 Electron 正在流式处理的 AI 对话回复
-      // 若是，桌面端已通过 chat-chunk 渲染，跳过 IPC 广播防止重复气泡
-      const isElectronAssistantMsg = msg.role === 'assistant' && activeElectronChats.has(msg.character_id)
-      
-      // 路径 1：Electron 桌面端（透过 ipcRenderer 监听）
-      // 如果是本机 Electron 正在流式处理的 AI 回复（dialogue 展开分次存盘），则跳过，防止重复渲染
-      if (!isElectronAssistantMsg && mainWindow && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send('receive-message', msg)
-        
-        // 🔧 修复：当手机端/Web端触发了 AI 回复时（非本机流式），event.sender.send 是 broadcastToSse，
-        // 因此 chat-chunk done 信号只发给了 SSE 客户端（手机端），电脑端 IPC 收不到，
-        // 导致电脑端 streamingCharsSet 永远不清除，"对方正在输入..."动画永久卡住。
-        // 解决：额外通过 mainWindow IPC 补发一个仅含 done=true 的 chat-chunk 信号。
-        if (msg.role === 'assistant') {
-          mainWindow.webContents.send('chat-chunk', {
-            characterId: msg.character_id,
-            content: '',   // 内容已通过 receive-message 传递，此处仅发送状态清除信号
-            done: true
-          })
-        }
-      }
-      // 路径 2：局域网 Web 端 / 手机端（透过 SSE 监听）始终广播
-      broadcastToSse('receive-message', msg)
-    })
 
+    // MessageBusService 已替代旧 registerOnMessageSaved 回调机制。
+    // 业务层通过 MessageBusService.publish / publishBatch 原子存盘并多端推送。
 
     const customPortStr = db.getSetting('ipc_bridge_port')
     let port = 3000
@@ -7565,7 +7370,7 @@ app.whenReady().then(() => {
   } catch (error) {
     console.error('[Main] 局域网桥接服务器启动异常:', error)
   }
-  
+
   // 初始化音乐服务
   try {
     MusicService.init()
@@ -7587,7 +7392,7 @@ app.whenReady().then(() => {
         } else if (config.cron_frequency === 'quiet') {
           cronExpr = '0 */2 * * *' // 2小时
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     globalLifeEngine.start(cronExpr)
   } catch (err) {
@@ -7607,9 +7412,9 @@ app.whenReady().then(() => {
           lanPort = Number(config.lan_mapping_port) || 6868
           lanEnabled = true
         }
-      } catch (_) {}
+      } catch (_) { }
     }
-    
+
     // 🚀 Docker 部署环境下：强制启动局域网托管静态服务，端口固定为 6868
     if (process.env.DOCKER_MODE === 'true') {
       lanEnabled = true
@@ -7665,8 +7470,8 @@ export function createSystemTray(targetWindow: BrowserWindow) {
   if (tray) return;
 
   const resPath = getResourcesPath();
-  const iconName = process.platform === 'darwin' 
-    ? 'trayTemplate.png' 
+  const iconName = process.platform === 'darwin'
+    ? 'trayTemplate.png'
     : 'tray.png';
 
   const iconPath = join(resPath, iconName);
@@ -7689,20 +7494,20 @@ export function createSystemTray(targetWindow: BrowserWindow) {
 
   // 建立极致纯净的原生托盘上下文菜单（非 Mac 平台下的首选）
   const contextMenu = Menu.buildFromTemplate([
-    { 
-      label: '打开 Echo', 
-      click: () => { 
+    {
+      label: '打开 Echo',
+      click: () => {
         targetWindow.show();
         targetWindow.focus();
-      } 
+      }
     },
     { type: 'separator' },
-    { 
-      label: '退出 Echo', 
-      click: () => { 
+    {
+      label: '退出 Echo',
+      click: () => {
         (app as any).isQuiting = true;
         app.quit();
-      } 
+      }
     }
   ]);
 

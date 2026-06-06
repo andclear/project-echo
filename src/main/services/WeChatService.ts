@@ -9,6 +9,7 @@ import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { NovelAiService } from './NovelAiService';
 import crypto from 'crypto';
 import QRCode from 'qrcode';
+import { MessageBusService } from './MessageBusService';
 
 /**
  * 微信个人号接入核心单例守护服务，管理状态机、长轮询、红包过滤、命令路由器等核心业务
@@ -783,25 +784,19 @@ export class WeChatService {
       };
       fs.writeFileSync(metaFullPath, JSON.stringify(metadata, null, 2));
 
-      // 10. 将生图信息物理写入 Messages 表，PC 客户端秒级同步
-      const newImgMsg = {
-        id: `wechat_img_${Date.now()}`,
+      // 通过 MessageBusService 存盘并推送微信生图消息（PC 端实时同步）
+      const imgMsgId = `wechat_img_${Date.now()}`;
+      MessageBusService.getInstance().publish({
+        id: imgMsgId,
+        round_id: imgMsgId,
+        seq: 0,
         character_id: characterId,
         role: 'assistant',
+        msg_type: 'image',
         content: `[wechat_image_media]:media/${filename}`,
         timestamp: Date.now(),
         token_usage: 0
-      };
-      db.saveMessage(newImgMsg);
-
-      // 广播给 PC 前端客户端
-      const windows = BrowserWindow.getAllWindows();
-      if (windows.length > 0 && !windows[0].webContents.isDestroyed()) {
-        windows[0].webContents.send('receive-message', {
-          ...newImgMsg,
-          imageBase64: `data:image/png;base64,${imageBuffer.toString('base64')}`
-        });
-      }
+      });
 
       // 11. 加密图片并推送到微信 CDN C2C 通道，回发给手机微信端好友
       await this.uploadAndSendWeChatImage(fromUser, localImgPath, imageBuffer, contextToken);
@@ -823,21 +818,20 @@ export class WeChatService {
     const settings = JSON.parse(configStr);
     const modelAdapter = new ModelAdapter(settings.primary, settings.secondary);
 
-    // 1. 双向同步：将用户的微信发信内容物理写入数据库，同步 PC 端
-    const userMsg = {
-      id: `wechat_u_${Date.now()}`,
+    // 1. 双向同步：将用户的微信发信内容通过 MessageBusService 存盘并推送到 PC 端
+    const userMsgId = `wechat_u_${Date.now()}`;
+    const userMsgTs = Date.now();
+    MessageBusService.getInstance().publish({
+      id: userMsgId,
+      round_id: userMsgId,
+      seq: 0,
       character_id: characterId,
       role: 'user',
+      msg_type: 'text',
       content: userMessage,
-      timestamp: Date.now(),
+      timestamp: userMsgTs,
       token_usage: 0
-    };
-    db.saveMessage(userMsg);
-
-    const windows = BrowserWindow.getAllWindows();
-    if (windows.length > 0 && !windows[0].webContents.isDestroyed()) {
-      windows[0].webContents.send('receive-message', userMsg);
-    }
+    }, { skipUnreadUpdate: true });
 
     // 2. 模拟微信端“正在打字输入...”状态以获得极佳等待体验
     this.sendWeChatTyping(fromUser, contextToken, true);
@@ -902,20 +896,19 @@ export class WeChatService {
         await this.sendWeChatText(fromUser, finalAIResponse, contextToken);
       }
 
-      // 5. 【特化落盘解耦】：本地 SQLite 仅记入 1 条整洁记录，广播给客户端推入 1 个大气泡！
-      const assistantMsg = {
-        id: `wechat_a_${Date.now()}`,
+      // 5. 通过 MessageBusService 存盘 AI 回复并推送到 PC 端
+      const assistantMsgId = `wechat_a_${Date.now()}`;
+      MessageBusService.getInstance().publish({
+        id: assistantMsgId,
+        round_id: userMsgId,
+        seq: 1,
         character_id: characterId,
         role: 'assistant',
+        msg_type: 'text',
         content: finalAIResponse,
         timestamp: Date.now(),
         token_usage: 0
-      };
-      db.saveMessage(assistantMsg);
-
-      if (windows.length > 0 && !windows[0].webContents.isDestroyed()) {
-        windows[0].webContents.send('receive-message', assistantMsg);
-      }
+      });
     } catch (err: any) {
       this.sendWeChatTyping(fromUser, contextToken, false);
       await this.sendWeChatText(fromUser, `😿 对不起，我的系统脑电波似乎发生了一点异常: ${err.message}`, contextToken);

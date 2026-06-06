@@ -13,6 +13,7 @@ import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { ContextAssembler } from '../utils/ContextAssembler';
 import { MemoryAgentService } from './MemoryAgentService';
 import { WeatherService } from '../utils/WeatherService';
+import { MessageBusService } from './MessageBusService';
 
 
 export interface WakeContext {
@@ -680,17 +681,23 @@ export class AgentLifeEngine {
           .trim();
 
         const msgId = `active_${charId}_${Date.now()}`;
-        const newMsg = {
+        const msgTimestamp = Date.now();
+        // 搭讪轮次 ID：文字和配图共享同一 round_id，seq 递增保证顺序
+        const proactiveRoundId = msgId;
+
+        // 通过 MessageBusService 原子存盘并多端推送搭讪消息
+        MessageBusService.getInstance().publish({
           id: msgId,
+          round_id: proactiveRoundId,
+          seq: 0,
           character_id: charId,
           role: 'assistant',
+          msg_type: 'text',
           content: cleanText,
-          timestamp: Date.now(),
+          timestamp: msgTimestamp,
           token_usage: 0,
-          is_proactive: 1  // 标记为角色主动搭讪消息，防止被 mergeChatHistory 合并
-        };
-
-        db.saveMessage(newMsg);
+          is_proactive: 1
+        });
 
         // 成功发送主动搭讪消息，更新今日统计数据与冷却时间戳
         const activeCountStr = db.getSetting(`active_count_today_${charId}`);
@@ -707,18 +714,13 @@ export class AgentLifeEngine {
             memoryService.extractMemoryAndProfile(
               memoryPath,
               charUserPath,
-              '',         // 搭讪属于角色主动内容，用户侧没有发言
-              cleanText, // 角色发出的搭讪内容就是这轮的 assistant 内容
+              '',
+              cleanText,
               false,
-              newMsg.timestamp
+              msgTimestamp
             ).catch((e: any) => console.error('[AgentLifeEngine] 搭讪记忆提取异常:', e));
           } catch (_) { }
         });
-        // 广播给渲染层前端以推入对话气泡
-        const windows = BrowserWindow.getAllWindows();
-        if (windows.length > 0) {
-          windows[0].webContents.send('receive-message', newMsg);
-        }
 
         // 尝试生成主动美图并推送
         if (shouldDraw && imagePromptMatch && imageDescMatch) {
@@ -768,28 +770,22 @@ export class AgentLifeEngine {
                 };
                 fs.writeFileSync(path.join(mediaDir, metaFilename), JSON.stringify(metadata, null, 2));
 
-                // 物理落盘图片特殊格式的消息到会话流
+                // 通过 MessageBusService 存盘并推送图片消息（与文字消息共享 round_id，seq=1 在文字后面）
                 const imgMsgId = `active_img_${charId}_${Date.now()}`;
-                const newImgMsg = {
+                MessageBusService.getInstance().publish({
                   id: imgMsgId,
+                  round_id: proactiveRoundId,
+                  seq: 1,
                   character_id: charId,
                   role: 'assistant',
+                  msg_type: 'image',
                   content: `[wechat_image_media]:media/${filename}`,
-                  timestamp: Date.now() + 50, // 稍微延后以保持顺序
-                  token_usage: 0
-                };
-                db.saveMessage(newImgMsg);
+                  timestamp: Date.now() + 50,
+                  token_usage: 0,
+                  is_proactive: 1
+                });
 
                 console.log(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪生成美图成功: media/${filename}`);
-
-                // 广播给渲染层前端以推入对话图片气泡 (同时附加 base64 以极速渲染)
-                if (windows.length > 0) {
-                  windows[0].webContents.send('receive-message', {
-                    ...newImgMsg,
-                    content: '',
-                    imageBase64: `data:image/png;base64,${imageBuffer.toString('base64')}`
-                  });
-                }
               }
             }
           } catch (drawErr: any) {
@@ -961,20 +957,20 @@ export class AgentLifeEngine {
         characterName: char.name,
         excerpt
       });
-      const newMsg = {
-        id: `diary_${charId}_${Date.now()}`,
+      // 通过 MessageBusService 存盘并推送日记卡片消息
+      const diaryMsgId = `diary_${charId}_${Date.now()}`
+      MessageBusService.getInstance().publish({
+        id: diaryMsgId,
+        round_id: diaryMsgId,
+        seq: 0,
         character_id: charId,
         role: 'assistant',
+        msg_type: 'diary',
         content: diaryMsgContent,
         timestamp: Date.now(),
         token_usage: 0
-      };
-      db.saveMessage(newMsg);
+      })
 
-      const windows = BrowserWindow.getAllWindows();
-      if (windows.length > 0) {
-        windows[0].webContents.send('proactive-chat-message', { characterId: charId, message: newMsg });
-      }
     } catch (err) {
       // 异常时释放占位锁，下次 tick 可重试
       db.setSetting(`last_diary_date_${charId}`, '');

@@ -9807,6 +9807,8 @@
 import { ref, reactive, onMounted, onUnmounted, computed, nextTick, watch, toRaw } from 'vue'
 import citiesData from './assets/cities.json'
 import ClockView from './components/ClockView.vue'
+import { MessageQueueManager } from './composables/MessageQueueManager'
+import type { EchoMessage } from './types/EchoMessageTypes'
 
 // 🚀 跨平台 Windows 专属窗口属性与 IPC 事件通道
 const isWindows = computed(() => {
@@ -9978,31 +9980,39 @@ if (typeof window !== 'undefined' && !(window as any).api) {
   // 在局域网手机端初始化 SSE 双向主动推送连接
   try {
     const lastId = localStorage.getItem('last_sse_event_id') || '-1'
-    const eventSource = new EventSource(`${baseUrl}/api/events?lastEventId=${lastId}`);
-    
-    eventSource.onmessage = (event) => {
+    const eventSource = new EventSource(`${baseUrl}/api/events?lastEventId=${lastId}`)
+
+    // SseManager 发送带 event: 类型的 SSE 帧（`event: echo:message`），
+    // 必须用 addEventListener 才能接收，onmessage 只接收无类型的默认帧
+    const handleSseEvent = (event: MessageEvent) => {
       if (event.lastEventId) {
         localStorage.setItem('last_sse_event_id', event.lastEventId)
       }
       try {
-        const payload = JSON.parse(event.data);
-        if (payload.sseId) {
-          localStorage.setItem('last_sse_event_id', String(payload.sseId))
+        const payload = JSON.parse(event.data)
+        // SseManager 格式：{ eventType, data, sseSeq }
+        const channel = payload.eventType
+        const data = payload.data
+        if (payload.sseSeq) {
+          localStorage.setItem('last_sse_event_id', String(payload.sseSeq))
         }
-        const { channel, data } = payload;
-        if (listeners[channel]) {
-          listeners[channel].forEach(callback => callback(data));
+        if (channel && listeners[channel]) {
+          listeners[channel].forEach((callback: (d: any) => void) => callback(data))
         }
       } catch (err) {
-        // 忽略非 JSON 数据（如连接建立成功的初始握手包或 keepalive 心跳）
+        // 忽略非 JSON 数据（如 `: ping` 心跳或连接确认帧）
       }
-    };
+    }
+
+    // 监听所有业务事件类型
+    eventSource.addEventListener('echo:message', handleSseEvent)
+    eventSource.addEventListener('echo:unread-update', handleSseEvent)
 
     eventSource.onerror = (err) => {
-      console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err);
-    };
+      console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err)
+    }
   } catch (sseErr) {
-    console.error('[Polyfill SSE Init Error] 初始化 SSE 长连接失败:', sseErr);
+    console.error('[Polyfill SSE Init Error] 初始化 SSE 长连接失败:', sseErr)
   }
 
   // ── iOS 后台保活：无声音频 Audio Session 技术 ──────────────────────────
@@ -12003,8 +12013,15 @@ const pendingDialogueContents = reactive(new Set<string>())
 // 极致物理防并发冲突重叠锁，保障任何网络延时下的手机/局域网端去重 100% 成功
 const activeTypingLocks = reactive(new Set<string>())
 
-// 局域网 Web 端消息仿真播放串行队列与等待播放的 ID 缓存
-let playbackChain = Promise.resolve()
+// 按角色 ID 独立的消息播放串行队列：
+// - 每个角色有自己的链，不同角色的 dialogue 气泡互不阻塞
+// - 链本身通过 .catch 防止单次异常中断后续消息
+const playbackChains = new Map<string, Promise<void>>()
+/** 获取指定角色的播放链（惰性初始化） */
+function getPlaybackChain(charId: string): Promise<void> {
+  if (!playbackChains.has(charId)) playbackChains.set(charId, Promise.resolve())
+  return playbackChains.get(charId)!
+}
 const pendingPlaybackMessageIds = reactive(new Set<string>())
 
 // 历史消息分页加载状态
@@ -12378,7 +12395,7 @@ const isDraggingFile = ref(false)
 const inputHeight = ref(Number(localStorage.getItem('echo_input_height') || '160'))
 
 // 多消息延时聚合防抖状态（分角色独立隔离，防范跨窗口时序冲突与串台 Bug）
-const pendingUserMessagesMap = reactive<Record<string, Array<{ content: string; imageBase64?: string; redPacketPayload?: { amount: number; title: string; userMsgId: string; targetId?: string; targetName?: string } }>>>({})
+const pendingUserMessagesMap = reactive<Record<string, Array<{ content: string; imageBase64?: string; redPacketPayload?: { amount: number; title: string; userMsgId: string; targetId?: string; targetName?: string }; userMsgId?: string; timestamp?: number }>>>({})
 const messageMergeTimersMap = reactive<Record<string, any>>({})
 
 // 监听用户输入框内容改变，实现极其智能的“打字感知防抖”与“输入删空自愈恢复”：
@@ -14077,7 +14094,9 @@ async function sendRedPacket() {
       userMsgId,
       targetId: targetIdVal,
       targetName: targetNameVal
-    }
+    },
+    userMsgId: userMsgId,       // 每条消息携带自己的唯一 ID
+    timestamp: timestamp        // 每条消息携带自己的时间戳
   })
 
   if (messageMergeTimersMap[charId]) {
@@ -14496,7 +14515,9 @@ async function sendChatMessage() {
   }
   pendingUserMessagesMap[charId].push({
     content: userMsg,
-    imageBase64: imageBase64 || undefined
+    imageBase64: imageBase64 || undefined,
+    userMsgId: userMsgId,       // 每条消息携带自己的唯一 ID
+    timestamp: timestamp        // 每条消息携带自己的时间戳
   })
 
   // 4. 重置并刷新 3 秒延时聚合防抖定时器
@@ -14544,6 +14565,36 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
   let finalUserMsgId = overrideText 
     ? `msg_override_${Date.now()}` 
     : (lastUserMsgId.value || 'msg_merged_' + Date.now())
+
+  // 🚀 多条消息各自落盘：若 pending 队列有多条消息，把除最后一条以外的所有消息
+  // await 存入 DB，必须在 chat-stream 调用（getChatHistory 读 DB）之前完成，
+  // 否则 getChatHistory 读不到这些消息。
+  // 最后一条由 chat-stream 在主进程侧存盘（finalUserMsgId 对应最后一条）。
+  // ⚠️ 同时只将最后一条消息作为 finalUserMessage 传给 AI：
+  //    前面的消息已经进 DB 历史，会自然出现在 history 上下文里，
+  //    如果再放进 finalUserMessage 就会造成上下文双重污染（重复出现）。
+  const nonRpMessages = pendingQueue.filter(m => !m.redPacketPayload)
+  if (!overrideText && !isRegenerate && nonRpMessages.length > 1) {
+    const extraMessages = nonRpMessages.slice(0, nonRpMessages.length - 1) // 除最后一条
+    const savePromises = extraMessages
+      .filter(m => m.userMsgId && m.content)
+      .map(m => window.api.invoke('save-message', {
+        id: m.userMsgId!,
+        character_id: charId,
+        role: 'user',
+        content: m.content,
+        timestamp: m.timestamp || Date.now(),
+        msg_type: 'text'
+      }).catch((e: any) => console.warn('[MultiMsg] 独立存盘失败:', e)))
+    // await 确保 DB 写入完成，再让 chat-stream 读取 getChatHistory
+    await Promise.all(savePromises)
+
+    // 只用最后一条文本消息作为当前轮输入，避免与已存 DB 的前置消息产生上下文重复
+    const lastNonRp = nonRpMessages[nonRpMessages.length - 1]
+    finalUserMessage = lastNonRp.content || finalUserMessage
+    finalDbMessage = lastNonRp.content || finalDbMessage
+    finalUserMsgId = lastNonRp.userMsgId || finalUserMsgId
+  }
 
   if (!overrideText && rpPayload) {
     const isGroup = groupChats.value.some(g => g.id === charId)
@@ -14645,16 +14696,23 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
     if (!window.electron || (window.api && (window.api as any).isIpcBridge)) {
       clearReplyTimeout() // 局域网端交由 SSE 保活，此处清除 fetch 定时器
       
-      // 🚀 增加 1.5 秒延迟自愈保底检查，防止大模型生成期间局域网 SSE 遭遇瞬断丢包
+      // 🚀 4 秒保底自愈：防止大模型生成期间局域网 SSE 遭遇瞬断丢包
+      // 必须同时满足三个条件才触发保底：
+      // 1. 消息 ID 还未进入 allMessages（未渲染完成）
+      // 2. 消息 ID 不在 pendingPlaybackMessageIds 中（echo:message 路径没有接管）
+      // 3. 仍处于等待流式状态（streamingCharsSet 中有该角色）
+      // 条件 2 是关键：dialogue 模式下打字机动画耗时可能超过 1.5s，若 echo:message 已接管
+      // 则 pendingPlaybackMessageIds.has(msgId) === true，保底绝对不触发
       if (res.content && res.messageId) {
+        const webMsgId = res.messageId
         setTimeout(async () => {
           const msgs = allMessages[char.id] || []
-          const hasReceived = msgs.some(m => m.id === res.messageId)
-          if (!hasReceived && streamingCharsSet.has(char.id)) {
+          const hasReceived = msgs.some(m => m.id === webMsgId)
+          const isBeingHandled = pendingPlaybackMessageIds.has(webMsgId)
+          if (!hasReceived && !isBeingHandled && streamingCharsSet.has(char.id)) {
             console.warn('[Sync Gate Fetch Recovery] 检测到局域网 SSE 丢失广播，触发 fetch 保底自愈渲染！')
             streamingCharsSet.delete(char.id)
             streamingCharacterId.value = ''
-            
             await handleAssistantResponse(
               char,
               res.content,
@@ -14662,21 +14720,34 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
               res.prompt_tokens,
               res.completion_tokens,
               res.cached_tokens,
-              res.messageId
+              webMsgId
             )
           }
-        }, 1500)
+        }, 4000)
       }
       return
     }
 
-    // 5. Electron 端同样通过 playbackChain 串行化弹射，确保与 receive-message 触发的调用共享同一队列，
-    //    彻底消除两条通道并发执行导致气泡交叉插入、顺序混乱的问题。
-    if (res.content) {
+    // 5. Electron 端：res.content 作为保底自愈渲染（与 Web SSE 端逻辑对齐）
+    // 主渲染路径为：MessageBusService.publishBatch → echo:message → handleEchoMessage
+    // 只有当 echo:message 完全未被接管时，才由此处兜底
+    // 必须同时满足三个条件才触发保底：
+    // 1. 消息 ID 还未进入 allMessages（未渲染完成）
+    // 2. 消息 ID 不在 pendingPlaybackMessageIds 中（echo:message 路径没有接管）
+    // 3. 仍处于等待流式状态（streamingCharsSet 中有该角色）
+    // 条件 2 是关键：dialogue 模式下打字机动画耗时可能超过 500ms，若 echo:message 已接管
+    // 则 pendingPlaybackMessageIds.has(msgId) === true，保底绝对不触发
+    if (res.content && res.messageId) {
       const msgId = res.messageId
-      if (msgId) pendingPlaybackMessageIds.add(msgId)
-      playbackChain = playbackChain.then(async () => {
-        try {
+      setTimeout(async () => {
+        const msgs = allMessages[char.id] || []
+        const hasReceived = msgs.some(m => m.id === msgId)
+        const isBeingHandled = pendingPlaybackMessageIds.has(msgId)
+        if (!hasReceived && !isBeingHandled && streamingCharsSet.has(char.id)) {
+          console.warn('[Sync Gate Electron Recovery] echo:message 未被接管，触发 res.content 保底自愈！')
+          streamingCharsSet.delete(char.id)
+          streamingCharacterId.value = null
+          clearReplyTimeout()
           await handleAssistantResponse(
             char,
             res.content,
@@ -14684,14 +14755,10 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
             res.prompt_tokens,
             res.completion_tokens,
             res.cached_tokens,
-            res.messageId
+            msgId
           )
-        } finally {
-          if (msgId) pendingPlaybackMessageIds.delete(msgId)
         }
-      })
-      // 等待本次 playbackChain 全部完成后再继续（处理红包等后续逻辑）
-      await playbackChain
+      }, 3000)
     }
 
     // 🚀 双向红包神级同步：如果大模型主动发送了红包，且当前处于单聊模式下，在其文字气泡播放/接收完毕后，自动在聊天队列追加红包卡片气泡
@@ -14805,14 +14872,7 @@ async function handleAssistantResponse(
   }
 
   try {
-    // 🚀 一次完整回复只累加一次未读消息，避开分句与 SSE done 信号双重加成 Bug
-    if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
-      if (!conversationMeta[char.id]) {
-        conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
-      }
-      conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
-      window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
-    }
+    // 未读数由 MessageBusService → echo:unread-update 权威驱动，此处不再手动自增
 
     // A. 处理红包决策状态更新与返款
     if (redPacketAction && char.id === selectedCharacterId.value) {
@@ -15476,6 +15536,7 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
   
   streamingCharsSet.add(char.id)
   streamingCharacterId.value = char.id
+  startReplyTimeout(char.id)  // 10 分钟超时兜底，防止网络异常导致"正在输入..."永久卡死
   scrubber.reset()
   typingQueue.value = []
   nextTick(() => scrollToBottom())
@@ -15490,17 +15551,35 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
       dbMessage: `[wechat_custom_emoji]:${JSON.stringify({ meaning: emoji.meaning, base64: emoji.base64 })}`
     })
     if (!res.success) throw new Error(res.error || '连接断开')
-    await handleAssistantResponse(
-      char,
-      res.content,
-      res.redPacketAction,
-      res.prompt_tokens,
-      res.completion_tokens,
-      res.cached_tokens,
-      res.messageId
-    )
+
+    // 与 triggerMergedAiResponse 保持一致：
+    // 主渲染路径为 publishBatch → echo:message → handleEchoMessage
+    // 此处只做 safety-net 保底，不立即调用 handleAssistantResponse（防止与 echo:message 路径竞争）
+    if (res.content && res.messageId) {
+      const safetyMsgId = res.messageId
+      const safetyDelay = (!window.electron || (window.api && (window.api as any).isIpcBridge)) ? 4000 : 3000
+      setTimeout(async () => {
+        const msgs = allMessages[char.id] || []
+        const hasReceived = msgs.some(m => m.id === safetyMsgId)
+        const isBeingHandled = pendingPlaybackMessageIds.has(safetyMsgId)
+        if (!hasReceived && !isBeingHandled && streamingCharsSet.has(char.id)) {
+          console.warn('[sendCustomEmoji Safety] echo:message 未被接管，触发保底渲染！')
+          streamingCharsSet.delete(char.id)
+          streamingCharacterId.value = null
+          clearReplyTimeout()
+          await handleAssistantResponse(char, res.content, res.redPacketAction, res.prompt_tokens, res.completion_tokens, res.cached_tokens, safetyMsgId)
+        }
+      }, safetyDelay)
+    }
+
+    // Web 端清除计时器，交由 SSE 保活
+    if (!window.electron || (window.api && (window.api as any).isIpcBridge)) {
+      clearReplyTimeout()
+    }
   } catch (err: any) {
     streamingCharsSet.delete(char.id)
+    streamingCharacterId.value = null
+    clearReplyTimeout()
     const msgs = allMessages[char.id] || []
     if (msgs.length > 0) {
       const last = msgs[msgs.length - 1]
@@ -15864,14 +15943,8 @@ async function triggerManualDiary() {
     })
     
     if (res.success) {
-      // 检查当前用户是否已经切走（不是当前活跃会话，或者不在聊天活动窗口中）
-      if (selectedCharacterId.value !== char.id || !isChattingActive.value) {
-        if (!conversationMeta[char.id]) {
-          conversationMeta[char.id] = { pinned: false, unread: 0, muted: false, hidden: false }
-        }
-        conversationMeta[char.id].unread = (conversationMeta[char.id].unread || 0) + 1
-        window.api.invoke('save-conversation-meta', { characterId: char.id, ...conversationMeta[char.id] })
-      } else {
+      // 未读数由 MessageBusService → echo:unread-update 权威维护，不再手动自增
+      if (selectedCharacterId.value === char.id && isChattingActive.value) {
         // 重新读取以刷新日记视图
         const diaryRes = await window.api.invoke('read-diary-file', { folderName: char.folder_name })
         activeDiary.value = diaryRes.success ? diaryRes.content : ''
@@ -16893,42 +16966,31 @@ async function executeNovelAiImageGeneration(targetCharId?: string, targetFolder
       showToast('画卷落笔成功！🎉')
       
       const imgMsgId = `chat_img_${charId}_${Date.now()}`
-      const newImgMsg = {
+      const imgTimestamp = Date.now()
+      
+      // 🚀 通过 MessageBusService 广播图片消息：
+      // 1. 存入 DB
+      // 2. Electron IPC echo:message 推送 → handleEchoMessage → restoreMessageProps 异步加载图片 base64
+      // 3. SSE 广播 → 手机端实时同步
+      // 这样图片气泡不会显示为空白气泡，刷新后也能正常显示。
+      const saveRes = await window.api.invoke('save-message', {
         id: imgMsgId,
         character_id: charId,
         role: 'assistant',
         content: `[wechat_image_media]:${res.relativePath}`,
-        timestamp: Date.now(),
-        token_usage: 0
-      }
-      
-      const saveRes = await window.api.invoke('save-message', {
-        id: newImgMsg.id,
-        character_id: newImgMsg.character_id,
-        role: newImgMsg.role,
-        content: newImgMsg.content,
-        timestamp: newImgMsg.timestamp,
-        token_usage: newImgMsg.token_usage || 0
+        timestamp: imgTimestamp,
+        token_usage: 0,
+        msg_type: 'image',
+        broadcast: true  // 触发 MessageBusService 存盘 + 双路广播
       })
 
-      if (saveRes.success) {
-        if (!allMessages[charId]) {
-          allMessages[charId] = []
-        }
-        // 🚀 时序防重自愈：如果主进程存盘广播已抢先一步将该 ID 的消息追加，此处直接忽略以防双气泡
-        if (!allMessages[charId].some(m => m.id === newImgMsg.id)) {
-          allMessages[charId].push(restoreMessageProps(newImgMsg))
-        }
-        
-        // 🚀 极致细节：生图完成后，只有当用户当前视窗浏览的仍然是原绘图角色时，才静默强制滚动触底
-        if (selectedCharacterId.value === charId) {
-          nextTick(() => {
-            scrollToBottom('smooth')
-          })
-        }
-
-        refreshAnlas()
+      if (!saveRes.success) {
+        showCustomAlert('生图存盘失败', `${saveRes.error || '存入消息失败'}`, 'error')
       }
+      // 不需要手动 push 到 allMessages：
+      // echo:message 广播 → handleEchoMessage → restoreMessageProps 异步加载图片后自动渲染
+
+      refreshAnlas()
     } else {
       showCustomAlert('生图失败', `${res.error || '绘图引擎出错了，请检查设置。'}`, 'error')
     }
@@ -17635,6 +17697,33 @@ function rejectAgreement() {
 onMounted(async () => {
   // 检查小说可用状态
   await checkGlobalNovelStatus()
+
+  // ══════════════════════════════════════════════════════════
+  // 初始化 MessageQueueManager（新一代消息接收核心）
+  // 统一接管 echo:message（来自 Electron IPC）和 SSE 的 echo:message
+  // 实现精确一次去重 + 有序分发
+  // ══════════════════════════════════════════════════════════
+  MessageQueueManager.getInstance().init({
+    // echo:message 处理：转发给原有的 receive-message 处理函数
+    onMessage: (msg: EchoMessage) => {
+      // 将 EchoMessage 转换为 receive-message 原有 msg 格式，复用现有处理逻辑
+      // 此处直接触发原有 receive-message 处理函数的主体逻辑（通过合成事件）
+      handleEchoMessage(msg)
+    },
+    // echo:unread-update 处理：直接更新前端 conversationMeta
+    onUnreadUpdate: (characterId: string, unread: number) => {
+      if (!conversationMeta[characterId]) {
+        conversationMeta[characterId] = { pinned: false, unread: 0, muted: false, hidden: false }
+      }
+      // 如果用户正在查看该会话，维持未读=0，不展示红点（服务端的计数不反映当前用户实际已读状态）
+      if (selectedCharacterId.value === characterId && isChattingActive.value) {
+        conversationMeta[characterId].unread = 0
+      } else {
+        // 数据库端权威值：直接覆盖（不累加）
+        conversationMeta[characterId].unread = unread
+      }
+    }
+  })
 
   // 微信个人号状态自愈与登录事件广播接入
   if (window.api && window.api.receive) {
@@ -18425,47 +18514,17 @@ onMounted(async () => {
     }
   })
 
-  // 监听后台 AI 消息与搭讪的通用扩展通道
-  window.api.receive('proactive-chat-message', (data: { characterId: string; message: any }) => {
-    const charId = data.characterId
-    // 更新对应会话的活跃时间戳
-    conversationActiveTimes[charId] = data.message?.timestamp || Date.now()
-    // 将消息追加到对应缓存
-    if (!allMessages[charId]) allMessages[charId] = []
-    
-    const msgs = allMessages[charId]
-    const msg = data.message
-    if (msg) {
-      // 🚀 智能去重自愈：如果本地已经存在相同 ID 或完全一致内容的消息，则拒绝重复追加
-      let isDuplicate = false
-      for (let i = msgs.length - 1; i >= Math.max(0, msgs.length - 5); i--) {
-        if (msgs[i] && (msgs[i].id === msg.id || msgs[i].content === msg.content)) {
-          isDuplicate = true
-          break
-        }
-      }
-      if (!isDuplicate) {
-        msgs.push(restoreMessageProps(msg))
-        
-        // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
-        if (selectedCharacterId.value !== charId || !isChattingActive.value) {
-          if (!conversationMeta[charId]) {
-            conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
-          }
-          conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
-          window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
-        } else {
-          // 收到主动搭讪消息时强制置底，让用户看到最新内容
-          nextTick(() => scrollToBottom('smooth', true))
-        }
-      } else {
-        console.log('[Deduplication] proactive-chat-message 成功过滤并查杀重复消息:', msg.id)
-      }
-    }
-  })
+  // 注意：proactive-chat-message 旧通道已废弃。
+  // AgentLifeEngine / trigger-diary 均已迁移到 MessageBusService.publish，
+  // 统一走 echo:message IPC → handleEchoMessage → MessageQueueManager 去重分发。
+  // 未读计数由 MessageBusService → echo:unread-update → onUnreadUpdate 回调权威维护。
 
-  // 监听后台主动发出的普通搭讪聊天消息，点亮会话列表的未读数与消息流
-  window.api.receive('receive-message', (msg: any) => {
+  // ────────────────────────────────────────────────────────
+  // handleEchoMessage：接收并处理来自任意端（Electron IPC / SSE）的 echo:message
+  // 由 MessageQueueManager 调用（已在 init 时注册），MessageQueueManager 负责去重
+  // 使用 function 声明以获得变量提升（hoisting），允许在文件中任意位置调用
+  // ────────────────────────────────────────────────────────
+  function handleEchoMessage(msg: any) {
     // 包装为 async IIFE，允许内部 await（不阻塞其他消息接收）
     ;(async () => {
     const charId = msg.character_id
@@ -18528,8 +18587,9 @@ onMounted(async () => {
             }
           }
 
-          // A. 物理 ID 或 字符串内容完全匹配
-          if (msgs[i].id === msg.id || cleanStr(msgs[i].content) === normBroadcast) {
+          // A. 物理 ID 精确匹配（MessageQueueManager 已在上游做了 ID 去重，此处兜底 msgs 层面的 ID 二次检查）
+          // 注意：不再做内容字符串匹配，避免 AI 连续发相同内容时第二条被误判丢弃
+          if (msgs[i].id === msg.id) {
             isDuplicate = true
             break
           }
@@ -18665,79 +18725,85 @@ onMounted(async () => {
         characterChatModeCache[charId] = msgCharMode
       }
       
-      let hasIncrementedUnread = false
       if (msgCharMode === 'dialogue' && msg.role === 'assistant' && !isSpecialMsg) {
         // 🚀 纯文字对话模式下，收到主动回复或搭讪消息（非时序重复）时，严禁直接扁平化瞬间 push 出来！
         // 而是物理调用微信级仿真播放器 handleAssistantResponse 进行逐句延迟打字弹射播放，保障视觉与逻辑完全统一！
         const char = characterList.value.find(c => c.id === charId)
         if (char) {
-          hasIncrementedUnread = true // 由于 handleAssistantResponse 内部会自增并保存未读数，这里标记为已由其自增
-          const isWebClient = !window.electron || (window.api && (window.api as any).isIpcBridge);
-          if (isWebClient) {
-            const msgId = msg.id;
-            pendingPlaybackMessageIds.add(msgId);
-            playbackChain = playbackChain.then(async () => {
-              try {
-                await handleAssistantResponse(
-                  char,
-                  msg.content,
-                  null,
-                  msg.prompt_tokens,
-                  msg.completion_tokens,
-                  msg.cached_tokens,
-                  msg.id
-                )
-              } finally {
-                pendingPlaybackMessageIds.delete(msgId)
-              }
-            })
-          } else {
-            // 🔒 修复：Electron 端同样加入 playbackChain 串行化，防止与 chat-stream 直接触发的
-            // handleAssistantResponse 并发执行，造成气泡交叉插入、顺序混乱或重复出现。
-            const msgId = msg.id;
-            pendingPlaybackMessageIds.add(msgId);
-            playbackChain = playbackChain.then(async () => {
-              try {
-                await handleAssistantResponse(
-                  char,
-                  msg.content,
-                  null,
-                  msg.prompt_tokens,
-                  msg.completion_tokens,
-                  msg.cached_tokens,
-                  msg.id
-                )
-              } finally {
-                pendingPlaybackMessageIds.delete(msgId)
-              }
-            })
-          }
+          // Web 端和 Electron 端现在路径完全一致：通过 playbackChain 串行化播放
+          // Electron 端的 chat-stream 路径已改为 500ms 保底检查，主渲染路径统一走此处
+          const msgId = msg.id
+          pendingPlaybackMessageIds.add(msgId)
+          // 使用该角色独立的播放链，不同角色互不阻塞
+          const nextStep = getPlaybackChain(charId).then(async () => {
+            try {
+              await handleAssistantResponse(
+                char,
+                msg.content,
+                msg.redPacketAction ?? null,  // 传递红包动作（领取/退回），驱动钱包状态更新
+                msg.prompt_tokens,
+                msg.completion_tokens,
+                msg.cached_tokens,
+                msg.id
+              )
+            } catch (err) {
+              console.error(`[playbackChain] handleAssistantResponse 异常 (charId=${charId}):`, err)
+            } finally {
+              pendingPlaybackMessageIds.delete(msgId)
+            }
+          })
+          // 更新该角色的链（收割旧链，防止内存泄漏）
+          playbackChains.set(charId, nextStep)
         } else {
-          // 极致兜底降级处理
+          // 极致兜底降级处理：找不到角色元数据时直接扁平化渲染
           const flattened = flattenMessages([msg], charId)
           msgs.push(...flattened.map(m => restoreMessageProps(m)))
         }
       } else {
         const flattened = flattenMessages([msg], charId)
         msgs.push(...flattened.map(m => restoreMessageProps(m)))
+        // 非 dialogue 模式的 assistant 消息到达
+        if (msg.role === 'assistant') {
+          // 清除流式等待状态（"正在输入..."）
+          streamingCharsSet.delete(charId)
+          if (streamingCharacterId.value === charId) {
+            streamingCharacterId.value = null
+          }
+          clearReplyTimeout()
+
+          // 若携带红包动作（AI 领取/退回用户红包），触发钱包状态更新
+          // dialogue 模式由 handleAssistantResponse 内部处理；descriptive/director 需在此处额外触发
+          if (msg.redPacketAction) {
+            const char = characterList.value.find(c => c.id === charId)
+            if (char) {
+              // 此时气泡已经 push，handleAssistantResponse 会检测到末尾有真实 ID 的气泡并复用，不会重复渲染
+              handleAssistantResponse(
+                char,
+                msg.content,
+                msg.redPacketAction,
+                msg.prompt_tokens,
+                msg.completion_tokens,
+                msg.cached_tokens,
+                msg.id
+              )
+            }
+          }
+        }
       }
       
-      // 如果不是当前选中的活跃角色，或者不在聊天页，自增未读 Badge
-      if (selectedCharacterId.value !== charId || !isChattingActive.value) {
-        if (!hasIncrementedUnread) {
-          if (!conversationMeta[charId]) {
-            conversationMeta[charId] = { pinned: false, unread: 0, muted: false, hidden: false }
-          }
-          conversationMeta[charId].unread = (conversationMeta[charId].unread || 0) + 1
-          window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] })
-        }
-      } else {
-        // 收到新消息时强制置底（force=true 跳过防抖保护，不因用户之前在上方阅读而拒绝置底）
+      // 未读数由 MessageBusService → echo:unread-update 推送，前端 onUnreadUpdate 权威更新
+      // 不在此处手动自增，避免双重计数
+      if (selectedCharacterId.value === charId && isChattingActive.value) {
+        // 当前正在查看该会话，强制置底
         nextTick(() => scrollToBottom('smooth', true))
       }
     }
     })()
-  }) // end window.api.receive
+  } // end handleEchoMessage
+
+  // 注意：receive-message 旧通道已在 AgentLifeEngine/WeChatService 等迁移到
+  // MessageBusService.publish 后废弃。MessageBusService 统一走 echo:message IPC，
+  // 不再重复监听 receive-message，避免双路推送造成消息重复。
 
 
   // 监听朋友圈点赞广播，实时更新点赞数和点赞者列表头像，并处理未读通知

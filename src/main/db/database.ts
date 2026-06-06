@@ -5,10 +5,23 @@ import Database from 'better-sqlite3'
 
 export class DatabaseService {
   public db: Database.Database
-  private onMessageSavedCallback: ((msg: any) => void) | null = null
 
+  // 发布订阅：支持多个订阅者同时监听消息保存事件
+  private onMessageSavedCallbacks: Array<(msg: any) => void> = []
+
+  /**
+   * 注册消息保存事件监听器（支持多个监听器，新注册的追加而不覆盖）
+   */
+  public onMessageSaved(callback: (msg: any) => void): void {
+    this.onMessageSavedCallbacks.push(callback)
+  }
+
+  /**
+   * 兼容旧接口（单例模式）—— 实际追加到订阅列表
+   * @deprecated 请使用 onMessageSaved 替代
+   */
   public registerOnMessageSaved(callback: (msg: any) => void): void {
-    this.onMessageSavedCallback = callback
+    this.onMessageSavedCallbacks.push(callback)
   }
 
   constructor() {
@@ -327,6 +340,71 @@ export class DatabaseService {
             db.exec(`CREATE INDEX IF NOT EXISTS idx_novel_chapters_char ON NovelChapters (character_id, chapter_index);`);
           } catch (_) {}
         }
+      },
+      {
+        version: 7,
+        up: (db: Database.Database) => {
+          // ── 1. Messages 表扩展字段（round_id / seq / msg_type）──
+          const msgPragma = db.pragma("table_info(Messages)") as any[]
+          const msgCols = msgPragma.map((c: any) => c.name)
+
+          if (!msgCols.includes('round_id')) {
+            db.exec(`ALTER TABLE Messages ADD COLUMN round_id TEXT DEFAULT NULL;`)
+          }
+          if (!msgCols.includes('seq')) {
+            db.exec(`ALTER TABLE Messages ADD COLUMN seq INTEGER DEFAULT 0;`)
+          }
+          if (!msgCols.includes('msg_type')) {
+            db.exec(`ALTER TABLE Messages ADD COLUMN msg_type TEXT DEFAULT 'text';`)
+          }
+
+          // round_id 索引（断线重连补偿查询用）
+          try {
+            db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_round_id ON Messages (round_id);`)
+          } catch (_) {}
+
+          // character_id + timestamp 复合索引（消息列表分页查询性能优化）
+          try {
+            db.exec(`CREATE INDEX IF NOT EXISTS idx_messages_char_ts ON Messages (character_id, timestamp);`)
+          } catch (_) {}
+
+          // ── 2. 新建 ConversationMeta 表（替代散落在 Settings 表中的 conversation_meta_* key）──
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS ConversationMeta (
+              character_id TEXT PRIMARY KEY,
+              unread       INTEGER NOT NULL DEFAULT 0,
+              pinned       INTEGER NOT NULL DEFAULT 0,
+              muted        INTEGER NOT NULL DEFAULT 0,
+              hidden       INTEGER NOT NULL DEFAULT 0,
+              last_msg_ts  INTEGER NOT NULL DEFAULT 0
+            );
+          `)
+
+          // ── 3. 迁移旧 Settings 表中的 conversation_meta_* 数据到新表 ──
+          try {
+            const oldMetas = db.prepare(
+              "SELECT key, value FROM Settings WHERE key LIKE 'conversation_meta_%'"
+            ).all() as any[]
+            const insertMeta = db.prepare(`
+              INSERT OR IGNORE INTO ConversationMeta
+                (character_id, unread, pinned, muted, hidden, last_msg_ts)
+              VALUES (?, ?, ?, ?, ?, 0)
+            `)
+            for (const row of oldMetas) {
+              try {
+                const charId = row.key.replace('conversation_meta_', '')
+                const meta = JSON.parse(row.value)
+                insertMeta.run(
+                  charId,
+                  meta.unread || 0,
+                  meta.pinned ? 1 : 0,
+                  meta.muted ? 1 : 0,
+                  meta.hidden ? 1 : 0
+                )
+              } catch (_) {}
+            }
+          } catch (_) {}
+        }
       }
     ]
 
@@ -404,6 +482,9 @@ export class DatabaseService {
   /**
    * 保存聊天消息
    */
+  /**
+   * 保存聊天消息（完整版，支持 v7 新增字段：round_id / seq / msg_type）
+   */
   public saveMessage(msg: {
     id: string
     character_id: string
@@ -416,10 +497,16 @@ export class DatabaseService {
     cached_tokens?: number
     sender_id?: string
     is_proactive?: number  // 1 = 角色主动搭讪消息，不参与连续气泡合并
+    round_id?: string      // 轮次 ID（v7 新增）
+    seq?: number           // 轮次内序号（v7 新增）
+    msg_type?: string      // 消息类型（v7 新增）
   }): void {
     const stmt = this.db.prepare(`
-      INSERT INTO Messages (id, character_id, role, content, timestamp, token_usage, prompt_tokens, completion_tokens, cached_tokens, sender_id, is_proactive)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO Messages
+        (id, character_id, role, content, timestamp, token_usage,
+         prompt_tokens, completion_tokens, cached_tokens,
+         sender_id, is_proactive, round_id, seq, msg_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     stmt.run(
       msg.id,
@@ -432,14 +519,18 @@ export class DatabaseService {
       msg.completion_tokens !== undefined ? msg.completion_tokens : null,
       msg.cached_tokens !== undefined ? msg.cached_tokens : null,
       msg.sender_id !== undefined ? msg.sender_id : null,
-      msg.is_proactive !== undefined ? msg.is_proactive : 0
+      msg.is_proactive !== undefined ? msg.is_proactive : 0,
+      msg.round_id !== undefined ? msg.round_id : null,
+      msg.seq !== undefined ? msg.seq : 0,
+      msg.msg_type !== undefined ? msg.msg_type : 'text'
     )
 
-    if (this.onMessageSavedCallback) {
+    // 触发所有已注册的消息保存监听器
+    for (const cb of this.onMessageSavedCallbacks) {
       try {
-        this.onMessageSavedCallback(msg)
+        cb(msg)
       } catch (err) {
-        console.error('[DatabaseService] 触发 saveMessage 回调异常:', err)
+        console.error('[DatabaseService] 触发 onMessageSaved 回调异常:', err)
       }
     }
   }
@@ -1161,6 +1252,133 @@ export class DatabaseService {
     `)
     const row = stmt.get(characterId, afterTs) as { total_tokens: number | null } | undefined
     return row?.total_tokens ?? 0
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // ConversationMeta CRUD（v7 新增）
+  // ══════════════════════════════════════════════════════════
+
+  /**
+   * 获取指定会话的元数据
+   * 若不存在则自动初始化并返回默认值
+   */
+  public getConversationMeta(characterId: string): {
+    character_id: string; unread: number; pinned: boolean;
+    muted: boolean; hidden: boolean; last_msg_ts: number
+  } {
+    const stmt = this.db.prepare(
+      'SELECT * FROM ConversationMeta WHERE character_id = ?'
+    )
+    const row = stmt.get(characterId) as any
+    if (row) {
+      return {
+        character_id: row.character_id,
+        unread: row.unread,
+        pinned: !!row.pinned,
+        muted: !!row.muted,
+        hidden: !!row.hidden,
+        last_msg_ts: row.last_msg_ts
+      }
+    }
+    // 自动初始化
+    this.db.prepare(`
+      INSERT OR IGNORE INTO ConversationMeta
+        (character_id, unread, pinned, muted, hidden, last_msg_ts)
+      VALUES (?, 0, 0, 0, 0, 0)
+    `).run(characterId)
+    return { character_id: characterId, unread: 0, pinned: false, muted: false, hidden: false, last_msg_ts: 0 }
+  }
+
+  /**
+   * 获取所有会话的元数据列表
+   */
+  public getAllConversationMeta(): Array<{
+    character_id: string; unread: number; pinned: boolean;
+    muted: boolean; hidden: boolean; last_msg_ts: number
+  }> {
+    const rows = this.db.prepare('SELECT * FROM ConversationMeta').all() as any[]
+    return rows.map(row => ({
+      character_id: row.character_id,
+      unread: row.unread,
+      pinned: !!row.pinned,
+      muted: !!row.muted,
+      hidden: !!row.hidden,
+      last_msg_ts: row.last_msg_ts
+    }))
+  }
+
+  /**
+   * 原子更新 ConversationMeta 的单个字段
+   * 若记录不存在则自动创建
+   */
+  public setConversationMetaField(
+    characterId: string,
+    field: 'unread' | 'pinned' | 'muted' | 'hidden' | 'last_msg_ts',
+    value: number
+  ): void {
+    this.db.prepare(`
+      INSERT INTO ConversationMeta (character_id, unread, pinned, muted, hidden, last_msg_ts)
+      VALUES (?, 0, 0, 0, 0, 0)
+      ON CONFLICT(character_id) DO NOTHING
+    `).run(characterId)
+    this.db.prepare(`UPDATE ConversationMeta SET ${field} = ? WHERE character_id = ?`)
+      .run(value, characterId)
+  }
+
+  /**
+   * 将指定会话的未读计数原子加 1，同时更新 last_msg_ts
+   * 返回更新后的最新 unread 数量
+   */
+  public incrementUnread(characterId: string, timestamp: number): number {
+    // 确保记录存在
+    this.db.prepare(`
+      INSERT INTO ConversationMeta (character_id, unread, pinned, muted, hidden, last_msg_ts)
+      VALUES (?, 0, 0, 0, 0, 0)
+      ON CONFLICT(character_id) DO NOTHING
+    `).run(characterId)
+
+    // 原子自增并更新时间戳
+    this.db.prepare(`
+      UPDATE ConversationMeta
+      SET unread = unread + 1, last_msg_ts = ?
+      WHERE character_id = ?
+    `).run(timestamp, characterId)
+
+    // 返回更新后的值
+    const row = this.db.prepare(
+      'SELECT unread FROM ConversationMeta WHERE character_id = ?'
+    ).get(characterId) as { unread: number } | undefined
+    return row?.unread ?? 1
+  }
+
+  /**
+   * 批量 UPSERT ConversationMeta（用于导入/还原时同步）
+   */
+  public upsertConversationMeta(meta: {
+    character_id: string
+    unread?: number
+    pinned?: boolean
+    muted?: boolean
+    hidden?: boolean
+    last_msg_ts?: number
+  }): void {
+    this.db.prepare(`
+      INSERT INTO ConversationMeta (character_id, unread, pinned, muted, hidden, last_msg_ts)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(character_id) DO UPDATE SET
+        unread = excluded.unread,
+        pinned = excluded.pinned,
+        muted = excluded.muted,
+        hidden = excluded.hidden,
+        last_msg_ts = excluded.last_msg_ts
+    `).run(
+      meta.character_id,
+      meta.unread ?? 0,
+      meta.pinned ? 1 : 0,
+      meta.muted ? 1 : 0,
+      meta.hidden ? 1 : 0,
+      meta.last_msg_ts ?? 0
+    )
   }
 }
 
