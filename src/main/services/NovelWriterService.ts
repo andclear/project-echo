@@ -47,6 +47,28 @@ export class NovelWriterService {
     onDone?: (err?: any) => void
   }> = []
   private static isProcessing = false
+  private static generatingSet = new Set<string>()
+
+  public static isGenerating(characterId: string): boolean {
+    return this.generatingSet.has(characterId)
+  }
+
+  private broadcastGenerationState(characterId: string, generating: boolean) {
+    if (generating) {
+      NovelWriterService.generatingSet.add(characterId)
+    } else {
+      NovelWriterService.generatingSet.delete(characterId)
+    }
+
+    BrowserWindow.getAllWindows().forEach(w => {
+      if (!w.webContents.isDestroyed()) {
+        w.webContents.send('novel-generation-state-changed', {
+          characterId,
+          generating
+        })
+      }
+    })
+  }
 
   private static enqueue(characterId: string, action: () => Promise<void>): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -158,13 +180,18 @@ export class NovelWriterService {
     }
   }
 
-  /**
-   * 核心小说生成流程（已接入全局串行队列）
-   */
   public async generateChapter(characterId: string, options: { isFirstChapter: boolean }): Promise<void> {
     console.log(`[NovelWriterService] 角色 ${characterId} 触发小说生成，正在加入全局串行队列...`)
-    await NovelWriterService.enqueue(characterId, async () => {
-      await this.generateChaptersFromPendingDialogue(characterId, options.isFirstChapter)
+    this.broadcastGenerationState(characterId, true)
+    NovelWriterService.enqueue(characterId, async () => {
+      try {
+        await this.generateChaptersFromPendingDialogue(characterId, options.isFirstChapter)
+      } finally {
+        this.broadcastGenerationState(characterId, false)
+      }
+    }).catch(err => {
+      this.broadcastGenerationState(characterId, false)
+      throw err
     })
   }
 
@@ -628,19 +655,23 @@ ${options.suggestedTitle ? `⑧ 章节标题建议：本次改编建议使用的
   public async rewriteChapter(chapterId: string): Promise<void> {
     const db = getDatabaseService()
 
+    // 0. 获取原章节信息以取得 characterId 并进行状态广播
+    const stmt = db.db.prepare('SELECT character_id, chapter_index, dialogue_start_ts, dialogue_end_ts FROM NovelChapters WHERE id = ?')
+    const chapter = stmt.get(chapterId) as any
+    const characterId = chapter?.character_id
+    if (characterId) {
+      this.broadcastGenerationState(characterId, true)
+    }
+
     // 1. 获取并发锁
     await InferenceMutex.lock()
 
     try {
-      // 2. 获取原章节信息
-      const stmt = db.db.prepare('SELECT * FROM NovelChapters WHERE id = ?')
-      const chapter = stmt.get(chapterId) as any
       if (!chapter) {
         console.warn(`[NovelWriterService] 重写章节失败：未找到指定章节 ${chapterId}`)
         return
       }
 
-      const characterId = chapter.character_id
       const chapterIndex = chapter.chapter_index
       const dialogue_start_ts = chapter.dialogue_start_ts
       const dialogue_end_ts = chapter.dialogue_end_ts
@@ -807,6 +838,9 @@ ${chapterIndex === 1 ? '⑦ 首章铺垫规范（仅限首章）：绝对严禁�
     } finally {
       // 14. 释放互斥锁
       InferenceMutex.unlock()
+      if (characterId) {
+        this.broadcastGenerationState(characterId, false)
+      }
     }
   }
 

@@ -7225,6 +7225,29 @@
             <span v-if="novelContinuingMap[selectedCharacterId || '']" class="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
             <span>{{ novelContinuingMap[selectedCharacterId || ''] ? '正在续写中，请稍候...' : '立即续写小说' }}</span>
           </button>
+
+          <!-- 进度条：显示当前累计未改编的 token 数量与阈值进度 -->
+          <div v-if="novelProgressMap[selectedCharacterId || '']" class="mt-3.5 space-y-1.5 px-1">
+            <div class="flex items-center justify-between text-[10px] font-bold text-on-surface-variant/70">
+              <span>未改编对话进度</span>
+              <span>
+                {{ novelProgressMap[selectedCharacterId || ''].pendingTokens }} / 
+                {{ novelProgressMap[selectedCharacterId || ''].threshold }} Tokens
+                ({{ Math.min(Math.round((novelProgressMap[selectedCharacterId || ''].pendingTokens / novelProgressMap[selectedCharacterId || ''].threshold) * 100), 100) }}%)
+              </span>
+            </div>
+            <!-- 外层槽位 -->
+            <div class="w-full h-1.5 rounded-full bg-outline-variant/20 overflow-hidden">
+              <!-- 内层进度填充 -->
+              <div
+                class="h-full rounded-full transition-all duration-500 ease-out"
+                :class="novelProgressMap[selectedCharacterId || ''].pendingTokens >= novelProgressMap[selectedCharacterId || ''].threshold 
+                  ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' 
+                  : 'bg-primary'"
+                :style="{ width: `${Math.min((novelProgressMap[selectedCharacterId || ''].pendingTokens / novelProgressMap[selectedCharacterId || ''].threshold) * 100, 100)}%` }"
+              ></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -10644,6 +10667,7 @@ const novelPov = ref('third_user')
 const novelAdaptation = ref('moderate')
 const novelActiveTab = ref<'library' | 'extract'>('library')
 const novelContinuingMap = ref<Record<string, boolean>>({})
+const novelProgressMap = ref<Record<string, { pendingTokens: number; threshold: number }>>({})
 const novelStartFrom = ref('today')
 
 // 小说阅读字体大小设置（存储在浏览器 localStorage 中）
@@ -11049,6 +11073,24 @@ async function triggerNovelExport(format: 'txt' | 'html') {
     showCustomAlert('导出失败', err.message || err, 'error')
   }
 }
+
+// 拉取小说改编进度
+async function fetchNovelProgress(charId: string) {
+  if (!charId) return
+  try {
+    const res = await window.api.invoke('novel-get-progress', { characterId: charId })
+    if (res.success) {
+      novelProgressMap.value[charId] = {
+        pendingTokens: res.pendingTokens,
+        threshold: res.threshold
+      }
+      novelContinuingMap.value[charId] = res.isGenerating
+    }
+  } catch (err) {
+    console.error('[fetchNovelProgress] 失败:', err)
+  }
+}
+
 
 // 重写章节
 // 手动触发续写小说
@@ -11962,8 +12004,22 @@ const isRightPanelActive = computed(() => {
   return false
 })
 
-// ===================== 角色与对话 =====================
 const selectedCharacterId = ref<string | null>(null)
+
+// 监听角色切换与小说面板打开状态以刷新进度
+watch([selectedCharacterId, showNovelPanel], () => {
+  if (showNovelPanel.value && selectedCharacterId.value) {
+    fetchNovelProgress(selectedCharacterId.value)
+  }
+}, { immediate: true })
+
+// 监听当前聊天消息数组长度的变化以动态刷新进度
+watch(() => selectedCharacterId.value ? allMessages[selectedCharacterId.value]?.length : 0, () => {
+  if (showNovelPanel.value && selectedCharacterId.value) {
+    fetchNovelProgress(selectedCharacterId.value)
+  }
+})
+
 const characterList = ref<any[]>([])
 const characterAvatars = ref<Record<string, string>>({})
 const activeCharacter = computed(() => characterList.value.find(c => c.id === selectedCharacterId.value) || null)
@@ -17744,6 +17800,7 @@ onMounted(async () => {
           })
         }
       }
+      fetchNovelProgress(data.characterId)
     })
     window.api.receive('novel-chapter-rewritten', (data: { characterId: string; chapterId: string }) => {
       if (selectedCharacterId.value === data.characterId) {
@@ -17760,6 +17817,7 @@ onMounted(async () => {
           }
         })
       }
+      fetchNovelProgress(data.characterId)
     })
     // 续写任务完成/失败的通知
     window.api.receive('novel-continue-done', (data: { characterId: string; success: boolean; error?: string }) => {
@@ -17773,6 +17831,13 @@ onMounted(async () => {
         // novel-chapter-added 事件会在同一次任务中触发，不再重复弹窗
       } else {
         showCustomAlert('续写失败', data.error || '后台续写任务失败，请检查模型设置。', 'error')
+      }
+    })
+    // 监听后台小说生成状态变更广播，秒级联动按钮禁用状态与进度条
+    window.api.receive('novel-generation-state-changed', (data: { characterId: string; generating: boolean }) => {
+      if (data.characterId) {
+        novelContinuingMap.value[data.characterId] = data.generating
+        fetchNovelProgress(data.characterId)
       }
     })
   }

@@ -28,7 +28,7 @@ import { SocialMediaService } from './services/SocialMediaService'
 import { SoulEvolutionService } from './services/SoulEvolutionService'
 import { MusicService, Mp3Id3Writer } from './services/MusicService'
 import { NovelAiService } from './services/NovelAiService'
-import { NovelWriterService } from './services/NovelWriterService'
+import { NovelWriterService, NOVEL_TOKEN_THRESHOLD } from './services/NovelWriterService'
 import { UpdateService } from './services/UpdateService'
 import { WeChatService } from './services/WeChatService'
 import { WeatherService } from './utils/WeatherService'
@@ -2209,6 +2209,45 @@ ${soulContent}
         }
       })
       return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-get-progress', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const chatMode = db.getSetting(`chat_mode_${payload.characterId}`) || 'dialogue'
+      const threshold = NOVEL_TOKEN_THRESHOLD[chatMode] ?? 3500
+
+      const chapterCount = db.getNovelChapterCount(payload.characterId)
+      const startTsStr = db.getSetting(`novel_start_ts_${payload.characterId}`) || '0'
+      const startTs = parseInt(startTsStr, 10)
+
+      const lastEndTs = parseInt(db.getSetting(`last_novel_chapter_end_ts_${payload.characterId}`) || '0', 10)
+      const baseTs = Math.max(lastEndTs, startTs)
+
+      const pendingMessages = db.db.prepare(`
+        SELECT content FROM Messages
+        WHERE character_id = ? AND timestamp > ?
+      `).all(payload.characterId, baseTs) as any[]
+
+      // 估算 Token 数量，同 NovelWriterService.ts 逻辑
+      let pendingTokens = 0
+      for (const msg of pendingMessages) {
+        const content = msg.content || ''
+        const cleanContent = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+        pendingTokens += Math.ceil(cleanContent.length * 1.3) + 5
+      }
+
+      const isGenerating = NovelWriterService.isGenerating(payload.characterId)
+
+      return {
+        success: true,
+        pendingTokens,
+        threshold,
+        isGenerating
+      }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
