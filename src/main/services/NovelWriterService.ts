@@ -267,7 +267,6 @@ export class NovelWriterService {
     }
 
     const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'dialogue'
-    const threshold = NOVEL_TOKEN_THRESHOLD[chatMode] ?? 3500
 
     // 读取文风设置
     const styleId = db.getSetting(`novel_style_id_${characterId}`) || ''
@@ -283,11 +282,7 @@ export class NovelWriterService {
       } catch (_) {}
     }
 
-    // 2. 调用智能前置分章规划
-    const plans = await this.planChapters(characterId, rawMessages, stylePrompt)
-    console.log(`[NovelWriterService] 角色 ${characterId}（模式: ${chatMode}）未改编对话共 ${rawMessages.length} 条，智能前置分章规划完成，共分为 ${plans.length} 个分段进行生成。`)
-
-    // 3. 获取角色元数据与设定文件夹
+    // 2. 获取角色元数据与设定文件夹
     const char = db.db.prepare('SELECT * FROM Characters WHERE id = ?').get(characterId) as any
     if (!char) {
       console.warn(`[NovelWriterService] 找不到角色 ${characterId}，生成终止。`)
@@ -325,28 +320,63 @@ export class NovelWriterService {
       adaptationInstruction
     }
 
-    // 4. 依次串行循环生成每一章
-    let currentStartIdx = 0
-    for (let i = 0; i < plans.length; i++) {
-      const plan = plans[i]
-      const endMsgIdx = rawMessages.findIndex(m => m.id === plan.endMsgId)
-      if (endMsgIdx === -1) continue
+    // 3. 计算未改编消息的估算 Token 数量，并提取其中的角色回复数量
+    let totalTokens = 0
+    for (const msg of rawMessages) {
+      totalTokens += this.estimateMessageTokens(msg)
+    }
+    const assistantMsgs = rawMessages.filter(m => m.role === 'assistant')
 
-      const chunkMessages = rawMessages.slice(currentStartIdx, endMsgIdx + 1)
-      currentStartIdx = endMsgIdx + 1
+    // 4. 双轨判定逻辑
+    // 轨道 A：如果估算 Token < 4500，或角色回复数量 < 3 条，直接截取并生成单章（节省调用开销）
+    if (totalTokens < 4500 || assistantMsgs.length < 3) {
+      const lastAssistantIdx = rawMessages.map(m => m.role).lastIndexOf('assistant')
+      if (lastAssistantIdx === -1) {
+        console.log(`[NovelWriterService] 角色 ${characterId} 未改编对话中没有角色的回复，暂不生成。`)
+        return
+      }
 
-      const chunkIsFirst = isFirstChapter && (i === 0)
-      console.log(`[NovelWriterService] 正在串行生成第 ${i + 1}/${plans.length} 章《${plan.title || '拟定中'}》...`)
-      
+      const chunkMessages = rawMessages.slice(0, lastAssistantIdx + 1)
+      console.log(`[NovelWriterService] 正在直接生成单章小说，估算 Token 量: ${totalTokens}，对话条数: ${chunkMessages.length}...`)
       try {
         await this.generateSingleChapter(characterId, chunkMessages, {
-          isFirstChapter: chunkIsFirst,
-          suggestedTitle: plan.title,
+          isFirstChapter,
+          suggestedTitle: '', // 留空由 AI 自行生成标题
           ...contextOptions
         })
       } catch (err: any) {
-        console.error(`[NovelWriterService] 串行生成第 ${i + 1} 章时失败，中断后续生成:`, err.message || err)
+        console.error(`[NovelWriterService] 直接生成单章小说失败:`, err.message || err)
         throw err
+      }
+    } 
+    // 轨道 B：海量积压历史，必须调用 AI 进行前置智能分章规划
+    else {
+      console.log(`[NovelWriterService] 未改编对话估算 Token 量达 ${totalTokens}（角色回复数 ${assistantMsgs.length} 条），触发前置智能分章规划。`)
+      const plans = await this.planChapters(characterId, rawMessages, stylePrompt)
+      console.log(`[NovelWriterService] 智能前置分章规划完成，共拆分为 ${plans.length} 个章节串行生成。`)
+
+      let currentStartIdx = 0
+      for (let i = 0; i < plans.length; i++) {
+        const plan = plans[i]
+        const endMsgIdx = rawMessages.findIndex(m => m.id === plan.endMsgId)
+        if (endMsgIdx === -1) continue
+
+        const chunkMessages = rawMessages.slice(currentStartIdx, endMsgIdx + 1)
+        currentStartIdx = endMsgIdx + 1
+
+        const chunkIsFirst = isFirstChapter && (i === 0)
+        console.log(`[NovelWriterService] 正在串行生成第 ${i + 1}/${plans.length} 章《${plan.title || '拟定中'}》...`)
+        
+        try {
+          await this.generateSingleChapter(characterId, chunkMessages, {
+            isFirstChapter: chunkIsFirst,
+            suggestedTitle: plan.title,
+            ...contextOptions
+          })
+        } catch (err: any) {
+          console.error(`[NovelWriterService] 串行生成第 ${i + 1} 章时失败，中断后续生成:`, err.message || err)
+          throw err
+        }
       }
     }
   }
