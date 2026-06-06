@@ -1862,7 +1862,7 @@
                     @click="rateChapter(selectedBookChapterId, star)"
                     class="text-xs hover:scale-115 transition-transform"
                   >
-                    <span :class="star <= (bookChapters.find(c => c.id === selectedBookChapterId)?.rating || 0) ? 'text-amber-500' : 'text-on-surface-variant/20'">★</span>
+                    <span :class="star <= (bookChapters.find(c => c.id === selectedBookChapterId)?.rating || 0) ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600 opacity-40'">★</span>
                   </button>
                 </div>
 
@@ -10773,6 +10773,9 @@ async function loadBookshelf() {
     const res = await window.api.invoke('novel-get-bookshelf')
     if (res && res.success) {
       bookshelfList.value = res.bookshelf
+      res.bookshelf.forEach((book: any) => {
+        novelNewChapterBadges[book.characterId] = book.unreadCount || 0
+      })
     }
   } catch (err) {
     console.error('[Bookshelf] 加载书架失败:', err)
@@ -10793,6 +10796,7 @@ watch(sideView, async (newVal) => {
 // 打开某本书并进入阅读器
 async function openBook(characterId: string) {
   // 清除新章节红点角标
+  await window.api.invoke('novel-mark-read', { characterId })
   novelNewChapterBadges[characterId] = 0
   selectedBookId.value = characterId
   selectedBookChapterId.value = null
@@ -11032,7 +11036,8 @@ async function openNovelPanel() {
   if (!charId) return
   showNovelPanel.value = true
   showStyleDropdown.value = false
-  // 清除新章节红点角标
+  // 清除新章节红点角标并标记已读
+  await window.api.invoke('novel-mark-read', { characterId: charId })
   novelNewChapterBadges[charId] = 0
   
   await loadNovelSettings(charId)
@@ -17840,9 +17845,16 @@ onMounted(async () => {
         fetchNovelProgress(data.characterId)
       }
     })
+    // 监听后台已读状态变更广播，多窗口秒级同步小红点状态
+    window.api.receive('novel-unread-count-changed', (data: { characterId: string; unreadCount: number }) => {
+      if (data.characterId) {
+        novelNewChapterBadges[data.characterId] = data.unreadCount
+      }
+    })
   }
   fetchWeChatStatus()
   loadNovelStyles()
+  loadBookshelf() // 启动时立即拉取书架以显示最新的小说红点角标
   
   // 🚀 手机端输入法物理折叠状态高度精密监测与 Done 自愈解锁防线
   if (window.visualViewport) {

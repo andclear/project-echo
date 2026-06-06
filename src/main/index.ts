@@ -2423,6 +2423,13 @@ ${soulContent}
           defaultAvatarBase64 = `data:image/png;base64,${buffer.toString('base64')}`
         }
 
+        // 计算未读章节数
+        const maxChapter = db.db.prepare('SELECT max(chapter_index) as maxIdx FROM NovelChapters WHERE character_id = ?').get(charId) as any
+        const maxIdx = maxChapter?.maxIdx || 0
+        const lastReadStr = db.getSetting(`last_read_chapter_index_${charId}`) || '-1'
+        const lastReadIdx = parseInt(lastReadStr, 10)
+        const unreadCount = maxIdx > lastReadIdx ? (maxIdx - lastReadIdx) : 0
+
         // 获取小说最新章节的创建时间
         const lastChapter = db.db.prepare('SELECT MAX(created_at) as last_updated FROM NovelChapters WHERE character_id = ?').get(charId) as any
         const lastUpdated = lastChapter?.last_updated || 0
@@ -2434,7 +2441,8 @@ ${soulContent}
           novelTitle,
           coverUrl: customCoverBase64 || defaultAvatarBase64,
           hasCustomCover: !!customCoverBase64,
-          lastUpdated: lastUpdated
+          lastUpdated: lastUpdated,
+          unreadCount: unreadCount
         })
       }
 
@@ -2442,6 +2450,28 @@ ${soulContent}
       bookshelf.sort((a, b) => b.lastUpdated - a.lastUpdated)
 
       return { success: true, bookshelf }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-mark-read', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const maxChapter = db.db.prepare('SELECT max(chapter_index) as maxIdx FROM NovelChapters WHERE character_id = ?').get(payload.characterId) as any
+      const maxIdx = maxChapter?.maxIdx || 0
+      db.setSetting(`last_read_chapter_index_${payload.characterId}`, maxIdx.toString())
+
+      // 广播给所有窗口以同步小红点清除状态
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.webContents.isDestroyed()) {
+          w.webContents.send('novel-unread-count-changed', {
+            characterId: payload.characterId,
+            unreadCount: 0
+          })
+        }
+      })
+      return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
