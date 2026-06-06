@@ -5,6 +5,7 @@ import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { BrowserWindow } from 'electron';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
+import { SseManager } from './SseManager';
 
 export class SoulEvolutionService {
   private storageManager: CharacterStorageManager;
@@ -139,6 +140,10 @@ Target JSON format:
             draft: draft
           });
         }
+        SseManager.getInstance().broadcast('soul-evolution-proposed', {
+          characterId: characterId,
+          draft: draft
+        });
         return draft;
       }
     }

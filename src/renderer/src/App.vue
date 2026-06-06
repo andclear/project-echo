@@ -12152,6 +12152,8 @@ function getPlaybackChain(charId: string): Promise<void> {
   return playbackChains.get(charId)!
 }
 const pendingPlaybackMessageIds = reactive(new Set<string>())
+// 全图模式单轮对话生图防重复锁（每轮对话限制最多生图1张）
+const autoNaiTriggeredRounds = reactive(new Set<string>())
 
 // 历史消息分页加载状态
 const isLoadingMore = ref(false) // 防止重复并发拉取历史消息
@@ -16134,6 +16136,7 @@ function getBarHeightPercent(value: number, list: any[], key: 'calls' | 'tokens'
   return `${percent}%`
 }
 
+
 // ===================== 右键菜单 =====================
 // 🚀 核心优化：高保真右键菜单视口碰撞检测与自适应边界定位函数（防溢出被屏幕边缘截断）
 function adjustContextMenuPosition(e: MouseEvent, menuType: 'chat' | 'contact' | 'message') {
@@ -18200,304 +18203,11 @@ onMounted(async () => {
     }
 
     if (data.done) {
-      // 🚀 提前注册到 pendingDialogueContents，确保在 receive-message 广播到达前锁定，彻底斩断单聊/群聊重复气泡！
-      // 🔒 修复：使用消息归属角色的真实 chatMode，而非当前 UI 选中角色的 chatMode，防止角色切换时串号
-      const chunkCharModeForDone = characterChatModeCache[chunkCharId] ?? 'descriptive'
-      if (chunkCharModeForDone === 'dialogue' && data.content) {
-        pendingDialogueContents.add(data.content.replace(/\s+/g, '').slice(0, 80))
-      }
-
-      const isGroupChat = groupChats.value.some(g => g.id === chunkCharId)
-      const senderId = (data as any).senderId
-      
-      if (isGroupChat) {
+      // 创角 Bot 的流程 done 时清除流式等待标志，避免按钮卡死锁死
+      if (chunkCharId === creatorBotId) {
         streamingCharsSet.delete(chunkCharId)
         if (streamingCharacterId.value === chunkCharId) {
           streamingCharacterId.value = null
-        }
-        
-        // 群聊红包状态接收与领退款微观经济处理
-        const act = (data as any).redPacketAction
-        if (act && senderId) {
-          const msgs = allMessages[chunkCharId] || []
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            const msg = msgs[i]
-            if (msg.role === 'user' && msg.redPacket && (!msg.redPacket.status || msg.redPacket.status === 'waiting')) {
-              if (msg.redPacket.targetId && msg.redPacket.targetId !== senderId) {
-                continue
-              }
-              if (act === 'receive') {
-                msg.redPacket.status = 'received'
-              } else if (act === 'return') {
-                msg.redPacket.status = 'returned'
-                const amount = parseFloat(msg.redPacket.amount)
-                if (!isNaN(amount) && amount > 0) {
-                  userProfile.walletBalance += amount
-                  saveUserProfileLocal()
-                  showCustomAlert('红包被退回', `群成员退回了你的红包，金额 ${amount.toFixed(2)} 元已退回您的钱包！`, 'info')
-                }
-              }
-              if (msg.id) {
-                const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
-                  amount: msg.redPacket.amount,
-                  title: msg.redPacket.title,
-                  status: msg.redPacket.status,
-                  targetId: msg.redPacket.targetId,
-                  targetName: msg.redPacket.targetName
-                })}`
-                window.api.invoke('update-message-content', {
-                  messageId: msg.id,
-                  content: updatedDbMessage
-                })
-              }
-              break
-            }
-          }
-        }
-        // 🚀 强力修复：群聊渲染偶发卡住/不显示气泡的自愈防线
-        // 在 done 为 true 时，将最新的权威全文覆盖到最后一条助理气泡中，若因网络延迟或丢包没能正常渲染，则作为兜底自动创建
-        if (data.content && senderId && currentChatMode.value !== 'dialogue') {
-          const msgs = allMessages[chunkCharId] || []
-          // 查找最后一条由该 senderId 发送的 assistant 消息
-          let lastAssistantIdx = -1
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            if (msgs[i].role === 'assistant' && msgs[i].sender_id === senderId) {
-              lastAssistantIdx = i
-              break
-            }
-          }
-
-          let cleanedContent = data.content
-          // 🚀 黄金开场白内容物理过滤：只提取 <content> 与 </content> 标签之间的正文和抉择
-          if (cleanedContent.includes('<content>')) {
-            const startIdx = cleanedContent.indexOf('<content>') + 9
-            const endIdx = cleanedContent.indexOf('</content>')
-            if (endIdx !== -1) {
-              cleanedContent = cleanedContent.substring(startIdx, endIdx).trim()
-            } else {
-              cleanedContent = cleanedContent.substring(startIdx).trim()
-            }
-          }
-
-          // 🚀 升级为超强容错全局正则，清洗群聊中的红包控制符与系统私有控制符
-          const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
-          const halfBracketReg = /[（(][^）)]*$/g
-          cleanedContent = cleanedContent
-            .replace(/\[RECEIVE_RED_PACKET\]/g, '')
-            .replace(/\[RETURN_RED_PACKET\]/g, '')
-            .replace(sendReg, '')
-            .replace(halfBracketReg, '')
-            .trim()
-
-          // 🚀 仅当清洗后的实质文字正文内容非空时，才进行最后一条气泡的内容更新或兜底创建，从前端内存端完美解决空白头像气泡的生成 Bug
-          if (cleanedContent.trim().length > 0) {
-            if (lastAssistantIdx !== -1) {
-              msgs[lastAssistantIdx].content = cleanedContent
-            } else {
-              // 如果没能流式输出气泡，在此执行强力自愈，兜底 push 一个
-              msgs.push({
-                id: 'msg_fh_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-                role: 'assistant',
-                sender_id: senderId,
-                content: cleanedContent,
-                created_at: new Date().toISOString(),
-                timestamp: Date.now()
-              })
-            }
-          }
-
-          // 表情包与红包气泡统一由 receive-message 广播处理器负责追加，此处不再手动 push
-          // 避免双通道竞争导致重复消息
-        }
-
-        // 无论什么聊天模式，都将最新的 Token 使用及缓存命中率实时更新到群聊最后一个对应发言人气泡
-        if (senderId) {
-          const msgs = allMessages[chunkCharId] || []
-          let lastAssistantIdx = -1
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            if (msgs[i].role === 'assistant' && msgs[i].sender_id === senderId) {
-              lastAssistantIdx = i
-              break
-            }
-          }
-          if (lastAssistantIdx !== -1) {
-            msgs[lastAssistantIdx].prompt_tokens = (data as any).prompt_tokens
-            msgs[lastAssistantIdx].completion_tokens = (data as any).completion_tokens
-            msgs[lastAssistantIdx].cached_tokens = (data as any).cached_tokens
-          }
-        }
-        
-        if (chunkCharId === selectedCharacterId.value) {
-          // 群聊 done 时强制置底（确保用户看到最新回复）
-          nextTick(() => scrollToBottom('smooth', true))
-        }
-        return
-      }
-
-      if (chunkCharId === selectedCharacterId.value) {
-        streamingCharsSet.delete(chunkCharId)
-        streamingCharacterId.value = null
-        // 快速处理并清洗 typingQueue 中的红包控制符并更新卡片状态
-        scrubRedPacketFromQueue()
-      } else {
-        streamingCharsSet.delete(chunkCharId)
-        if (streamingCharacterId.value === chunkCharId) {
-          streamingCharacterId.value = null
-        }
-      }
-
-      // 🚀 核心自愈优化：仅在移动端或群聊等需要流式更新/打字机同步的场景下，将最后一条 assistant 消息内容一次性覆盖为包含完美换行符的权威全文；在 PC 端单聊（非流式）下则完全无需且不应覆盖，以防篡改历史气泡
-      // 🔒 修复：使用消息归属角色的真实 chatMode，而非当前 UI 选中角色的 chatMode
-      const chunkCharModeForCover = characterChatModeCache[chunkCharId] ?? 'descriptive'
-      if (data.content && (chunkCharModeForCover === 'descriptive' || chunkCharModeForCover === 'director') && (!window.electron || (window.api && (window.api as any).isIpcBridge) || isGroupChat)) {
-        const charId = chunkCharId
-        if (charId && allMessages[charId]) {
-          const msgs = allMessages[charId]
-          if (msgs.length > 0) {
-            const last = msgs[msgs.length - 1]
-            if (last.role === 'assistant') {
-              // 🚀 升级为超强容错全局正则，支持全半角冒号/逗号、反单引号包裹、忽略大小写
-              const sendReg = /`?\s*\[SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]\s*`?/gi
-              const halfBracketReg = /[（(][^）)]*$/g
-
-              let cleanedContent = data.content
-
-              // 🚀 黄金开场白内容物理过滤：只提取 <content> 与 </content> 标签之间的正文和抉择
-              if (cleanedContent.includes('<content>')) {
-                const startIdx = cleanedContent.indexOf('<content>') + 9
-                const endIdx = cleanedContent.indexOf('</content>')
-                if (endIdx !== -1) {
-                  cleanedContent = cleanedContent.substring(startIdx, endIdx).trim()
-                } else {
-                  cleanedContent = cleanedContent.substring(startIdx).trim()
-                }
-              }
-
-              cleanedContent = cleanedContent
-                .replace(/\[RECEIVE_RED_PACKET\]/g, '')
-                .replace(/\[RETURN_RED_PACKET\]/g, '')
-                .replace(sendReg, '')
-                .replace(halfBracketReg, '')
-                .trim()
-                
-              // 如果是当前选中的活跃角色，且打字队列中仍有残留字符，则等待打字机全部吐字完后再应用权威全文，防止文字出现重复
-              if (charId === selectedCharacterId.value && typingQueue.value.length > 0) {
-                pendingCleanedContentMap[charId] = cleanedContent
-              } else {
-                last.content = cleanedContent
-              }
-            }
-          }
-        }
-      }
-
-      // 无论什么聊天模式，都将最新的 Token 使用及缓存命中率实时更新到最后一个气泡（局域网 Web 端除外，局域网分段打字时会在最后一段气泡中自然绑定，以防错绑到首个气泡上）
-      if (!(!window.electron || (window.api && (window.api as any).isIpcBridge))) {
-        const charId = chunkCharId
-        if (charId && allMessages[charId]) {
-          const msgs = allMessages[charId]
-          if (msgs.length > 0) {
-            const last = msgs[msgs.length - 1]
-            if (last.role === 'assistant') {
-              last.prompt_tokens = (data as any).prompt_tokens
-              last.completion_tokens = (data as any).completion_tokens
-              last.cached_tokens = (data as any).cached_tokens
-            }
-          }
-        }
-      }
-
-      // 🚀 局局网自愈桥接防线：在局域网 Web 端，我们废除在 done 信号处的重复渲染补偿，大模型回复有且仅由 receive-message 存盘广播唯一触发，彻底封杀并发撞车。
-
-      // 重新读取角色文件以刷新记忆/日记展示
-      setTimeout(async () => {
-        const char = characterList.value.find(c => c.id === chunkCharId)
-        if (char) {
-          const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
-          if (memRes.success && chunkCharId === selectedCharacterId.value) activeMemory.value = memRes.content
-          const diaryRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Diary.md' })
-          if (diaryRes.success && chunkCharId === selectedCharacterId.value) activeDiary.value = diaryRes.content
-        }
-      }, 1500)
-
-      // 🚀 全图模式（$admin nai on）：回复完成后自动生图并推气泡，永不弹出确认框
-      setTimeout(async () => {
-        try {
-          const naiModeRes = await window.api.invoke('get-setting', { key: 'admin_nai_auto_mode' })
-          if (naiModeRes?.value === '1' && novelai.apiKey) {
-            // 确保当前完成的消息是有实质内容的文字消息，而非图片、表情包或红包，避免陷入无限生图循环
-            if (!data.content || 
-                data.content.startsWith('[wechat_image_media]:') || 
-                data.content.startsWith('[wechat_custom_emoji]:') || 
-                data.content.startsWith('[wechat_red_packet]:')) {
-              return
-            }
-
-            const msgs = allMessages[chunkCharId] || []
-            if (msgs.length > 0) {
-              const lastMsg = msgs[msgs.length - 1]
-              if (lastMsg && (
-                lastMsg.role !== 'assistant' ||
-                !lastMsg.content ||
-                lastMsg.content.startsWith('[wechat_image_media]:') ||
-                lastMsg.content.startsWith('[wechat_custom_emoji]:') ||
-                lastMsg.content.startsWith('[wechat_red_packet]:')
-              )) {
-                return
-              }
-            }
-
-            const char = characterList.value.find(c => c.id === chunkCharId)
-            if (!char) return
-            const recentMsgs = (allMessages[chunkCharId] || []).slice(-20)
-            const promptRes = await window.api.invoke('analyze-chat-image-prompt', {
-              characterId: chunkCharId,
-              folderName: char.folder_name,
-              recentMessages: JSON.parse(JSON.stringify(recentMsgs))
-            })
-            if (promptRes.success && promptRes.prompt) {
-              // 直接注入上下文并跳过确认框强制生图
-              activeDrawingContextMap[chunkCharId] = {
-                prompt: promptRes.prompt,
-                description: promptRes.description || '',
-                dimensions: (novelai.defaultDimensions as 'portrait' | 'landscape' | 'square') || 'portrait'
-              }
-              await executeNovelAiImageGeneration(chunkCharId, char.folder_name)
-            }
-          }
-        } catch (e) {
-          console.warn('[NAI Auto Mode] 全图模式自动生图异常:', e)
-        }
-      }, 800)
-
-
-
-      // 🚀 单聊红包状态同步：利用 chat-chunk done 携带的 redPacketAction 即时更新用户红包气泡状态
-      const chunkRedPacketAction = (data as any).redPacketAction as string | null
-      if (chunkRedPacketAction && chunkCharId) {
-        const charMsgs = allMessages[chunkCharId] || []
-        for (let i = charMsgs.length - 1; i >= 0; i--) {
-          const m = charMsgs[i]
-          if (m.role === 'user' && m.redPacket && (!m.redPacket.status || m.redPacket.status === 'waiting')) {
-            if (chunkRedPacketAction === 'receive') {
-              m.redPacket.status = 'received'
-            } else if (chunkRedPacketAction === 'return') {
-              m.redPacket.status = 'returned'
-              const amt = parseFloat(m.redPacket.amount)
-              if (!isNaN(amt) && amt > 0) {
-                userProfile.walletBalance += amt
-                saveUserProfileLocal()
-                showCustomAlert('红包被退回', `角色退回了你的红包，金额 ${amt.toFixed(2)} 元已退回您的钱包！`, 'info')
-              }
-            }
-            if (m.id) {
-              window.api.invoke('update-message-content', {
-                messageId: m.id,
-                content: `[wechat_red_packet]:${JSON.stringify({ amount: m.redPacket.amount, title: m.redPacket.title, status: m.redPacket.status, targetId: m.redPacket.targetId, targetName: m.redPacket.targetName })}`
-              })
-            }
-            break
-          }
         }
       }
       return
@@ -18646,7 +18356,7 @@ onMounted(async () => {
   // 未读计数由 MessageBusService → echo:unread-update → onUnreadUpdate 回调权威维护。
 
   // 🚀 全图模式自动生图判定与触发函数
-  async function checkAndTriggerAutoNai(charId: string, content: string) {
+  async function checkAndTriggerAutoNai(charId: string, content: string, msg: any) {
     try {
       const naiModeRes = await window.api.invoke('get-setting', { key: 'admin_nai_auto_mode' })
       if (naiModeRes?.value === '1' && novelai.apiKey) {
@@ -18659,25 +18369,28 @@ onMounted(async () => {
           return
         }
 
-        // 二次保底：核验最后的最新消息状态，确保不因流式时序重叠产生误判
-        const msgs = allMessages[charId] || []
-        if (msgs.length > 0) {
-          const lastMsg = msgs[msgs.length - 1]
-          if (lastMsg && (
-            lastMsg.role !== 'assistant' ||
-            !lastMsg.content ||
-            lastMsg.content.startsWith('[wechat_image_media]:') ||
-            lastMsg.content.startsWith('[wechat_custom_emoji]:') ||
-            lastMsg.content.startsWith('[wechat_red_packet]:') ||
-            lastMsg.content.startsWith('[character_diary]:')
-          )) {
+        if (msg.role !== 'assistant') {
+          return
+        }
+
+        // 限制每轮对话（同一个 round_id）只触发一次生图，防止多分段/多广播时重复生成
+        if (msg.round_id) {
+          if (autoNaiTriggeredRounds.has(msg.round_id)) {
+            console.log(`[NAI Auto Mode] 轮次 ${msg.round_id} 已触发过生图，本次跳过。`)
             return
           }
+          autoNaiTriggeredRounds.add(msg.round_id)
         }
 
         const char = characterList.value.find(c => c.id === charId)
         if (!char) return
-        const recentMsgs = (allMessages[charId] || []).slice(-20)
+        
+        let recentMsgs = (allMessages[charId] || []).slice(-20)
+        // 确保最新收到且正在处理的消息包含在上下文中，供 LLM 准确构图
+        if (!recentMsgs.some(m => m.id === msg.id)) {
+          recentMsgs = [...recentMsgs, msg]
+        }
+        
         const promptRes = await window.api.invoke('analyze-chat-image-prompt', {
           characterId: charId,
           folderName: char.folder_name,
@@ -18709,6 +18422,51 @@ onMounted(async () => {
     const charId = msg.character_id
     if (!charId) return
 
+    // 🚀 红包状态即时同步与存盘（支持单聊与群聊）：无论是否为重复气泡，只要大模型返回了红包处理动作（领取/退回），就应立即触发钱包和数据库同步
+    if (msg.role === 'assistant' && msg.redPacketAction && msg.redPacketAction !== 'send') {
+      const isGroup = groupChats.value.some(g => g.id === charId)
+      const senderId = msg.sender_id
+      const act = msg.redPacketAction
+      const charMsgs = allMessages[charId] || []
+      
+      for (let i = charMsgs.length - 1; i >= 0; i--) {
+        const m = charMsgs[i]
+        if (m.role === 'user' && m.redPacket && (!m.redPacket.status || m.redPacket.status === 'waiting')) {
+          if (isGroup) {
+            if (m.redPacket.targetId && m.redPacket.targetId !== senderId) {
+              continue
+            }
+          }
+          if (act === 'receive') {
+            m.redPacket.status = 'received'
+          } else if (act === 'return') {
+            m.redPacket.status = 'returned'
+            const amt = parseFloat(m.redPacket.amount)
+            if (!isNaN(amt) && amt > 0) {
+              userProfile.walletBalance += amt
+              saveUserProfileLocal()
+              showCustomAlert('红包被退回', `${isGroup ? '群成员' : '角色'}退回了你的红包，金额 ${amt.toFixed(2)} 元已退回您的钱包！`, 'info')
+            }
+          }
+          if (m.id) {
+            const updatedPayload = {
+              amount: m.redPacket.amount,
+              title: m.redPacket.title,
+              status: m.redPacket.status
+            } as any
+            if (isGroup) {
+              updatedPayload.targetId = m.redPacket.targetId
+              updatedPayload.targetName = m.redPacket.targetName
+            }
+            window.api.invoke('update-message-content', {
+              messageId: m.id,
+              content: `[wechat_red_packet]:${JSON.stringify(updatedPayload)}`
+            })
+          }
+          break
+        }
+      }
+    }
 
     // 更新对应会话的活跃时间戳
     conversationActiveTimes[charId] = msg.timestamp || Date.now()
@@ -18894,6 +18652,11 @@ onMounted(async () => {
     )
 
     if (!isDuplicate && !msgs.some(m => m.id === msg.id)) {
+      if (msg.role === 'assistant') {
+        // 🚀 立刻并行的在后台触发全图模式自动分析与生图检测，无需等待拟真打字播放结束（解决从落盘到生图的延迟过长问题）
+        checkAndTriggerAutoNai(charId, msg.content, msg)
+      }
+
       // 读取该消息所属角色的真实 chatMode（优先缓存，未命中则查 DB 并回写）
       let msgCharMode = characterChatModeCache[charId]
       if (!msgCharMode) {
@@ -18925,10 +18688,6 @@ onMounted(async () => {
                 msg.cached_tokens,
                 msg.id
               )
-              // 自动生图检测（打字播放完成后延迟 800ms 运行）
-              setTimeout(() => {
-                checkAndTriggerAutoNai(charId, msg.content)
-              }, 800)
             } catch (err) {
               console.error(`[playbackChain] handleAssistantResponse 异常 (charId=${charId}):`, err)
             } finally {
@@ -18957,10 +18716,16 @@ onMounted(async () => {
           }
           clearReplyTimeout()
 
-          // 自动生图检测（文字气泡推送后延迟 800ms 运行）
-          setTimeout(() => {
-            checkAndTriggerAutoNai(charId, msg.content)
-          }, 800)
+          // 🚀 刷新记忆与日记视图 (非 dialogue 模式自愈)
+          setTimeout(async () => {
+            const char = characterList.value.find(c => c.id === charId)
+            if (char) {
+              const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
+              if (memRes.success && charId === selectedCharacterId.value) activeMemory.value = memRes.content
+              const diaryRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Diary.md' })
+              if (diaryRes.success && charId === selectedCharacterId.value) activeDiary.value = diaryRes.content
+            }
+          }, 1500)
 
           // 若携带红包动作（AI 领取/退回用户红包），触发钱包状态更新
           // dialogue 模式由 handleAssistantResponse 内部处理；descriptive/director 需在此处额外触发

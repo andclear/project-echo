@@ -9,6 +9,7 @@ import { StateReaderWriter } from '../utils/StateReaderWriter';
 import { getDatabaseService } from '../db/database';
 import { SummaryReaderWriter } from '../utils/SummaryReaderWriter';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
+import { SseManager } from './SseManager';
 
 /**
  * 延迟确认记忆草稿结构
@@ -502,6 +503,10 @@ Target JSON 格式：
             updates: filteredUpdates
           });
         }
+        SseManager.getInstance().broadcast('character-state-updated', {
+          characterId,
+          updates: filteredUpdates
+        });
       }
     }
 

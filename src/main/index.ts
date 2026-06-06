@@ -34,6 +34,7 @@ import { WeChatService } from './services/WeChatService'
 import { WeatherService } from './utils/WeatherService'
 import { MessageBusService, EchoMessage, MessageType } from './services/MessageBusService'
 import { parseMemoryMd, parseUserMd } from './utils/MarkdownMetadataParser'
+import { SseManager } from './services/SseManager'
 
 
 
@@ -887,6 +888,7 @@ function registerIpcHandlers(): void {
 
       // 广播通知其他局域网客户端
       mainWindow?.webContents.send('user-profile-updated', payload)
+      SseManager.getInstance().broadcast('user-profile-updated', payload)
 
       return { success: true }
     } catch (e: any) {
@@ -916,6 +918,7 @@ function registerIpcHandlers(): void {
 
       // 广播通知其他局域网客户端
       mainWindow?.webContents.send('custom-emojis-updated', payload)
+      SseManager.getInstance().broadcast('custom-emojis-updated', payload)
 
       return { success: true }
     } catch (e: any) {
@@ -2222,11 +2225,13 @@ ${soulContent}
         if (mainWindow && !mainWindow.webContents.isDestroyed()) {
           mainWindow.webContents.send('novel-continue-done', { characterId: payload.characterId, success: true })
         }
+        SseManager.getInstance().broadcast('novel-continue-done', { characterId: payload.characterId, success: true })
       }).catch((err: any) => {
         console.error('[novel-continue] 续写失败:', err)
         if (mainWindow && !mainWindow.webContents.isDestroyed()) {
           mainWindow.webContents.send('novel-continue-done', { characterId: payload.characterId, success: false, error: err.message })
         }
+        SseManager.getInstance().broadcast('novel-continue-done', { characterId: payload.characterId, success: false, error: err.message })
       })
       return { success: true }
     } catch (e: any) {
@@ -2490,6 +2495,10 @@ ${soulContent}
             unreadCount: 0
           })
         }
+      })
+      SseManager.getInstance().broadcast('novel-unread-count-changed', {
+        characterId: payload.characterId,
+        unreadCount: 0
       })
       return { success: true }
     } catch (e: any) {
@@ -4953,20 +4962,35 @@ ${memoryContent}
     msg_type?: string
     round_id?: string
     seq?: number
+    broadcast?: boolean
   }) => {
     try {
       const db = getDatabaseService()
-      db.saveMessage({
-        id: payload.id,
-        character_id: payload.character_id,
-        role: payload.role,
-        content: payload.content,
-        timestamp: payload.timestamp,
-        token_usage: payload.token_usage || 0,
-        msg_type: payload.msg_type || 'text',
-        round_id: payload.round_id,
-        seq: payload.seq ?? 0
-      })
+      if (payload.broadcast) {
+        MessageBusService.getInstance().publish({
+          id: payload.id,
+          round_id: payload.round_id || crypto.randomUUID(),
+          seq: payload.seq ?? 0,
+          character_id: payload.character_id,
+          role: payload.role,
+          msg_type: (payload.msg_type as any) || 'text',
+          content: payload.content,
+          timestamp: payload.timestamp,
+          token_usage: payload.token_usage || 0
+        })
+      } else {
+        db.saveMessage({
+          id: payload.id,
+          character_id: payload.character_id,
+          role: payload.role,
+          content: payload.content,
+          timestamp: payload.timestamp,
+          token_usage: payload.token_usage || 0,
+          msg_type: payload.msg_type || 'text',
+          round_id: payload.round_id,
+          seq: payload.seq ?? 0
+        })
+      }
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -5294,6 +5318,7 @@ ${memoryContent}
 
       // 广播给所有客户端（包括通过 SSE 长连接的手机端）
       mainWindow?.webContents.send('conversation-meta-updated', payload)
+      SseManager.getInstance().broadcast('conversation-meta-updated', payload)
 
       return { success: true }
     } catch (e: any) {
