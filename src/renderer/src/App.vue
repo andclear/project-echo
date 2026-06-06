@@ -10067,6 +10067,22 @@ const md = new MarkdownIt({
   breaks: true // 允许将单个换行符渲染为 <br>
 })
 
+// 自定义 link_open 规则，使所有渲染出来的链接在新窗口（即系统默认浏览器）中打开
+const defaultLinkRender = md.renderer.rules.link_open || function (tokens, idx, options, env, self) {
+  return self.renderToken(tokens, idx, options)
+}
+md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+  const token = tokens[idx]
+  const aIndex = token.attrIndex('target')
+  if (aIndex < 0) {
+    token.attrPush(['target', '_blank'])
+  } else if (token.attrs) {
+    token.attrs[aIndex][1] = '_blank'
+  }
+  return defaultLinkRender(tokens, idx, options, env, self)
+}
+
+
 function renderMarkdown(content: string) {
   if (!content) return ''
   const html = md.render(content)
@@ -18194,6 +18210,28 @@ onMounted(async () => {
         try {
           const naiModeRes = await window.api.invoke('get-setting', { key: 'admin_nai_auto_mode' })
           if (naiModeRes?.value === '1' && novelai.apiKey) {
+            // 确保当前完成的消息是有实质内容的文字消息，而非图片、表情包或红包，避免陷入无限生图循环
+            if (!data.content || 
+                data.content.startsWith('[wechat_image_media]:') || 
+                data.content.startsWith('[wechat_custom_emoji]:') || 
+                data.content.startsWith('[wechat_red_packet]:')) {
+              return
+            }
+
+            const msgs = allMessages[chunkCharId] || []
+            if (msgs.length > 0) {
+              const lastMsg = msgs[msgs.length - 1]
+              if (lastMsg && (
+                lastMsg.role !== 'assistant' ||
+                !lastMsg.content ||
+                lastMsg.content.startsWith('[wechat_image_media]:') ||
+                lastMsg.content.startsWith('[wechat_custom_emoji]:') ||
+                lastMsg.content.startsWith('[wechat_red_packet]:')
+              )) {
+                return
+              }
+            }
+
             const char = characterList.value.find(c => c.id === chunkCharId)
             if (!char) return
             const recentMsgs = (allMessages[chunkCharId] || []).slice(-20)
@@ -18216,6 +18254,7 @@ onMounted(async () => {
           console.warn('[NAI Auto Mode] 全图模式自动生图异常:', e)
         }
       }, 800)
+
 
 
       // 🚀 单聊红包状态同步：利用 chat-chunk done 携带的 redPacketAction 即时更新用户红包气泡状态
