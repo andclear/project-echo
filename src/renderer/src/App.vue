@@ -14761,43 +14761,10 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
       }, 3000)
     }
 
-    // 🚀 双向红包神级同步：如果大模型主动发送了红包，且当前处于单聊模式下，在其文字气泡播放/接收完毕后，自动在聊天队列追加红包卡片气泡
-    if (!isGroupActive.value && res.redPacketSend && char.id === selectedCharacterId.value) {
-      const msgs = allMessages[char.id] || []
-      
-      // 倒序寻找前一个文字气泡，若存在则抹去其 token 统计（使其只展现最后一个红包卡片上）
-      let lastTextMsg = null
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].role === 'assistant' && !msgs[i].redPacket) {
-          lastTextMsg = msgs[i]
-          break
-        }
-      }
-      if (lastTextMsg) {
-        lastTextMsg.prompt_tokens = undefined
-        lastTextMsg.completion_tokens = undefined
-        lastTextMsg.cached_tokens = undefined
-      }
-
-      msgs.push({
-        id: 'msg_rp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-        role: 'assistant',
-        sender_id: char.id, // 🚀 补全发送人 ID 元数据，确保在任何混用或调度渲染场景下均有完美的头像与名字显示
-        // 🚀 使用已转换的高颜值中文格式作为 content，确保在会话中栏列表预览中完美、即时、保真显示，绝不显现 JSON 原始控制字符串
-        content: `[发送红包: ${res.redPacketSend.amount} 元, 附言: ${res.redPacketSend.title || '恭喜发财，大吉大利'}]`,
-        redPacket: {
-          amount: res.redPacketSend.amount,
-          title: res.redPacketSend.title,
-          status: 'waiting'
-        },
-        created_at: new Date().toISOString(),
-        timestamp: Date.now(),
-        prompt_tokens: res.prompt_tokens,
-        completion_tokens: res.completion_tokens,
-        cached_tokens: res.cached_tokens
-      })
-      nextTick(() => scrollToBottom())
-    }
+    // 红包渲染已完全移交 echo:message → handleEchoMessage 标准路径：
+    // MessageBusService.publishBatch 会广播一条 msg_type='red_packet' 的消息，
+    // handleEchoMessage 收到后通过 restoreMessageProps 正确解析并渲染红包卡片。
+    // 不再在此手动 push 临时红包气泡，避免时序差导致去重失败造成重复。
 
   } catch (err: any) {
     clearReplyTimeout() // 🚀 发生异常，物理清除 30秒 超时定时器
@@ -18761,7 +18728,10 @@ onMounted(async () => {
         }
       } else {
         const flattened = flattenMessages([msg], charId)
-        msgs.push(...flattened.map(m => restoreMessageProps(m)))
+        const restoredMsgs = flattened.map(m => restoreMessageProps(m))
+        // 防空气泡：非特殊消息（文字消息）如果内容被清洗后为空，不 push
+        const validMsgs = restoredMsgs.filter(m => isSpecialMsg || (m.content && m.content.trim()) || m.imageBase64 || m.customEmojiUrl || m.redPacket)
+        msgs.push(...validMsgs)
         // 非 dialogue 模式的 assistant 消息到达
         if (msg.role === 'assistant') {
           // 清除流式等待状态（"正在输入..."）
@@ -18773,10 +18743,12 @@ onMounted(async () => {
 
           // 若携带红包动作（AI 领取/退回用户红包），触发钱包状态更新
           // dialogue 模式由 handleAssistantResponse 内部处理；descriptive/director 需在此处额外触发
-          if (msg.redPacketAction) {
+          // ⚠️ 注意：redPacketAction='send' 是 AI 主动发红包，气泡已由 restoreMessageProps 正确渲染为红包卡片，
+          // 不需要再调用 handleAssistantResponse（否则会把 '[wechat_red_packet]:...' 再次 push 成空气泡）。
+          // 只有 receive/return（AI 响应用户红包）才需要调用 handleAssistantResponse 更新钱包状态。
+          if (msg.redPacketAction && msg.redPacketAction !== 'send') {
             const char = characterList.value.find(c => c.id === charId)
             if (char) {
-              // 此时气泡已经 push，handleAssistantResponse 会检测到末尾有真实 ID 的气泡并复用，不会重复渲染
               handleAssistantResponse(
                 char,
                 msg.content,
