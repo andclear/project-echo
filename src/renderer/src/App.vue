@@ -3536,7 +3536,7 @@
                     <SettingsIcon class="w-8 h-8 text-primary" />
                   </div>
                   <h2 class="text-base font-bold text-on-surface">Echo - 回音</h2>
-                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.3 (桌面端)</p>
+                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.4 (桌面端)</p>
                   <p class="text-[10px] text-on-surface-variant mt-1.5 opacity-60">Power By Laopobao</p>
 
                   <!-- 🚀 高科技炫彩玻璃检查更新控制组件 -->
@@ -9589,7 +9589,7 @@
           <div class="flex items-center justify-center space-x-3.5 py-2 px-4 bg-surface-low/30 dark:bg-[#1a1a1a]/30 border border-outline-variant/10 dark:border-[#202022] rounded-[18px] dark:rounded-[6px] max-w-[290px] mx-auto shadow-sm">
             <div class="flex flex-col items-center">
               <span class="text-[8px] text-on-surface-variant/40 dark:text-[#bbcabf]/30 font-bold tracking-wider uppercase font-mono">Current</span>
-              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v1.0.3</span>
+              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v1.0.4</span>
             </div>
             
             <!-- 指示箭头带极精密虚线 -->
