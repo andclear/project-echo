@@ -6202,8 +6202,8 @@
                 </div>
                 <!-- AI角色头像方形圆角化 -->
                 <div class="w-8 h-8 rounded overflow-hidden border border-on-surface/5 bg-surface flex-shrink-0 flex items-center justify-center shadow-sm">
-                  <template v-if="msg.sender_id === 'character_creator_bot'">
-                    <img :src="creatorBotAvatarUrl" class="w-full h-full object-cover" />
+                  <template v-if="msg.sender_id === 'character_creator_bot' || (activeCharacter && activeCharacter.id === 'character_creator_bot' && msg.role !== 'user')">
+                    <img :src="creatorBotAvatarUrl" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" />
                   </template>
                   <template v-else>
                     <img v-if="msg.sender_id && characterAvatars[msg.sender_id as string]" :src="characterAvatars[msg.sender_id as string]" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" />
