@@ -1728,6 +1728,19 @@ function registerIpcHandlers(): void {
       })
       console.log('[IPC] 3/3 SQLite 角色元数据入库成功！')
 
+      // 🚀 广播通知其他局域网客户端与电脑端新角色已导入/诞生，秒级更新同步
+      const charImportedBroadcast = {
+        id: confirmedFolderName,
+        name: name || cardData.name || '未知',
+        folder_name: confirmedFolderName,
+        first_mes: cardData.first_mes || '',
+        created_at: Date.now()
+      }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('character-imported', charImportedBroadcast)
+      }
+      SseManager.getInstance().broadcast('character-imported', charImportedBroadcast)
+
       // 首次导入成功后，强制异步触发大模型生成角色 100 字核心设定总结 (不阻塞导入完成返回)
       CharacterSummaryService.getOrGenerateSummary(confirmedFolderName, true).catch(err => {
         console.error('[import-character] 初始生成设定总结异常:', err)
@@ -3450,6 +3463,36 @@ ${formattedHistory}
 
 
     if (characterId === CREATOR_BOT_ID) {
+      // 🚀 广播通知其他局域网客户端与电脑端用户向创角 Bot 发送了消息
+      const userMsgBroadcast = {
+        characterId: CREATOR_BOT_ID,
+        message: {
+          role: 'user',
+          content: userMessage,
+          timestamp: Date.now()
+        }
+      }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('creator-bot-message', userMsgBroadcast)
+      }
+      SseManager.getInstance().broadcast('creator-bot-message', userMsgBroadcast)
+
+      // 🚀 广播辅助函数：统一创角 Bot 回复广播出口
+      const broadcastAssistantMessage = (content: string) => {
+        const botMsgBroadcast = {
+          characterId: CREATOR_BOT_ID,
+          message: {
+            role: 'assistant',
+            content,
+            timestamp: Date.now()
+          }
+        }
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('creator-bot-message', botMsgBroadcast)
+        }
+        SseManager.getInstance().broadcast('creator-bot-message', botMsgBroadcast)
+      }
+
       const db = getDatabaseService()
       const configStr = db.getSetting('model_config')
       if (!configStr) {
@@ -3520,6 +3563,7 @@ ${formattedHistory}
           session.step = 2 // 转移到 Step 2
 
           event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+          broadcastAssistantMessage(accumulatedResponse)
           return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 2) {
@@ -3543,6 +3587,7 @@ ${formattedHistory}
           session.step = 3 // 转移到 Step 3
 
           event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+          broadcastAssistantMessage(accumulatedResponse)
           return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 3) {
@@ -3566,6 +3611,7 @@ ${formattedHistory}
           session.step = 4 // 转移到 Step 4（设定生成阶段）
 
           event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+          broadcastAssistantMessage(accumulatedResponse)
           return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 4) {
@@ -3641,6 +3687,7 @@ ${formattedHistory}
           session.step = 5 // 转移到 Step 5，等待用户确认或调整人设
 
           event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+          broadcastAssistantMessage(accumulatedResponse)
           return { success: true, content: accumulatedResponse }
 
         } else if (session.step === 5) {
@@ -3655,6 +3702,7 @@ ${formattedHistory}
 
             session.step = 6 // 转移到状态 6，等待上传头像
             event.sender.send('chat-chunk', { characterId, content: confirmMsg, done: true })
+            broadcastAssistantMessage(confirmMsg)
             return { success: true, content: confirmMsg }
           } else {
             const creatorModifyPrompt = `用户对已生成的角色档案提出了调整意见："${userMessage}"
@@ -3693,6 +3741,7 @@ ${formattedHistory}
             session.history.push({ role: 'assistant', content: accumulatedResponse })
 
             event.sender.send('chat-chunk', { characterId, content: accumulatedResponse, done: true })
+            broadcastAssistantMessage(accumulatedResponse)
             return { success: true, content: accumulatedResponse }
           }
 
@@ -3703,6 +3752,7 @@ ${formattedHistory}
 请点击输入框左侧工具或直接粘贴一张 1:1 的方形图片给我，以作为【${session.charName}】的精美头像~ 🐾`
 
             event.sender.send('chat-chunk', { characterId, content: errorMsg, done: true })
+            broadcastAssistantMessage(errorMsg)
             return { success: true, content: errorMsg }
           }
 
@@ -3748,6 +3798,19 @@ ${formattedHistory}
 
           console.log(`[CreatorBot] 恭喜！数字生命角色 [${session.charName}] 已成功诞生并导入数据库`)
 
+          // 🚀 广播通知其他局域网客户端与电脑端新角色已导入/诞生，秒级更新同步
+          const creatorImportBroadcast = {
+            id: confirmedFolderName,
+            name: session.charName,
+            folder_name: confirmedFolderName,
+            first_mes: '',
+            created_at: Date.now()
+          }
+          if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+            mainWindow.webContents.send('character-imported', creatorImportBroadcast)
+          }
+          SseManager.getInstance().broadcast('character-imported', creatorImportBroadcast)
+
           // 发送带有特殊后缀指令的前台通知
           event.sender.send('chat-chunk', {
             characterId,
@@ -3762,7 +3825,9 @@ ${formattedHistory}
         }
       } catch (err: any) {
         console.error('[CreatorBot] 运行崩溃:', err)
-        event.sender.send('chat-chunk', { characterId, content: `\n[系统异常]: ${err.message || err}`, done: false })
+        const errorMsg = `\n[系统异常]: ${err.message || err}`
+        broadcastAssistantMessage(errorMsg)
+        event.sender.send('chat-chunk', { characterId, content: errorMsg, done: false })
         event.sender.send('chat-chunk', { characterId, content: '', done: true })
         return { success: false, error: err.message || err }
       } finally {

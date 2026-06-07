@@ -13,9 +13,7 @@
     <div class="relative flex-shrink-0">
       <div class="w-10 h-10 rounded overflow-hidden bg-surface-high border border-on-surface/5 shadow-sm flex items-center justify-center">
         <template v-if="character.id === 'character_creator_bot'">
-          <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
-            <BrainIcon class="w-5 h-5 animate-pulse" stroke-width="1.5" />
-          </div>
+          <img :src="creatorBotAvatarUrl" class="w-full h-full object-cover" />
         </template>
         <template v-else>
           <img v-if="avatar" :src="avatar" class="w-full h-full object-cover" />
@@ -71,6 +69,7 @@
 
 <script setup lang="ts">
 import { BellOffIcon, UserIcon, Brain as BrainIcon, Pin as PinIcon } from 'lucide-vue-next'
+import creatorBotAvatarUrl from '../assets/creat_char.png'
 
 const props = defineProps<{
   character: any

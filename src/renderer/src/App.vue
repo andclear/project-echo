@@ -470,8 +470,13 @@
               @touchmove="onLongPressMove"
             >
               <div class="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-surface-high border border-outline-variant">
-                <img v-if="characterAvatars[char.id]" :src="characterAvatars[char.id]" class="w-full h-full object-cover" />
-                <UserIcon v-else class="w-5 h-5 text-on-surface-variant m-auto mt-2.5" />
+                <template v-if="char.id === 'character_creator_bot'">
+                  <img :src="creatorBotAvatarUrl" class="w-full h-full object-cover" />
+                </template>
+                <template v-else>
+                  <img v-if="characterAvatars[char.id]" :src="characterAvatars[char.id]" class="w-full h-full object-cover" />
+                  <UserIcon v-else class="w-5 h-5 text-on-surface-variant m-auto mt-2.5" />
+                </template>
               </div>
               <div class="flex-1 min-w-0">
                 <div class="text-sm font-semibold text-on-surface truncate">{{ char.name }}</div>
@@ -5526,9 +5531,7 @@
                 </template>
                 <template v-else-if="activeCharacter">
                   <template v-if="activeCharacter.id === 'character_creator_bot'">
-                    <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
-                      <BrainIcon class="w-4 h-4 animate-pulse" stroke-width="1.5" />
-                    </div>
+                    <img :src="creatorBotAvatarUrl" class="w-full h-full object-cover" />
                   </template>
                   <template v-else>
                     <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
@@ -5973,9 +5976,7 @@
                 </template>
                 <template v-else-if="activeCharacter">
                   <template v-if="activeCharacter.id === 'character_creator_bot'">
-                    <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
-                      <BrainIcon class="w-7 h-7 animate-pulse" stroke-width="1.5" />
-                    </div>
+                    <img :src="creatorBotAvatarUrl" class="w-full h-full object-cover" />
                   </template>
                   <template v-else>
                     <img v-if="characterAvatars[activeCharacter.id]" :src="characterAvatars[activeCharacter.id]" class="w-full h-full object-cover" />
@@ -6202,9 +6203,7 @@
                 <!-- AI角色头像方形圆角化 -->
                 <div class="w-8 h-8 rounded overflow-hidden border border-on-surface/5 bg-surface flex-shrink-0 flex items-center justify-center shadow-sm">
                   <template v-if="msg.sender_id === 'character_creator_bot'">
-                    <div class="w-full h-full bg-gradient-to-tr from-indigo-500 to-primary flex items-center justify-center text-white">
-                      <BrainIcon class="w-4 h-4 animate-pulse" stroke-width="1.5" />
-                    </div>
+                    <img :src="creatorBotAvatarUrl" class="w-full h-full object-cover" />
                   </template>
                   <template v-else>
                     <img v-if="msg.sender_id && characterAvatars[msg.sender_id as string]" :src="characterAvatars[msg.sender_id as string]" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" />
@@ -10125,6 +10124,10 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     eventSource.addEventListener('group-chat-updated', handleSseEvent)
     eventSource.addEventListener('group-chat-deleted', handleSseEvent)
 
+    // 🚀 监听创角 Bot 过程消息和新角色导入成功的广播，打通多端联动
+    eventSource.addEventListener('creator-bot-message', handleSseEvent)
+    eventSource.addEventListener('character-imported', handleSseEvent)
+
     eventSource.onerror = (err) => {
       console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err)
     }
@@ -10280,6 +10283,8 @@ function replaceStickersOnly(html: string) {
 // @ts-ignore
 import defaultAvatarUrl from './assets/default-avatar.webp'
 const defaultAvatarSrc = defaultAvatarUrl
+// @ts-ignore
+import creatorBotAvatarUrl from './assets/creat_char.png'
 // MOI 官方推荐 Logo (从 assets 引入)
 // @ts-ignore
 import moiLogoUrl from './assets/moi-logo.png'
@@ -18150,6 +18155,30 @@ onMounted(async () => {
     await loadCharacters()
   })
 
+  // 🚀 监听创角 Bot 过程消息广播，打通多端同步对话
+  window.api.receive('creator-bot-message', (data: { characterId: string; message: any }) => {
+    const charId = data.characterId
+    if (!allMessages[charId]) allMessages[charId] = []
+    const msgs = allMessages[charId]
+    
+    // 防重复检查与推入
+    const cleanContent = data.message.content.trim()
+    const exists = msgs.some(m => m.role === data.message.role && m.content.trim() === cleanContent)
+    if (!exists) {
+      msgs.push({
+        ...data.message,
+        timestamp: data.message.timestamp || Date.now()
+      })
+      nextTick(() => scrollToBottom())
+    }
+  })
+
+  // 🚀 监听角色导入/诞生成功广播，刷新多端角色列表以同步呈现新生命
+  window.api.receive('character-imported', async (data: any) => {
+    console.log('[IPC] ➜ 收到新角色导入/创建成功广播通知，正在刷新角色列表...', data)
+    await loadCharacters()
+  })
+
   // 监听角色专属聊天模式变更广播（多端同步）
   // 核心隔离约束：只有当 characterId 与当前打开的角色完全一致时，才更新 chatMode.value，
   // 其他角色的模式变更广播会被完全忽略，确保互不影响
@@ -18221,6 +18250,57 @@ onMounted(async () => {
     }
 
     const chunkCharId = data.characterId || streamingCharacterId.value || selectedCharacterId.value || ''
+
+    // 🚀 核心修复：创角 Bot 专属快速处理通道，不参与下面的单聊过滤与群聊流式追加，从源头避免被误伤过滤
+    if (chunkCharId === creatorBotId) {
+      if (data.content && data.content.includes('[SUCCESS_CREATION_JUMP]:')) {
+        const parts = data.content.split('[SUCCESS_CREATION_JUMP]:')
+        const folderName = parts[1].trim()
+        
+        // 立即重置流式标志，确保新创建出来的角色对话框发送按钮立即可用，避免卡死
+        streamingCharsSet.delete(chunkCharId)
+        streamingCharacterId.value = null
+        
+        // 延迟 3.5 秒跳转，让用户看清成功提示
+        setTimeout(async () => {
+          // 从左侧列表中移除临时虚拟创角 Bot
+          characterList.value = characterList.value.filter(c => c.id !== creatorBotId)
+          delete allMessages[creatorBotId]
+          
+          // 重新加载正式角色列表并选中跳转到新鲜出炉的角色
+          await loadCharacters()
+          selectCharacter(folderName)
+        }, 3500)
+        
+        return
+      }
+
+      // 接收创角普通问答气泡或系统异常报错气泡，去重推入
+      if (data.content && data.content.trim()) {
+        if (!allMessages[creatorBotId]) allMessages[creatorBotId] = []
+        const msgs = allMessages[creatorBotId]
+        
+        const cleanInputContent = data.content.trim()
+        const exists = msgs.some(m => m.role === 'assistant' && m.content.trim() === cleanInputContent)
+        if (!exists) {
+          msgs.push({
+            role: 'assistant',
+            content: data.content,
+            timestamp: Date.now()
+          })
+          nextTick(() => scrollToBottom())
+        }
+      }
+
+      if (data.done) {
+        // 创角 Bot 的流程 done 时清除流式等待标志，避免按钮与输入框卡死，使用户可以重新尝试或继续步骤
+        streamingCharsSet.delete(chunkCharId)
+        if (streamingCharacterId.value === chunkCharId) {
+          streamingCharacterId.value = null
+        }
+      }
+      return
+    }
 
     // 🚀 只要流式吐字或处于流式交互中，就重置/清除超时定时器，只在真正停滞 10分钟 以上时才超时自愈
     if (data.done) {
