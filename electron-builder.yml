@@ -5,6 +5,8 @@ directories:
   buildResources: build
 files:
   - out/**/*
+  - "!out/renderer/echo-home-game"
+  - "!out/renderer/echo-home-game/**/*"
   - resources/**/*
   - package.json
 asar: true

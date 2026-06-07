@@ -1873,6 +1873,13 @@ ${soulContent}
       db.saveGroupMembers(groupId, memberIds)
       console.log(`[IPC] ✔ 群聊 ${name} (${groupId}) 物理与数据库落盘大获成功！`)
 
+      // 🚀 广播通知其他局域网客户端与电脑端群聊已创建
+      const groupBroadcast = { groupId, name, memberIds }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('group-chat-created', groupBroadcast)
+      }
+      SseManager.getInstance().broadcast('group-chat-created', groupBroadcast)
+
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 创建群聊失败:', error)
@@ -1922,6 +1929,14 @@ ${soulContent}
       console.log(`[IPC] ➜ 收到更新群名请求, ID: ${groupId}, 新名称: ${name}`)
       const db = getDatabaseService()
       db.updateGroupName(groupId, name)
+
+      // 🚀 广播通知其他局域网客户端与电脑端群名已更新
+      const updateBroadcast = { groupId, name }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('group-chat-updated', updateBroadcast)
+      }
+      SseManager.getInstance().broadcast('group-chat-updated', updateBroadcast)
+
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 更新群名失败:', error)
@@ -1976,6 +1991,14 @@ ${soulContent}
       // 2. 数据库级联物理删除
       db.deleteGroupChat(groupId)
       console.log(`[IPC] ✔ 群聊 ${groupId} 已被物理彻底擦除`)
+
+      // 🚀 广播通知其他局域网客户端与电脑端群聊已删除
+      const deleteBroadcast = { groupId }
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('group-chat-deleted', deleteBroadcast)
+      }
+      SseManager.getInstance().broadcast('group-chat-deleted', deleteBroadcast)
+
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 删除群聊失败:', error)
@@ -2192,10 +2215,10 @@ ${soulContent}
         const { character_id, chapter_index } = chapter
         // 物理连带删除该章节及其后续所有章节
         db.db.prepare('DELETE FROM NovelChapters WHERE character_id = ? AND chapter_index >= ?').run(character_id, chapter_index)
-        
+
         // 重新获取删除后的前序最大章节的结束时间戳作为新游标
         const prev = db.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE character_id = ? AND chapter_index < ? ORDER BY chapter_index DESC LIMIT 1').get(character_id, chapter_index) as any
-        
+
         let newTs = '0'
         if (prev) {
           newTs = prev.dialogue_end_ts.toString()
@@ -3336,7 +3359,7 @@ ${formattedHistory}
         // C. 兼容 event.sender.send 调用
         try {
           event.sender.send('chat-chunk', payload)
-        } catch (_) {}
+        } catch (_) { }
       }
 
       const args = userMessage.trim().split(/\s+/)
@@ -3990,7 +4013,7 @@ ${memoryContent}
       //                   手机端（IPC bridge）调用时必须推给 Electron 主窗口以实现桌面同步！
       const isFromIpcBridge = !!(event as any)?.sender?.isIpcBridge
       const roundId = crypto.randomUUID()
-      ; (payload as any)._roundId = roundId  // 将 roundId 共享给后续 AI 回复消息使用
+        ; (payload as any)._roundId = roundId  // 将 roundId 共享给后续 AI 回复消息使用
       const userMsgType = dbContent.startsWith('[wechat_image_media]:') ? 'image' : 'text'
       MessageBusService.getInstance().publish({
         id: userMsgId,
@@ -4846,10 +4869,10 @@ ${memoryContent}
 
       // 判断是否为最后一轮：最新消息的 round_id 是否与该消息的 round_id 一致
       const latestMsg = db.db.prepare("SELECT round_id, timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp DESC LIMIT 1").get(characterId) as { round_id: string; timestamp: number } | undefined
-      
+
       if (latestMsg && latestMsg.round_id === msgRow.round_id) {
         const settingKey = `pending_memory_diff_${characterId}`
-        
+
         // A. 物理清理该角色的旧记忆草稿
         db.db.prepare('DELETE FROM Settings WHERE key = ?').run(settingKey)
         console.log(`[IPC edit-message-content] 物理删除角色 [${characterId}] 的旧记忆草稿，准备重新自省提取。`)
@@ -4887,7 +4910,7 @@ ${memoryContent}
             const userMsg = roundMsgs.find(m => m.role === 'user')
             // 将 assistant 发送的消息（可能有多个气泡）进行文本拼接
             const assistantMsgs = roundMsgs.filter(m => m.role === 'assistant')
-            
+
             // 提取第一条 AI 消息的时间戳作为 anchorTs
             const anchorTs = assistantMsgs.length > 0 ? assistantMsgs[0].timestamp : latestMsg.timestamp
 
@@ -5069,16 +5092,16 @@ ${memoryContent}
         return { success: false, error: '虚拟角色无需修改记忆文件' }
       }
       const storageManager = new CharacterStorageManager()
-      
+
       // 解析纯 Markdown，同步提取 stm 与 ltm 元数据对象
       const { stm, ltm } = parseMemoryMd(payload.content)
       const jsonData = { stm, ltm }
       const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`
       const fullFileContent = `${jsonComment}\n\n${payload.content.trim()}`
-      
+
       storageManager.writeCharacterFile(payload.folderName, 'Memory.md', fullFileContent)
       console.log(`[IPC] Memory.md 手动保存成功并自动同步元数据 JSON: ${payload.folderName}`)
-      
+
       // 🚀 广播通知其他局域网客户端与电脑端记忆文件已更新，触发秒级同步
       const memoryBroadcast = { folderName: payload.folderName, fileName: 'Memory.md', content: payload.content }
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
@@ -5099,7 +5122,7 @@ ${memoryContent}
         return { success: false, error: '虚拟角色无需修改专属画像文件' }
       }
       const storageManager = new CharacterStorageManager()
-      
+
       // 解析纯 Markdown，同步提取专属画像事实列表
       const facts = parseUserMd(payload.content)
       const jsonData = { character_specific_facts: facts }

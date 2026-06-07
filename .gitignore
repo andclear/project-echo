@@ -90,3 +90,7 @@ data/
 
 # Feedback site folder
 /echo-kanban/
+
+# Echo home game folder (explicitly ignored by user)
+src/renderer/public/echo-home-game/
+

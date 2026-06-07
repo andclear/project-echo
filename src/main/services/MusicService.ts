@@ -573,7 +573,8 @@ export class MusicService {
             version: '1.0.0'
           }
 
-          const sandbox = {
+          const sandbox: any = {
+            lx: sandboxLx, // 🚀 注入全局 lx 对象，解决音源脚本直接使用 lx 报错的问题
             console,
             setTimeout,
             setInterval,
@@ -589,27 +590,13 @@ export class MusicService {
             Math,
             isNaN,
             Error,
-            globalThis: {} as any
+            globalThis: {} as any,
+            global: {} as any
           }
 
-          sandbox.globalThis = {
-            lx: sandboxLx,
-            console,
-            setTimeout,
-            setInterval,
-            clearTimeout,
-            clearInterval,
-            Promise,
-            Object,
-            JSON,
-            String,
-            Number,
-            Boolean,
-            Array,
-            Math,
-            isNaN,
-            Error
-          }
+          // 🚀 将 globalThis 和 global 指向沙箱顶级环境本身，确保跨端多音源库代码访问的一致性与健壮性
+          sandbox.globalThis = sandbox
+          sandbox.global = sandbox
 
           const context = vm.createContext(sandbox)
           vm.runInContext(code, context)

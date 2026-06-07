@@ -220,6 +220,17 @@
             <!-- 书架更新全局红点 -->
             <span v-if="Object.values(novelNewChapterBadges).reduce((a, b) => a + b, 0) > 0" class="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full shadow-sm animate-pulse"></span>
           </button>
+
+          <!-- Echo家园 -->
+          <button
+            v-if="isDevMode"
+            @click="sideView = 'home'"
+            class="nav-icon-btn transition-all duration-300 relative"
+            :class="{ 'nav-icon-btn-active': sideView === 'home' }"
+            title="Echo家园"
+          >
+            <HomeIcon class="w-5 h-5" />
+          </button>
         </div>
 
         <!-- 底部：数据统计 + 亮暗切换 + 设置 -->
@@ -2052,6 +2063,26 @@
                   <div v-else class="w-8"></div>
                 </div>
               </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── Echo家园小游戏 ── -->
+        <template v-else-if="sideView === 'home'">
+          <div class="flex-1 flex flex-col min-h-0 bg-surface overflow-hidden">
+            <header class="h-14 px-6 border-b border-outline-variant/20 bg-surface flex items-center justify-between flex-shrink-0 select-none drag-region">
+              <div class="text-sm font-bold text-on-surface flex items-center space-x-2">
+                <HomeIcon class="w-4 h-4 text-primary" />
+                <span>Echo家园</span>
+              </div>
+            </header>
+            
+            <div class="flex-1 p-6 flex justify-center items-center overflow-hidden bg-surface-low">
+              <iframe 
+                src="/echo-home-game/index.html" 
+                class="w-full h-full rounded-[24px] border border-outline-variant/20 bg-surface shadow-2xl"
+                allow="autoplay"
+              ></iframe>
             </div>
           </div>
         </template>
@@ -9928,6 +9959,7 @@ import {
   Upload as UploadIcon,
   X as XIcon,
   Save as SaveIcon,
+  Home as HomeIcon,
   Cpu as CpuIcon,
   Eye as EyeIcon,
   EyeOff as EyeOffIcon,
@@ -10087,6 +10119,11 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     eventSource.addEventListener('social-moment-liked-broadcast', handleSseEvent)
     eventSource.addEventListener('social-moment-comment-added', handleSseEvent)
     eventSource.addEventListener('social-forum-comment-added', handleSseEvent)
+
+    // 🚀 监听群聊变更相关的 SSE 事件，以便多端实时同步
+    eventSource.addEventListener('group-chat-created', handleSseEvent)
+    eventSource.addEventListener('group-chat-updated', handleSseEvent)
+    eventSource.addEventListener('group-chat-deleted', handleSseEvent)
 
     eventSource.onerror = (err) => {
       console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err)
@@ -10319,8 +10356,12 @@ const handleRestartAndInstall = async () => {
   }
 }
 const isClockView = ref(window.location.search.includes('view=clock'))
-const sideView = ref<'chat' | 'contacts' | 'settings' | 'stats' | 'moments' | 'forum' | 'favorites' | 'music' | 'bookshelf'>('chat')
+const sideView = ref<'chat' | 'contacts' | 'settings' | 'stats' | 'moments' | 'forum' | 'favorites' | 'music' | 'bookshelf' | 'home'>('chat')
 const hasAnyNovel = ref(false)
+const isDevMode = ref(
+  (process.env.NODE_ENV === 'development') || 
+  ['5173', '5174', '5175'].includes(window.location.port)
+)
 
 const checkGlobalNovelStatus = async () => {
   try {
@@ -13934,12 +13975,12 @@ async function loadCharacters() {
         if (histRes.success && histRes.history) {
           const restored = histRes.history.map((m: any) => restoreMessageProps(m))
           tempAllMessages[char.id] = flattenMessages(restored, char.id)
-          // 获取最后一条非系统活跃消息时间戳，作为会话的最新活跃时间
+          // 获取最后一条非系统活跃消息时间戳，作为会话的最新活跃时间。若无消息，以创建时间兜底，使其默认排在侧栏最前
           const lastMsg = restored.filter((m: any) => !m.isSystem && (m.role === 'user' || m.role === 'assistant')).pop()
-          tempActiveTimes[char.id] = lastMsg?.timestamp || 0
+          tempActiveTimes[char.id] = lastMsg?.timestamp || char.created_at || 0
         } else {
           tempAllMessages[char.id] = []
-          tempActiveTimes[char.id] = 0
+          tempActiveTimes[char.id] = char.created_at || 0
         }
       }))
 
@@ -13978,11 +14019,12 @@ async function loadCharacters() {
             if (histRes.success && histRes.history) {
               const restored = histRes.history.map((m: any) => restoreMessageProps(m))
               tempAllMessages[group.id] = restored
+              // 若无历史消息，以群聊创建时间兜底，使其默认排在侧栏最前
               const lastMsg = restored.filter((m: any) => !m.isSystem && (m.role === 'user' || m.role === 'assistant')).pop()
-              tempActiveTimes[group.id] = lastMsg?.timestamp || 0
+              tempActiveTimes[group.id] = lastMsg?.timestamp || group.created_at || 0
             } else {
               tempAllMessages[group.id] = []
-              tempActiveTimes[group.id] = 0
+              tempActiveTimes[group.id] = group.created_at || 0
             }
           }))
 
@@ -18086,6 +18128,26 @@ onMounted(async () => {
         fetchActiveCharacterStates()
       }
     }
+  })
+
+  // 🚀 监听群聊变更广播，打通多端群聊增删改同步机制
+  window.api.receive('group-chat-created', async (data: { groupId: string; name: string; memberIds: string[] }) => {
+    console.log('[IPC] ➜ 收到创建群聊广播通知，正在刷新角色与群聊列表...', data)
+    await loadCharacters()
+  })
+
+  window.api.receive('group-chat-updated', async (data: { groupId: string; name: string }) => {
+    console.log('[IPC] ➜ 收到群名更新广播通知，正在刷新角色与群聊列表...', data)
+    await loadCharacters()
+  })
+
+  window.api.receive('group-chat-deleted', async (data: { groupId: string }) => {
+    console.log('[IPC] ➜ 收到删除群聊广播通知，正在刷新列表并检查当前选中状态...', data)
+    if (selectedCharacterId.value === data.groupId) {
+      selectedCharacterId.value = null
+      activeView.value = 'chat'
+    }
+    await loadCharacters()
   })
 
   // 监听角色专属聊天模式变更广播（多端同步）
