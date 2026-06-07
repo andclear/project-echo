@@ -144,7 +144,7 @@
         <div class="flex flex-col items-center space-y-2 flex-1">
           <!-- 对话 -->
           <button
-            @click="sideView = 'chat'"
+            @click="sideView = 'chat'; activeView = 'chat'"
             class="nav-icon-btn relative"
             :class="{ 'nav-icon-btn-active': sideView === 'chat' }"
             title="对话"
@@ -318,17 +318,24 @@
                   <PlusCircleIcon class="w-4 h-4" stroke-width="1.5" />
                 </button>
                 
-                <!-- 下拉扁平化菜单：创建角色 / 导入角色卡 / 发起群聊 -->
+                <!-- 下拉扁平化菜单：AI创角 / 手动创角 / 导入角色卡 / 发起群聊 -->
                 <div
                   v-if="showAddMenu"
-                  class="absolute right-0 mt-1.5 w-32 bg-surface border border-outline-variant rounded-xl shadow-2xl py-1.5 z-50 overflow-hidden select-none animate-in fade-in duration-100"
+                  class="absolute right-0 mt-1.5 w-36 bg-surface border border-outline-variant rounded-xl shadow-2xl py-1.5 z-50 overflow-hidden select-none animate-in fade-in duration-100"
                 >
                   <button
                     @click.stop="triggerCreateNewCharacter"
                     class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
                   >
                     <PenLineIcon class="w-4 h-4 text-secondary" stroke-width="1.5" />
-                    <span>创建角色</span>
+                    <span>使用AI创建角色</span>
+                  </button>
+                  <button
+                    @click.stop="triggerManualCreateCharacter"
+                    class="w-full px-3 py-2 text-left text-xs text-on-surface hover:bg-surface-high/60 transition-colors flex items-center space-x-2 cursor-pointer font-medium"
+                  >
+                    <UserPlusIcon class="w-4 h-4 text-primary" stroke-width="1.5" />
+                    <span>手动录入角色</span>
                   </button>
                   <button
                     @click.stop="triggerImportCharacterCard"
@@ -3970,6 +3977,26 @@
                     <button @click="saveContactDetails" class="btn-primary text-xs py-1.5 px-4 font-bold flex items-center space-x-1"><SaveIcon class="w-3 h-3" /><span>保存修改</span></button>
                   </div>
                 </div>
+                
+                <!-- A2. 世界设定 Tab -->
+                <div v-else-if="contactActiveTab === 'world'" class="h-full flex-1 flex flex-col min-h-0">
+                  <div class="flex items-center justify-between mb-2 flex-shrink-0 select-none">
+                    <div class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">世界观设定 (WORLD.md)</div>
+                    <button @click="contactEditModes.world = !contactEditModes.world" class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-md transition-all font-bold cursor-pointer select-none flex-shrink-0">
+                      <component :is="contactEditModes.world ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
+                      <span>{{ contactEditModes.world ? '预览设定' : '修改设定' }}</span>
+                    </button>
+                  </div>
+                  <!-- 预览模式 -->
+                  <div v-if="!contactEditModes.world" class="flex-1 p-4 rounded-xl border border-outline-variant bg-surface text-on-surface text-xs leading-relaxed overflow-y-auto min-h-[300px] select-text markdown-body shadow-sm" v-html="renderMarkdown(contactWorldContent || '*世界设定为空*')"></div>
+                  <!-- 编辑模式 -->
+                  <textarea v-else v-model="contactWorldContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto min-h-[300px] shadow-inner"></textarea>
+                  
+                  <div v-if="contactEditModes.world" class="flex justify-end space-x-2 mt-3 flex-shrink-0 select-none">
+                    <button @click="contactEditModes.world = false; selectCharacterForContactDetails(selectedContactId)" class="btn-secondary text-xs py-1.5 px-4">取消</button>
+                    <button @click="saveContactDetails" class="btn-primary text-xs py-1.5 px-4 font-bold flex items-center space-x-1"><SaveIcon class="w-3 h-3" /><span>保存修改</span></button>
+                  </div>
+                </div>
 
                 <!-- B. 双轨记忆 Tab -->
                 <div v-else-if="contactActiveTab === 'memory'" class="h-full flex-1 flex flex-col min-h-0 space-y-4">
@@ -5297,7 +5324,7 @@
                         v-model="lyricTextColor" 
                         type="text" 
                         placeholder="例如 #ffffff 或 linear-gradient(...)"
-                        class="w-full px-3 py-1.5 bg-surface border border-outline-variant/50 rounded-xl text-xs focus:outline-none focus:border-primary transition-all font-mono"
+                        class="w-full px-3 h-8 bg-surface border border-outline-variant/50 rounded-xl text-xs focus:outline-none focus:border-primary transition-all font-mono"
                       />
 
                       <!-- 模式切换与高级渐变物理面板 -->
@@ -5495,6 +5522,127 @@
             </div>
           </div>
         </template>
+        <template v-else-if="activeView === 'manual_create'">
+            <!-- 手动录入角色界面 -->
+            <div class="flex-1 flex flex-col h-full overflow-y-auto p-6 md:p-8">
+              <div class="max-w-3xl w-full mx-auto flex flex-col space-y-6">
+                <!-- 头部栏 -->
+                <div class="flex items-center justify-between border-b border-outline-variant/30 pb-4">
+                  <div class="flex items-center space-x-2.5 select-none">
+                    <div>
+                      <div class="text-lg font-bold text-on-surface">手动录入角色</div>
+                      <p class="text-xs text-on-surface-variant mt-0.5">完全自定义地手动填写角色各项设定，创建您专属的数字生命。</p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 表单主要内容，两栏布局 -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <!-- 左栏：基本信息与头像 (占 1 栏) -->
+                  <div class="space-y-5 flex flex-col">
+                    <!-- 头像上传区域 -->
+                    <div class="flex flex-col items-center p-5 bg-surface-container/30 border border-outline-variant/30 rounded-2xl shadow-sm">
+                      <label class="text-xs font-bold text-on-surface-variant mb-3">角色头像 (必填)</label>
+                      <div 
+                        @click="triggerManualAvatarInput" 
+                        class="w-28 h-28 rounded-2xl border-2 border-dashed border-outline-variant hover:border-primary/50 overflow-hidden flex flex-col items-center justify-center cursor-pointer transition-all bg-surface relative group"
+                      >
+                        <img v-if="manualAvatarPreviewUrl" :src="manualAvatarPreviewUrl" class="w-full h-full object-cover pointer-events-none select-none" />
+                        <template v-else>
+                          <UploadCloudIcon class="w-8 h-8 text-on-surface-variant/40 group-hover:text-primary transition-colors" />
+                          <span class="text-[10px] text-on-surface-variant/50 mt-2">上传头像</span>
+                        </template>
+                        <div v-if="manualAvatarPreviewUrl" class="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-medium transition-opacity">
+                          更换头像
+                        </div>
+                      </div>
+                      <input ref="manualAvatarInputRef" type="file" accept="image/*" class="hidden" @change="handleManualAvatarSelect" />
+                      <p class="text-[10px] text-on-surface-variant/40 mt-3 text-center">支持任意比例，将自动以 1:1 裁剪填充展示</p>
+                    </div>
+
+                    <!-- 基本设置 -->
+                    <div class="p-5 bg-surface-container/30 border border-outline-variant/30 rounded-2xl shadow-sm space-y-4">
+                      <div class="flex flex-col space-y-1.5">
+                        <label class="text-xs font-bold text-on-surface-variant">角色姓名</label>
+                        <input 
+                          v-model="manualCharName" 
+                          type="text" 
+                          placeholder="例如：布洛妮娅"
+                          class="w-full px-3 py-2 text-xs bg-surface border border-outline-variant rounded-lg focus:outline-none focus:border-primary transition-colors text-on-surface"
+                          @input="handleNameInputForPinyin"
+                        />
+                      </div>
+
+                      <div class="flex flex-col space-y-1.5">
+                        <label class="text-xs font-bold text-on-surface-variant">拼音/英文唯一标识</label>
+                        <input 
+                          v-model="manualCharFolderName" 
+                          type="text" 
+                          placeholder="例如：bronya"
+                          class="w-full px-3 py-2 text-xs bg-surface border border-outline-variant rounded-lg focus:outline-none focus:border-primary transition-colors font-mono text-on-surface"
+                        />
+                        <span class="text-[9px] text-on-surface-variant/50">用于物理文件夹命名，建议使用纯小写字母与数字</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 右栏：核心设定文件配置 (占 2 栏) -->
+                  <div class="md:col-span-2 space-y-5">
+                    <!-- 角色人设 Soul.md -->
+                    <div class="p-5 bg-surface-container/30 border border-outline-variant/30 rounded-2xl shadow-sm space-y-2.5 flex flex-col h-[250px]">
+                      <div class="flex items-center justify-between">
+                        <label class="text-xs font-bold text-on-surface-variant">角色人设 (Soul.md)</label>
+                        <span class="text-[10px] text-primary font-mono">SOUL_CONFIG</span>
+                      </div>
+                      <textarea 
+                        v-model="manualSoulContent" 
+                        placeholder="# 角色定位与概览
+这里写该角色的社会身份、主要性格特征与核心功能...
+
+# 性格核心与矛盾
+写下角色的内在冲突、矛盾细节或最突出的行为取向（使用 {{char}} 表示角色自身，{{user}} 表示用户）...
+
+# 语言风格底层成因
+写下角色的说话口气，常用的语助词或口头禅..."
+                        class="flex-1 w-full px-3 py-2 text-xs bg-surface border border-outline-variant rounded-lg focus:outline-none focus:border-primary transition-colors resize-none font-mono leading-relaxed text-on-surface placeholder:text-on-surface-variant/40"
+                      ></textarea>
+                    </div>
+
+                    <div class="p-5 bg-surface-container/30 border border-outline-variant/30 rounded-2xl shadow-sm space-y-2.5 flex flex-col h-[250px]">
+                      <div class="flex items-center justify-between">
+                        <label class="text-xs font-bold text-on-surface-variant">世界观设定 (World.md)</label>
+                        <span class="text-[10px] text-primary font-mono">WORLD_CONFIG</span>
+                      </div>
+                      <textarea 
+                        v-model="manualWorldContent" 
+                        placeholder="# 场景世界设定
+描述该角色身处的环境大背景、主要物理规则、势力范围或你们初识的背景设定..."
+                        class="flex-1 w-full px-3 py-2 text-xs bg-surface border border-outline-variant rounded-lg focus:outline-none focus:border-primary transition-colors resize-none font-mono leading-relaxed text-on-surface placeholder:text-on-surface-variant/40"
+                      ></textarea>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 底部操作按钮 -->
+                <div class="flex items-center justify-end space-x-3 pt-4 border-t border-outline-variant/30">
+                  <button 
+                    @click="activeView = 'chat'" 
+                    class="px-4 py-2 rounded-lg border border-outline-variant text-xs font-bold text-on-surface-variant hover:bg-surface-high/60 active:scale-95 transition-all cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button 
+                    @click="onManualCreateConfirm" 
+                    :disabled="manualSaving"
+                    class="px-4 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-container active:scale-95 disabled:opacity-50 transition-all flex items-center space-x-1.5 cursor-pointer shadow-sm"
+                  >
+                    <Loader2Icon v-if="manualSaving" class="animate-spin w-3.5 h-3.5" />
+                    <span>{{ manualSaving ? '正在诞生生命...' : '保存并诞生' }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
 
         <!-- 未选择角色的占位 -->
         <template v-else-if="!activeCharacter && !isGroupActive">
@@ -9321,7 +9469,7 @@
     >
       <!-- 1. 对话 -->
       <button 
-        @click="sideView = 'chat'; selectedCharacterId = null" 
+        @click="sideView = 'chat'; selectedCharacterId = null; activeView = 'chat'" 
         class="flex flex-col items-center justify-center space-y-0.5 py-1 w-[42px] px-0.5 text-on-surface-variant hover:text-primary transition-all active:scale-90"
         :class="{ 'text-primary font-bold': sideView === 'chat' }"
       >
@@ -10013,7 +10161,8 @@ import {
   MessageSquareHeart as MessageSquareHeartIcon,
   ExternalLink as ExternalLinkIcon,
   Cloud as CloudIcon,
-  CheckSquare as CheckSquareIcon
+  CheckSquare as CheckSquareIcon,
+  UserPlus as UserPlusIcon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -10381,7 +10530,7 @@ const checkGlobalNovelStatus = async () => {
     console.error('[Bookshelf] 检查小说状态异常:', err)
   }
 }
-const activeView = ref<'chat' | 'import'>('chat')
+const activeView = ref<'chat' | 'import' | 'manual_create'>('chat')
 
 // ===================== 音乐专属响应式状态 =====================
 const customSources = ref<Array<{ id: string; name: string; path: string }>>(
@@ -10717,6 +10866,7 @@ const showEvolutionModal = ref(false)
 const contactTabs = computed(() => {
   const base = [
     { id: 'soul', name: '性格设定' },
+    { id: 'world', name: '世界设定' },
     { id: 'appearance', name: '外貌设定' },
     { id: 'memory', name: '双轨记忆' },
     { id: 'user', name: '专属画像' }
@@ -12087,7 +12237,7 @@ function handleTextareaFocus() {
 
 const isRightPanelActive = computed(() => {
   if (sideView.value === 'chat') {
-    return selectedCharacterId.value !== null || activeView.value === 'import'
+    return selectedCharacterId.value !== null || activeView.value === 'import' || activeView.value === 'manual_create'
   }
   if (sideView.value === 'contacts') {
     return selectedContactId.value !== null
@@ -13157,12 +13307,13 @@ async function toggleFavoriteDiary(diary: any) {
 const selectedContactId = ref<string | null>(null)
 const contactActiveTab = ref('soul')
 const contactSoulContent = ref('')
+const contactWorldContent = ref('')
 const contactMemoryContent = ref('')
 const contactUserContent = ref('')
 const contactAppearanceContent = ref('')
 const contactHasDiary = ref(false)
 const contactMemoryRawContent = ref('')
-const contactEditModes = reactive({ soul: false, memory: false, user: false, appearance: false })
+const contactEditModes = reactive({ soul: false, world: false, memory: false, user: false, appearance: false })
 const contactGalleryImages = ref<any[]>([])
 const isLoadingGallery = ref(false)
 const isExtractingAppearance = ref(false)
@@ -13325,6 +13476,7 @@ async function selectCharacterForContactDetails(charId: string) {
   
   // 重置编辑状态
   contactEditModes.soul = false
+  contactEditModes.world = false
   contactEditModes.memory = false
   contactEditModes.user = false
   contactEditModes.appearance = false
@@ -13332,6 +13484,10 @@ async function selectCharacterForContactDetails(charId: string) {
   // A. 读取 Soul.md
   const soulRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Soul.md' })
   contactSoulContent.value = soulRes.success ? soulRes.content : ''
+
+  // AA. 读取 World.md
+  const worldRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'World.md' })
+  contactWorldContent.value = worldRes.success ? worldRes.content : ''
   
   // B. 读取 Memory.md
   const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
@@ -13376,8 +13532,12 @@ async function saveContactDetails() {
   const char = characterList.value.find(c => c.id === selectedContactId.value)
   if (!char) return
   
-  // 保存 Soul.md
-  const soulRes = await window.api.invoke('save-character-files', { folderName: char.folder_name, soul: contactSoulContent.value })
+  // 保存 Soul.md 与 World.md
+  const soulRes = await window.api.invoke('save-character-files', { 
+    folderName: char.folder_name, 
+    soul: contactSoulContent.value,
+    world: contactWorldContent.value
+  })
   // 保存 Memory.md
   const memRes = await window.api.invoke('save-memory-file', { folderName: char.folder_name, content: contactMemoryRawContent.value })
   // 保存 USER.md
@@ -13385,6 +13545,7 @@ async function saveContactDetails() {
 
   if (soulRes.success && memRes.success && userRes.success) {
     contactEditModes.soul = false
+    contactEditModes.world = false
     contactEditModes.memory = false
     contactEditModes.user = false
     
@@ -14450,6 +14611,140 @@ async function saveGroupNameAction() {
     }
   } catch (err: any) {
     showCustomAlert('失败', err.message || err, 'error')
+  }
+}
+
+// ===================== 手动录入角色专属状态与业务逻辑 =====================
+const manualCharName = ref('')
+const manualCharFolderName = ref('')
+const manualSoulContent = ref('')
+const manualWorldContent = ref('')
+const manualAvatarFile = ref<File | null>(null)
+const manualAvatarPreviewUrl = ref('')
+const manualSaving = ref(false)
+const manualAvatarInputRef = ref<HTMLInputElement | null>(null)
+
+const defaultSoulTemplate = `# 角色定位与概览\n这里写该角色的社会身份、主要性格特征与核心功能...\n\n# 性格核心与矛盾\n写下角色的内在冲突、矛盾细节或最突出的行为取向（使用 {{char}} 表示角色自身，{{user}} 表示用户）...\n\n# 语言风格底层成因\n写下角色的说话口气，常用的语助词或口头禅...`
+
+const defaultWorldTemplate = `# 场景世界设定\n描述该角色身处的环境大背景、主要物理规则、势力范围或你们初识的背景设定...`
+
+// 触发打开手动录入视图
+function triggerManualCreateCharacter() {
+  showAddMenu.value = false
+  activeView.value = 'manual_create'
+  selectedCharacterId.value = null
+  
+  // 重置表单所有状态
+  manualCharName.value = ''
+  manualCharFolderName.value = ''
+  manualSoulContent.value = ''
+  manualWorldContent.value = ''
+  manualAvatarFile.value = null
+  manualAvatarPreviewUrl.value = ''
+  manualSaving.value = false
+}
+
+// 唤起头像选择文件
+function triggerManualAvatarInput() {
+  manualAvatarInputRef.value?.click()
+}
+
+// 选定头像文件的处理及 1:1 dataurl 预览
+function handleManualAvatarSelect(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files || !files[0]) return
+  const file = files[0]
+  if (file.size > 5 * 1024 * 1024) {
+    showCustomAlert('提示', '头像图片大小不能超过 5MB 🐾', 'info')
+    return
+  }
+  
+  manualAvatarFile.value = file
+  
+  const reader = new FileReader()
+  reader.onload = () => {
+    manualAvatarPreviewUrl.value = reader.result as string
+  }
+  reader.readAsDataURL(file)
+}
+
+// 防抖或即时拼音标识联动
+let pinyinDebounceTimer: any = null
+function handleNameInputForPinyin() {
+  if (pinyinDebounceTimer) clearTimeout(pinyinDebounceTimer)
+  
+  pinyinDebounceTimer = setTimeout(async () => {
+    const nameVal = manualCharName.value.trim()
+    if (!nameVal) {
+      manualCharFolderName.value = ''
+      return
+    }
+    try {
+      const res = await window.api.invoke('get-pinyin-name', nameVal)
+      if (res.success) {
+        manualCharFolderName.value = res.uniqueFolderName
+      }
+    } catch (err) {
+      console.error('[ManualCreate] 联动生成拼音目录标识失败:', err)
+    }
+  }, 300)
+}
+
+// 保存并诞生新角色
+async function onManualCreateConfirm() {
+  const name = manualCharName.value.trim()
+  const folderName = manualCharFolderName.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '')
+  const soul = manualSoulContent.value.trim() || defaultSoulTemplate
+  const world = manualWorldContent.value.trim() || defaultWorldTemplate
+  
+  if (!name) {
+    showCustomAlert('校验失败', '请输入角色姓名！🐾', 'info')
+    return
+  }
+  if (!folderName) {
+    showCustomAlert('校验失败', '请输入拼音或英文目录标识！🐾', 'info')
+    return
+  }
+  if (!manualAvatarFile.value) {
+    showCustomAlert('校验失败', '请上传一张角色头像！🐾', 'info')
+    return
+  }
+  
+  manualSaving.value = true
+  try {
+    // 异步读入 ArrayBuffer 并规整为 byte 数组
+    const arrayBuffer = await manualAvatarFile.value.arrayBuffer()
+    const rawBytes = Array.from(new Uint8Array(arrayBuffer))
+    
+    // 调用后端 import-character 通道落盘并入库
+    const res = await window.api.invoke('import-character', {
+      folderName,
+      name,
+      cardData: {
+        name,
+        first_mes: '' // 根据批注不传开场白
+      },
+      soul,
+      world,
+      uint8ArrayData: rawBytes
+    })
+    
+    if (res.success && res.character) {
+      showCustomAlert('成功', `✨ 恭喜！角色【${name}】手动录入成功，已同步唤醒！`, 'success')
+      
+      // 重新加载列表并选中跳转至新会话
+      await loadCharacters()
+      await selectCharacter(res.character.id)
+      
+      activeView.value = 'chat'
+    } else {
+      showCustomAlert('保存失败', `${res.error || '创建过程出错'}`, 'error')
+    }
+  } catch (err: any) {
+    console.error('[ManualCreate] 保存异常:', err)
+    showCustomAlert('保存异常', `${err.message || err}`, 'error')
+  } finally {
+    manualSaving.value = false
   }
 }
 
