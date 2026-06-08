@@ -1829,15 +1829,15 @@
                     <div class="grid grid-cols-4 gap-6 w-full max-w-[720px] mx-auto">
                       <div
                         v-for="book in row"
-                        :key="book.characterId"
+                        :key="book.novelId"
                         class="group flex flex-col space-y-3 cursor-pointer bg-surface-low/20 hover:bg-surface-high/30 p-3 rounded-2xl transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5"
-                        @click="openBook(book.characterId)"
+                        @click="openBook(book.novelId, book.characterId)"
                       >
                         <!-- 2:3 竖图封面，无外边框，点击直接阅读 -->
                         <div class="aspect-[2/3] w-full rounded-lg overflow-hidden bg-surface relative shadow-md">
                           <img :src="book.coverUrl" class="w-full h-full object-cover select-none pointer-events-none" />
                           <!-- 小说封面未读红点角标 -->
-                          <span v-if="novelNewChapterBadges[book.characterId]" class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-surface shadow-sm animate-pulse"></span>
+                          <span v-if="novelNewChapterBadges[book.novelId]" class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-surface shadow-sm animate-pulse"></span>
                         </div>
                         <!-- 小说书名 -->
                         <div class="text-xs font-bold text-on-surface truncate text-center group-hover:text-primary transition-all">
@@ -1847,7 +1847,7 @@
                         <div class="flex items-center justify-center space-x-2.5 text-[10px] font-semibold text-on-surface-variant/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 h-4" @click.stop>
                           <button @click="openEditBookModal(book)" class="hover:text-primary transition-colors">修改名称</button>
                           <span class="text-on-surface-variant/15 select-none">|</span>
-                          <button @click="changeBookCover(book.characterId)" class="hover:text-primary transition-colors">更换封面</button>
+                          <button @click="changeBookCover(book.novelId)" class="hover:text-primary transition-colors">更换封面</button>
                         </div>
                       </div>
                     </div>
@@ -1864,7 +1864,7 @@
               <div class="text-xs font-bold text-on-surface flex items-center space-x-2">
                 <span>正文阅读</span>
                 <span class="text-on-surface-variant/40 font-normal">|</span>
-                <span class="text-primary">{{ bookshelfList.find(b => b.characterId === selectedBookId)?.novelTitle }}</span>
+                <span class="text-primary">{{ bookshelfList.find(b => b.novelId === selectedBookId)?.novelTitle }}</span>
               </div>
               
               <!-- 单章操作按钮组 -->
@@ -1977,20 +1977,20 @@
                 <div v-else class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div
                     v-for="book in bookshelfList"
-                    :key="book.characterId"
+                    :key="book.novelId"
                     class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-2.5 flex flex-col items-center space-y-2 cursor-pointer active:scale-98 transition-transform animate-in fade-in duration-200"
-                    @click="openBook(book.characterId)"
+                    @click="openBook(book.novelId, book.characterId)"
                   >
                     <div class="aspect-[2/3] w-full rounded-xl overflow-hidden relative shadow border border-outline-variant/10 bg-surface-high/15">
                       <img :src="book.coverUrl" class="w-full h-full object-cover" />
                       <!-- 小说封面未读红点角标 -->
-                      <span v-if="novelNewChapterBadges[book.characterId]" class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-surface shadow-sm animate-pulse"></span>
+                      <span v-if="novelNewChapterBadges[book.novelId]" class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border border-surface shadow-sm animate-pulse"></span>
                     </div>
                     <span class="text-xs font-bold text-on-surface truncate max-w-full text-center">{{ book.novelTitle }}</span>
                     <!-- 手机端便捷操作 -->
                     <div class="flex items-center space-x-2 pt-1 border-t border-outline-variant/10 w-full justify-around" @click.stop>
                       <button @click="openEditBookModal(book)" class="text-[10px] text-primary font-semibold">修改</button>
-                      <button @click="changeBookCover(book.characterId)" class="text-[10px] text-primary font-semibold">换封面</button>
+                      <button @click="changeBookCover(book.novelId)" class="text-[10px] text-primary font-semibold">换封面</button>
                     </div>
                   </div>
                 </div>
@@ -2004,7 +2004,7 @@
                   <ChevronLeftIcon class="w-4 h-4" />
                   <span>书架</span>
                 </button>
-                <span class="text-xs font-bold text-on-surface truncate max-w-[150px]">{{ bookshelfList.find(b => b.characterId === selectedBookId)?.novelTitle }}</span>
+                <span class="text-xs font-bold text-on-surface truncate max-w-[150px]">{{ bookshelfList.find(b => b.novelId === selectedBookId)?.novelTitle }}</span>
                 <button @click="triggerBookExportTxt(selectedBookId!)" class="text-[10px] font-bold text-primary font-semibold">导出TXT</button>
               </header>
               <div class="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0">
@@ -7762,7 +7762,7 @@
           <!-- 封面图展示与点击更换 -->
           <div class="flex flex-col items-center space-y-3">
             <label class="text-[11px] font-bold text-on-surface-variant/70">小说封面</label>
-            <div class="relative group aspect-[2/3] w-28 rounded-xl overflow-hidden shadow border border-outline-variant/15 bg-surface-high/20 cursor-pointer" @click="changeBookCover(editingBook.characterId)">
+            <div class="relative group aspect-[2/3] w-28 rounded-xl overflow-hidden shadow border border-outline-variant/15 bg-surface-high/20 cursor-pointer" @click="changeBookCover(editingBook.novelId)">
               <img :src="editingBook.coverUrl" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
               <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[10px] text-white font-bold">
                 点击更换封面
@@ -11665,7 +11665,7 @@ async function loadBookshelf() {
     if (res && res.success) {
       bookshelfList.value = res.bookshelf
       res.bookshelf.forEach((book: any) => {
-        novelNewChapterBadges[book.characterId] = book.unreadCount || 0
+        novelNewChapterBadges[book.novelId] = book.unreadCount || 0
       })
     }
   } catch (err) {
@@ -11685,21 +11685,21 @@ watch(sideView, async (newVal) => {
 })
 
 // 打开某本书并进入阅读器
-async function openBook(characterId: string) {
+async function openBook(novelId: string, characterId: string) {
   // 清除新章节红点角标
-  await window.api.invoke('novel-mark-read', { characterId })
-  novelNewChapterBadges[characterId] = 0
-  selectedBookId.value = characterId
+  await window.api.invoke('novel-mark-read', { novelId })
+  novelNewChapterBadges[novelId] = 0
+  selectedBookId.value = novelId
   selectedBookChapterId.value = null
   currentChapterContent.value = ''
   mobileReadLayer.value = 'catalog'
   try {
-    const res = await window.api.invoke('novel-get-chapters', { characterId })
+    const res = await window.api.invoke('novel-get-chapters', { novelId })
     if (res.success && res.chapters) {
       bookChapters.value = res.chapters
       if (res.chapters.length > 0) {
         // 读取上次阅读的进度
-        const savedChapterId = localStorage.getItem(`read_chapter_${characterId}`)
+        const savedChapterId = localStorage.getItem(`read_chapter_${novelId}`)
         const hasSaved = res.chapters.some((c: any) => c.id === savedChapterId)
         if (savedChapterId && hasSaved) {
           await loadChapterContent(savedChapterId)
@@ -11767,7 +11767,7 @@ async function saveBookTitle() {
   }
   try {
     const res = await window.api.invoke('novel-update-book-title', {
-      characterId: editingBook.value.characterId,
+      novelId: editingBook.value.novelId,
       novelTitle: editingBookTitle.value.trim()
     })
     if (res && res.success) {
@@ -11783,13 +11783,13 @@ async function saveBookTitle() {
 }
 
 // 更换小说封面
-async function changeBookCover(characterId: string) {
+async function changeBookCover(novelId: string) {
   try {
-    const res = await window.api.invoke('novel-update-book-cover', { characterId })
+    const res = await window.api.invoke('novel-update-book-cover', { novelId })
     if (res && res.success) {
       showToast('封面更换成功！')
       await loadBookshelf()
-      if (editingBook.value && editingBook.value.characterId === characterId) {
+      if (editingBook.value && editingBook.value.novelId === novelId) {
         editingBook.value.coverUrl = res.coverUrl
       }
     } else if (res && res.error) {
@@ -11824,7 +11824,7 @@ async function triggerBookChapterDelete(chapterId: string) {
           showToast('章节已成功删除')
           await checkGlobalNovelStatus()
           if (selectedBookId.value) {
-            const chaptersRes = await window.api.invoke('novel-get-chapters', { characterId: selectedBookId.value })
+            const chaptersRes = await window.api.invoke('novel-get-chapters', { novelId: selectedBookId.value })
             if (chaptersRes.success && chaptersRes.chapters) {
               bookChapters.value = chaptersRes.chapters
               if (chaptersRes.chapters.length > 0) {
@@ -11850,9 +11850,9 @@ async function triggerBookChapterDelete(chapterId: string) {
 }
 
 // 导出整书TXT
-async function triggerBookExportTxt(characterId: string) {
+async function triggerBookExportTxt(novelId: string) {
   try {
-    const res = await window.api.invoke('novel-export', { characterId, format: 'txt' })
+    const res = await window.api.invoke('novel-export', { novelId, format: 'txt' })
     if (res && res.success) {
       showToast(`小说已成功导出至：\n${res.path}`)
     } else if (res && res.error) {
@@ -19166,22 +19166,22 @@ onMounted(async () => {
       showCustomAlert('绑定成功', '您的微信个人号已成功安全托管并上线就绪！🐾', 'success')
     })
     // AI小说写手广播事件监听
-    window.api.receive('novel-chapter-added', (data: { characterId: string; chapterId: string; chapterIndex: number; title: string }) => {
+    window.api.receive('novel-chapter-added', (data: { characterId: string; novelId: string; chapterId: string; chapterIndex: number; title: string }) => {
       checkGlobalNovelStatus()
       if (selectedCharacterId.value === data.characterId) {
         loadNovelChapters(data.characterId)
       }
-      if (!novelNewChapterBadges[data.characterId]) {
-        novelNewChapterBadges[data.characterId] = 0
+      if (!novelNewChapterBadges[data.novelId]) {
+        novelNewChapterBadges[data.novelId] = 0
       }
-      novelNewChapterBadges[data.characterId]++
+      novelNewChapterBadges[data.novelId]++
       
       // 热刷新书架与当前阅读的书籍目录
       if (sideView.value === 'bookshelf') {
         loadBookshelf()
-        if (selectedBookId.value === data.characterId) {
+        if (selectedBookId.value === data.novelId) {
           // 静默重新加载目录，不打扰阅读
-          window.api.invoke('novel-get-chapters', { characterId: data.characterId }).then((res: any) => {
+          window.api.invoke('novel-get-chapters', { novelId: data.novelId }).then((res: any) => {
             if (res.success && res.chapters) {
               bookChapters.value = res.chapters
             }
@@ -19190,13 +19190,13 @@ onMounted(async () => {
       }
       fetchNovelProgress(data.characterId)
     })
-    window.api.receive('novel-chapter-rewritten', (data: { characterId: string; chapterId: string }) => {
+    window.api.receive('novel-chapter-rewritten', (data: { characterId: string; novelId: string; chapterId: string }) => {
       if (selectedCharacterId.value === data.characterId) {
         loadNovelChapters(data.characterId)
       }
       // 热刷新当前重写后章节的内容
-      if (selectedBookId.value === data.characterId) {
-        window.api.invoke('novel-get-chapters', { characterId: data.characterId }).then((res: any) => {
+      if (selectedBookId.value === data.novelId) {
+        window.api.invoke('novel-get-chapters', { novelId: data.novelId }).then((res: any) => {
           if (res.success && res.chapters) {
             bookChapters.value = res.chapters
             if (selectedBookChapterId.value) {

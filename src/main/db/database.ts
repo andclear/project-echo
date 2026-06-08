@@ -267,12 +267,142 @@ export class DatabaseService {
       );
     `)
 
+    // 🚀 防爆自愈防线：确保 Novels 表及 NovelChapters.novel_id 必然物理存在，不受 schema_version 的限制
+    try {
+      const pragma = this.db.pragma("table_info(NovelChapters)") as any[]
+      const hasCol = pragma.some((c: any) => c.name === 'novel_id')
+      if (!hasCol) {
+        this.db.exec("ALTER TABLE NovelChapters ADD COLUMN novel_id TEXT DEFAULT NULL;")
+        console.log("[Database Auto-heal] 成功为 NovelChapters 追加 novel_id 字段！")
+      }
+    } catch (_) {}
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS Novels (
+        id TEXT PRIMARY KEY,
+        character_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        cover TEXT,
+        cover_path TEXT,
+        unread_count INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+    `)
+
+    try {
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_novel_chapters_novel ON NovelChapters (novel_id, chapter_index);")
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_novels_char ON Novels (character_id);")
+    } catch (_) {}
+
+    // 如果 Novels 表里为空，但 NovelChapters 里有旧数据，说明需要将老数据补物理迁移至 Novels 中
+    try {
+      const novelsCount = this.db.prepare('SELECT COUNT(*) as count FROM Novels').get() as { count: number }
+      const chaptersCount = this.db.prepare('SELECT COUNT(*) as count FROM NovelChapters').get() as { count: number }
+      if (novelsCount.count === 0 && chaptersCount.count > 0) {
+        console.log('[Database Auto-heal] 检测到 Novels 为空而 NovelChapters 有数据，开始强行执行老数据平滑迁移！')
+        
+        const characters = this.db.prepare('SELECT id, name FROM Characters').all() as any[]
+        const charMap = new Map<string, string>()
+        for (const c of characters) {
+          charMap.set(c.id, c.name)
+        }
+
+        const oldCharIds = this.db.prepare('SELECT DISTINCT character_id FROM NovelChapters').all() as { character_id: string }[]
+        for (const row of oldCharIds) {
+          const characterId = row.character_id
+          const charName = charMap.get(characterId) || '未知角色'
+
+          // 获取绑定的人设卡姓名
+          let bindingProfileId: string | null = null
+          try {
+            const bindRow = this.db.prepare('SELECT profile_id FROM ProfileBindings WHERE target_id = ?').get(characterId) as { profile_id: string } | undefined
+            if (bindRow) {
+              bindingProfileId = bindRow.profile_id
+            }
+          } catch (_) {}
+
+          // 获取用户名
+          let userName: string | null = null
+          try {
+            const userDataPath = app.getPath('userData')
+            const targetProfilesDir = join(userDataPath, 'config', 'user_profiles')
+
+            let userProfilePath = ''
+            if (bindingProfileId) {
+              userProfilePath = join(targetProfilesDir, `${bindingProfileId}.md`)
+            }
+            if ((!userProfilePath || !fs.existsSync(userProfilePath)) && fs.existsSync(targetProfilesDir)) {
+              const files = fs.readdirSync(targetProfilesDir).filter((f: string) => f.endsWith('.md'))
+              if (files.length > 0) {
+                files.sort()
+                userProfilePath = join(targetProfilesDir, files[0])
+              }
+            }
+
+            if (userProfilePath && fs.existsSync(userProfilePath)) {
+              const content = fs.readFileSync(userProfilePath, 'utf-8')
+              const match = content.match(/<!--([\s\S]*?)-->/)
+              if (match && match[1]) {
+                try {
+                  const parsed = JSON.parse(match[1].trim())
+                  if (parsed && parsed.name) {
+                    userName = String(parsed.name)
+                  }
+                } catch (_) {}
+              }
+              if (!userName) {
+                const nameMatch = content.match(/(?:^|\n)[-\s*]*(?:\*\*|)?姓名(?:\*\*|)?\s*[：:]\s*([^\n\r]*)/)
+                if (nameMatch && nameMatch[1]) {
+                  userName = nameMatch[1].trim()
+                }
+              }
+            }
+          } catch (e) {
+            console.error('[Database Auto-heal] 读取用户人设文件失败:', e)
+          }
+
+          const finalUserName = userName || '用户'
+          const bookTitle = `${finalUserName}与${charName}`
+          const novelId = `${characterId}_legacy`
+
+          // 创建 Novels 里的书籍记录
+          try {
+            this.db.prepare(`
+              INSERT INTO Novels (id, character_id, title, created_at)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(id) DO UPDATE SET title = excluded.title
+            `).run(novelId, characterId, bookTitle, Date.now())
+          } catch (e) {
+            console.error('[Database Auto-heal] 创建或更新老小说书籍失败:', e)
+          }
+
+          // 更新旧章节的 novel_id 归宿
+          try {
+            this.db.prepare(`
+              UPDATE NovelChapters
+              SET novel_id = ?
+              WHERE character_id = ? AND novel_id IS NULL
+            `).run(novelId, characterId)
+          } catch (e) {
+            console.error('[Database Auto-heal] 关联老章节失败:', e)
+          }
+          
+          console.log(`[Database Auto-heal] 成功完成遗留小说《${bookTitle}》的平滑自愈绑定！`)
+        }
+      }
+    } catch (err: any) {
+      console.error('[Database Auto-heal] 自愈老数据物理迁移时发生未知异常:', err.message || err)
+    }
+
     // 初始化设备唯一 ID (device_id)
     const existingDeviceId = this.getSetting('device_id')
     if (!existingDeviceId) {
       const newDeviceId = 'device_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
       this.setSetting('device_id', newDeviceId)
     }
+
+    // 自动修复遗留小说标题
+    this.autoHealLegacyNovelsTitle()
 
     console.log('[Database] 数据表结构初始化顺利完成！')
   }
@@ -449,6 +579,128 @@ export class DatabaseService {
               profile_id TEXT NOT NULL
             );
           `)
+        }
+      },
+      {
+        version: 9,
+        up: (db: Database.Database) => {
+          // 1. 结构变更：添加 novel_id 字段及创建 Novels 表
+          const pragma = db.pragma("table_info(NovelChapters)") as any[]
+          const hasCol = pragma.some((c: any) => c.name === 'novel_id')
+          if (!hasCol) {
+            db.exec("ALTER TABLE NovelChapters ADD COLUMN novel_id TEXT DEFAULT NULL;")
+          }
+
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS Novels (
+              id TEXT PRIMARY KEY,
+              character_id TEXT NOT NULL,
+              title TEXT NOT NULL,
+              cover TEXT,
+              unread_count INTEGER DEFAULT 0,
+              created_at INTEGER NOT NULL
+            );
+          `)
+
+          try {
+            db.exec("CREATE INDEX IF NOT EXISTS idx_novel_chapters_novel ON NovelChapters (novel_id, chapter_index);")
+            db.exec("CREATE INDEX IF NOT EXISTS idx_novels_char ON Novels (character_id);")
+          } catch (_) {}
+
+          // 2. 老章节自愈平滑升级迁移 (老用户的小说也应该自动更改为当前的命名方式)
+          try {
+            const characters = db.prepare('SELECT id, name FROM Characters').all() as any[]
+            const charMap = new Map<string, string>()
+            for (const c of characters) {
+              charMap.set(c.id, c.name)
+            }
+
+            const oldCharIds = db.prepare('SELECT DISTINCT character_id FROM NovelChapters').all() as { character_id: string }[]
+            for (const row of oldCharIds) {
+              const characterId = row.character_id
+              const charName = charMap.get(characterId) || '未知角色'
+
+              // 获取绑定的人设卡姓名
+              let bindingProfileId: string | null = null
+              try {
+                const bindRow = db.prepare('SELECT profile_id FROM ProfileBindings WHERE target_id = ?').get(characterId) as { profile_id: string } | undefined
+                if (bindRow) {
+                  bindingProfileId = bindRow.profile_id
+                }
+              } catch (_) {}
+
+              // 获取用户名
+              let userName: string | null = null
+              try {
+                const { app } = require('electron')
+                const { join } = require('path')
+                const fs = require('fs')
+                const userDataPath = app.getPath('userData')
+                const targetProfilesDir = join(userDataPath, 'config', 'user_profiles')
+
+                let userProfilePath = ''
+                if (bindingProfileId) {
+                  userProfilePath = join(targetProfilesDir, `${bindingProfileId}.md`)
+                }
+                if ((!userProfilePath || !fs.existsSync(userProfilePath)) && fs.existsSync(targetProfilesDir)) {
+                  const files = fs.readdirSync(targetProfilesDir).filter((f: string) => f.endsWith('.md'))
+                  if (files.length > 0) {
+                    files.sort()
+                    userProfilePath = join(targetProfilesDir, files[0])
+                  }
+                }
+
+                if (userProfilePath && fs.existsSync(userProfilePath)) {
+                  const content = fs.readFileSync(userProfilePath, 'utf-8')
+                  const match = content.match(/<!--([\s\S]*?)-->/)
+                  if (match && match[1]) {
+                    try {
+                      const parsed = JSON.parse(match[1].trim())
+                      if (parsed && parsed.name) {
+                        userName = String(parsed.name)
+                      }
+                    } catch (_) {}
+                  }
+                  if (!userName) {
+                    const nameMatch = content.match(/(?:^|\n)[-\s*]*(?:\*\*|)?姓名(?:\*\*|)?\s*[：:]\s*([^\n\r]*)/)
+                    if (nameMatch && nameMatch[1]) {
+                      userName = nameMatch[1].trim()
+                    }
+                  }
+                }
+              } catch (e) {
+                console.error('[Migration v9] 读取用户人设文件失败:', e)
+              }
+
+              const finalUserName = userName || '用户'
+              const bookTitle = `${finalUserName}与${charName}`
+              const novelId = `${characterId}_legacy`
+
+              // 创建 Novels 里的书籍记录
+              try {
+                db.prepare(`
+                  INSERT INTO Novels (id, character_id, title, created_at)
+                  VALUES (?, ?, ?, ?)
+                  ON CONFLICT(id) DO UPDATE SET title = excluded.title
+                `).run(novelId, characterId, bookTitle, Date.now())
+              } catch (e) {
+                console.error('[Migration v9] 创建或更新老小说书籍失败:', e)
+              }
+
+              // 更新旧章节的 novel_id 归宿
+              try {
+                db.prepare(`
+                  UPDATE NovelChapters
+                  SET novel_id = ?
+                  WHERE character_id = ? AND novel_id IS NULL
+                `).run(novelId, characterId)
+              } catch (e) {
+                console.error('[Migration v9] 关联老章节失败:', e)
+              }
+            }
+          } catch (err) {
+            console.error('[Migration v9] 物理迁移老小说数据失败:', err)
+          }
         }
       }
     ]
@@ -1243,20 +1495,61 @@ export class DatabaseService {
 
   // ====== AI 小说写手相关数据库方法 ======
   
-  public getNovelChapterCount(characterId: string): number {
-    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM NovelChapters WHERE character_id = ?')
-    const row = stmt.get(characterId) as { count: number } | undefined
+  public insertNovel(novel: { id: string; character_id: string; title: string; cover?: string | null; created_at: number }): void {
+    const stmt = this.db.prepare('INSERT INTO Novels (id, character_id, title, cover, created_at) VALUES (?, ?, ?, ?, ?)')
+    stmt.run(novel.id, novel.character_id, novel.title, novel.cover || null, novel.created_at)
+  }
+
+  public getActiveNovelId(characterId: string): string | null {
+    return this.getSetting(`current_active_novel_id_${characterId}`)
+  }
+
+  public setActiveNovelId(characterId: string, novelId: string | null): void {
+    if (novelId) {
+      this.setSetting(`current_active_novel_id_${characterId}`, novelId)
+    } else {
+      this.db.prepare('DELETE FROM Settings WHERE key = ?').run(`current_active_novel_id_${characterId}`)
+    }
+  }
+
+  public getNovelChapterCountByNovelId(novelId: string): number {
+    const stmt = this.db.prepare('SELECT COUNT(*) as count FROM NovelChapters WHERE novel_id = ?')
+    const row = stmt.get(novelId) as { count: number } | undefined
     return row ? row.count : 0
   }
 
-  public getNovelChapters(characterId: string): any[] {
+  public getNovelChapterCount(characterId: string): number {
+    const activeNovelId = this.getActiveNovelId(characterId)
+    if (activeNovelId) {
+      return this.getNovelChapterCountByNovelId(activeNovelId)
+    }
+    const row = this.db.prepare('SELECT id FROM Novels WHERE character_id = ? ORDER BY created_at DESC LIMIT 1').get(characterId) as { id: string } | undefined
+    if (row) {
+      return this.getNovelChapterCountByNovelId(row.id)
+    }
+    return 0
+  }
+
+  public getNovelChaptersByNovelId(novelId: string): any[] {
     const stmt = this.db.prepare(`
-      SELECT id, character_id, chapter_index, title, summary, dialogue_start_ts, dialogue_end_ts, token_count, rating, created_at
+      SELECT id, character_id, novel_id, chapter_index, title, summary, dialogue_start_ts, dialogue_end_ts, token_count, rating, created_at
       FROM NovelChapters
-      WHERE character_id = ?
+      WHERE novel_id = ?
       ORDER BY chapter_index ASC
     `)
-    return stmt.all(characterId)
+    return stmt.all(novelId)
+  }
+
+  public getNovelChapters(characterId: string): any[] {
+    const activeNovelId = this.getActiveNovelId(characterId)
+    if (activeNovelId) {
+      return this.getNovelChaptersByNovelId(activeNovelId)
+    }
+    const row = this.db.prepare('SELECT id FROM Novels WHERE character_id = ? ORDER BY created_at DESC LIMIT 1').get(characterId) as { id: string } | undefined
+    if (row) {
+      return this.getNovelChaptersByNovelId(row.id)
+    }
+    return []
   }
 
   public getNovelChapterContent(chapterId: string): { content: string } | null {
@@ -1268,6 +1561,7 @@ export class DatabaseService {
   public insertNovelChapter(chapter: {
     id: string
     character_id: string
+    novel_id?: string | null
     chapter_index: number
     title: string
     content: string
@@ -1279,12 +1573,13 @@ export class DatabaseService {
     created_at: number
   }): void {
     const stmt = this.db.prepare(`
-      INSERT INTO NovelChapters (id, character_id, chapter_index, title, content, summary, dialogue_start_ts, dialogue_end_ts, token_count, rating, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO NovelChapters (id, character_id, novel_id, chapter_index, title, content, summary, dialogue_start_ts, dialogue_end_ts, token_count, rating, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     stmt.run(
       chapter.id,
       chapter.character_id,
+      chapter.novel_id || null,
       chapter.chapter_index,
       chapter.title,
       chapter.content,
@@ -1557,6 +1852,84 @@ export class DatabaseService {
       console.error('[DatabaseService] 根据 folderName 获取用户姓名失败:', e)
     }
     return this.getUserNameByCharacterId(null)
+  }
+
+  /**
+   * 自动修复/自愈老用户的遗留小说名称，自动更改为当前的命名方式：
+   * `<角色名>与<角色当前绑定的用户人设名字> 的故事`
+   */
+  /**
+   * 获取中文小括号的卷册后缀（自愈用）
+   */
+  private getChineseVolumeSuffix(num: number): string {
+    const chineseNums = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十']
+    if (num <= 20) {
+      return `（卷${chineseNums[num]}）`
+    }
+    return `（卷${num}）`
+  }
+
+  /**
+   * 自动修复/自愈老用户的遗留小说名称，自动更改为当前的命名方式：
+   * `<用户姓名>与<角色名>（卷二）`
+   * 特别防线：若用户自己修改过书名，则予以豁免保护，绝对不覆盖用户自定义标题。
+   */
+  private autoHealLegacyNovelsTitle(): void {
+    try {
+      // 检查表是否存在，防止早期初始化冲突
+      const hasTable = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='Novels'").get()
+      if (!hasTable) return
+
+      const characters = this.db.prepare('SELECT id, name FROM Characters').all() as any[]
+      const charMap = new Map<string, string>()
+      for (const c of characters) {
+        charMap.set(c.id, c.name)
+      }
+
+      // 针对每个角色，分别按创建时间排序，重新校准其所有小说标题，防止重名导致卷册混乱
+      for (const [characterId, charName] of charMap.entries()) {
+        const userName = this.getUserNameByCharacterId(characterId) || '用户'
+        const baseTitle = `${userName}与${charName}`
+
+        // 获取该角色的所有小说，按创建时间由早到晚排序
+        const novels = this.db.prepare("SELECT * FROM Novels WHERE character_id = ? ORDER BY created_at ASC").all(characterId) as any[]
+        if (novels.length === 0) continue
+
+        // 先统计各个标题的出现次数，以判定是否因为旧 Bug 导致了“重名重卷”
+        const titleCounts = new Map<string, number>()
+        for (const n of novels) {
+          const t = n.title || ''
+          titleCounts.set(t, (titleCounts.get(t) || 0) + 1)
+        }
+
+        for (let i = 0; i < novels.length; i++) {
+          const novel = novels[i]
+          const title = novel.title || ''
+
+          // 判定此书是否属于待自愈范围：
+          // A. 包含旧版的“的故事”或“_No_”字样。
+          // B. 与同角色下的其他小说发生了“完全重名”（说明是由于之前的 Bug 导致的重名，必须重排）。
+          const isLegacyFormat = title.includes(' 的故事') || title.includes('_No_')
+          const isDuplicate = (titleCounts.get(title) || 0) > 1
+
+          if (isLegacyFormat || isDuplicate) {
+            let expectedTitle = baseTitle
+            if (i > 0) {
+              expectedTitle = `${baseTitle}${this.getChineseVolumeSuffix(i + 1)}`
+            }
+
+            if (title !== expectedTitle) {
+              console.log(`[Database Auto-heal] 重构校准小说书名 (时间线排第 ${i + 1} 卷): "${title}" -> "${expectedTitle}"`)
+              this.db.prepare('UPDATE Novels SET title = ? WHERE id = ?').run(expectedTitle, novel.id)
+              // 更新映射计数，确保下一轮循环感知
+              titleCounts.set(title, (titleCounts.get(title) || 0) - 1)
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Database Auto-heal] 升级老用户小说书名失败:', err)
+    }
   }
 }
 

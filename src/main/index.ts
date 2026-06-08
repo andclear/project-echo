@@ -2341,10 +2341,20 @@ ${soulContent}
     }
   })
 
-  ipcMain.handle('novel-get-chapters', async (_, payload: { characterId: string }) => {
+  ipcMain.handle('novel-get-chapters', async (_, payload: { characterId?: string; novelId?: string }) => {
     try {
       const db = getDatabaseService()
-      const chapters = db.getNovelChapters(payload.characterId)
+      let chapters: any[] = []
+      if (payload.novelId) {
+        chapters = db.getNovelChaptersByNovelId(payload.novelId)
+      } else if (payload.characterId) {
+        const activeNovelId = db.getActiveNovelId(payload.characterId)
+        if (activeNovelId) {
+          chapters = db.getNovelChaptersByNovelId(activeNovelId)
+        } else {
+          chapters = db.getNovelChapters(payload.characterId)
+        }
+      }
       return { success: true, chapters }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -2392,14 +2402,14 @@ ${soulContent}
   ipcMain.handle('novel-delete-chapter', async (_, payload: { chapterId: string }) => {
     try {
       const db = getDatabaseService()
-      const chapter = db.db.prepare('SELECT character_id, chapter_index FROM NovelChapters WHERE id = ?').get(payload.chapterId) as any
+      const chapter = db.db.prepare('SELECT character_id, novel_id, chapter_index FROM NovelChapters WHERE id = ?').get(payload.chapterId) as any
       if (chapter) {
-        const { character_id, chapter_index } = chapter
-        // 物理连带删除该章节及其后续所有章节
-        db.db.prepare('DELETE FROM NovelChapters WHERE character_id = ? AND chapter_index >= ?').run(character_id, chapter_index)
+        const { character_id, novel_id, chapter_index } = chapter
+        // 物理连带删除该章节及其后续所有章节，限定在特定的小说内
+        db.db.prepare('DELETE FROM NovelChapters WHERE novel_id = ? AND chapter_index >= ?').run(novel_id, chapter_index)
 
         // 重新获取删除后的前序最大章节的结束时间戳作为新游标
-        const prev = db.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE character_id = ? AND chapter_index < ? ORDER BY chapter_index DESC LIMIT 1').get(character_id, chapter_index) as any
+        const prev = db.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE novel_id = ? AND chapter_index < ? ORDER BY chapter_index DESC LIMIT 1').get(novel_id, chapter_index) as any
 
         let newTs = '0'
         if (prev) {
@@ -2483,30 +2493,38 @@ ${soulContent}
     }
   })
 
-  ipcMain.handle('novel-export', async (_, payload: { characterId: string; format: 'txt' | 'html' }) => {
+  ipcMain.handle('novel-export', async (_, payload: { characterId?: string; novelId?: string; format: 'txt' | 'html' }) => {
     try {
       const db = getDatabaseService()
-      const chapters = db.getNovelChapters(payload.characterId)
-      if (chapters.length === 0) {
-        return { success: false, error: '小说还没有生成任何章节，无法导出！' }
+      let novelId = payload.novelId
+      let characterId = payload.characterId
+
+      if (!novelId && characterId) {
+        novelId = db.getActiveNovelId(characterId) || ''
       }
 
-      const char = db.db.prepare('SELECT name, folder_name FROM Characters WHERE id = ?').get(payload.characterId) as any
-      const charName = char ? char.name : '未知角色'
-      let novelTitle = `${charName}的故事`
+      let chapters: any[] = []
+      let novelTitle = '未命名小说'
+      let charName = '未知角色'
 
-      if (char) {
-        try {
-          const storageManager = new CharacterStorageManager()
-          const charDir = join(storageManager.getBaseDir(), char.folder_name)
-          const profilePath = join(charDir, 'novel_profile.json')
-          if (fs.existsSync(profilePath)) {
-            const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
-            if (profile.novelTitle) {
-              novelTitle = profile.novelTitle
-            }
-          }
-        } catch (_) { }
+      if (novelId) {
+        chapters = db.getNovelChaptersByNovelId(novelId)
+        const novel = db.db.prepare('SELECT title, character_id FROM Novels WHERE id = ?').get(novelId) as any
+        if (novel) {
+          novelTitle = novel.title
+          characterId = novel.character_id
+          const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
+          if (char) charName = char.name
+        }
+      } else if (characterId) {
+        chapters = db.getNovelChapters(characterId)
+        const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
+        if (char) charName = char.name
+        novelTitle = `${charName}的故事`
+      }
+
+      if (chapters.length === 0) {
+        return { success: false, error: '小说还没有生成任何章节，无法导出！' }
       }
 
       const focusedWindow = mainWindow || BrowserWindow.getFocusedWindow()
@@ -2613,35 +2631,27 @@ ${soulContent}
   ipcMain.handle('novel-get-bookshelf', async () => {
     try {
       const db = getDatabaseService()
-      const rows = db.db.prepare('SELECT DISTINCT character_id FROM NovelChapters').all() as any[]
+      const novels = db.db.prepare('SELECT * FROM Novels').all() as any[]
       const bookshelf: any[] = []
       const storageManager = new CharacterStorageManager()
 
-      for (const row of rows) {
+      for (const row of novels) {
+        const novelId = row.id
         const charId = row.character_id
         const char = db.db.prepare('SELECT name, folder_name FROM Characters WHERE id = ?').get(charId) as any
         if (!char) continue
 
         const folderName = char.folder_name
         const charDir = join(storageManager.getBaseDir(), folderName)
-        const profilePath = join(charDir, 'novel_profile.json')
 
-        let novelTitle = `${char.name}的小说`
+        const novelTitle = row.title || `${char.name}的小说`
         let customCoverBase64 = ''
 
-        if (fs.existsSync(profilePath)) {
-          try {
-            const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
-            if (profile.novelTitle) novelTitle = profile.novelTitle
-            if (profile.customCoverName) {
-              const coverPath = join(charDir, profile.customCoverName)
-              if (fs.existsSync(coverPath)) {
-                const buffer = fs.readFileSync(coverPath)
-                customCoverBase64 = `data:image/png;base64,${buffer.toString('base64')}`
-              }
-            }
-          } catch (err) {
-            console.error(`[IPC] 读取小说配置 novel_profile.json 失败 (角色: ${char.name}):`, err)
+        if (row.cover_path) {
+          const coverPath = join(charDir, row.cover_path)
+          if (fs.existsSync(coverPath)) {
+            const buffer = fs.readFileSync(coverPath)
+            customCoverBase64 = `data:image/png;base64,${buffer.toString('base64')}`
           }
         }
 
@@ -2654,17 +2664,18 @@ ${soulContent}
         }
 
         // 计算未读章节数
-        const maxChapter = db.db.prepare('SELECT max(chapter_index) as maxIdx FROM NovelChapters WHERE character_id = ?').get(charId) as any
+        const maxChapter = db.db.prepare('SELECT max(chapter_index) as maxIdx FROM NovelChapters WHERE novel_id = ?').get(novelId) as any
         const maxIdx = maxChapter?.maxIdx || 0
-        const lastReadStr = db.getSetting(`last_read_chapter_index_${charId}`) || '-1'
+        const lastReadStr = db.getSetting(`last_read_chapter_index_${novelId}`) || '-1'
         const lastReadIdx = parseInt(lastReadStr, 10)
         const unreadCount = maxIdx > lastReadIdx ? (maxIdx - lastReadIdx) : 0
 
         // 获取小说最新章节的创建时间
-        const lastChapter = db.db.prepare('SELECT MAX(created_at) as last_updated FROM NovelChapters WHERE character_id = ?').get(charId) as any
-        const lastUpdated = lastChapter?.last_updated || 0
+        const lastChapter = db.db.prepare('SELECT MAX(created_at) as last_updated FROM NovelChapters WHERE novel_id = ?').get(novelId) as any
+        const lastUpdated = lastChapter?.last_updated || row.created_at || 0
 
         bookshelf.push({
+          novelId: novelId,
           characterId: charId,
           characterName: char.name,
           folderName,
@@ -2685,64 +2696,73 @@ ${soulContent}
     }
   })
 
-  ipcMain.handle('novel-mark-read', async (_, payload: { characterId: string }) => {
+  ipcMain.handle('novel-mark-read', async (_, payload: { characterId?: string; novelId?: string }) => {
     try {
       const db = getDatabaseService()
-      const maxChapter = db.db.prepare('SELECT max(chapter_index) as maxIdx FROM NovelChapters WHERE character_id = ?').get(payload.characterId) as any
+      let novelId = payload.novelId
+      let characterId = payload.characterId
+
+      if (!novelId && characterId) {
+        novelId = db.getActiveNovelId(characterId) || ''
+      }
+
+      if (!novelId) {
+        return { success: true, novelId: '' }
+      }
+
+      if (!characterId) {
+        const n = db.db.prepare('SELECT character_id FROM Novels WHERE id = ?').get(novelId) as any
+        if (n) {
+          characterId = n.character_id
+        }
+      }
+
+      const maxChapter = db.db.prepare('SELECT max(chapter_index) as maxIdx FROM NovelChapters WHERE novel_id = ?').get(novelId) as any
       const maxIdx = maxChapter?.maxIdx || 0
-      db.setSetting(`last_read_chapter_index_${payload.characterId}`, maxIdx.toString())
+      db.setSetting(`last_read_chapter_index_${novelId}`, maxIdx.toString())
 
       // 广播给所有窗口以同步小红点清除状态
       BrowserWindow.getAllWindows().forEach(w => {
         if (!w.webContents.isDestroyed()) {
           w.webContents.send('novel-unread-count-changed', {
-            characterId: payload.characterId,
+            characterId,
+            novelId,
             unreadCount: 0
           })
         }
       })
       SseManager.getInstance().broadcast('novel-unread-count-changed', {
-        characterId: payload.characterId,
+        characterId,
+        novelId,
         unreadCount: 0
       })
+      return { success: true, novelId }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  ipcMain.handle('novel-update-book-title', async (_, payload: { novelId: string; novelTitle: string }) => {
+    try {
+      const db = getDatabaseService()
+      const result = db.db.prepare('UPDATE Novels SET title = ? WHERE id = ?').run(payload.novelTitle, payload.novelId)
+      if (result.changes === 0) {
+        throw new Error('未找到对应的小说记录')
+      }
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
   })
 
-  ipcMain.handle('novel-update-book-title', async (_, payload: { characterId: string; novelTitle: string }) => {
+  ipcMain.handle('novel-update-book-cover', async (_, payload: { novelId: string }) => {
     try {
       const db = getDatabaseService()
-      const char = db.db.prepare('SELECT folder_name FROM Characters WHERE id = ?').get(payload.characterId) as any
-      if (!char) throw new Error('找不到指定角色')
+      const novel = db.db.prepare('SELECT character_id, cover_path FROM Novels WHERE id = ?').get(payload.novelId) as any
+      if (!novel) throw new Error('找不到指定的小说')
 
-      const storageManager = new CharacterStorageManager()
-      const charDir = join(storageManager.getBaseDir(), char.folder_name)
-      if (!fs.existsSync(charDir)) {
-        fs.mkdirSync(charDir, { recursive: true })
-      }
-      const profilePath = join(charDir, 'novel_profile.json')
-
-      let profile: any = {}
-      if (fs.existsSync(profilePath)) {
-        try {
-          profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
-        } catch (_) { }
-      }
-
-      profile.novelTitle = payload.novelTitle
-      fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2), 'utf8')
-      return { success: true }
-    } catch (e: any) {
-      return { success: false, error: e.message || e }
-    }
-  })
-
-  ipcMain.handle('novel-update-book-cover', async (_, payload: { characterId: string }) => {
-    try {
-      const db = getDatabaseService()
-      const char = db.db.prepare('SELECT name, folder_name FROM Characters WHERE id = ?').get(payload.characterId) as any
+      const characterId = novel.character_id
+      const char = db.db.prepare('SELECT name, folder_name FROM Characters WHERE id = ?').get(characterId) as any
       if (!char) throw new Error('找不到指定角色')
 
       const storageManager = new CharacterStorageManager()
@@ -2768,23 +2788,17 @@ ${soulContent}
       const targetPath = join(charDir, customCoverName)
 
       // 删除旧自定义封面
-      const profilePath = join(charDir, 'novel_profile.json')
-      let profile: any = {}
-      if (fs.existsSync(profilePath)) {
-        try {
-          profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'))
-          if (profile.customCoverName) {
-            const oldCoverPath = join(charDir, profile.customCoverName)
-            if (fs.existsSync(oldCoverPath)) {
-              fs.unlinkSync(oldCoverPath)
-            }
-          }
-        } catch (_) { }
+      if (novel.cover_path) {
+        const oldCoverPath = join(charDir, novel.cover_path)
+        if (fs.existsSync(oldCoverPath)) {
+          try {
+            fs.unlinkSync(oldCoverPath)
+          } catch (_) {}
+        }
       }
 
       fs.copyFileSync(sourcePath, targetPath)
-      profile.customCoverName = customCoverName
-      fs.writeFileSync(profilePath, JSON.stringify(profile, null, 2), 'utf8')
+      db.db.prepare('UPDATE Novels SET cover_path = ? WHERE id = ?').run(customCoverName, payload.novelId)
 
       const buffer = fs.readFileSync(targetPath)
       const coverUrl = `data:image/${ext === 'webp' ? 'webp' : 'png'};base64,${buffer.toString('base64')}`
@@ -2794,16 +2808,39 @@ ${soulContent}
     }
   })
 
-  ipcMain.handle('novel-open-reader', async (_, payload: { characterId: string }) => {
+  ipcMain.handle('novel-open-reader', async (_, payload: { characterId?: string; novelId?: string }) => {
     try {
       const db = getDatabaseService()
-      const chapters = db.getNovelChapters(payload.characterId)
+      let novelId = payload.novelId
+      let characterId = payload.characterId
+
+      if (!novelId && characterId) {
+        novelId = db.getActiveNovelId(characterId) || ''
+      }
+
+      let chapters: any[] = []
+      let novelTitle = '未命名小说'
+      let charName = '未知角色'
+
+      if (novelId) {
+        chapters = db.getNovelChaptersByNovelId(novelId)
+        const novel = db.db.prepare('SELECT title, character_id FROM Novels WHERE id = ?').get(novelId) as any
+        if (novel) {
+          novelTitle = novel.title
+          characterId = novel.character_id
+          const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
+          if (char) charName = char.name
+        }
+      } else if (characterId) {
+        chapters = db.getNovelChapters(characterId)
+        const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
+        if (char) charName = char.name
+        novelTitle = `${charName}的故事`
+      }
+
       if (chapters.length === 0) {
         return { success: false, error: '小说还没有章节生成，请先与角色聊天吧！' }
       }
-
-      const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(payload.characterId) as any
-      const charName = char ? char.name : '未知角色'
 
       let tocHtml = '<ul style="list-style-type: none; padding: 0; margin: 0; font-size: 0.95rem; line-height: 1.8;">'
       let bodyHtml = ''
