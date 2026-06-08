@@ -3982,18 +3982,18 @@
                     <span class="text-[9px] tracking-wider uppercase bg-secondary/5 text-secondary border border-secondary/10 px-1.5 py-0.5 rounded font-bold font-mono">Agentic Life</span>
                   </div>
 
-                  <!-- 绑定用户人设马甲 -->
+                  <!-- 绑定用户人设 -->
                   <div class="mt-4 pt-3 border-t border-outline-variant/10 flex items-center space-x-2.5 select-none">
                     <span class="text-[10px] text-on-surface-variant font-bold flex items-center space-x-1 shrink-0">
                       <UserCheckIcon class="w-3.5 h-3.5 text-primary" />
-                      <span>绑定马甲：</span>
+                      <span>绑定人设：</span>
                     </span>
                     <select 
                       v-model="selectedContactBindingProfileId" 
                       @change="handleContactBindingProfileChange"
                       class="text-xs py-1.5 px-3.5 border border-outline-variant bg-surface rounded-xl focus:outline-none focus:border-primary text-on-surface cursor-pointer select-none max-w-[180px] truncate shadow-sm transition-all"
                     >
-                      <option value="">(未绑定任何马甲)</option>
+                      <option value="">(未绑定任何用户人设)</option>
                       <option 
                         v-for="prof in userProfilesList" 
                         :key="prof.profileId" 
@@ -5991,6 +5991,16 @@
                     @click.stop
                     class="absolute top-full right-0 mt-2 w-48 rounded-2xl border border-outline-variant bg-surface shadow-2xl p-2 flex flex-col space-y-1.5 z-30 animate-in fade-in slide-in-from-top-2 duration-150"
                   >
+                    <!-- 快捷切换人设入口（仅在无消息且已绑定人设时可见） -->
+                    <button
+                      v-if="currentChatBindingProfileId && chatMessages.length === 0 && activeCharacter && activeCharacter.id !== 'character_creator_bot' && !isGroupActive"
+                      @click="openFirstChatConfig(); showTopMoreMenu = false"
+                      class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-all select-none w-full text-left"
+                    >
+                      <UserIcon class="w-4 h-4 text-primary" />
+                      <span>切换扮演人设</span>
+                    </button>
+
                     <!-- 聊天模式切换入口（普通角色及群聊均可见） -->
                     <button
                       v-if="isGroupActive || (activeCharacter && activeCharacter.id !== 'character_creator_bot')"
@@ -6208,10 +6218,6 @@
               </div>
               <p class="text-sm font-semibold text-on-surface">{{ isGroupActive ? activeGroupChat?.name : activeCharacter?.name }}</p>
               <p class="text-xs text-on-surface-variant/50 mt-1">发送消息开始对话</p>
-              <div v-if="!isGroupActive" class="mt-4 px-4 py-2.5 bg-primary/5 rounded-xl flex flex-col items-center space-y-1.5 text-xs text-primary font-medium max-w-[320px] leading-relaxed">
-                <p>💡 建议先在右上角配置聊天模式。</p>
-                <p>✍🏻 请在右上角确定是否要打开AI写手功能。</p>
-              </div>
             </div>
 
             <!-- 弹性垫片：当消息少时，强力拉伸将气泡顶到最底部；当消息多时自适应压缩归零，绝不影响滚动！ -->
@@ -6402,8 +6408,7 @@
                 </div>
                 <!-- 用户头像方形圆角化 -->
                 <div class="w-8 h-8 rounded overflow-hidden border border-on-surface/5 bg-surface-low flex-shrink-0 flex items-center justify-center shadow-sm">
-                  <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" @error="userProfile.avatarUrl = ''" />
-                  <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" />
+                  <img :src="currentUserChatAvatar" class="w-full h-full object-cover pointer-events-none select-none" style="-webkit-touch-callout:none" />
                 </div>
               </div>
 
@@ -6642,6 +6647,24 @@
             class="border-t border-chat-border bg-chat-input-bg flex-shrink-0 flex flex-col relative select-none w-full animate-fade-in"
             :class="isMobile ? 'px-3.5 py-2.5' : ''"
           >
+            <!-- 首次聊天会话配置锁定遮罩 -->
+            <div 
+              v-if="selectedCharacterId && chatMessages.length === 0 && hasConfiguredFirstChatMap[selectedCharacterId] === false"
+              class="absolute inset-0 bg-surface/75 backdrop-blur-md z-[60] flex items-center justify-center animate-fade-in p-4 border-t border-chat-border"
+            >
+              <div class="flex items-center justify-between space-x-6 w-auto bg-surface-variant/40 backdrop-blur-xl border border-outline-variant/30 shadow-[0_12px_30px_rgba(0,0,0,0.04)] rounded-2xl p-4 px-5">
+                <!-- 纯文本提示：仅一行简洁提示语 -->
+                <span class="text-xs font-bold text-on-surface select-none">首次聊天，请先配置会话以开启对话。</span>
+                
+                <!-- 精致配置按钮 -->
+                <button 
+                  @click="openFirstChatConfig"
+                  class="btn-primary !h-8 px-4 !rounded-xl text-[11px] font-extrabold flex-shrink-0 flex items-center justify-center transition-all cursor-pointer active:scale-95 shadow-sm shadow-primary/10"
+                >
+                  配置会话
+                </button>
+              </div>
+            </div>
             <!-- 拖拽高度 handle (仅PC端可用) -->
             <div
               v-if="!isMobile"
@@ -6834,7 +6857,7 @@
             <!-- 💻 PC 端：原有的拖拽式双排工具栏输入区 -->
             <template v-else>
               <!-- 工具栏 (flex-shrink-0) -->
-              <div class="px-4 pt-2.5 pb-1 flex items-center space-x-1 flex-shrink-0">
+              <div class="px-4 pt-2.5 pb-1 flex items-center space-x-1 flex-shrink-0 w-full">
                 <!-- 表情 -->
                 <button
                   @click.stop="toggleEmojiPanel"
@@ -6875,6 +6898,23 @@
                   <Loader2Icon v-if="isAnalyzingPrompt || isDrawingImage" class="w-5 h-5 animate-spin" />
                   <ApertureIcon v-else class="w-5 h-5 transition-all duration-300" />
                 </button>
+
+                <!-- 当前用户人设回显 (仅电脑端/宽屏显示，可在未开启对话时切换人设) -->
+                <div 
+                  v-if="currentChatBindingProfileId && userProfilesList.find(p => p.profileId === currentChatBindingProfileId)?.name"
+                  style="margin-left: auto;"
+                  class="flex items-center select-none text-[11px] font-normal text-on-surface-variant/40"
+                  title="当前会话您已绑定的用户人设 (无消息时支持切换，一旦开启会话不允许修改，以防剧情逻辑错乱)"
+                >
+                  当前用户：{{ userProfilesList.find(p => p.profileId === currentChatBindingProfileId)?.name }}
+                  <span 
+                    v-if="chatMessages.length === 0"
+                    @click.stop="openFirstChatConfig()"
+                    class="ml-1.5 text-primary hover:text-primary-hover cursor-pointer underline font-medium"
+                  >
+                    切换
+                  </span>
+                </div>
               </div>
 
               <!-- Emoji 面板 (PC绝对定位浮窗) -->
@@ -7346,6 +7386,189 @@
             </div>
           </template>
         </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：首次聊天前置配置 (完全重构隔离版) ========================= -->
+    <div v-if="showFirstChatConfigModal" class="first-chat-overlay" @click.self="showFirstChatConfigModal = false">
+      <div class="first-chat-panel animate-in zoom-in-95 duration-200 select-none">
+        
+        <!-- 头部 -->
+        <div class="first-chat-header">
+          <div class="first-chat-header-title">
+            <span class="first-chat-title-tag"></span>
+            <span class="first-chat-title-text">初始化会话</span>
+          </div>
+          <button @click="showFirstChatConfigModal = false" class="first-chat-close-btn">
+            <XIcon style="width: 14px !important; height: 14px !important;" />
+          </button>
+        </div>
+
+        <!-- 副标题 -->
+        <div class="first-chat-subtitle">配置当前聊天专属的用户人设与会话模式</div>
+
+        <!-- 正文 -->
+        <div class="first-chat-body">
+          
+          <!-- 1. 选择扮演的用户人设 -->
+          <div class="first-chat-field">
+            <label class="first-chat-label">您要在会话中扮演的人设 <span class="first-chat-required">*</span></label>
+            
+            <!-- 下拉框触发区 -->
+            <div 
+              @click="!isAlreadyBoundProfile ? (showFirstChatProfileDropdown = !showFirstChatProfileDropdown) : undefined"
+              class="first-chat-dropdown-trigger"
+              :class="{ 'first-chat-dropdown-disabled': isAlreadyBoundProfile }"
+              :title="isAlreadyBoundProfile ? '该会话已绑定此用户人设，开启聊天后不可更改，以防剧情逻辑错乱' : undefined"
+            >
+              <div v-if="firstChatConfigForm.profileId" class="first-chat-dropdown-selected">
+                <!-- 头像外圈 -->
+                <div class="first-chat-avatar-container">
+                  <img 
+                    v-if="userProfilesList.find(p => p.profileId === firstChatConfigForm.profileId)?.avatar" 
+                    :src="userProfilesList.find(p => p.profileId === firstChatConfigForm.profileId)?.avatar" 
+                    class="first-chat-avatar-img" 
+                  />
+                  <div v-else class="first-chat-avatar-text">
+                    {{ userProfilesList.find(p => p.profileId === firstChatConfigForm.profileId)?.name?.slice(0, 1) || '?' }}
+                  </div>
+                </div>
+                <!-- 文本信息 -->
+                <div class="first-chat-profile-info">
+                  <div class="first-chat-profile-name flex items-center space-x-1.5">
+                    <span>{{ userProfilesList.find(p => p.profileId === firstChatConfigForm.profileId)?.name }}</span>
+                    <span v-if="isAlreadyBoundProfile" class="text-[9px] px-1 py-0.2 bg-on-surface/5 text-on-surface-variant/40 rounded border border-outline-variant/30 font-extrabold flex items-center space-x-0.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                      <span>已锁定</span>
+                    </span>
+                  </div>
+                  <div class="first-chat-profile-desc">{{ userProfilesList.find(p => p.profileId === firstChatConfigForm.profileId)?.description || '暂无描述' }}</div>
+                </div>
+              </div>
+              <div v-else class="first-chat-dropdown-placeholder">请选择您扮演的用户人设...</div>
+              
+              <svg v-if="isAlreadyBoundProfile" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-on-surface-variant/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              <ChevronDownIcon 
+                v-else
+                class="first-chat-dropdown-arrow" 
+                :style="{ transform: showFirstChatProfileDropdown ? 'rotate(180deg) !important' : 'none !important' }" 
+              />
+            </div>
+
+            <!-- 下拉浮层面板 -->
+            <div 
+              v-if="showFirstChatProfileDropdown"
+              class="first-chat-dropdown-menu"
+            >
+              <div class="first-chat-dropdown-scroll">
+                <button
+                  v-for="profile in userProfilesList"
+                  :key="profile.profileId"
+                  @click="firstChatConfigForm.profileId = profile.profileId; showFirstChatProfileDropdown = false"
+                  class="first-chat-dropdown-item"
+                  :class="{ 'first-chat-item-active': firstChatConfigForm.profileId === profile.profileId }"
+                >
+                  <div class="first-chat-avatar-container-small">
+                    <img v-if="profile.avatar" :src="profile.avatar" class="first-chat-avatar-img-small" />
+                    <div v-else class="first-chat-avatar-text-small">{{ profile.name?.slice(0, 1) }}</div>
+                  </div>
+                  <div class="first-chat-profile-info-small">
+                    <div class="first-chat-profile-name-small">{{ profile.name }}</div>
+                    <div class="first-chat-profile-desc-small">{{ profile.description || '暂无描述' }}</div>
+                  </div>
+                </button>
+
+                <div v-if="userProfilesList.length === 0" class="first-chat-empty">
+                  目前本地尚无用户人设设定 🐾
+                </div>
+              </div>
+
+              <!-- 底部常驻按钮 -->
+              <div class="first-chat-dropdown-footer">
+                <button @click="triggerFirstChatAddProfile" class="first-chat-add-btn">
+                  <PlusIcon style="width: 14px !important; height: 14px !important; margin-right: 4px !important;" />
+                  <span>新建人设设定</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. 会话对话模式 -->
+          <div class="first-chat-field">
+            <label class="first-chat-label">会话对话模式</label>
+            <div class="first-chat-segment">
+              <button 
+                @click="firstChatConfigForm.chatMode = 'dialogue'"
+                class="first-chat-segment-btn"
+                :class="{ 'first-chat-segment-btn-active': firstChatConfigForm.chatMode === 'dialogue' }"
+              >
+                仅对话
+              </button>
+              <button 
+                @click="firstChatConfigForm.chatMode = 'descriptive'"
+                class="first-chat-segment-btn"
+                :class="{ 'first-chat-segment-btn-active': firstChatConfigForm.chatMode === 'descriptive' }"
+              >
+                包含描写
+              </button>
+              <button 
+                v-if="selectedCharacterId && !groupChats.some(g => g.id === selectedCharacterId)"
+                @click="firstChatConfigForm.chatMode = 'director'"
+                class="first-chat-segment-btn"
+                :class="{ 'first-chat-segment-btn-active': firstChatConfigForm.chatMode === 'director' }"
+              >
+                导演模式
+              </button>
+            </div>
+            <!-- 模式描述说明 -->
+            <div class="first-chat-mode-tip">
+              <span v-if="firstChatConfigForm.chatMode === 'dialogue'">💬 仅对话模式：AI 将只以纯气泡对话的形式输出，类似普通社交聊天的单语气。</span>
+              <span v-else-if="firstChatConfigForm.chatMode === 'descriptive'">📖 包含描写模式：AI 的回复中将带上动作、神态或周遭环境等第三人称侧写描写。</span>
+              <span v-else-if="firstChatConfigForm.chatMode === 'director'">🎬 导演模式：允许您通过分身和多视角机制深入控制剧情，不限于单一对话形式。</span>
+            </div>
+          </div>
+
+          <!-- 3. AI 小说写手开关 -->
+          <div class="first-chat-field">
+            <div class="first-chat-switch-card">
+              <div class="first-chat-switch-left">
+                <div class="first-chat-switch-icon-box">
+                  <BookIcon style="width: 16px !important; height: 16px !important;" />
+                </div>
+                <div class="first-chat-switch-text-box">
+                  <div class="first-chat-switch-title">开启 AI 小说写手</div>
+                  <div class="first-chat-switch-desc">自动将对话记录实时改编为精美小说章节</div>
+                </div>
+              </div>
+              
+              <!-- 开关按钮 -->
+              <button 
+                @click="firstChatConfigForm.novelEnabled = !firstChatConfigForm.novelEnabled"
+                class="first-chat-switch-btn"
+                :class="{ 'first-chat-switch-btn-active': firstChatConfigForm.novelEnabled }"
+              >
+                <span 
+                  class="first-chat-switch-dot"
+                  :class="{ 'first-chat-switch-dot-active': firstChatConfigForm.novelEnabled }"
+                ></span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 页脚 -->
+        <div class="first-chat-footer">
+          <button @click="showFirstChatConfigModal = false" class="first-chat-footer-btn-cancel">取消</button>
+          <button @click="saveFirstChatConfig" class="first-chat-footer-btn-confirm">确定</button>
+        </div>
+
       </div>
     </div>
 
@@ -11164,6 +11387,22 @@ async function loadUserProfilesList() {
   }
 }
 
+function findLegacyUserProfileId() {
+  if (userProfilesList.value.length === 0) return ''
+  // 1. 优先根据迁移专属描述查找由 USER.md 转化的那个人设
+  let target = userProfilesList.value.find(p => p.description === '自 USER.md 兼容性迁移的设定卡')
+  if (target) return target.profileId
+  
+  // 2. 其次根据全局主用户昵称完全匹配来寻找
+  if (userProfile.nickname) {
+    target = userProfilesList.value.find(p => p.name === userProfile.nickname)
+    if (target) return target.profileId
+  }
+  
+  // 3. 最后使用拼音排序的第一个（主设定卡）作为最强向前兼容兜底
+  return userProfilesList.value[0].profileId || ''
+}
+
 function openAddUserProfile() {
   editingUserProfile.value = {
     profileId: '',
@@ -11270,6 +11509,18 @@ function handleFormAvatarChange(e: Event) {
 }
 
 const selectedContactBindingProfileId = ref('')
+const currentChatBindingProfileId = ref('')
+
+const currentUserChatAvatar = computed(() => {
+  const currentProfileId = currentChatBindingProfileId.value
+  if (currentProfileId) {
+    const matchedProfile = userProfilesList.value.find(p => p.profileId === currentProfileId)
+    if (matchedProfile && matchedProfile.avatar) {
+      return matchedProfile.avatar
+    }
+  }
+  return userProfile.avatarUrl || defaultAvatarSrc
+})
 
 async function handleContactBindingProfileChange() {
   if (!selectedContactId.value) return
@@ -11278,7 +11529,7 @@ async function handleContactBindingProfileChange() {
     targetId: selectedContactId.value,
     profileId
   })
-  showToast('马甲绑定更新成功 🐾')
+  showToast('人设绑定更新成功 🐾')
 }
 const avatarFileInput = ref<HTMLInputElement | null>(null)
 const userProfileActiveTab = ref<'profile' | 'userMd'>('profile')
@@ -12739,6 +12990,17 @@ async function toggleIntimacySpeed() {
 const conversationMeta = reactive<Record<string, { pinned?: boolean; unread?: number; muted?: boolean; hidden?: boolean }>>({})
 const hasUnreadConversations = computed(() => {
   return Object.values(conversationMeta).some(meta => meta && meta.unread && meta.unread > 0)
+})
+
+// 首次聊天配置相关状态
+const hasConfiguredFirstChatMap = ref<Record<string, boolean>>({})
+const showFirstChatConfigModal = ref(false)
+const showFirstChatProfileDropdown = ref(false)
+const isAlreadyBoundProfile = ref(false)
+const firstChatConfigForm = reactive({
+  profileId: '',
+  chatMode: 'dialogue',
+  novelEnabled: false
 })
 
 // 所有消息缓存（按角色 id 存储）
@@ -14670,6 +14932,58 @@ async function selectCharacter(charId: string) {
   activeView.value = 'chat'
   sideView.value = 'chat'
 
+  // 🚀 核心：切换聊天角色时无条件等待最新用户人设列表，然后再拉取数据库中该会话绑定的用户人设 ID 并同步状态
+  currentChatBindingProfileId.value = ''
+  if (charId && charId !== creatorBotId) {
+    try {
+      await loadUserProfilesList()
+      if (selectedCharacterId.value === charId) {
+        const bindingRes = await window.api.invoke('get-profile-binding', charId)
+        if (selectedCharacterId.value === charId && bindingRes.success && bindingRes.profileId) {
+          currentChatBindingProfileId.value = bindingRes.profileId
+        }
+
+        // 🚀 预判当前会话是否是拥有历史聊天记录的老会话
+        let hasHistory = false
+        if (allMessages[charId] && allMessages[charId].length > 0) {
+          hasHistory = true
+        } else {
+          const historyCheck = await window.api.invoke('get-chat-history', { characterId: charId, limit: 1 })
+          if (historyCheck.success && historyCheck.history && historyCheck.history.length > 0) {
+            hasHistory = true
+          }
+        }
+
+        // 🚀 核心自愈：若该会话有历史消息，但数据库中缺失用户人设绑定关系，则静默绑定由 USER.md 转化的主人设卡
+        if (!currentChatBindingProfileId.value && hasHistory && userProfilesList.value.length > 0) {
+          const defaultProfileId = findLegacyUserProfileId()
+          if (defaultProfileId) {
+            await window.api.invoke('set-profile-binding', {
+              targetId: charId,
+              profileId: defaultProfileId
+            })
+            if (selectedCharacterId.value === charId) {
+              currentChatBindingProfileId.value = defaultProfileId
+            }
+          }
+        }
+
+        // 🚀 终极防护拦截：若当前会话既无绑定，也无法成功自愈绑定（例如全新会话，或者没有静默成功），则必须拦截输入并呼出配置弹窗
+        if (!currentChatBindingProfileId.value) {
+          hasConfiguredFirstChatMap.value[charId] = false
+          openFirstChatConfig()
+        } else {
+          hasConfiguredFirstChatMap.value[charId] = true
+        }
+      }
+    } catch (e) {
+      console.error('同步加载用户人设绑定关系失败:', e)
+      hasConfiguredFirstChatMap.value[charId] = true
+    }
+  } else {
+    hasConfiguredFirstChatMap.value[charId] = true
+  }
+
   // ===================== 角色专属聊天模式加载（非阻塞 UI，但发消息时会等待） =====================
   const isGroup = groupChats.value.some(g => g.id === charId)
   pendingChatModeLoad = window.api.invoke('get-character-chat-mode', { characterId: charId }).then((modeRes: any) => {
@@ -14742,8 +15056,22 @@ async function selectCharacter(charId: string) {
     return
   }
 
-  // 🚀 核心优化：若内存中已有该角色的聊天历史（说明之前已加载过），则无需重复去数据库拉取覆盖，防范在合并防抖期或 AI 生成中切换导致消息丢失，并能带来极其顺畅的零卡顿体验！
+  // 🚀 核心优化：若内存中已有该角色的聊天历史（说明之前已加载过），则无需重复去数据库拉取覆盖，防范在合并防抖期或 AI 生成中切换导致消息消息丢失，并能带来极其顺畅的零卡顿体验！
   if (allMessages[charId] && allMessages[charId].length > 0) {
+    // 🚀 向前自愈：如果内存里已有聊天消息（说明是老会话），且数据库没有用户人设绑定，则静默绑定由 USER.md 转化来的主人设卡
+    if (!currentChatBindingProfileId.value && userProfilesList.value.length > 0) {
+      const defaultProfileId = findLegacyUserProfileId()
+      if (defaultProfileId) {
+        window.api.invoke('set-profile-binding', {
+          targetId: charId,
+          profileId: defaultProfileId
+        }).then(() => {
+          if (selectedCharacterId.value === charId) {
+            currentChatBindingProfileId.value = defaultProfileId
+          }
+        }).catch(() => {})
+      }
+    }
     nextTick(() => {
       scrollToBottom('auto', true)
       setTimeout(() => scrollToBottom('auto', true), 50)
@@ -14768,9 +15096,24 @@ async function selectCharacter(charId: string) {
       if (chatHistoryRes.history.length < 100) {
         hasMoreHistoryMap[charId] = false
       }
+      
+      // 🚀 核心判定：以最终是否绑定用户人设作为拦截状态的唯一标准，杜绝重复库查询与竞态条件
+      if (charId === creatorBotId) {
+        hasConfiguredFirstChatMap.value[charId] = true
+      } else {
+        if (currentChatBindingProfileId.value) {
+          hasConfiguredFirstChatMap.value[charId] = true
+        } else {
+          hasConfiguredFirstChatMap.value[charId] = false
+          if (selectedCharacterId.value === charId) {
+            openFirstChatConfig()
+          }
+        }
+      }
     } else {
       allMessages[charId] = []
       hasMoreHistoryMap[charId] = false
+      hasConfiguredFirstChatMap.value[charId] = currentChatBindingProfileId.value ? true : false
     }
     nextTick(() => {
       scrollToBottom('auto', true)
@@ -14788,6 +15131,121 @@ async function selectCharacter(charId: string) {
 async function selectCharacterFromContacts(charId: string) {
   await selectCharacter(charId)
   sideView.value = 'chat'
+}
+
+// 打开首聊会话配置弹窗
+async function openFirstChatConfig() {
+  const charId = selectedCharacterId.value
+  if (!charId) return
+  
+  // 🚀 确保拉取到最新的人设列表数据，防止第一次打开新聊天时列表为空
+  await loadUserProfilesList()
+  
+  const isGroup = groupChats.value.some(g => g.id === charId)
+  
+  // 1. 从数据库异步查询并回填已配置保存的数据，保障切屏与重启持久性
+  try {
+    const [bindingRes, modeRes, novelRes] = await Promise.all([
+      window.api.invoke('get-profile-binding', charId),
+      window.api.invoke('get-character-chat-mode', { characterId: charId }),
+      window.api.invoke('get-setting', { key: `novel_enabled_${charId}` })
+    ])
+    
+    // 回填用户人设
+    if (bindingRes.success && bindingRes.profileId) {
+      firstChatConfigForm.profileId = bindingRes.profileId
+      // 🔒 只有在已有聊天记录时，才锁定不可修改人设
+      isAlreadyBoundProfile.value = chatMessages.value.length > 0
+    } else {
+      firstChatConfigForm.profileId = userProfilesList.value[0]?.profileId || ''
+      isAlreadyBoundProfile.value = false
+    }
+    
+    // 回填对话模式
+    if (modeRes.success && modeRes.mode) {
+      firstChatConfigForm.chatMode = modeRes.mode
+    } else {
+      firstChatConfigForm.chatMode = isGroup ? 'descriptive' : 'dialogue'
+    }
+    
+    // 回填小说写手开关
+    if (novelRes.success && novelRes.value === '1') {
+      firstChatConfigForm.novelEnabled = true
+    } else {
+      firstChatConfigForm.novelEnabled = false
+    }
+  } catch (e) {
+    console.error('拉取首聊配置数据异常:', e)
+    // 兜底回填默认值
+    firstChatConfigForm.profileId = userProfilesList.value[0]?.profileId || ''
+    isAlreadyBoundProfile.value = false
+    firstChatConfigForm.chatMode = isGroup ? 'descriptive' : 'dialogue'
+    firstChatConfigForm.novelEnabled = false
+  }
+  
+  // 2. 展现 Modal
+  showFirstChatProfileDropdown.value = false
+  showFirstChatConfigModal.value = true
+}
+
+// 快速跳转至“新建用户设定”
+function triggerFirstChatAddProfile() {
+  showFirstChatConfigModal.value = false
+  // 开启设置面板并切至用户设定页签
+  activeSettingsTab.value = 'profile'
+  showSettingsModal.value = true
+  // 延迟触发新增人设卡弹窗
+  setTimeout(() => {
+    openAddUserProfile()
+  }, 250)
+}
+
+// 级联保存配置并解锁首聊拦截
+async function saveFirstChatConfig() {
+  const charId = selectedCharacterId.value
+  if (!charId) return
+  
+  // 必填校验：必须选择用户人设
+  if (!firstChatConfigForm.profileId) {
+    showCustomAlert('提示', '请选择您要在本会话中扮演的用户人设。若无，请先快捷创建。', 'info')
+    return
+  }
+  
+  try {
+    // 1. 级联保存用户人设绑定关系
+    await window.api.invoke('set-profile-binding', {
+      targetId: charId,
+      profileId: firstChatConfigForm.profileId
+    })
+    
+    // 2. 级联保存对话模式设置
+    await window.api.invoke('set-character-chat-mode', {
+      characterId: charId,
+      mode: firstChatConfigForm.chatMode
+    })
+    
+    // 3. 级联保存 AI 小说写手设置
+    await window.api.invoke('novel-save-settings', {
+      characterId: charId,
+      enabled: firstChatConfigForm.novelEnabled,
+      styleId: '',
+      pov: 'third_user',
+      adaptation: 'moderate',
+      startFrom: 'all'
+    })
+    
+    // 4. 更新本地内存状态，实时生效
+    characterChatModeCache[charId] = firstChatConfigForm.chatMode as 'dialogue' | 'descriptive' | 'director'
+    novelEnabled.value = firstChatConfigForm.novelEnabled
+    currentChatBindingProfileId.value = firstChatConfigForm.profileId // 🚀 即时同步聊天区域扮演的用户人设
+    
+    // 5. 移去锁定蒙版，解锁输入框并开启会话
+    hasConfiguredFirstChatMap.value[charId] = true
+    showFirstChatConfigModal.value = false
+    showToast('会话配置保存成功，即刻开启探索之旅！✨')
+  } catch (err: any) {
+    showCustomAlert('保存失败', err.message || err, 'error')
+  }
 }
 
 // ===================== 级联下拉添加角色菜单交互 =====================
@@ -18709,6 +19167,7 @@ onMounted(async () => {
   fetchWeChatStatus()
   loadNovelStyles()
   loadBookshelf() // 启动时立即拉取书架以显示最新的小说红点角标
+  loadUserProfilesList() // 🚀 启动时立即拉取所有用户人设列表，供聊天界面渲染人设与头像
   
   // 🚀 手机端输入法物理折叠状态高度精密监测与 Done 自愈解锁防线
   if (window.visualViewport) {
@@ -18941,6 +19400,27 @@ onMounted(async () => {
     // 所有角色的 mode 变更都写入缓存（多端同步）
     // 写入 characterChatModeCache（reactive），currentChatMode computed 自动响应，UI 即时刷新
     characterChatModeCache[data.characterId] = data.mode as 'dialogue' | 'descriptive' | 'director'
+  })
+
+  // 监听角色专属用户人设绑定变更广播（多端同步）
+  window.api.receive('profile-binding-changed', (data: { targetId: string; profileId: string | null }) => {
+    if (selectedCharacterId.value === data.targetId) {
+      selectedContactBindingProfileId.value = data.profileId || ''
+      currentChatBindingProfileId.value = data.profileId || '' // 🚀 即时同步更新当前聊天界面绑定的用户人设 ID
+      if (data.profileId) {
+        hasConfiguredFirstChatMap.value[data.targetId] = true
+        showFirstChatConfigModal.value = false
+      } else {
+        hasConfiguredFirstChatMap.value[data.targetId] = false
+      }
+    }
+  })
+
+  // 监听小说写手设置变更广播（多设备同步）
+  window.api.receive('novel-settings-changed', (data: { characterId: string; enabled: boolean }) => {
+    if (selectedCharacterId.value === data.characterId) {
+      novelEnabled.value = data.enabled
+    }
   })
 
   // 🚀 核心修复：监听局域网与物理删除广播，打通多端秒级删除自愈同步机制，根治电脑缓存残留 Bug
@@ -21015,4 +21495,545 @@ onUnmounted(() => {
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--outline-variant); border-radius: 9999px; }
+
+/* ==========================================================================
+   首次聊天前置配置弹窗 (完全隔离专属样式)
+   ========================================================================== */
+.first-chat-overlay {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background-color: rgba(0, 0, 0, 0.45) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 99999 !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+.first-chat-panel {
+  width: 420px !important;
+  background: var(--md-sys-color-surface, #ffffff) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15) !important;
+  border: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.08)) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  max-height: 85vh !important;
+}
+
+.first-chat-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 24px 24px 8px 24px !important;
+}
+
+.first-chat-header-title {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.first-chat-title-tag {
+  width: 4px !important;
+  height: 16px !important;
+  background-color: var(--md-sys-color-primary, #3b82f6) !important;
+  border-radius: 99px !important;
+  display: inline-block !important;
+}
+
+.first-chat-title-text {
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  color: var(--md-sys-color-on-surface, #111111) !important;
+  letter-spacing: -0.2px !important;
+}
+
+.first-chat-close-btn {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 50% !important;
+  background: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.05)) !important;
+  border: none !important;
+  color: var(--md-sys-color-on-surface-variant, #666666) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+}
+
+.first-chat-close-btn:hover {
+  background: var(--md-sys-color-surface-variant-hover, rgba(0, 0, 0, 0.1)) !important;
+  color: var(--md-sys-color-on-surface, #111111) !important;
+}
+
+.first-chat-subtitle {
+  font-size: 11px !important;
+  color: var(--md-sys-color-on-surface-variant, #888888) !important;
+  padding: 0 24px 16px 24px !important;
+  font-weight: 500 !important;
+  line-height: 1.4 !important;
+}
+
+.first-chat-body {
+  padding: 0 24px 24px 24px !important;
+  overflow-y: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 20px !important;
+}
+
+.first-chat-field {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  position: relative !important;
+}
+
+.first-chat-label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--md-sys-color-on-surface-variant, #666666) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+}
+
+.first-chat-required {
+  color: #ef4444 !important;
+  margin-left: 2px !important;
+}
+
+/* 下拉选择区 */
+.first-chat-dropdown-trigger {
+  width: 100% !important;
+  height: 48px !important;
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.03)) !important;
+  border: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.08)) !important;
+  border-radius: 12px !important;
+  padding: 0 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+}
+
+.first-chat-dropdown-trigger:hover {
+  background-color: var(--md-sys-color-surface-variant-hover, rgba(0, 0, 0, 0.06)) !important;
+  border-color: var(--md-sys-color-primary, #3b82f6) !important;
+}
+
+.first-chat-dropdown-disabled {
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.02)) !important;
+  cursor: not-allowed !important;
+  opacity: 0.8 !important;
+}
+.first-chat-dropdown-disabled:hover {
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.02)) !important;
+  border-color: var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.08)) !important;
+}
+
+.first-chat-dropdown-selected {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  min-width: 0 !important;
+  flex: 1 !important;
+}
+
+.first-chat-avatar-container {
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 50% !important;
+  overflow: hidden !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background-color: rgba(59, 130, 246, 0.1) !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  position: relative !important;
+}
+
+.first-chat-avatar-img {
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  max-width: 30px !important;
+  min-height: 30px !important;
+  max-height: 30px !important;
+  object-fit: cover !important;
+  border-radius: 50% !important;
+  position: static !important;
+  display: block !important;
+}
+
+.first-chat-avatar-text {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--md-sys-color-primary, #3b82f6) !important;
+}
+
+.first-chat-profile-info {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+  flex: 1 !important;
+}
+
+.first-chat-profile-name {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: var(--md-sys-color-on-surface, #111111) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.first-chat-profile-desc {
+  font-size: 9.5px !important;
+  color: var(--md-sys-color-on-surface-variant, #888888) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  margin-top: 2px !important;
+}
+
+.first-chat-dropdown-placeholder {
+  font-size: 12px !important;
+  color: var(--md-sys-color-on-surface-variant, #aaaaaa) !important;
+}
+
+.first-chat-dropdown-arrow {
+  width: 14px !important;
+  height: 14px !important;
+  color: var(--md-sys-color-on-surface-variant, #666666) !important;
+  transition: transform 0.2s !important;
+}
+
+/* 下拉菜单面板 */
+.first-chat-dropdown-menu {
+  position: absolute !important;
+  top: calc(100% + 6px) !important;
+  left: 0 !important;
+  right: 0 !important;
+  background: var(--md-sys-color-surface, #ffffff) !important;
+  border: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.12)) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.18) !important;
+  z-index: 100000 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.first-chat-dropdown-scroll {
+  max-height: 200px !important;
+  overflow-y: auto !important;
+  padding: 6px !important;
+}
+
+.first-chat-dropdown-item {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  padding: 8px 12px !important;
+  border-radius: 10px !important;
+  border: none !important;
+  background: transparent !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+  text-align: left !important;
+}
+
+.first-chat-dropdown-item:hover {
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.04)) !important;
+}
+
+.first-chat-item-active {
+  background-color: rgba(59, 130, 246, 0.08) !important;
+}
+
+.first-chat-avatar-container-small {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 50% !important;
+  overflow: hidden !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background-color: rgba(59, 130, 246, 0.1) !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+}
+
+.first-chat-avatar-img-small {
+  width: 26px !important;
+  height: 26px !important;
+  min-width: 26px !important;
+  max-width: 26px !important;
+  min-height: 26px !important;
+  max-height: 26px !important;
+  object-fit: cover !important;
+  border-radius: 50% !important;
+  position: static !important;
+  display: block !important;
+}
+
+.first-chat-avatar-text-small {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--md-sys-color-primary, #3b82f6) !important;
+}
+
+.first-chat-profile-info-small {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+  flex: 1 !important;
+}
+
+.first-chat-profile-name-small {
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  color: var(--md-sys-color-on-surface, #111111) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.first-chat-profile-desc-small {
+  font-size: 9px !important;
+  color: var(--md-sys-color-on-surface-variant, #888888) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  margin-top: 1px !important;
+}
+
+.first-chat-empty {
+  padding: 20px 0 !important;
+  text-align: center !important;
+  font-size: 11px !important;
+  color: var(--md-sys-color-on-surface-variant, #999999) !important;
+}
+
+.first-chat-dropdown-footer {
+  border-top: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.08)) !important;
+  padding: 6px !important;
+  background-color: var(--md-sys-color-surface, #ffffff) !important;
+}
+
+.first-chat-add-btn {
+  width: 100% !important;
+  height: 36px !important;
+  border-radius: 10px !important;
+  border: none !important;
+  background-color: rgba(59, 130, 246, 0.08) !important;
+  color: var(--md-sys-color-primary, #3b82f6) !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+}
+
+.first-chat-add-btn:hover {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+/* segment 对话模式药丸组 */
+.first-chat-segment {
+  width: 100% !important;
+  height: 40px !important;
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.05)) !important;
+  border-radius: 10px !important;
+  padding: 2.5px !important;
+  display: flex !important;
+  gap: 4px !important;
+}
+
+.first-chat-segment-btn {
+  flex: 1 !important;
+  height: 100% !important;
+  border-radius: 8px !important;
+  border: none !important;
+  background: transparent !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  color: var(--md-sys-color-on-surface-variant, #666666) !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.first-chat-segment-btn:hover {
+  color: var(--md-sys-color-on-surface, #111111) !important;
+}
+
+.first-chat-segment-btn-active {
+  background-color: var(--md-sys-color-primary, #3b82f6) !important;
+  color: var(--md-sys-color-on-primary, #ffffff) !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3) !important;
+}
+
+.first-chat-segment-btn-active:hover {
+  color: var(--md-sys-color-on-primary, #ffffff) !important;
+}
+
+.first-chat-mode-tip {
+  padding: 10px 12px !important;
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.02)) !important;
+  border-left: 3px solid var(--md-sys-color-primary, #3b82f6) !important;
+  border-radius: 0 8px 8px 0 !important;
+  font-size: 10px !important;
+  color: var(--md-sys-color-on-surface-variant, #666666) !important;
+  line-height: 1.5 !important;
+}
+
+/* Switch 开关卡片 */
+.first-chat-switch-card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 14px 16px !important;
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.02)) !important;
+  border: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.06)) !important;
+  border-radius: 14px !important;
+}
+
+.first-chat-switch-left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  min-width: 0 !important;
+}
+
+.first-chat-switch-icon-box {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 10px !important;
+  background-color: rgba(59, 130, 246, 0.08) !important;
+  color: var(--md-sys-color-primary, #3b82f6) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+}
+
+.first-chat-switch-text-box {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+}
+
+.first-chat-switch-title {
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  color: var(--md-sys-color-on-surface, #111111) !important;
+}
+
+.first-chat-switch-desc {
+  font-size: 9.5px !important;
+  color: var(--md-sys-color-on-surface-variant, #888888) !important;
+  margin-top: 3px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.first-chat-switch-btn {
+  width: 44px !important;
+  height: 24px !important;
+  border-radius: 99px !important;
+  border: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.15)) !important;
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.08)) !important;
+  cursor: pointer !important;
+  position: relative !important;
+  transition: all 0.2s !important;
+  padding: 0 !important;
+}
+
+.first-chat-switch-btn-active {
+  background-color: var(--md-sys-color-primary, #3b82f6) !important;
+  border-color: var(--md-sys-color-primary, #3b82f6) !important;
+}
+
+.first-chat-switch-dot {
+  position: absolute !important;
+  top: 2px !important;
+  left: 2px !important;
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: 50% !important;
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2) !important;
+  transition: transform 0.2s !important;
+}
+
+.first-chat-switch-dot-active {
+  transform: translateX(20px) !important;
+}
+
+/* 页脚 */
+.first-chat-footer {
+  border-top: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.08)) !important;
+  padding: 16px 24px !important;
+  background-color: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.02)) !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 12px !important;
+}
+
+.first-chat-footer-btn-cancel {
+  height: 38px !important;
+  padding: 0 18px !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--md-sys-color-outline-variant, rgba(0, 0, 0, 0.15)) !important;
+  background: var(--md-sys-color-surface, #ffffff) !important;
+  color: var(--md-sys-color-on-surface-variant, #555555) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: all 0.2s !important;
+}
+
+.first-chat-footer-btn-cancel:hover {
+  background: var(--md-sys-color-surface-variant, rgba(0, 0, 0, 0.03)) !important;
+  color: var(--md-sys-color-on-surface, #111111) !important;
+}
+
+.first-chat-footer-btn-confirm {
+  height: 38px !important;
+  padding: 0 22px !important;
+  border-radius: 10px !important;
+  border: none !important;
+  background-color: var(--md-sys-color-primary, #3b82f6) !important;
+  color: var(--md-sys-color-on-primary, #ffffff) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2) !important;
+  transition: all 0.2s !important;
+}
+
+.first-chat-footer-btn-confirm:hover {
+  opacity: 0.9 !important;
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.3) !important;
+}
+
+.first-chat-footer-btn-confirm:active, .first-chat-footer-btn-cancel:active {
+  transform: scale(0.97) !important;
+}
 </style>

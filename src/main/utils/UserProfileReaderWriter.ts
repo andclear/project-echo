@@ -67,7 +67,9 @@ export class UserProfileReaderWriter {
       return defaultProfile;
     }
     try {
-      this.ensureFile(filePath, true);
+      if (!fs.existsSync(filePath)) {
+        return defaultProfile;
+      }
       const content = fs.readFileSync(filePath, 'utf-8');
 
       // 文件存在但内容为空（0 字节或全空白）时，直接返回空 profile
@@ -87,6 +89,11 @@ export class UserProfileReaderWriter {
           }
         } catch (_) {}
       }
+
+      // 强力防崩溃：规整 JSON 读取出的各字段为 String，以防存为 Number 时 trim() 抛出 TypeError
+      if (profile.name !== undefined && profile.name !== null) profile.name = String(profile.name);
+      if (profile.age !== undefined && profile.age !== null) profile.age = String(profile.age);
+      if (profile.occupation !== undefined && profile.occupation !== null) profile.occupation = String(profile.occupation);
       
       // 2. 双重容错：从自然语言 Markdown 行中强行高精度正则匹配捕获并还原所有字段，支持中英文冒号和空格，杜绝反序列化内存清空与覆盖重置 Bug
       if (!profile.name || profile.name.trim() === '') {

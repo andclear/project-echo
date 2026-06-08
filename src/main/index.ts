@@ -2293,6 +2293,16 @@ ${soulContent}
         }
       }
 
+      // 广播给所有客户端关于 AI 写手设置的变化事件，解锁首聊输入锁定
+      SseManager.getInstance().broadcast('novel-settings-changed', {
+        characterId: payload.characterId,
+        enabled: payload.enabled
+      })
+      mainWindow?.webContents.send('novel-settings-changed', {
+        characterId: payload.characterId,
+        enabled: payload.enabled
+      })
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -5535,12 +5545,22 @@ ${memoryContent}
   ipcMain.handle('save-global-user-md', async (_, payload: { content: string; nickname?: string; source?: 'profile' | 'markdown' }) => {
     try {
       const globalConfigDir = join(app.getPath('userData'), 'config')
-      const globalUserPath = join(globalConfigDir, 'USER.md')
+      const targetProfilesDir = join(globalConfigDir, 'user_profiles')
 
-      console.log(`[IPC save-global-user-md] 收到保存请求, source=${payload.source}, content长度=${(payload.content || '').length}, path=${globalUserPath}`)
+      // 重定向写入到 user_profiles 下的第一个人设卡（向前兼容），如果没有则默认使用 user_1.md
+      let globalUserPath = join(targetProfilesDir, 'user_1.md')
+      if (fs.existsSync(targetProfilesDir)) {
+        const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+        if (files.length > 0) {
+          files.sort()
+          globalUserPath = join(targetProfilesDir, files[0])
+        }
+      }
 
-      if (!fs.existsSync(globalConfigDir)) {
-        fs.mkdirSync(globalConfigDir, { recursive: true })
+      console.log(`[IPC save-global-user-md] 收到保存请求, source=${payload.source}, content长度=${(payload.content || '').length}, 重定向path=${globalUserPath}`)
+
+      if (!fs.existsSync(path.dirname(globalUserPath))) {
+        fs.mkdirSync(path.dirname(globalUserPath), { recursive: true })
       }
 
       if (payload.source === 'profile' && payload.nickname !== undefined) {
@@ -5607,6 +5627,27 @@ ${memoryContent}
         // 物理删除旧 USER.md
         fs.unlinkSync(legacyUserPath)
         console.log('[Migration] 旧的 USER.md 已物理删除')
+
+        // 增量自动静默关联老用户的历史会话
+        try {
+          const db = getDatabaseService()
+          const profileId = targetFileName.replace(/\.md$/, '')
+          
+          const characters = db.getAllCharacters()
+          for (const char of characters) {
+            const charId = char.id
+            const isGroup = !!db.getGroupChat(charId)
+            if (!isGroup) {
+              const currentBinding = db.getProfileBinding(charId)
+              if (!currentBinding) {
+                db.setProfileBinding(charId, profileId)
+                console.log(`[Migration] 已自动为历史角色 [${char.name} (${charId})] 静默绑定老用户人设 [${profileId}]`)
+              }
+            }
+          }
+        } catch (dbErr) {
+          console.error('[Migration] 静默关联历史角色人设失败:', dbErr)
+        }
       }
     } catch (err) {
       console.error('[Migration] 个人人设物理迁移失败:', err)
@@ -5770,7 +5811,26 @@ ${memoryContent}
         console.log(`[IPC delete-user-profile-data] 物理删除人设 [${profileId}] 成功`)
 
         const db = getDatabaseService()
+        // A. 物理删除前，先获取所有绑定了此人设的受影响角色 ID
+        const affected = db.db.prepare('SELECT target_id FROM ProfileBindings WHERE profile_id = ?').all(profileId) as { target_id: string }[]
+        
+        // B. 物理删除绑定记录
         db.db.prepare('DELETE FROM ProfileBindings WHERE profile_id = ?').run(profileId)
+
+        // C. 多端同步广播解绑事件，使前端即时解锁输入拦截或切换人设 ID
+        for (const row of affected) {
+          const targetId = row.target_id
+          SseManager.getInstance().broadcast('profile-binding-changed', {
+            targetId,
+            profileId: null
+          })
+          if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+            mainWindow.webContents.send('profile-binding-changed', {
+              targetId,
+              profileId: null
+            })
+          }
+        }
       }
 
       // 同步物理删除同名头像文件
@@ -5807,6 +5867,15 @@ ${memoryContent}
       } else {
         db.deleteProfileBinding(payload.targetId)
       }
+      // 广播通知其他端更新用户人设绑定关系，解锁首聊输入锁定
+      SseManager.getInstance().broadcast('profile-binding-changed', {
+        targetId: payload.targetId,
+        profileId: payload.profileId
+      })
+      mainWindow?.webContents.send('profile-binding-changed', {
+        targetId: payload.targetId,
+        profileId: payload.profileId
+      })
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }

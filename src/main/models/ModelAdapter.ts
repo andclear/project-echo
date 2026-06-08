@@ -1,6 +1,7 @@
 import { getDatabaseService } from '../db/database'
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter'
 import { join } from 'path'
+import * as fs from 'fs'
 
 export type ModelProviderType = 'openai' | 'anthropic' | 'deepseek' | 'ollama' | 'gemini'
 
@@ -667,21 +668,47 @@ export class ModelAdapter {
   /**
    * 运行时全自动拦截替换 {{user}} 和 <user> 为用户在全局画像中设定的真实姓名
    */
-  private replaceUserPlaceholders(messages: ChatMessage[]): ChatMessage[] {
+  private replaceUserPlaceholders(messages: ChatMessage[], options?: ChatOptions): ChatMessage[] {
     try {
-      let userName = '' // 无任何硬编码兜底默认值
-      let globalUserPath = ''
+      let userName = '我' // 默认兜底为 "我"
+      let userProfilePath = ''
+      
+      let targetProfilesDir = ''
       try {
         const { app } = require('electron')
-        if (app) {
-          globalUserPath = join(app.getPath('userData'), 'config', 'USER.md')
+        const userDataPath = app ? app.getPath('userData') : ''
+        if (userDataPath) {
+          targetProfilesDir = join(userDataPath, 'config', 'user_profiles')
         }
       } catch (e) {
-        // 非 Electron 环境或单测环境，避免崩溃
+        // 非 Electron 环境或单测环境
       }
 
-      if (globalUserPath) {
-        const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+      // 1. 尝试从 options 中的 characterId 查询对应绑定的用户人设卡路径
+      if (options?.characterId && targetProfilesDir) {
+        try {
+          const db = getDatabaseService()
+          const bindingProfileId = db.getProfileBinding(options.characterId)
+          if (bindingProfileId) {
+            userProfilePath = join(targetProfilesDir, `${bindingProfileId}.md`)
+          }
+        } catch (_) {}
+      }
+
+      // 2. 如果没有找到绑定（例如群聊），则尝试读取首个人设卡作为全局兜底
+      if ((!userProfilePath || !fs.existsSync(userProfilePath)) && targetProfilesDir && fs.existsSync(targetProfilesDir)) {
+        try {
+          const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+          if (files.length > 0) {
+            files.sort()
+            userProfilePath = join(targetProfilesDir, files[0])
+          }
+        } catch (_) {}
+      }
+
+      // 3. 读取该人设文件中的真实名字
+      if (userProfilePath && fs.existsSync(userProfilePath)) {
+        const profile = UserProfileReaderWriter.readGlobalProfile(userProfilePath)
         if (profile && profile.name) {
           userName = profile.name
         }
@@ -874,7 +901,7 @@ export class ModelAdapter {
     if (!options?.skipSystemInjection) {
       processedMessages = this.injectGlobalPrompt(processedMessages)
       processedMessages = this.injectCurrentTimePrompt(processedMessages)
-      processedMessages = this.replaceUserPlaceholders(processedMessages)
+      processedMessages = this.replaceUserPlaceholders(processedMessages, options)
       processedMessages = this.replaceCharacterPlaceholders(processedMessages, options)
     }
     const config = this.getTargetConfig(options)
@@ -904,7 +931,7 @@ export class ModelAdapter {
     if (!options?.skipSystemInjection) {
       processedMessages = this.injectGlobalPrompt(processedMessages)
       processedMessages = this.injectCurrentTimePrompt(processedMessages)
-      processedMessages = this.replaceUserPlaceholders(processedMessages)
+      processedMessages = this.replaceUserPlaceholders(processedMessages, options)
       processedMessages = this.replaceCharacterPlaceholders(processedMessages, options)
     }
     const config = this.getTargetConfig(options)
