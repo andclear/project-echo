@@ -5991,9 +5991,9 @@
                     @click.stop
                     class="absolute top-full right-0 mt-2 w-48 rounded-2xl border border-outline-variant bg-surface shadow-2xl p-2 flex flex-col space-y-1.5 z-30 animate-in fade-in slide-in-from-top-2 duration-150"
                   >
-                    <!-- 快捷切换人设入口（仅在无消息且已绑定人设时可见） -->
+                    <!-- 快捷切换人设入口（仅在无消息且已绑定人设时可见，支持单聊与群聊） -->
                     <button
-                      v-if="currentChatBindingProfileId && chatMessages.length === 0 && activeCharacter && activeCharacter.id !== 'character_creator_bot' && !isGroupActive"
+                      v-if="currentChatBindingProfileId && chatMessages.length === 0 && (isGroupActive || (activeCharacter && activeCharacter.id !== 'character_creator_bot'))"
                       @click="openFirstChatConfig(); showTopMoreMenu = false"
                       class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-all select-none w-full text-left"
                     >
@@ -7534,8 +7534,8 @@
             </div>
           </div>
 
-          <!-- 3. AI 小说写手开关 -->
-          <div class="first-chat-field">
+          <!-- 3. AI 小说写手开关 (群聊不支持 AI 写手，仅单聊可见) -->
+          <div v-if="!isGroupActive" class="first-chat-field">
             <div class="first-chat-switch-card">
               <div class="first-chat-switch-left">
                 <div class="first-chat-switch-icon-box">

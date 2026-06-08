@@ -3092,9 +3092,19 @@ ${soulContent}
       const groupDir = join(app.getPath('userData'), 'groups', groupId)
       const groupMemoryPath = join(groupDir, 'Memory.md')
       const bindingProfileId = db.getProfileBinding(groupId)
-      const globalUserPath = bindingProfileId 
+      let globalUserPath = bindingProfileId 
         ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
         : ''
+
+      // 🚀 核心优化：若群聊无特定人设绑定，则默认兜底载入首个人设卡，使群 AI 能正确读取用户名字
+      if ((!globalUserPath || !fs.existsSync(globalUserPath)) && fs.existsSync(join(app.getPath('userData'), 'config', 'user_profiles'))) {
+        const targetProfilesDir = join(app.getPath('userData'), 'config', 'user_profiles')
+        const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+        if (files.length > 0) {
+          files.sort()
+          globalUserPath = join(targetProfilesDir, files[0])
+        }
+      }
 
       // 2. 将用户的发言首先持久化存盘入库
       const userMsgId = payload.userMsgId || crypto.randomUUID()

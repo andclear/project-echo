@@ -67,6 +67,8 @@ export class MemoryAgentService {
     await InferenceMutex.lock();
 
     try {
+      const charDir = path.dirname(memoryPath);
+      const charId = path.basename(charDir);
       console.log(`[MemoryAgentService] 互斥锁获取成功，开始后台长期记忆自省提取(群聊模式=${isGroup})...`);
 
       // B. 读取当前的短期记忆 (STM) 与长期记忆 (LTM)
@@ -222,7 +224,7 @@ Target JSON 格式：
       ];
 
       // 2. 调用大模型进行静默推理 (首选辅助大模型 options.useSecondary: true)
-      const response = await this.modelAdapter.chat(messages, { useSecondary: true });
+      const response = await this.modelAdapter.chat(messages, { useSecondary: true, characterId: charId });
       const rawContent = response.content.trim();
 
       // 3. 正则捕获 JSON 内容区
@@ -692,7 +694,7 @@ ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
         const scheduleResponse = await modelAdapter.chat([
           { role: 'system', content: schedulePrompt },
           { role: 'user', content: '请规划并输出你最新近7天的拟真日程表。' }
-        ], { useSecondary: true });
+        ], { useSecondary: true, characterId: charId });
 
         const newSchedule = scheduleResponse.content.trim();
         if (newSchedule && !newSchedule.includes('Error')) {
@@ -748,7 +750,7 @@ ${charUserContent}
         const goalsResponse = await modelAdapter.chat([
           { role: 'system', content: goalsPrompt },
           { role: 'user', content: '请评估并推进你的长期目标，输出最新的Goals.md。' }
-        ], { useSecondary: true });
+        ], { useSecondary: true, characterId: charId });
 
         const newGoals = goalsResponse.content.trim();
         if (newGoals && !newGoals.includes('Error')) {
@@ -934,7 +936,7 @@ Target JSON 格式：
       ];
 
       // 7. 调用辅助大模型进行高表现力提炼
-      const response = await this.modelAdapter.chat(messages, { useSecondary: true });
+      const response = await this.modelAdapter.chat(messages, { useSecondary: true, characterId });
       const rawContent = response.content.trim();
 
       // 8. 解析并落盘
@@ -1067,7 +1069,7 @@ Target JSON 格式：
     const response = await modelAdapter.chat([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: '开启你的专属画像深度梳理反思，并输出最新、精炼合并后的事实 JSON 数组。' }
-    ], { useSecondary: true });
+    ], { useSecondary: true, characterId: charId });
 
     const raw = response.content.trim();
     const match = raw.match(/\[[\s\S]*?\]/);
@@ -1155,7 +1157,7 @@ Target JSON 格式：
     const response = await modelAdapter.chat([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: '开启你的双轨记忆深度梳理反思，并输出最新、整理后的 LTM 键值对 JSON 对象。' }
-    ], { useSecondary: true });
+    ], { useSecondary: true, characterId: charId });
 
     const raw = response.content.trim();
     const match = raw.match(/\{[\s\S]*\}/);
