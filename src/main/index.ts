@@ -3150,7 +3150,27 @@ ${soulContent}
               )}`
             }).join('\n')
 
-           const eligibleMembers = aiMembers.filter(m => m.id !== currentSpeakerId)
+            // 查找最近一个等待处理的用户红包，动态为当前发言人注入领取/退回红包的操作提示
+            let rpInstruction = ''
+            const lastRedMsg = rawHistory.filter((m: any) => m.role === 'user' && m.content.startsWith('[wechat_red_packet]:')).pop()
+            if (lastRedMsg) {
+              try {
+                const jsonStr = lastRedMsg.content.replace('[wechat_red_packet]:', '')
+                const rp = JSON.parse(jsonStr)
+                if (!rp.status || rp.status === 'waiting') {
+                  const isExclusive = !!rp.targetId
+                  if (isExclusive) {
+                    if (rp.targetId === currentSpeakerId) {
+                      rpInstruction = `\n\n  【🎁 特殊专属红包操作指令】\n  检测到用户刚刚发给你（即 ${currentSpeaker.name}）一个专属红包（金额 ${rp.amount}元，附言: "${rp.title}"）。请你基于性格和人设进行回复：\n  - 决定【领取专属红包】：请务必且只能在你的回复【最开始单独一行】加入控制符：[RECEIVE_RED_PACKET] ，并用人设语气道谢；\n  - 决定【退回专属红包】：请务必且只能在你的回复【最开始单独一行】加入控制符：[RETURN_RED_PACKET] ，并用人设语气予以傲娇拒绝。`
+                    }
+                  } else {
+                    rpInstruction = `\n\n  【🎁 特殊群红包操作指令】\n  检测到用户刚刚发了一个普通群红包（金额 ${rp.amount}元，附言: "${rp.title}"）。请你独立决定：\n  - 决定【领取红包】：请务必且只能在你的回复【最开始单独一行】加入控制符：[RECEIVE_RED_PACKET] ，并用人设语气感谢；\n  - 决定【退回红包】：请务必且只能在你的回复【最开始单独一行】加入控制符：[RETURN_RED_PACKET] ，并用人设语气拒绝。`
+                  }
+                }
+              } catch (_) {}
+            }
+
+            const eligibleMembers = aiMembers.filter(m => m.id !== currentSpeakerId)
  
            const userPromptText = `【群聊面板历史记录】
  ${formattedHistory}
@@ -3169,7 +3189,7 @@ ${soulContent}
 
           const chatMessages: ChatMessage[] = [
             { role: 'system', content: groupSystemPromptFinal },
-            { role: 'user', content: userPromptText }
+            { role: 'user', content: userPromptText + rpInstruction }
           ]
 
           let accumulatedResponse = ''
@@ -4212,7 +4232,39 @@ ${memoryContent}
         ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
         : userMessage
 
-      finalUserContent = dynamicHeader + userMessageFinal
+      // 获取当前角色的真实姓名
+      const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
+      const charName = charRow ? charRow.name : '角色'
+
+      // 查找最近一个等待处理的用户红包，动态为当前发言人注入领取/退回红包的操作提示
+      let rpInstruction = ''
+      const currentMsgContent = payload.dbMessage || userMessage
+      let lastRedMsg: any = null
+
+      if (currentMsgContent && currentMsgContent.startsWith('[wechat_red_packet]:')) {
+        // 如果当前发送的就是红包消息，则直接作为最近红包对象
+        lastRedMsg = { content: currentMsgContent }
+      } else {
+        // 否则，从历史记录中寻找最近的一个用户红包
+        lastRedMsg = rawHistory.filter((m: any) => m.role === 'user' && m.content.startsWith('[wechat_red_packet]:')).pop()
+      }
+
+      if (lastRedMsg) {
+        try {
+          const jsonStr = lastRedMsg.content.replace('[wechat_red_packet]:', '')
+          const rp = JSON.parse(jsonStr)
+          if (!rp.status || rp.status === 'waiting') {
+            const isExclusive = !!rp.targetId
+            // 如果是专属红包，必须 targetId 等于当前单聊角色才允许提示，否则直接忽略
+            const isMatch = !isExclusive || rp.targetId === characterId
+            if (isMatch) {
+              rpInstruction = `\n\n  【🎁 特殊红包操作指令】\n  检测到用户刚刚发给你（即 ${charName}）一个微信红包（金额 ${rp.amount}元，附言: "${rp.title}"）。请你基于性格和人设进行回复：\n  - 决定【领取红包】：请务必且只能在你的回复【最开始单独一行】加入控制符：[RECEIVE_RED_PACKET] ，并用人设语气道谢；\n  - 决定【退回红包】：请务必且只能在你的回复【最开始单独一行】加入控制符：[RETURN_RED_PACKET] ，并用人设语气予以傲娇拒绝。`
+            }
+          }
+        } catch (_) {}
+      }
+
+      finalUserContent = dynamicHeader + userMessageFinal + rpInstruction
 
       messages = [
         { role: 'system', content: systemPrompt },
@@ -4494,24 +4546,28 @@ ${memoryContent}
           const jsonStr = lastRedMsg.content.replace('[wechat_red_packet]:', '')
           const rp = JSON.parse(jsonStr)
           if (!rp.status || rp.status === 'waiting') {
-            const receivedAmount = parseFloat(rp.amount)
-            if (!isNaN(receivedAmount) && receivedAmount > 0) {
-              StateReaderWriter.applyStateUpdates(statePath, [{ key: 'balance', delta: receivedAmount }])
-              console.log(`[Economy] 角色 ${characterId} 领受用户红包，财富 +${receivedAmount} 元`)
+            const isExclusive = !!rp.targetId
+            const isMatch = !isExclusive || rp.targetId === characterId
+            if (isMatch) {
+              const receivedAmount = parseFloat(rp.amount)
+              if (!isNaN(receivedAmount) && receivedAmount > 0) {
+                StateReaderWriter.applyStateUpdates(statePath, [{ key: 'balance', delta: receivedAmount }])
+                console.log(`[Economy] 角色 ${characterId} 领受用户红包，财富 +${receivedAmount} 元`)
 
-              // 🚀 核心状态物理保存与更新 SQLite
-              rp.status = 'received'
-              const updatedContent = `[wechat_red_packet]:${JSON.stringify(rp)}`
-              db.db.prepare("UPDATE Messages SET content = ? WHERE id = ?").run(updatedContent, lastRedMsg.id)
+                // 🚀 核心状态物理保存与更新 SQLite
+                rp.status = 'received'
+                const updatedContent = `[wechat_red_packet]:${JSON.stringify(rp)}`
+                db.db.prepare("UPDATE Messages SET content = ? WHERE id = ?").run(updatedContent, lastRedMsg.id)
 
-              // 广播给其他客户端与多端同步该消息的修改，保障红包卡片实时刷新
-              const MessageBusService = (global as any).MessageBusService
-              if (MessageBusService) {
-                MessageBusService.publish('message-content-edited', {
-                  characterId,
-                  messageId: lastRedMsg.id,
-                  content: updatedContent
-                })
+                // 广播给其他客户端与多端同步该消息的修改，保障红包卡片实时刷新
+                const MessageBusService = (global as any).MessageBusService
+                if (MessageBusService) {
+                  MessageBusService.publish('message-content-edited', {
+                    characterId,
+                    messageId: lastRedMsg.id,
+                    content: updatedContent
+                  })
+                }
               }
             }
           }
@@ -4527,18 +4583,22 @@ ${memoryContent}
           const jsonStr = lastRedMsg.content.replace('[wechat_red_packet]:', '')
           const rp = JSON.parse(jsonStr)
           if (!rp.status || rp.status === 'waiting') {
-            rp.status = 'returned'
-            const updatedContent = `[wechat_red_packet]:${JSON.stringify(rp)}`
-            db.db.prepare("UPDATE Messages SET content = ? WHERE id = ?").run(updatedContent, lastRedMsg.id)
+            const isExclusive = !!rp.targetId
+            const isMatch = !isExclusive || rp.targetId === characterId
+            if (isMatch) {
+              rp.status = 'returned'
+              const updatedContent = `[wechat_red_packet]:${JSON.stringify(rp)}`
+              db.db.prepare("UPDATE Messages SET content = ? WHERE id = ?").run(updatedContent, lastRedMsg.id)
 
-            // 广播消息修改事件，保障退回状态强同步
-            const MessageBusService = (global as any).MessageBusService
-            if (MessageBusService) {
-              MessageBusService.publish('message-content-edited', {
-                characterId,
-                messageId: lastRedMsg.id,
-                content: updatedContent
-              })
+              // 广播消息修改事件，保障退回状态强同步
+              const MessageBusService = (global as any).MessageBusService
+              if (MessageBusService) {
+                MessageBusService.publish('message-content-edited', {
+                  characterId,
+                  messageId: lastRedMsg.id,
+                  content: updatedContent
+                })
+              }
             }
           }
         }

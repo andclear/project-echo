@@ -241,6 +241,17 @@ export class DatabaseService {
       );
     `)
 
+    try {
+      const pragma = this.db.pragma("table_info(GroupChats)") as any[]
+      const hasCol = pragma.some((c: any) => c.name === 'chat_mode')
+      if (!hasCol) {
+        this.db.exec("ALTER TABLE GroupChats ADD COLUMN chat_mode TEXT DEFAULT 'descriptive';")
+        console.log("[Database Auto-heal] 成功为已存在的 GroupChats 表追加 chat_mode 字段！")
+      }
+    } catch (err) {
+      console.error("[Database Auto-heal Error] 检查并追加 chat_mode 字段失败:", err)
+    }
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS GroupMembers (
         group_id TEXT NOT NULL,
