@@ -6229,6 +6229,10 @@
               </div>
               <p class="text-sm font-semibold text-on-surface">{{ isGroupActive ? activeGroupChat?.name : activeCharacter?.name }}</p>
               <p class="text-xs text-on-surface-variant/50 mt-1">发送消息开始对话</p>
+              <div class="mt-4 space-y-1 text-xs text-primary font-bold">
+                <p>请点击右上角设置对话模式</p>
+                <p>如果需要，请手动在右上角开启AI写手</p>
+              </div>
             </div>
 
             <!-- 弹性垫片：当消息少时，强力拉伸将气泡顶到最底部；当消息多时自适应压缩归零，绝不影响滚动！ -->
@@ -7570,6 +7574,36 @@
                 ></span>
               </button>
             </div>
+
+            <!-- 改编尺度展开区域 -->
+            <transition name="fade-slide">
+              <div v-if="firstChatConfigForm.novelEnabled" class="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                <label class="first-chat-label">改编尺度</label>
+                <div class="first-chat-segment">
+                  <button 
+                    @click="firstChatConfigForm.novelAdaptation = 'faithful'"
+                    class="first-chat-segment-btn"
+                    :class="{ 'first-chat-segment-btn-active': firstChatConfigForm.novelAdaptation === 'faithful' }"
+                  >
+                    忠实记录
+                  </button>
+                  <button 
+                    @click="firstChatConfigForm.novelAdaptation = 'moderate'"
+                    class="first-chat-segment-btn"
+                    :class="{ 'first-chat-segment-btn-active': firstChatConfigForm.novelAdaptation === 'moderate' }"
+                  >
+                    适度改编
+                  </button>
+                  <button 
+                    @click="firstChatConfigForm.novelAdaptation = 'free'"
+                    class="first-chat-segment-btn"
+                    :class="{ 'first-chat-segment-btn-active': firstChatConfigForm.novelAdaptation === 'free' }"
+                  >
+                    自由创作
+                  </button>
+                </div>
+              </div>
+            </transition>
           </div>
 
         </div>
@@ -13013,7 +13047,8 @@ const isAlreadyBoundProfile = ref(false)
 const firstChatConfigForm = reactive({
   profileId: '',
   chatMode: 'dialogue',
-  novelEnabled: false
+  novelEnabled: false,
+  novelAdaptation: 'moderate'
 })
 
 // 所有消息缓存（按角色 id 存储）
@@ -15180,10 +15215,11 @@ async function openFirstChatConfig() {
   
   // 1. 从数据库异步查询并回填已配置保存的数据，保障切屏与重启持久性
   try {
-    const [bindingRes, modeRes, novelRes] = await Promise.all([
+    const [bindingRes, modeRes, novelRes, adaptationRes] = await Promise.all([
       window.api.invoke('get-profile-binding', charId),
       window.api.invoke('get-character-chat-mode', { characterId: charId }),
-      window.api.invoke('get-setting', { key: `novel_enabled_${charId}` })
+      window.api.invoke('get-setting', { key: `novel_enabled_${charId}` }),
+      window.api.invoke('get-setting', { key: `novel_adaptation_${charId}` })
     ])
     
     // 回填用户人设
@@ -15209,6 +15245,13 @@ async function openFirstChatConfig() {
     } else {
       firstChatConfigForm.novelEnabled = false
     }
+
+    // 回填小说改编尺度
+    if (adaptationRes && adaptationRes.success && adaptationRes.value) {
+      firstChatConfigForm.novelAdaptation = adaptationRes.value
+    } else {
+      firstChatConfigForm.novelAdaptation = 'moderate'
+    }
   } catch (e) {
     console.error('拉取首聊配置数据异常:', e)
     // 兜底回填默认值
@@ -15216,6 +15259,7 @@ async function openFirstChatConfig() {
     isAlreadyBoundProfile.value = false
     firstChatConfigForm.chatMode = isGroup ? 'descriptive' : 'dialogue'
     firstChatConfigForm.novelEnabled = false
+    firstChatConfigForm.novelAdaptation = 'moderate'
   }
   
   // 2. 展现 Modal
@@ -15265,13 +15309,14 @@ async function saveFirstChatConfig() {
       enabled: firstChatConfigForm.novelEnabled,
       styleId: '',
       pov: 'third_user',
-      adaptation: 'moderate',
+      adaptation: firstChatConfigForm.novelAdaptation,
       startFrom: 'all'
     })
     
     // 4. 更新本地内存状态，实时生效
     characterChatModeCache[charId] = firstChatConfigForm.chatMode as 'dialogue' | 'descriptive' | 'director'
     novelEnabled.value = firstChatConfigForm.novelEnabled
+    novelAdaptation.value = firstChatConfigForm.novelAdaptation
     currentChatBindingProfileId.value = firstChatConfigForm.profileId // 🚀 即时同步聊天区域扮演的用户人设
     
     // 5. 移去锁定蒙版，解锁输入框并开启会话
