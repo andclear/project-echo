@@ -133,20 +133,27 @@ export class ContextAssembler {
     // 读取用户真实姓名，在组装阶段直接替换 {{user}}，确保模型收到时姓名已就位
     const globalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
     const realUserName = (globalProfile.name || '').trim();
-    // 仅在用户设置了姓名时注入用户姓名元指令，避免空名字导致模型困惑
+    const gender = (globalProfile.gender || '未知').trim();
+    const age = (globalProfile.age || '未知').trim();
+    // 仅在用户设置了姓名时注入用户姓名与身份元指令，避免空名字导致模型困惑
     const userIdentityLine = realUserName
-      ? `【当前对话用户姓名元指令 (User Identity)】：当前正在与你对话的用户姓名是 ${realUserName}。请在与他/她进行任何日常或角色扮演对话、提及用户或与用户回忆交流时，均必须自然而恰当地使用这个姓名称呼对方，不要假装不认识或以为对方还没有告诉你姓名。`
+      ? `【当前对话用户身份元指令 (User Identity)】：当前正在与你对话的用户身份设定如下：
+  - 姓名：${realUserName}（允许并鼓励你根据双方关系亲密度，使用该姓名或基于其衍生的爱称、小名、外号或专属尊称称呼对方）
+  - 性别：${gender}
+  - 年龄/表现年龄：${age}
+  请在与他/她进行任何日常或角色扮演对话、提及用户、或与用户回忆交流时，均必须自然且恰当地符合此身份设定。同时，完全允许且鼓励用户使用外号、爱称、小名或师徒尊称（如“师傅”、“老家伙”等）来称呼你，不要假装不认识或以为对方还没有告诉你姓名。`
       : '';
     const userRef = realUserName || '用户';
 
     // 聊天回复模式指令装配与注入 (核心优化)
     let chatModeInstruction = '';
     if (chatMode === 'descriptive') {
+      const pronounText = gender === '女' ? '她' : gender === '男' ? '他' : '他/她';
       chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Descriptive — 描写沉浸模式)
 你的每次回复，都是一段有质感、有层次的沉浸式叙事。输出内容应当自然地交织三个维度：你自己的内心活动、你的动作与神态细节、以及你说出口的话。三者共同构成一个有呼吸感的真实瞬间。
 
 **你的叙事视野只属于你自己：**
-你能感知和描述的，只有你自己的内心世界与身体动作。你可以写"我的手指微微收紧了一下"，但你绝对不能替 ${userRef} 感受、替他/她描述内心活动，或假设他/她此刻的想法。你的叙事感知止步于自身边界——不要越界代替对方做心理描写，也不要帮对方把话说出来。
+在描写 ${userRef} 的行动、神态与状态时，必须根据其性别设定使用正确的人称代词（${pronounText}）进行指代，严禁发生人称指代混淆。你能感知和描述的，只有你自己的内心世界与身体动作。你可以写"我的手指微微收紧了一下"，但你绝对不能替 ${userRef} 感受、替他/她描述内心活动，或假设他/她此刻的想法。你的叙事感知止步于自身边界——不要越界代替对方做心理描写，也不要帮对方把话说出来。
 
 **你的心情是这段描写的底色：**
 你当前的情绪状态，应当像一层底色那样无声地渗透进你的措辞与节奏里——心情好时，你注意到的细节会更多，语气里藏不住些许轻盈；情绪低落时，你的措辞会更节制，动作会更慢，你眼中的世界也会显得沉一些。不需要直接说出"我现在心情很好"，让情绪自然流进你写的每一句话就好。
@@ -168,6 +175,7 @@ export class ContextAssembler {
 
 硬性底线：每次输出的总字数**不得低于 ${descriptiveMinWords} 字**——只是防止极度敷衍的短回复，不是要求所有场景都写成长篇。`;
     } else if (chatMode === 'director') {
+      const pronounText = gender === '女' ? '她' : gender === '男' ? '他' : '他/她';
       chatModeInstruction = `\n\n## 回复风格指南 (Chat Mode: Director - 导演模式)
 在【导演模式】下，你们正在共同创作一部极其精彩、引人入胜的小说。
 请你无条件极其严格地遵守以下【导演模式绝对铁律】：
@@ -176,7 +184,7 @@ export class ContextAssembler {
    - 你的回复也**绝对禁止**以常规的面对面说话口吻进行一问一答！你必须作为小说的总执笔人和执行导演，在你的回复中，**完美、绝对忠实地把用户刚才提出的剧情指令落实为小说正文**！
 2. **全程第三人称小说叙事 (Full Third-Person Novel Narrative)**：
    - 必须使用【第三人称限制性或全知叙事视角】来撰写输出内容，像一本出版的小说一样富有文学色彩。
-   - 绝对禁止使用第一人称“我”来指代自己，也绝对禁止使用第二人称“你”来与用户直接对话。用户仍然是这本小说的主角，请在叙事中以用户的姓名或“他/她”来指代用户（主角）。
+   - 绝对禁止使用第一人称“我”来指代自己，也绝对禁止使用第二人称“你”来与用户直接对话。用户仍然是这本小说的主角，请在叙事中以用户的姓名或符合其性别的正确人称代词（${pronounText}）来指代用户（主角）。
    - ⚠️ **主角说话授权注记：在第三人称叙事中，主角（即用户角色）是完全可以并且应当说话的！AI 可以并且应当根据剧情逻辑和对话语境，在你的小说描写中直接输出主角想要说的话，并用标准双引号 "" 括起来，实现主角与其它角色顺畅有机的言语互动**。
 3. **打破两人对话限制与引入 NPC (Breaking Dual Dialogue & Introducing NPCs)**：
    - 你需要根据剧情的发展需要，自由、自然地引入其他 NPC 角色（如路人、对手、亲友、盟友等），并为他们设计符合场景的台词、动作与命运。
@@ -692,6 +700,8 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     // 读取全局用户真实姓名
     const globalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
     const realUserName = (globalProfile.name || '').trim();
+    const gender = (globalProfile.gender || '未知').trim();
+    const age = (globalProfile.age || '未知').trim();
     const userRef = realUserName || '用户';
 
     // 组装 Stable Tier 基础核心人设与次元规则
@@ -783,7 +793,7 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     let contextTier = `# DYNAMIC CONTEXT & MEMORY (Context Tier)\n\n`;
     contextTier += `${ContextAssembler.assembleLiveEnvInfo()}\n\n`;
     if (realUserName) {
-      contextTier += `## 当前正在对话的用户姓名：${realUserName}\n\n`;
+      contextTier += `## 当前正在对话的用户身份设定\n- 姓名：${realUserName}\n- 性别：${gender}\n- 年龄：${age}\n\n`;
     }
 
     // DYNAMIC TRANSACTION & TIME (Volatile Tier)

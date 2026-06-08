@@ -814,10 +814,18 @@ Constraints:
             }
           }
           let mappedUserName = '我';
+          let gender = '未知';
+          let age = '未知';
           if (globalUserPath && fs.existsSync(globalUserPath)) {
             const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
             if (profile && profile.name) {
               mappedUserName = profile.name;
+            }
+            if (profile && profile.gender) {
+              gender = profile.gender;
+            }
+            if (profile && profile.age) {
+              age = profile.age;
             }
           }
 
@@ -942,7 +950,7 @@ Please strictly apply these relationship constraints, mood, and custom personali
 
           const targetAuthorDisplayName = (target.character_id === 'user' || target.author_name === '我' || target.author_name === 'User') ? mappedUserName : target.author_name;
 
-          const systemPrompt = `You are ${char.name}. You are commenting on ${targetAuthorDisplayName}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${targetAuthorDisplayName} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}
+          const systemPrompt = `You are ${char.name}. You are commenting on ${targetAuthorDisplayName}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${targetAuthorDisplayName} is the USER {{user}} (Gender: ${gender}, Age: ${age}) whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}
 Your comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.
 ${weatherInfoText}
 
@@ -1154,10 +1162,18 @@ Instructions:
         }
       }
       let mappedUserName = '我';
+      let gender = '未知';
+      let age = '未知';
       if (globalUserPath && fs.existsSync(globalUserPath)) {
         const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
         if (profile && profile.name) {
           mappedUserName = profile.name;
+        }
+        if (profile && profile.gender) {
+          gender = profile.gender;
+        }
+        if (profile && profile.age) {
+          age = profile.age;
         }
       }
 
@@ -1299,7 +1315,7 @@ Please strictly apply these relationship constraints, mood, and custom personali
 2. 如果被回复者是其他 AI 角色，用成人级或充满挑惹暗示的粗浅幽默展开调情评论！`;
       }
 
-      const systemPrompt = `You are ${char.name}. You are responding to a comment made on your ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserComment ? `\nNote that ${authorDisplayName} is the USER {{user}} whom you have chat history and memories with. Use a familiar, responsive, and highly personalized tone accordingly.` : ''}
+      const systemPrompt = `You are ${char.name}. You are responding to a comment made on your ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserComment ? `\nNote that ${authorDisplayName} is the USER {{user}} (Gender: ${gender}, Age: ${age}) whom you have chat history and memories with. Use a familiar, responsive, and highly personalized tone accordingly.` : ''}
 Your response must perfectly represent your personality profile below, be extremely natural, lively, and within 40 characters.
 
 Personality Soul Profile:
@@ -1470,10 +1486,18 @@ Instructions:
         }
       }
       let mappedUserName = '我';
+      let gender = '未知';
+      let age = '未知';
       if (globalUserPath && fs.existsSync(globalUserPath)) {
         const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
         if (profile && profile.name) {
           mappedUserName = profile.name;
+        }
+        if (profile && profile.gender) {
+          gender = profile.gender;
+        }
+        if (profile && profile.age) {
+          age = profile.age;
         }
       }
 
@@ -1585,7 +1609,7 @@ You current relationship with {{user}} ({{user}} explicitly @mentioned you in pu
       }
 
       // 构建被 @ 的特化系统指令
-      const systemPrompt = `You are ${char.name}. You were explicitly @mentioned (at-mentioned) by the USER {{user}} (我) in a ${type === 'moment' ? 'Moments post' : 'Forum thread'} comment!
+      const systemPrompt = `You are ${char.name}. You were explicitly @mentioned (at-mentioned) by the USER {{user}} (我) (Gender: ${gender}, Age: ${age}) in a ${type === 'moment' ? 'Moments post' : 'Forum thread'} comment!
 {{user}} explicitly @mentioned you and said: "${comment.content}"
 Note that {{user}} is the USER you have chat history and memories with. Use a familiar, responsive, and highly personalized tone to reply directly to her. Do not act like a stranger or standard online follower.
 

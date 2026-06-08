@@ -9,6 +9,7 @@ export interface GlobalUserProfile {
   age: string;
   occupation: string;
   global_preferences: Record<string, string>;
+  gender?: string;
 }
 
 /**
@@ -28,6 +29,7 @@ export class UserProfileReaderWriter {
     name: '',
     age: '',
     occupation: '',
+    gender: '其他',
     global_preferences: {}
   };
 
@@ -61,6 +63,7 @@ export class UserProfileReaderWriter {
       name: '',
       age: '',
       occupation: '',
+      gender: '其他',
       global_preferences: {}
     };
     if (!filePath || !filePath.trim()) {
@@ -94,6 +97,15 @@ export class UserProfileReaderWriter {
       if (profile.name !== undefined && profile.name !== null) profile.name = String(profile.name);
       if (profile.age !== undefined && profile.age !== null) profile.age = String(profile.age);
       if (profile.occupation !== undefined && profile.occupation !== null) profile.occupation = String(profile.occupation);
+      if (profile.gender !== undefined && profile.gender !== null) {
+        profile.gender = String(profile.gender);
+      } else {
+        // 双重容错：从自然语言 Markdown 正则还原
+        const genderMatch = content.match(/(?:^|\n)[-\s*]*(?:\*\*|)?性别(?:\*\*|)?\s*[：:]\s*([^\n\r]*)/);
+        if (genderMatch && genderMatch[1]) {
+          profile.gender = genderMatch[1].trim();
+        }
+      }
       
       // 2. 双重容错：从自然语言 Markdown 行中强行高精度正则匹配捕获并还原所有字段，支持中英文冒号和空格，杜绝反序列化内存清空与覆盖重置 Bug
       if (!profile.name || profile.name.trim() === '') {
@@ -152,6 +164,7 @@ export class UserProfileReaderWriter {
       name: profile.name,
       age: profile.age,
       occupation: profile.occupation,
+      gender: profile.gender || '其他',
       global_preferences: profile.global_preferences
     };
     const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`;
@@ -177,6 +190,7 @@ export class UserProfileReaderWriter {
       };
 
       replaceOrAppend('姓名', profile.name);
+      replaceOrAppend('性别', profile.gender || '其他');
       replaceOrAppend('年龄', profile.age);
       replaceOrAppend('职业', profile.occupation);
 
@@ -190,6 +204,9 @@ export class UserProfileReaderWriter {
     const lines: string[] = [];
     if (profile.name && profile.name.trim() !== '') {
       lines.push(`- **姓名**：${profile.name.trim()}`);
+    }
+    if (profile.gender && profile.gender.trim() !== '') {
+      lines.push(`- **性别**：${profile.gender.trim()}`);
     }
     if (profile.age && profile.age.trim() !== '') {
       lines.push(`- **年龄**：${profile.age.trim()}`);
