@@ -4156,9 +4156,19 @@ ${soulContent}
     const memoryPath = join(charDir, 'Memory.md')
     const charUserPath = join(charDir, 'USER.md')
     const bindingProfileId = db.getProfileBinding(characterId)
-    const globalUserPath = bindingProfileId 
+    let globalUserPath = bindingProfileId 
       ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
       : ''
+
+    // 🚀 首个人设卡兜底：若未绑定，则默认兜底读取第一个人设卡，保证大模型能加载用户姓名与基础设定
+    if ((!globalUserPath || !fs.existsSync(globalUserPath)) && fs.existsSync(join(app.getPath('userData'), 'config', 'user_profiles'))) {
+      const targetProfilesDir = join(app.getPath('userData'), 'config', 'user_profiles')
+      const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+      if (files.length > 0) {
+        files.sort()
+        globalUserPath = join(targetProfilesDir, files[0])
+      }
+    }
 
     // 确保本地画像与 config 目录完备
     const globalConfigDir = join(app.getPath('userData'), 'config')

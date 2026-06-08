@@ -7,6 +7,7 @@ import { ModelAdapter, ChatMessage } from '../models/ModelAdapter'
 import { CharacterStorageManager } from '../utils/CharacterStorageManager'
 import { InferenceMutex } from '../utils/InferenceMutex'
 import { SseManager } from './SseManager'
+import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter'
 
 export const NOVEL_TOKEN_THRESHOLD: Record<string, number> = {
   dialogue: 1500,
@@ -290,14 +291,28 @@ export class NovelWriterService {
   /**
    * 辅助获取当前设定的用户名
    */
-  private getUserName(): string {
+  private getUserName(characterId?: string): string {
+    if (!characterId) return '用户'
     const db = getDatabaseService()
-    const profileStr = db.getSetting('echo_user_profile')
-    if (profileStr) {
-      try {
-        const parsed = JSON.parse(profileStr)
-        if (parsed.nickname) return parsed.nickname
-      } catch (_) {}
+    const bindingProfileId = db.getProfileBinding(characterId)
+    let globalUserPath = bindingProfileId 
+      ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+      : ''
+    
+    // 🚀 首个人设卡兜底：若未绑定，则默认兜底读取第一个人设卡，保证 AI 写手能加载用户姓名与基础设定
+    if ((!globalUserPath || !fs.existsSync(globalUserPath)) && fs.existsSync(join(app.getPath('userData'), 'config', 'user_profiles'))) {
+      const targetProfilesDir = join(app.getPath('userData'), 'config', 'user_profiles')
+      const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+      if (files.length > 0) {
+        files.sort()
+        globalUserPath = join(targetProfilesDir, files[0])
+      }
+    }
+    if (globalUserPath && fs.existsSync(globalUserPath)) {
+      const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+      if (profile && profile.name) {
+        return profile.name
+      }
     }
     return '用户'
   }
@@ -359,16 +374,26 @@ export class NovelWriterService {
     const charUserProfile = storageManager.readCharacterFile(folderName, 'USER.md') || ''
     
     const bindingProfileId = db.getProfileBinding(characterId)
-    const globalUserPath = bindingProfileId 
+    let globalUserPath = bindingProfileId 
       ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
       : ''
+    
+    // 🚀 首个人设卡兜底：若未绑定，则默认兜底读取第一个人设卡，保证 AI 写手能加载用户姓名与基础设定
+    if ((!globalUserPath || !fs.existsSync(globalUserPath)) && fs.existsSync(join(app.getPath('userData'), 'config', 'user_profiles'))) {
+      const targetProfilesDir = join(app.getPath('userData'), 'config', 'user_profiles')
+      const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+      if (files.length > 0) {
+        files.sort()
+        globalUserPath = join(targetProfilesDir, files[0])
+      }
+    }
     const globalUserProfile = globalUserPath && fs.existsSync(globalUserPath) ? fs.readFileSync(globalUserPath, 'utf8') : ''
 
     // 叙事人称与改编尺度设置
     const pov = db.getSetting(`novel_pov_${characterId}`) || 'third_user'
     const adaptation = db.getSetting(`novel_adaptation_${characterId}`) || 'moderate'
 
-    const userName = this.getUserName()
+    const userName = this.getUserName(characterId)
     const charName = char.name
 
     const povInstruction = this.getPovInstruction(pov, userName, charName)
@@ -568,7 +593,7 @@ export class NovelWriterService {
       }
 
       const charName = char.name
-      const userName = this.getUserName()
+      const userName = this.getUserName(characterId)
 
       // 获取这批消息的起止时间戳
       const dialogue_start_ts = rawMessages[0].timestamp
@@ -734,9 +759,19 @@ ${options.suggestedTitle ? `⑧ 章节标题建议：本次改编建议使用的
       const charUserProfile = storageManager.readCharacterFile(folderName, 'USER.md') || ''
       
       const bindingProfileId = db.getProfileBinding(characterId)
-      const globalUserPath = bindingProfileId 
+      let globalUserPath = bindingProfileId 
         ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
         : ''
+      
+      // 🚀 首个人设卡兜底：若未绑定，则默认兜底读取第一个人设卡，保证 AI 写手能加载用户姓名与基础设定
+      if ((!globalUserPath || !fs.existsSync(globalUserPath)) && fs.existsSync(join(app.getPath('userData'), 'config', 'user_profiles'))) {
+        const targetProfilesDir = join(app.getPath('userData'), 'config', 'user_profiles')
+        const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+        if (files.length > 0) {
+          files.sort()
+          globalUserPath = join(targetProfilesDir, files[0])
+        }
+      }
       const globalUserProfile = globalUserPath && fs.existsSync(globalUserPath) ? fs.readFileSync(globalUserPath, 'utf8') : ''
 
       // 4. 读取该章节对应的聊天记录
@@ -752,13 +787,12 @@ ${options.suggestedTitle ? `⑧ 章节标题建议：本次改编建议使用的
       }
 
       // 5. 格式化聊天记录
-      const profileStr = db.getSetting('echo_user_profile')
       let userName = '用户'
-      if (profileStr) {
-        try {
-          const parsed = JSON.parse(profileStr)
-          if (parsed.nickname) userName = parsed.nickname
-        } catch (_) {}
+      if (globalUserPath && fs.existsSync(globalUserPath)) {
+        const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+        if (profile && profile.name) {
+          userName = profile.name
+        }
       }
       const charName = char.name
       const formattedDialogue = this.preprocessMessages(rawMessages, userName, charName)
