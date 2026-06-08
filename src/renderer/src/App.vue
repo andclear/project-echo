@@ -2206,6 +2206,37 @@
                       </button>
                     </div>
                   </div>
+
+                  <!-- 文字大小 -->
+                  <div class="space-y-2 pt-2">
+                    <h4 class="text-[11px] font-bold text-on-surface">全局文字大小</h4>
+                    <div class="flex items-center justify-between p-3 bg-surface-low border border-outline-variant/60 rounded-2xl select-none">
+                      <span class="text-xs font-bold text-on-surface flex items-center space-x-1.5">
+                        <TypeIcon class="w-3.5 h-3.5 text-primary" />
+                        <span>字体大小 (当前: {{ globalFontSize }}px)</span>
+                      </span>
+                      <div class="flex items-center space-x-2">
+                        <button
+                          @click="changeFontSize(-1)"
+                          class="w-8 h-8 flex items-center justify-center border border-outline-variant rounded-xl bg-surface hover:bg-surface-high text-on-surface cursor-pointer focus:outline-none transition-all active:scale-95"
+                        >
+                          <MinusIcon class="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          @click="changeFontSize(1)"
+                          class="w-8 h-8 flex items-center justify-center border border-outline-variant rounded-xl bg-surface hover:bg-surface-high text-on-surface cursor-pointer focus:outline-none transition-all active:scale-95"
+                        >
+                          <PlusIcon class="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          @click="resetFontSize()"
+                          class="text-[10px] text-primary hover:underline pl-1 cursor-pointer focus:outline-none"
+                        >
+                          重置
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- 2. 自主生命引擎与全局约束 -->
@@ -10610,7 +10641,9 @@ import {
   CheckSquare as CheckSquareIcon,
   UserPlus as UserPlusIcon,
   UserCheck as UserCheckIcon,
-  Trash2 as Trash2Icon
+  Trash2 as Trash2Icon,
+  Minus as MinusIcon,
+  Type as TypeIcon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -19053,8 +19086,44 @@ function rejectAgreement() {
   window.api.invoke('exit-app')
 }
 
+// 🚀 全局网页文字字号大小调节支持
+const globalFontSize = ref(16)
+
+function initFontSize() {
+  const saved = localStorage.getItem('user_font_size')
+  if (saved) {
+    const size = parseInt(saved, 10)
+    if (!isNaN(size) && size >= 10 && size <= 32) {
+      globalFontSize.value = size
+    }
+  }
+  applyFontSize()
+}
+
+function applyFontSize() {
+  document.documentElement.style.setProperty('--global-font-size', `${globalFontSize.value}px`)
+}
+
+function changeFontSize(delta: number) {
+  const newSize = globalFontSize.value + delta
+  if (newSize >= 10 && newSize <= 32) {
+    globalFontSize.value = newSize
+    localStorage.setItem('user_font_size', newSize.toString())
+    applyFontSize()
+  }
+}
+
+function resetFontSize() {
+  globalFontSize.value = 16
+  localStorage.removeItem('user_font_size')
+  applyFontSize()
+}
+
 // ===================== 生命周期 =====================
 onMounted(async () => {
+  // 初始化全局网页字体大小
+  initFontSize()
+
   // 检查小说可用状态
   await checkGlobalNovelStatus()
 
