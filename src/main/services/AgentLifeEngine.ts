@@ -955,15 +955,23 @@ export class AgentLifeEngine {
         return;
       }
 
+      // 获取绑定的用户人设真实姓名，执行存盘前收缩替换为 {{user}}
+      const userName = db.getUserNameByCharacterId(charId);
+      let processedDiaryText = diaryText;
+      if (userName) {
+        const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+        processedDiaryText = diaryText.replace(userNameRegex, '{{user}}');
+      }
+
       // 物理写入 Diary.md
       const diaryPath = path.join(baseDir, folderName, 'Diary.md');
       const timeHeader = `\n\n### 📓 ${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      fs.appendFileSync(diaryPath, `${timeHeader}\n${diaryText}`, 'utf8');
+      fs.appendFileSync(diaryPath, `${timeHeader}\n${processedDiaryText}`, 'utf8');
       db.setSetting(`last_diary_date_${charId}`, todayStr);
       console.log(`[AgentLifeEngine] 角色 ${char.name} 日记写入成功。`);
 
       // 落盘日记卡片消息到会话流
-      const excerpt = diaryText.length > 80 ? diaryText.slice(0, 80) + '...' : diaryText;
+      const excerpt = processedDiaryText.length > 80 ? processedDiaryText.slice(0, 80) + '...' : processedDiaryText;
       const diaryMsgContent = `[character_diary]:` + JSON.stringify({
         date: `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
         characterName: char.name,

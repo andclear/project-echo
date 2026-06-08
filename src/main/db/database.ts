@@ -1489,6 +1489,75 @@ export class DatabaseService {
       console.error('[Database] 删除人设绑定失败:', err.message)
     }
   }
+
+  /**
+   * 根据角色 ID 获取当前绑定的（或首个人设卡兜底的）用户姓名，未配置时返回 null
+   */
+  public getUserNameByCharacterId(characterId: string | null): string | null {
+    let userName: string | null = null
+    try {
+      let userProfilePath = ''
+      const userDataPath = app.getPath('userData')
+      const targetProfilesDir = join(userDataPath, 'config', 'user_profiles')
+      
+      let bindingProfileId: string | null = null
+      if (characterId) {
+        bindingProfileId = this.getProfileBinding(characterId)
+      }
+      
+      if (bindingProfileId) {
+        userProfilePath = join(targetProfilesDir, `${bindingProfileId}.md`)
+      }
+
+      if ((!userProfilePath || !fs.existsSync(userProfilePath)) && fs.existsSync(targetProfilesDir)) {
+        const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+        if (files.length > 0) {
+          files.sort()
+          userProfilePath = join(targetProfilesDir, files[0])
+        }
+      }
+
+      if (userProfilePath && fs.existsSync(userProfilePath)) {
+        const content = fs.readFileSync(userProfilePath, 'utf-8')
+        // 1. 尝试解析 HTML 注释中的 JSON 块以获得姓名
+        const match = content.match(/<!--([\s\S]*?)-->/)
+        if (match && match[1]) {
+          try {
+            const parsed = JSON.parse(match[1].trim())
+            if (parsed && parsed.name) {
+              userName = String(parsed.name)
+            }
+          } catch (_) {}
+        }
+        // 2. 备用容错：如果注释中无姓名，则从 Markdown 语法行正则捕获姓名
+        if (!userName) {
+          const nameMatch = content.match(/(?:^|\n)[-\s*]*(?:\*\*|)?姓名(?:\*\*|)?\s*[：:]\s*([^\n\r]*)/)
+          if (nameMatch && nameMatch[1]) {
+            userName = nameMatch[1].trim()
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[DatabaseService] 获取用户姓名失败:', e)
+    }
+    return userName
+  }
+
+  /**
+   * 根据角色 folder_name 获取当前绑定的（或首个人设卡兜底的）用户姓名，未配置时返回 null
+   */
+  public getUserNameByFolderName(folderName: string | null): string | null {
+    if (!folderName) return null
+    try {
+      const charRow = this.db.prepare('SELECT id FROM Characters WHERE folder_name = ?').get(folderName) as { id: string } | undefined
+      if (charRow) {
+        return this.getUserNameByCharacterId(charRow.id)
+      }
+    } catch (e) {
+      console.error('[DatabaseService] 根据 folderName 获取用户姓名失败:', e)
+    }
+    return this.getUserNameByCharacterId(null)
+  }
 }
 
 // 导出单例实例

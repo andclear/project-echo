@@ -16,6 +16,23 @@ export interface MemoryData {
  * 彻底杜绝大模型覆写导致的格式损坏问题。
  */
 export class MemoryReaderWriter {
+  private static getUserNameCallback?: (folderName: string) => string | null;
+
+  public static setGetUserNameCallback(cb: (folderName: string) => string | null): void {
+    this.getUserNameCallback = cb;
+  }
+
+  private static getUserName(folderName: string): string | null {
+    if (this.getUserNameCallback) {
+      try {
+        return this.getUserNameCallback(folderName);
+      } catch (e) {
+        console.error('[MemoryReaderWriter] 获取用户姓名回调失败:', e);
+      }
+    }
+    return null;
+  }
+
   private static readonly DEFAULT_DATA: MemoryData = { stm: [], ltm: {} };
   private static readonly MAX_STM_SIZE = 50;
 
@@ -186,7 +203,26 @@ export class MemoryReaderWriter {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    const markdownContent = this.generateMemoryMarkdown(stm, ltm);
+    const folderName = path.basename(dir);
+    // 使用回调获取数据库里的 userName，避免打包后 require('../db/database') MODULE_NOT_FOUND 报错
+    const userName = this.getUserName(folderName);
+
+    let processedStm = [...stm];
+    let processedLtm = { ...ltm };
+
+    if (userName) {
+      const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+      processedStm = stm.map(fact => fact.replace(userNameRegex, '{{user}}'));
+      
+      processedLtm = {};
+      for (const [key, value] of Object.entries(ltm)) {
+        const newKey = key.replace(userNameRegex, '{{user}}');
+        const newValue = value.replace(userNameRegex, '{{user}}');
+        processedLtm[newKey] = newValue;
+      }
+    }
+
+    const markdownContent = this.generateMemoryMarkdown(processedStm, processedLtm);
 
     // 原子化安全写盘
     fs.writeFileSync(filePath, markdownContent, 'utf-8');

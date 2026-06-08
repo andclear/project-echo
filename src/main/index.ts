@@ -1832,11 +1832,21 @@ function registerIpcHandlers(): void {
       const confirmedFolderName = storageManager.getUniqueFolderName(folderName)
       console.log('[IPC] 1/3 去冲突流水号检测完毕。最终确定文件夹路径名为:', confirmedFolderName)
 
-      const writeResult = storageManager.saveCharacter(confirmedFolderName, buffer, soul, world)
+      const db = getDatabaseService()
+      const userName = db.getUserNameByCharacterId(null) // 新角色还没有绑定，所以使用首个兜底人设名
+      
+      let processedSoul = soul
+      let processedWorld = world
+      if (userName) {
+        const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
+        processedSoul = soul.replace(userNameRegex, '{{user}}')
+        processedWorld = world.replace(userNameRegex, '{{user}}')
+      }
+
+      const writeResult = storageManager.saveCharacter(confirmedFolderName, buffer, processedSoul, processedWorld)
       console.log('[IPC] 2/3 角色 5 个核心物理文件落盘成功，路径:', writeResult.folderPath)
 
       // 保存至 SQLite 数据库元数据表
-      const db = getDatabaseService()
       db.saveCharacterMetadata({
         id: confirmedFolderName, // 物理文件夹名称作为唯一性 id 索引
         name: name || cardData.name || '未知', // 优先选用用户确认/修改的名字，向下兼容 cardData.name
@@ -2191,11 +2201,26 @@ ${soulContent}
         return { success: false, error: '虚拟角色无需修改物理人设' }
       }
       const storageManager = new CharacterStorageManager()
-      if (payload.soul !== undefined) {
-        storageManager.writeCharacterFile(payload.folderName, 'Soul.md', payload.soul)
+      const db = getDatabaseService()
+      const userName = db.getUserNameByFolderName(payload.folderName)
+
+      let processedSoul = payload.soul
+      if (processedSoul !== undefined && userName) {
+        const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
+        processedSoul = processedSoul.replace(userNameRegex, '{{user}}')
       }
-      if (payload.world !== undefined) {
-        storageManager.writeCharacterFile(payload.folderName, 'World.md', payload.world)
+
+      let processedWorld = payload.world
+      if (processedWorld !== undefined && userName) {
+        const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
+        processedWorld = processedWorld.replace(userNameRegex, '{{user}}')
+      }
+
+      if (processedSoul !== undefined) {
+        storageManager.writeCharacterFile(payload.folderName, 'Soul.md', processedSoul)
+      }
+      if (processedWorld !== undefined) {
+        storageManager.writeCharacterFile(payload.folderName, 'World.md', processedWorld)
       }
 
       // 【生命周期自清洁】：由于人设已被用户修改，我们主动置空其设定总结 Summary.md 缓存文件
@@ -2259,6 +2284,13 @@ ${soulContent}
       }
       const storageManager = new CharacterStorageManager()
       let content = storageManager.readCharacterFile(payload.folderName, payload.fileName) || ''
+
+      const db = getDatabaseService()
+      const userName = db.getUserNameByFolderName(payload.folderName)
+      if (userName && ['Soul.md', 'World.md', 'USER.md'].includes(payload.fileName)) {
+        content = content.replace(/{{user}}/g, userName)
+      }
+
       // 若是专属用户画像，剥离头部的 HTML 注释元数据 block
       if (payload.fileName === 'USER.md') {
         content = content.replace(/^<!--[\s\S]*?-->/g, '').trim()
@@ -5095,6 +5127,17 @@ ${memoryContent}
         history = history.filter((m: any) => m.timestamp > clearTime)
       }
 
+      // 动态翻译还原日记消息中的 {{user}} 占位符为绑定/兜底人设姓名
+      const userName = db.getUserNameByCharacterId(payload.characterId)
+      if (userName) {
+        history = history.map((m: any) => {
+          if (m.content && m.content.startsWith('[character_diary]:')) {
+            m.content = m.content.replace(/{{user}}/g, userName)
+          }
+          return m
+        })
+      }
+
       return { success: true, history }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -6089,7 +6132,12 @@ ${memoryContent}
         return { success: true, content: '' }
       }
       const storageManager = new CharacterStorageManager()
-      const content = storageManager.readCharacterFile(payload.folderName, 'Diary.md')
+      let content = storageManager.readCharacterFile(payload.folderName, 'Diary.md') || ''
+      const db = getDatabaseService()
+      const userName = db.getUserNameByFolderName(payload.folderName)
+      if (content && userName) {
+        content = content.replace(/{{user}}/g, userName)
+      }
       return { success: true, content }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -8570,6 +8618,69 @@ export function stopIpcBridgeServer() {
   }
 }
 
+/**
+ * 🚀 静默数据迁移：升级老用户数据，将角色相关文件中的绑定真实姓名一键物理收缩替换为 {{user}}
+ * 本替换在后台静默进行，且在生命周期中一生仅执行一次 (基于 Settings 表中的 user_placeholder_migration_done 标记)
+ */
+async function performUserPlaceholderMigration() {
+  try {
+    const db = getDatabaseService()
+    const done = db.getSetting('user_placeholder_migration_done')
+    if (done === '1') {
+      console.log('[Migration] 用户人设占位符收缩迁移已在之前完成，静默跳过。')
+      return
+    }
+
+    console.log('[Migration] 🚀 开始执行一次性的老用户数据人设占位符 {{user}} 收缩物理迁移...')
+    const characters = db.getAllCharacters()
+    const storageManager = new CharacterStorageManager()
+    const baseDir = storageManager.getBaseDir() // /userData/characters
+
+    for (const char of characters) {
+      const charId = char.id
+      const folderName = char.folder_name || charId
+      if (!folderName) continue
+
+      // 获取当前角色绑定的真实姓名
+      const userName = db.getUserNameByFolderName(folderName)
+      if (!userName || userName.trim() === '') {
+        // 如果未绑定人设或人设卡无真实姓名，则无需收缩
+        continue
+      }
+
+      const charDir = join(baseDir, folderName)
+      if (!fs.existsSync(charDir)) continue
+
+      const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
+      console.log(`[Migration] 正在处理角色: ${char.name} (${folderName}), 绑定姓名: ${userName}`)
+
+      // 需要处理并扫除收缩的文件列表
+      const filesToProcess = ['Soul.md', 'World.md', 'Memory.md', 'USER.md', 'Diary.md']
+      for (const fileName of filesToProcess) {
+        const filePath = join(charDir, fileName)
+        if (fs.existsSync(filePath)) {
+          try {
+            const rawContent = fs.readFileSync(filePath, 'utf-8')
+            if (rawContent.includes(userName)) {
+              const newContent = rawContent.replace(userNameRegex, '{{user}}')
+              fs.writeFileSync(filePath, newContent, 'utf-8')
+              console.log(`[Migration] ➜ 成功将 ${fileName} 中的 "${userName}" 物理收缩替换为 "{{user}}"`)
+            }
+          } catch (fileErr) {
+            console.error(`[Migration] 警告: 处理角色 ${folderName} 的文件 ${fileName} 失败:`, fileErr)
+          }
+        }
+      }
+    }
+
+    // 写入迁移成功标记，确保往后完全不再执行
+    db.setSetting('user_placeholder_migration_done', '1')
+    console.log('[Migration] ✨ 用户人设占位符收缩物理迁移全部顺利完成！')
+  } catch (err) {
+    console.error('[Migration] ✘ 执行人设占位符迁移过程中发生异常:', err)
+  }
+}
+
 app.whenReady().then(() => {
   // 设置 App 用户模型 Id
   electronApp.setAppUserModelId('com.echo.app')
@@ -8577,6 +8688,18 @@ app.whenReady().then(() => {
   // 初始化本地 SQLite 数据库及数据表
   try {
     getDatabaseService()
+    // 注册 ReaderWriter 回调，解耦底层 utils 与 db 模块，防止物理打包单文件后相对 require 发生 MODULE_NOT_FOUND 报错
+    MemoryReaderWriter.setGetUserNameCallback((folderName) => {
+      return getDatabaseService().getUserNameByFolderName(folderName)
+    })
+    UserProfileReaderWriter.setGetUserNameCallback((folderName) => {
+      return getDatabaseService().getUserNameByFolderName(folderName)
+    })
+
+    // 🚀 启动时异步静默执行老用户数据一次性人设占位符物理大扫除与收缩迁移
+    setTimeout(() => {
+      performUserPlaceholderMigration()
+    }, 2000)
   } catch (error) {
     console.error('SQLite 数据库初始化异常:', error)
   }

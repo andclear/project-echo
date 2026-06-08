@@ -4013,27 +4013,7 @@
                     <span class="text-[9px] tracking-wider uppercase bg-secondary/5 text-secondary border border-secondary/10 px-1.5 py-0.5 rounded font-bold font-mono">Agentic Life</span>
                   </div>
 
-                  <!-- 绑定用户人设 -->
-                  <div class="mt-4 pt-3 border-t border-outline-variant/10 flex items-center space-x-2.5 select-none">
-                    <span class="text-[10px] text-on-surface-variant font-bold flex items-center space-x-1 shrink-0">
-                      <UserCheckIcon class="w-3.5 h-3.5 text-primary" />
-                      <span>绑定人设：</span>
-                    </span>
-                    <select 
-                      v-model="selectedContactBindingProfileId" 
-                      @change="handleContactBindingProfileChange"
-                      class="text-xs py-1.5 px-3.5 border border-outline-variant bg-surface rounded-xl focus:outline-none focus:border-primary text-on-surface cursor-pointer select-none max-w-[180px] truncate shadow-sm transition-all"
-                    >
-                      <option value="">(未绑定任何用户人设)</option>
-                      <option 
-                        v-for="prof in userProfilesList" 
-                        :key="prof.profileId" 
-                        :value="prof.profileId"
-                      >
-                        {{ prof.name }} ({{ prof.description || prof.profileId }})
-                      </option>
-                    </select>
-                  </div>
+
 
 
                 </div>
@@ -13866,6 +13846,21 @@ async function handleCleanOption(option: number) {
             })
             if (res.success) {
               allMessages[targetId] = []
+              
+              // 🚀 重新校验并过滤当前角色的绑定关系（若绑定的是无效的'default'，立位置空以触发首聊弹窗）
+              if (targetId === selectedCharacterId.value) {
+                const exists = userProfilesList.value.some(p => p.profileId === currentChatBindingProfileId.value)
+                if (!exists) {
+                  currentChatBindingProfileId.value = ''
+                }
+                if (!currentChatBindingProfileId.value) {
+                  hasConfiguredFirstChatMap.value[targetId] = false
+                  openFirstChatConfig()
+                } else {
+                  hasConfiguredFirstChatMap.value[targetId] = true
+                }
+              }
+
               if (showBrainPanel.value) {
                 openBrainPanel()
               }
@@ -14973,7 +14968,14 @@ async function selectCharacter(charId: string) {
       if (selectedCharacterId.value === charId) {
         const bindingRes = await window.api.invoke('get-profile-binding', charId)
         if (selectedCharacterId.value === charId && bindingRes.success && bindingRes.profileId) {
-          currentChatBindingProfileId.value = bindingRes.profileId
+          // 检查该绑定的 profileId 是否在当前人设列表中真实存在
+          const exists = userProfilesList.value.some(p => p.profileId === bindingRes.profileId)
+          if (exists) {
+            currentChatBindingProfileId.value = bindingRes.profileId
+          } else {
+            // 如果绑定的 profileId 是无效的（例如是不存在的人设或历史残留'default'），则重置为空以触发自愈或重新选择
+            currentChatBindingProfileId.value = ''
+          }
         }
 
         // 🚀 预判当前会话是否是拥有历史聊天记录的老会话

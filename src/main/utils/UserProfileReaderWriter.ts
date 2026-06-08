@@ -25,6 +25,23 @@ export interface CharacterUserProfile {
  * 支撑起 Echo 独特的“千人千面用户画像系统”。
  */
 export class UserProfileReaderWriter {
+  private static getUserNameCallback?: (folderName: string) => string | null;
+
+  public static setGetUserNameCallback(cb: (folderName: string) => string | null): void {
+    this.getUserNameCallback = cb;
+  }
+
+  private static getUserName(folderName: string): string | null {
+    if (this.getUserNameCallback) {
+      try {
+        return this.getUserNameCallback(folderName);
+      } catch (e) {
+        console.error('[UserProfileReaderWriter] 获取用户姓名回调失败:', e);
+      }
+    }
+    return null;
+  }
+
   private static readonly DEFAULT_GLOBAL: GlobalUserProfile = {
     name: '',
     age: '',
@@ -261,17 +278,27 @@ export class UserProfileReaderWriter {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    const jsonData: CharacterUserProfile = { character_specific_facts: facts };
+    const folderName = path.basename(dir);
+    // 使用回调获取数据库里的 userName，避免打包后 require('../db/database') MODULE_NOT_FOUND 报错
+    const userName = this.getUserName(folderName);
+
+    let processedFacts = [...facts];
+    if (userName) {
+      const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+      processedFacts = facts.map(fact => fact.replace(userNameRegex, '{{user}}'));
+    }
+
+    const jsonData: CharacterUserProfile = { character_specific_facts: processedFacts };
     const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`;
 
     let markdown = `${jsonComment}\n\n# 角色专属用户侧写\n\n`;
     markdown += `> 本侧写由该 AI 角色在与您的互动交往中，自发通过做梦反思总结提炼生成，展现千人千面的默契。\n\n`;
     markdown += `## 专属画像事实 (Facts)\n`;
     
-    if (facts.length === 0) {
+    if (processedFacts.length === 0) {
       markdown += `*暂无角色专属侧写事实*\n`;
     } else {
-      facts.forEach((fact) => {
+      processedFacts.forEach((fact) => {
         markdown += `- ${fact}\n`;
       });
     }
