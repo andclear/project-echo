@@ -16206,24 +16206,12 @@ function handleAvatarChange(e: Event) {
 }
 
 function closeUserProfileModal() {
-  if (!userProfile.nickname || userProfile.nickname.trim() === '') {
-    showCustomAlert('姓名未设置', '为了保证数字生命的正常交互，您必须先设置您的姓名！', 'error')
-    return
-  }
   showUserProfileModal.value = false
 }
 
 async function saveUserProfile() {
   // 根据当前所在的页签，决定保存的源头
   const source = userProfileActiveTab.value === 'profile' ? 'profile' : 'markdown'
-  
-  // 仅在基础资料表单页签下才强制要求姓名不能为空（如果是在手写Markdown，豁免此校验，交由物理写盘后逆向同步）
-  if (source === 'profile') {
-    if (!userProfile.nickname || userProfile.nickname.trim() === '') {
-      showCustomAlert('姓名未设置', '为了保证数字生命的正常交互，您必须先设置您的姓名！', 'error')
-      return
-    }
-  }
   
   saveUserProfileLocal()
   
@@ -18059,12 +18047,6 @@ async function initializeCoreApp() {
           userProfile.nickname = res.nickname
           saveUserProfileLocal(true) // 姓名权威解析可以物理回写同步
         }
-      }
-      if (!userProfile.nickname || userProfile.nickname.trim() === '') {
-        sideView.value = 'settings'
-        activeSettingsTab.value = 'profile'
-        userProfileActiveTab.value = 'profile'
-        showCustomAlert('设置姓名', '检测到您尚未设置姓名，请先完成基础资料中的姓名设置以开启数字生命旅程！', 'info')
       }
     })
   })
