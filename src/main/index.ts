@@ -1152,7 +1152,7 @@ function registerIpcHandlers(): void {
         const charId = msg.character_id
 
         // 1. 广播给电脑端前端
-        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
           mainWindow.webContents.send('message-deleted', { characterId: charId, messageId: payload.messageId })
         }
 
