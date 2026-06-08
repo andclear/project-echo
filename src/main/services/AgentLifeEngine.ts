@@ -82,9 +82,6 @@ export class AgentLifeEngine {
     const db = getDatabaseService();
     const characters = db.getAllCharacters();
 
-    // 全局打扰度限制：整个 tick 轮次中，最多只允许一个角色向用户发送主动搭讪消息
-    // 使用 Set 记录本轮已发搭讪的角色
-    let hasSentActiveMessageThisTick = false;
 
     // 为每个角色分配随机错开延迟（0 ~ 8 分钟），彻底打散集中触发
     const charDelays = characters.map((char, idx) => ({
@@ -121,19 +118,8 @@ export class AgentLifeEngine {
             const modelConfig = JSON.parse(settingsStr);
             const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary);
 
-            // 全局打扰限制：本轮若已有角色发搭讪则剥离当前角色的主动消息意图
-            let finalizedWakeResult = { ...wakeResult };
-            if (wakeResult.triggerEvent) {
-              if (hasSentActiveMessageThisTick) {
-                console.log(`[AgentLifeEngine] 全局打扰限制：本日轮中已有其他角色发起搭讪，拦截 ${char.name} 的主动搭讪。`);
-                finalizedWakeResult.triggerEvent = undefined;
-              } else {
-                hasSentActiveMessageThisTick = true;
-              }
-            }
-
             // 3. 执行思考与可能的主动对话生成
-            await this.generateActiveBehavior(char, modelAdapter, finalizedWakeResult);
+            await this.generateActiveBehavior(char, modelAdapter, wakeResult);
 
             // 4. 后台静默触发小说章节生成检查
             try {
@@ -266,16 +252,16 @@ export class AgentLifeEngine {
     const lastMsgTime = history[0].timestamp;
     const msPassedSinceLastMsg = now.getTime() - lastMsgTime;
 
-    // 对话期间20分钟静默防打扰：若 20 分钟内与用户发生过任何对话，则搭讪受限
-    const isDialogueCooldown = msPassedSinceLastMsg < 20 * 60 * 1000;
+    // 对话期间30分钟静默防打扰：若 30 分钟内与用户发生过任何对话，则搭讪受限
+    const isDialogueCooldown = msPassedSinceLastMsg < 30 * 60 * 1000;
 
     // 2.2 上次搭讪未回复保护：若最近一条消息是角色自己发送的（且非手账日记卡片），说明用户尚未回复。
-    // 在 48 小时之内，我们坚守“矜持与静默”边界，绝对不连续发送第二条主动消息。
+    // 在 36 小时之内，我们坚守“矜持与静默”边界，绝对不连续发送第二条主动消息。
     let isProactiveRestricted = false;
     if (history[0].role === 'assistant') {
       const contentStr = (history[0].content || '').trim();
       const isDiary = contentStr.startsWith('[character_diary]:');
-      if (!isDiary && msPassedSinceLastMsg < 48 * 60 * 60 * 1000) {
+      if (!isDiary && msPassedSinceLastMsg < 36 * 60 * 60 * 1000) {
         isProactiveRestricted = true;
       }
     }
@@ -286,7 +272,7 @@ export class AgentLifeEngine {
     }
     const folderName = char.folder_name;
 
-    // 2.5 全局主动搭讪频率控制：每天最多可以触发 3 次，每轮搭讪触发后必须相隔 2 小时才允许下一次搭讪
+    // 2.5 全局主动搭讪频率控制：每天最多可以触发 2 次，每轮搭讪触发后必须相隔 3 小时才允许下一次搭讪
     const todayStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
     const activeTodayDate = db.getSetting(`active_today_date_${characterId}`);
     let activeCountToday = 0;
@@ -301,10 +287,10 @@ export class AgentLifeEngine {
     const lastActiveTsStr = db.getSetting(`active_last_timestamp_${characterId}`);
     const lastActiveTs = lastActiveTsStr ? parseInt(lastActiveTsStr) : 0;
     const msPassedSinceLastActive = now.getTime() - lastActiveTs;
-    const isCooldown = msPassedSinceLastActive < 2 * 60 * 60 * 1000;
+    const isCooldown = msPassedSinceLastActive < 3 * 60 * 60 * 1000;
 
-    // 【门控升级】：将 20分钟静默 与 48小时矜持 共同作为主动搭讪对话的与门条件，彻底解绑下午 17 点日记的生成！
-    const allowActiveDialog = (activeCountToday < 3) && !isCooldown && !isDialogueCooldown && !isProactiveRestricted;
+    // 【门控升级】：将 30分钟静静 与 36小时矜持 共同作为主动搭讪对话的与门条件，彻底解绑下午 17 点日记的生成！
+    const allowActiveDialog = (activeCountToday < 2) && !isCooldown && !isDialogueCooldown && !isProactiveRestricted;
 
     // 3. 检查强触发事件之：久未联系 (>= 72 小时)
     const hoursPassed = (now.getTime() - lastMsgTime) / (1000 * 60 * 60);
@@ -350,11 +336,11 @@ export class AgentLifeEngine {
 
     // 6. 检查弱触发事件之：早晨问候
     const hour = now.getHours();
-    const isMorning = hour >= 7 && hour <= 9;
+    const isMorning = hour >= 7 && hour < 8;
     if (isMorning && hoursPassed <= 36 && allowActiveDialog) {
       return {
         wakeAgent: true,
-        reason: `清晨问候时段 (07:00-09:00，弱触发，今日第 ${activeCountToday + 1} 次)。`,
+        reason: `清晨问候时段 (07:00-08:00，弱触发，今日第 ${activeCountToday + 1} 次)。`,
         triggerStrength: 'weak',
         triggerEvent: {
           type: 'good_morning',
@@ -381,11 +367,11 @@ export class AgentLifeEngine {
     return {
       wakeAgent: false,
       reason: isDialogueCooldown
-        ? '20 分钟内与该角色有过对话交流，保持静默防打扰。🐾'
+        ? '30 分钟内与该角色有过对话交流，保持静默防打扰。🐾'
         : (isCooldown
-          ? `今日搭讪已触发 ${activeCountToday} 次，目前处于 2 小时搭讪冷却期内（已过去 ${(msPassedSinceLastActive / (1000 * 60)).toFixed(0)} 分钟）。`
-          : (activeCountToday >= 3
-            ? '今日主动搭讪已达 3 次上限，保持静默。'
+          ? `今日搭讪已触发 ${activeCountToday} 次，目前处于 3 小时搭讪冷却期内（已过去 ${(msPassedSinceLastActive / (1000 * 60)).toFixed(0)} 分钟）。`
+          : (activeCountToday >= 2
+            ? '今日主动搭讪已达 2 次上限，保持静默。'
             : '未满足任何主动唤醒事件且今日已写过日记，保持静默。')),
       triggerStrength: 'weak'
     };
