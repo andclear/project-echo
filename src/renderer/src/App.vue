@@ -266,7 +266,7 @@
 
       <!-- ====== 中间会话/联系人列表 ====== -->
       <aside 
-        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites' && (sideView !== 'bookshelf' || selectedBookId)" 
+        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites' && sideView !== 'home' && (sideView !== 'bookshelf' || selectedBookId)" 
         :style="!isMobile ? { width: sidebarWidth + 'px' } : {}" 
         class="h-full flex flex-col bg-sidebar backdrop-blur-md flex-shrink-0 overflow-hidden relative"
         :class="{ 'hidden md:flex': isRightPanelActive || (sideView === 'bookshelf' && selectedBookId), 'w-full': isMobile }"
@@ -665,7 +665,7 @@
 
       <!-- 会话列表与聊天视窗之间的可拖拽分割线 -->
       <div 
-        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites' && (sideView !== 'bookshelf' || selectedBookId)"
+        v-if="sideView !== 'stats' && sideView !== 'moments' && sideView !== 'forum' && sideView !== 'favorites' && sideView !== 'home' && (sideView !== 'bookshelf' || selectedBookId)"
         @mousedown="startResize" 
         class="hidden md:block w-[1px] hover:w-[2px] bg-sidebar-border hover:bg-primary cursor-col-resize transition-all h-full z-20 flex-shrink-0"
         title="拖动调整宽度"
@@ -675,7 +675,7 @@
       <main 
         class="flex-1 h-full flex flex-col min-w-0 bg-chat-bg overflow-hidden relative"
         :class="{
-          'hidden md:flex': !['stats', 'moments', 'forum', 'favorites', 'bookshelf'].includes(sideView) && !isRightPanelActive,
+          'hidden md:flex': !['stats', 'moments', 'forum', 'favorites', 'bookshelf', 'home'].includes(sideView) && !isRightPanelActive,
           'w-full': isMobile
         }"
       >
@@ -1121,7 +1121,7 @@
                 <div class="flex items-center justify-between select-none flex-shrink-0">
                   <div class="flex items-center space-x-3.5">
                     <div class="w-10 h-10 rounded-xl overflow-hidden border border-outline-variant bg-surface-low flex-shrink-0 shadow-sm">
-                      <img v-if="moment.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                      <img v-if="moment.character_id === 'user'" :src="userProfile.appAvatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                       <img v-else-if="characterAvatars[moment.character_id]" :src="characterAvatars[moment.character_id]" class="w-full h-full object-cover" />
                       <UserIcon v-else class="w-5 h-5 text-on-surface-variant m-auto mt-2.5" />
                     </div>
@@ -1175,7 +1175,7 @@
                               <!-- 用户（我）头像 -->
                               <img
                                 v-if="liker.character_id === 'user'"
-                                :src="userProfile.avatarUrl || defaultAvatarSrc"
+                                :src="userProfile.appAvatarUrl || defaultAvatarSrc"
                                 class="w-full h-full object-cover"
                               />
                               <!-- 角色头像 -->
@@ -1403,7 +1403,7 @@
                       <ChevronLeftIcon class="w-5 h-5" />
                     </button>
                     <div class="w-7 h-7 rounded-lg overflow-hidden border border-outline-variant">
-                      <img v-if="selectedForumPost.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                      <img v-if="selectedForumPost.character_id === 'user'" :src="userProfile.appAvatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                       <img v-else-if="characterAvatars[selectedForumPost.character_id]" :src="characterAvatars[selectedForumPost.character_id]" class="w-full h-full object-cover" />
                       <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto mt-1.5" />
                     </div>
@@ -1483,7 +1483,7 @@
                         <div class="flex items-center justify-between select-none">
                           <div class="flex items-center space-x-2">
                             <div class="w-6 h-6 rounded-md overflow-hidden border border-outline-variant">
-                              <img v-if="c.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                              <img v-if="c.character_id === 'user'" :src="userProfile.appAvatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                               <img v-else-if="characterAvatars[c.character_id]" :src="characterAvatars[c.character_id]" class="w-full h-full object-cover" />
                               <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant m-auto mt-1" />
                             </div>
@@ -1643,7 +1643,7 @@
                       <ChevronLeftIcon class="w-5 h-5" />
                     </button>
                     <div class="w-7 h-7 rounded-lg overflow-hidden border border-outline-variant">
-                      <img v-if="selectedFavorite.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                      <img v-if="selectedFavorite.character_id === 'user'" :src="userProfile.appAvatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                       <img v-else-if="characterAvatars[selectedFavorite.character_id]" :src="characterAvatars[selectedFavorite.character_id]" class="w-full h-full object-cover" />
                       <UserIcon v-else class="w-4 h-4 text-on-surface-variant m-auto mt-1.5" />
                     </div>
@@ -1700,7 +1700,7 @@
                       <div class="flex -space-x-1.5 mr-2">
                         <template v-for="(liker, idx) in selectedFavorite.likes_list.slice(0, 6)" :key="liker.character_id">
                           <div class="w-5 h-5 rounded-full border-2 border-surface overflow-hidden flex-shrink-0 shadow-sm relative transition-transform hover:scale-110 hover:z-10" :title="liker.author_name">
-                            <img v-if="liker.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                            <img v-if="liker.character_id === 'user'" :src="userProfile.appAvatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                             <img v-else-if="characterAvatars[liker.character_id]" :src="characterAvatars[liker.character_id]" class="w-full h-full object-cover" />
                             <div v-else class="w-full h-full bg-primary/20 flex items-center justify-center text-[7px] font-black text-primary">{{ liker.author_name?.[0] || '?' }}</div>
                           </div>
@@ -1720,7 +1720,7 @@
                       <div v-else class="space-y-2.5">
                         <div v-for="c in selectedFavorite.comments" :key="c.id" class="p-3.5 rounded-xl bg-surface border border-outline-variant/50 shadow-sm space-y-1.5 flex items-start space-x-3">
                           <div class="w-6 h-6 rounded-md overflow-hidden border border-outline-variant flex-shrink-0">
-                            <img v-if="c.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                            <img v-if="c.character_id === 'user'" :src="userProfile.appAvatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                             <img v-else-if="characterAvatars[c.character_id]" :src="characterAvatars[c.character_id]" class="w-full h-full object-cover" />
                             <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant m-auto mt-1" />
                           </div>
@@ -1761,7 +1761,7 @@
                       <div v-else class="space-y-2.5">
                         <div v-for="c in selectedFavorite.comments" :key="c.id" class="p-3.5 rounded-xl bg-surface border border-outline-variant/50 shadow-sm space-y-1.5 flex items-start space-x-3">
                           <div class="w-6 h-6 rounded-md overflow-hidden border border-outline-variant flex-shrink-0">
-                            <img v-if="c.character_id === 'user'" :src="userProfile.avatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
+                            <img v-if="c.character_id === 'user'" :src="userProfile.appAvatarUrl || defaultAvatarSrc" class="w-full h-full object-cover" />
                             <img v-else-if="characterAvatars[c.character_id]" :src="characterAvatars[c.character_id]" class="w-full h-full object-cover" />
                             <UserIcon v-else class="w-3.5 h-3.5 text-on-surface-variant m-auto mt-1" />
                           </div>
@@ -1845,9 +1845,11 @@
                         </div>
                         <!-- 操作工具区，Hover 时优雅淡入，点击阻止冒泡以防止触发阅读 -->
                         <div class="flex items-center justify-center space-x-2.5 text-[10px] font-semibold text-on-surface-variant/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 h-4" @click.stop>
-                          <button @click="openEditBookModal(book)" class="hover:text-primary transition-colors">修改名称</button>
+                          <button @click="openEditBookModal(book)" class="hover:text-primary transition-colors">改名</button>
                           <span class="text-on-surface-variant/15 select-none">|</span>
-                          <button @click="changeBookCover(book.novelId)" class="hover:text-primary transition-colors">更换封面</button>
+                          <button @click="changeBookCover(book.novelId)" class="hover:text-primary transition-colors">换图</button>
+                          <span class="text-on-surface-variant/15 select-none">|</span>
+                          <button @click="confirmDeleteBook(book)" class="hover:text-red-500 transition-colors">删除</button>
                         </div>
                       </div>
                     </div>
@@ -1989,8 +1991,9 @@
                     <span class="text-xs font-bold text-on-surface truncate max-w-full text-center">{{ book.novelTitle }}</span>
                     <!-- 手机端便捷操作 -->
                     <div class="flex items-center space-x-2 pt-1 border-t border-outline-variant/10 w-full justify-around" @click.stop>
-                      <button @click="openEditBookModal(book)" class="text-[10px] text-primary font-semibold">修改</button>
-                      <button @click="changeBookCover(book.novelId)" class="text-[10px] text-primary font-semibold">换封面</button>
+                      <button @click="openEditBookModal(book)" class="text-[10px] text-primary font-semibold">改名</button>
+                      <button @click="changeBookCover(book.novelId)" class="text-[10px] text-primary font-semibold">换图</button>
+                      <button @click="confirmDeleteBook(book)" class="text-[10px] text-red-500 font-semibold">删除</button>
                     </div>
                   </div>
                 </div>
@@ -2213,7 +2216,7 @@
                     <div class="flex items-center justify-between p-3 bg-surface-low border border-outline-variant/60 rounded-2xl select-none">
                       <span class="text-xs font-bold text-on-surface flex items-center space-x-1.5">
                         <TypeIcon class="w-3.5 h-3.5 text-primary" />
-                        <span>字体大小 (当前: {{ globalFontSize }}px)</span>
+                        <span>字体大小 (当前: {{ globalFontSize }})</span>
                       </span>
                       <div class="flex items-center space-x-2">
                         <button
@@ -2440,7 +2443,7 @@
                       <div class="flex-1 flex flex-col space-y-1 select-none min-w-0">
                         <span class="text-xs font-bold text-on-surface">应用头像</span>
                         <span class="text-[10px] text-on-surface-variant/75 leading-relaxed">
-                          点击左侧头像上传新图片。此头像仅用于本客户端的侧边栏顶部展示，以物理文件存储，不占用数据库空间。
+                          点击左侧头像上传新图片。此头像用于本客户端的侧边栏顶部展示，以及【朋友圈和论坛的用户头像】，建议进行配置。
                         </span>
                       </div>
                     </div>
@@ -10778,6 +10781,7 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     eventSource.addEventListener('novel-continue-done', handleSseEvent)
     eventSource.addEventListener('novel-generation-state-changed', handleSseEvent)
     eventSource.addEventListener('novel-unread-count-changed', handleSseEvent)
+    eventSource.addEventListener('novel-bookshelf-updated', handleSseEvent)
 
     // 🚀 补全缺失的局域网/多端强同步 SSE 事件订阅，打通删除、已读、状态及设置全通路即时同步
     eventSource.addEventListener('conversation-meta-updated', handleSseEvent)
@@ -11707,6 +11711,27 @@ async function loadBookshelf() {
   }
 }
 
+// 物理删除小说书籍
+function confirmDeleteBook(book: any) {
+  showCustomConfirm(
+    '确认删除小说',
+    `您确定要彻底物理删除《${book.novelTitle}》吗？删除后，该书的所有章节和对应内容将无法找回！`,
+    async () => {
+      try {
+        const res = await window.api.invoke('novel-delete-book', { novelId: book.novelId })
+        if (res.success) {
+          showCustomAlert('删除成功', '小说已成功彻底物理清除！🐾', 'success')
+          await loadBookshelf()
+        } else {
+          showCustomAlert('删除失败', res.error || '未知错误', 'error')
+        }
+      } catch (err: any) {
+        showCustomAlert('删除出错', err.message || err, 'error')
+      }
+    }
+  )
+}
+
 // 监听 sideView 切换为 bookshelf 时加载书架
 watch(sideView, async (newVal) => {
   if (newVal === 'bookshelf') {
@@ -11969,8 +11994,11 @@ async function openNovelPanel() {
   showNovelPanel.value = true
   showStyleDropdown.value = false
   // 清除新章节红点角标并标记已读
-  await window.api.invoke('novel-mark-read', { characterId: charId })
+  const markRes = await window.api.invoke('novel-mark-read', { characterId: charId })
   novelNewChapterBadges[charId] = 0
+  if (markRes && markRes.novelId) {
+    novelNewChapterBadges[markRes.novelId] = 0
+  }
   
   await loadNovelSettings(charId)
   await loadNovelChapters(charId)
@@ -17178,20 +17206,31 @@ async function saveUserProfile() {
 }
 
 function saveUserProfileLocal(syncToBackend = true) {
+  const profileData = {
+    appAvatarUrl: '', // 🚀 缓存绝不存放庞大的 Base64 头像数据，避免超出 LocalStorage 的 5MB 配额导致异常中断
+    avatarUrl: userProfile.avatarUrl,
+    nickname: userProfile.nickname,
+    signature: userProfile.signature,
+    location: userProfile.location,
+    walletBalance: userProfile.walletBalance
+  }
+  
   try {
-    const profileData = {
-      appAvatarUrl: userProfile.appAvatarUrl,
-      avatarUrl: userProfile.avatarUrl,
-      nickname: userProfile.nickname,
-      signature: userProfile.signature,
-      location: userProfile.location,
-      walletBalance: userProfile.walletBalance
-    }
     localStorage.setItem('echo_user_profile', JSON.stringify(profileData))
-    if (syncToBackend) {
-      window.api.invoke('save-user-profile', profileData)
+  } catch (err) {
+    console.warn('[LocalStorage] 写入用户配置缓存失败，可能超出配额:', err)
+  }
+
+  if (syncToBackend) {
+    // 物理写盘必须带上 appAvatarUrl 原始数据
+    const backendData = {
+      ...profileData,
+      appAvatarUrl: userProfile.appAvatarUrl
     }
-  } catch (_) {}
+    window.api.invoke('save-user-profile', backendData).catch(err => {
+      console.error('[saveUserProfileLocal] 同步个人配置到后端失败:', err)
+    })
+  }
 }
 
 function loadUserProfileLocal() {
@@ -17199,7 +17238,7 @@ function loadUserProfileLocal() {
     const stored = localStorage.getItem('echo_user_profile')
     if (stored) {
       const data = JSON.parse(stored)
-      userProfile.appAvatarUrl = data.appAvatarUrl || ''
+      // 🚀 注意：appAvatarUrl 由后端的物理文件读写托管读取，此处只加载除头像外的配置项
       userProfile.avatarUrl = data.avatarUrl || ''
       userProfile.nickname = data.nickname || ''
       userProfile.signature = data.signature || ''
@@ -19274,10 +19313,17 @@ onMounted(async () => {
       }
     })
     // 监听后台已读状态变更广播，多窗口秒级同步小红点状态
-    window.api.receive('novel-unread-count-changed', (data: { characterId: string; unreadCount: number }) => {
+    window.api.receive('novel-unread-count-changed', (data: { characterId: string; novelId?: string; unreadCount: number }) => {
       if (data.characterId) {
         novelNewChapterBadges[data.characterId] = data.unreadCount
       }
+      if (data.novelId) {
+        novelNewChapterBadges[data.novelId] = data.unreadCount
+      }
+    })
+    // 监听后台书架被修改广播（如删除小说），热刷新书架列表
+    window.api.receive('novel-bookshelf-updated', () => {
+      loadBookshelf()
     })
   }
   fetchWeChatStatus()

@@ -938,6 +938,32 @@ function registerIpcHandlers(): void {
         }
       }
       if (!foundAvatar) {
+        // 🚀 额外兜底：读取用户手动放置在 config/profile_avatars/ 下的 default.* 头像
+        const legacyAvatarDir = join(configDir, 'profile_avatars')
+        if (fs.existsSync(legacyAvatarDir)) {
+          const supportedLegacyExtensions = ['webp', 'png', 'jpg', 'jpeg']
+          for (const ext of supportedLegacyExtensions) {
+            const legacyAvatarPath = join(legacyAvatarDir, `default.${ext}`)
+            if (fs.existsSync(legacyAvatarPath)) {
+              try {
+                const fileBuffer = fs.readFileSync(legacyAvatarPath)
+                const base64Str = fileBuffer.toString('base64')
+                let mimeType = 'image/png'
+                if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg'
+                else if (ext === 'webp') mimeType = 'image/webp'
+                
+                profile.appAvatarUrl = `data:${mimeType};base64,${base64Str}`
+                foundAvatar = true
+                break
+              } catch (err) {
+                console.error(`[IPC get-user-profile] 读取自定义默认头像失败: ${legacyAvatarPath}`, err)
+              }
+            }
+          }
+        }
+      }
+
+      if (!foundAvatar) {
         profile.appAvatarUrl = ''
       }
 
@@ -2426,6 +2452,88 @@ ${soulContent}
     }
   })
 
+  ipcMain.handle('novel-delete-book', async (_, payload: { novelId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const { novelId } = payload
+
+      // 1. 获取小说记录，以便找出 character_id、cover_path 并物理删除封面图片
+      const novel = db.db.prepare('SELECT character_id, cover_path FROM Novels WHERE id = ?').get(novelId) as any
+      if (!novel) {
+        throw new Error('未找到指定的小说')
+      }
+      const characterId = novel.character_id
+
+      // 2. 物理删除封面图片
+      if (novel.cover_path) {
+        try {
+          const char = db.db.prepare('SELECT folder_name FROM Characters WHERE id = ?').get(characterId) as any
+          if (char) {
+            const storageManager = new CharacterStorageManager()
+            const charDir = join(storageManager.getBaseDir(), char.folder_name)
+            const coverPath = join(charDir, novel.cover_path)
+            if (fs.existsSync(coverPath)) {
+              fs.unlinkSync(coverPath)
+            }
+          }
+        } catch (err) {
+          console.warn('[novel-delete-book] 删除封面文件失败:', err)
+        }
+      }
+
+      // 3. 删除小说记录和章节记录
+      db.db.prepare('DELETE FROM Novels WHERE id = ?').run(novelId)
+      db.db.prepare('DELETE FROM NovelChapters WHERE novel_id = ?').run(novelId)
+
+      // 4. 清理相关的 Settings
+      db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`last_read_chapter_index_${novelId}`)
+      db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`novel_title_customized_${novelId}`)
+      db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`novel_binding_profile_id_${novelId}`)
+
+      // 5. 检查是否为该角色的当前激活小说，若是，将其清空或更新为剩余的最新一本
+      const activeNovelId = db.getActiveNovelId(characterId)
+      if (activeNovelId === novelId) {
+        // 查找该角色是否还有其他小说
+        const remaining = db.db.prepare('SELECT id FROM Novels WHERE character_id = ? ORDER BY created_at DESC LIMIT 1').get(characterId) as { id: string } | undefined
+        if (remaining) {
+          db.setActiveNovelId(characterId, remaining.id)
+          // 重新校准上一章节结束时间游标
+          const lastCh = db.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE novel_id = ? ORDER BY chapter_index DESC LIMIT 1').get(remaining.id) as { dialogue_end_ts: number } | undefined
+          const newTs = lastCh ? lastCh.dialogue_end_ts.toString() : (db.getSetting(`novel_start_ts_${characterId}`) || '0')
+          db.setSetting(`last_novel_chapter_end_ts_${characterId}`, newTs)
+        } else {
+          // 没有剩余小说了，清空激活小说 ID，并重置时间游标为初始 ts
+          db.setActiveNovelId(characterId, null)
+          const startTs = db.getSetting(`novel_start_ts_${characterId}`) || '0'
+          db.setSetting(`last_novel_chapter_end_ts_${characterId}`, startTs)
+        }
+      }
+
+      // 6. 广播更新事件，使所有窗口及 SSE 客户端自动清除未读计数，并热重载书架
+      BrowserWindow.getAllWindows().forEach(w => {
+        if (!w.webContents.isDestroyed()) {
+          w.webContents.send('novel-unread-count-changed', {
+            characterId,
+            novelId,
+            unreadCount: 0
+          })
+          // 发送书架已更新信号，让客户端重新加载书架
+          w.webContents.send('novel-bookshelf-updated')
+        }
+      })
+      SseManager.getInstance().broadcast('novel-unread-count-changed', {
+        characterId,
+        novelId,
+        unreadCount: 0
+      })
+      SseManager.getInstance().broadcast('novel-bookshelf-updated', { characterId })
+
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
   // 用户手动触发续写小说（绕过 token 阈值）
   ipcMain.handle('novel-continue', async (_, payload: { characterId: string }) => {
     try {
@@ -2749,6 +2857,7 @@ ${soulContent}
       if (result.changes === 0) {
         throw new Error('未找到对应的小说记录')
       }
+      db.setSetting(`novel_title_customized_${payload.novelId}`, '1')
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }

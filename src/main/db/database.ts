@@ -1904,6 +1904,13 @@ export class DatabaseService {
 
         for (let i = 0; i < novels.length; i++) {
           const novel = novels[i]
+
+          // 0. 特别防线：若用户自己修改过书名，则予以豁免保护，绝对不覆盖用户自定义标题。
+          const isCustomized = this.getSetting(`novel_title_customized_${novel.id}`) === '1'
+          if (isCustomized) {
+            continue
+          }
+
           const title = novel.title || ''
 
           // 判定此书是否属于待自愈范围：

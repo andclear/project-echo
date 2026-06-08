@@ -253,12 +253,12 @@ Instructions:
     let raw = response.content.trim().replace(/^["']|["']$/g, ''); // 清理两端引号
 
     // 解析配图标签
-    const imagePromptMatch = raw.match(/<image_prompt>([\s\S]*?)<\/image_prompt>/i);
-    const imageDescMatch = raw.match(/<image_desc>([\s\S]*?)<\/image_desc>/i);
+    const imagePromptMatch = raw.match(/<(?:image|img)_prompt>([\s\S]*?)<\/(?:image|img)_prompt>/i);
+    const imageDescMatch = raw.match(/<(?:image|img)_desc>([\s\S]*?)<\/(?:image|img)_desc>/i);
 
     let textContent = raw
-      .replace(/<image_prompt>[\s\S]*?<\/image_prompt>/gi, '')
-      .replace(/<image_desc>[\s\S]*?<\/image_desc>/gi, '')
+      .replace(/<(?:image|img)_prompt>[\s\S]*?<\/(?:image|img)_prompt>/gi, '')
+      .replace(/<(?:image|img)_desc>[\s\S]*?<\/(?:image|img)_desc>/gi, '')
       .trim();
 
     if (textContent) {
@@ -595,12 +595,12 @@ Body: [Your post rich text content]
     let finalBody = body;
 
     // 解析配图标签
-    const imagePromptMatch = body.match(/<image_prompt>([\s\S]*?)<\/image_prompt>/i);
-    const imageDescMatch = body.match(/<image_desc>([\s\S]*?)<\/image_desc>/i);
+    const imagePromptMatch = body.match(/<(?:image|img)_prompt>([\s\S]*?)<\/(?:image|img)_prompt>/i);
+    const imageDescMatch = body.match(/<(?:image|img)_desc>([\s\S]*?)<\/(?:image|img)_desc>/i);
 
     let textBody = body
-      .replace(/<image_prompt>[\s\S]*?<\/image_prompt>/gi, '')
-      .replace(/<image_desc>[\s\S]*?<\/image_desc>/gi, '')
+      .replace(/<(?:image|img)_prompt>[\s\S]*?<\/(?:image|img)_prompt>/gi, '')
+      .replace(/<(?:image|img)_desc>[\s\S]*?<\/(?:image|img)_desc>/gi, '')
       .trim();
 
     if (body) {

@@ -167,12 +167,29 @@ export class NovelWriterService {
       if (!novel) {
         needNewBook = true
       } else {
-        // 从书名提取绑定的人设姓名（新格式：人设名在“与”之前）
-        const bookUserName = novel.title.split('与')[0].trim()
-        if (bookUserName !== currentUserName) {
-          console.log(`[NovelWriterService] 人设卡变更 (书关联: "${bookUserName}", 当前: "${currentUserName}")，判定旧书无效，准备创建新书。`)
-          needNewBook = true
+        // 先尝试从 Settings 中获取该书绑定的人设卡 ID
+        const boundProfileId = db.getSetting(`novel_binding_profile_id_${activeNovelId}`)
+        const currentProfileId = db.getProfileBinding(characterId) || ''
+        
+        if (boundProfileId !== null) {
+          // 如果有绑定记录，则以人设卡 ID 是否一致为唯一准则（不论书名被用户改成什么）
+          if (boundProfileId !== currentProfileId) {
+            console.log(`[NovelWriterService] 人设卡 ID 变更 (书绑定: "${boundProfileId}", 当前: "${currentProfileId}")，判定旧书无效，准备创建新书。`)
+            needNewBook = true
+          }
         } else {
+          // 老数据兼容：无绑定记录时，解析书名中的人设姓名
+          const bookUserName = novel.title.split('与')[0].trim()
+          if (bookUserName !== currentUserName) {
+            console.log(`[NovelWriterService] 老书人设卡姓名不符 (书关联: "${bookUserName}", 当前: "${currentUserName}")，判定旧书无效，准备创建新书。`)
+            needNewBook = true
+          } else {
+            // 老书如果留下来了，顺手帮它补上当前的绑定关系，防止后续被再次判定
+            db.setSetting(`novel_binding_profile_id_${activeNovelId}`, currentProfileId)
+          }
+        }
+
+        if (!needNewBook) {
           // 检查聊天记录首条时间戳，如果首条消息时间晚于这本书最近一章结束的时间，说明用户重置过历史
           const firstMsg = db.db.prepare('SELECT timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp ASC LIMIT 1').get(characterId) as { timestamp: number } | undefined
           const startTs = parseInt(db.getSetting(`novel_start_ts_${characterId}`) || '0', 10)
@@ -206,6 +223,10 @@ export class NovelWriterService {
         created_at: Date.now()
       })
       db.setActiveNovelId(characterId, activeNovelId)
+      
+      // 写入小说与当前绑定人设卡的关联信息
+      const currentProfileId = db.getProfileBinding(characterId) || ''
+      db.setSetting(`novel_binding_profile_id_${activeNovelId}`, currentProfileId)
       
       // 重置起止时间戳
       const firstMsg = db.db.prepare('SELECT timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp ASC LIMIT 1').get(characterId) as { timestamp: number } | undefined
