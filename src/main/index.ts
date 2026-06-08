@@ -8279,13 +8279,21 @@ export function createSystemTray(targetWindow: BrowserWindow) {
   tray = new Tray(trayImage);
   tray.setToolTip('Echo - 回音');
 
+  const showAndFocusWindow = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  };
+
   // 建立极致纯净的原生托盘上下文菜单（非 Mac 平台下的首选）
   const contextMenu = Menu.buildFromTemplate([
     {
       label: '打开 Echo',
       click: () => {
-        targetWindow.show();
-        targetWindow.focus();
+        showAndFocusWindow();
       }
     },
     { type: 'separator' },
@@ -8305,7 +8313,6 @@ export function createSystemTray(targetWindow: BrowserWindow) {
 
   tray.setContextMenu(contextMenu);
   tray.on('click', () => {
-    targetWindow.show();
-    targetWindow.focus();
+    showAndFocusWindow();
   });
 }
