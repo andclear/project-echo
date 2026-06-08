@@ -5916,9 +5916,9 @@
                     @click.stop
                     class="absolute top-full right-0 mt-2 w-48 rounded-2xl border border-outline-variant bg-surface shadow-2xl p-2 flex flex-col space-y-1.5 z-30 animate-in fade-in slide-in-from-top-2 duration-150"
                   >
-                    <!-- 聊天模式切换入口（普通角色专属，群聊不显示） -->
+                    <!-- 聊天模式切换入口（普通角色及群聊均可见） -->
                     <button
-                      v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot' && !isGroupActive"
+                      v-if="isGroupActive || (activeCharacter && activeCharacter.id !== 'character_creator_bot')"
                       @click="showChatModeModal = true; showTopMoreMenu = false"
                       class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-primary hover:bg-primary/10 transition-all select-none w-full text-left"
                     >
@@ -5984,9 +5984,9 @@
 
                 <!-- PC 端：维持原本平铺的一排精美小图标，高容错 -->
                 <template v-else>
-                  <!-- 聊天模式切换按钮：群聊写死为动作描写，不显示 -->
+                  <!-- 聊天模式切换按钮 -->
                   <button
-                    v-if="activeCharacter && activeCharacter.id !== 'character_creator_bot' && !isGroupActive"
+                    v-if="isGroupActive || (activeCharacter && activeCharacter.id !== 'character_creator_bot')"
                     @click="showChatModeModal = true"
                     class="p-1.5 rounded-lg hover:bg-primary/10 text-on-surface-variant hover:text-primary transition-all"
                     title="聊天模式切换"
@@ -8051,7 +8051,7 @@
       @re-summarize="onReSummarize"
     />
     <!-- 角色专属聊天模式切换弹窗 -->
-    <div v-if="showChatModeModal && activeCharacter && !isGroupActive" class="modal-overlay z-[99999]" @click.self="showChatModeModal = false">
+    <div v-if="showChatModeModal && (activeCharacter || isGroupActive)" class="modal-overlay z-[99999]" @click.self="showChatModeModal = false">
       <div class="modal-panel max-w-sm w-full p-6 space-y-5 animate-fade-in shadow-2xl rounded-2xl border border-outline-variant/10 bg-surface/85 backdrop-blur-[30px] select-none text-on-surface">
         <!-- 弹窗标题 -->
         <div class="flex items-center justify-between">
@@ -8060,8 +8060,8 @@
               <MessageSquareHeartIcon class="w-4 h-4" />
             </div>
             <div>
-              <h3 class="text-[13px] font-bold">{{ activeCharacter.name }} 的聊天模式</h3>
-              <p class="text-[9px] text-on-surface-variant/60 mt-0.5">每个角色独立保存，互不影响</p>
+              <h3 class="text-[13px] font-bold">{{ isGroupActive ? activeGroupChat?.name : activeCharacter?.name }} 的聊天模式</h3>
+              <p class="text-[9px] text-on-surface-variant/60 mt-0.5">{{ isGroupActive ? '群组模式独立保存，互不影响' : '每个角色独立保存，互不影响' }}</p>
             </div>
           </div>
           <button @click="showChatModeModal = false" class="p-1.5 rounded-lg hover:bg-surface-high text-on-surface-variant cursor-pointer">
@@ -8113,6 +8113,7 @@
 
           <!-- 导演模式 -->
           <button
+            v-if="!isGroupActive"
             @click="setChatMode('director')"
             class="w-full text-left p-4 rounded-2xl border-2 transition-all focus:outline-none cursor-pointer"
             :class="currentChatMode === 'director' ? 'border-primary bg-primary/5' : 'border-outline-variant/40 hover:border-primary/40 hover:bg-surface-high'"
@@ -10283,6 +10284,19 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     eventSource.addEventListener('novel-continue-done', handleSseEvent)
     eventSource.addEventListener('novel-generation-state-changed', handleSseEvent)
     eventSource.addEventListener('novel-unread-count-changed', handleSseEvent)
+
+    // 🚀 补全缺失的局域网/多端强同步 SSE 事件订阅，打通删除、已读、状态及设置全通路即时同步
+    eventSource.addEventListener('conversation-meta-updated', handleSseEvent)
+    eventSource.addEventListener('message-deleted', handleSseEvent)
+    eventSource.addEventListener('message-content-edited', handleSseEvent)
+    eventSource.addEventListener('chat-window-cleared', handleSseEvent)
+    eventSource.addEventListener('history-memory-cleared', handleSseEvent)
+    eventSource.addEventListener('character-chat-mode-changed', handleSseEvent)
+    eventSource.addEventListener('character-state-updated', handleSseEvent)
+    eventSource.addEventListener('user-profile-updated', handleSseEvent)
+    eventSource.addEventListener('character-settings-updated', handleSseEvent)
+    eventSource.addEventListener('character-file-updated', handleSseEvent)
+    eventSource.addEventListener('custom-emojis-updated', handleSseEvent)
 
     eventSource.onerror = (err) => {
       console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err)
@@ -14187,6 +14201,13 @@ async function loadCharacters() {
               Object.assign(tempMeta[group.id], metaRes.meta)
             }
 
+            // 🚀 预载群聊专属聊天模式并写入缓存，根治重启后重置为“包含描写”的 Bug
+            if (group.chat_mode) {
+              characterChatModeCache[group.id] = group.chat_mode
+            } else {
+              characterChatModeCache[group.id] = 'descriptive'
+            }
+
             // C. 历史消息加载
             const histRes = await window.api.invoke('get-chat-history', { characterId: group.id, limit: 50 })
             if (histRes.success && histRes.history) {
@@ -14219,11 +14240,12 @@ async function loadCharacters() {
 // ===================== 设置当前角色聊天模式 =====================
 // 核心隔离约束：只写当前打开角色的 chat_mode_{charId}，不影响任何其他角色
 async function setChatMode(mode: 'dialogue' | 'descriptive' | 'director') {
-  if (!selectedCharacterId.value || isGroupActive.value) return
+  if (!selectedCharacterId.value) return
+  if (isGroupActive.value && mode === 'director') return // 群聊不允许选择导演模式
   const charId = selectedCharacterId.value
   // 直接写入 characterChatModeCache（reactive），currentChatMode computed 自动响应，UI 即时刷新
   characterChatModeCache[charId] = mode
-  // 2. 持久化到 DB 并通过 SSE 广播（后端保证只写 chat_mode_{charId}）
+  // 2. 持久化到 DB 并通过 SSE 广播
   await window.api.invoke('set-character-chat-mode', { characterId: charId, mode })
   // 3. 关闭弹窗
   showChatModeModal.value = false
@@ -14249,20 +14271,19 @@ async function selectCharacter(charId: string) {
 
   // ===================== 角色专属聊天模式加载（非阻塞 UI，但发消息时会等待） =====================
   const isGroup = groupChats.value.some(g => g.id === charId)
-  if (isGroup) {
-    characterChatModeCache[charId] = 'descriptive' // 群聊固定描写模式
+  pendingChatModeLoad = window.api.invoke('get-character-chat-mode', { characterId: charId }).then((modeRes: any) => {
+    if (modeRes.success && modeRes.mode) {
+      characterChatModeCache[charId] = modeRes.mode
+    } else if (isGroup) {
+      characterChatModeCache[charId] = 'descriptive' // 群聊兜底
+    }
+  }).catch(() => {
+    if (isGroup && !characterChatModeCache[charId]) {
+      characterChatModeCache[charId] = 'descriptive'
+    }
+  }).finally(() => {
     pendingChatModeLoad = null
-  } else {
-    // 将 Promise 保存到模块变量，sendChatMessage 发消息前会 await 它
-    // loadCharacters 启动时已全量预加载，此处作为切换角色时的二次确认刷新
-    pendingChatModeLoad = window.api.invoke('get-character-chat-mode', { characterId: charId }).then((modeRes: any) => {
-      if (modeRes.success && modeRes.mode) {
-        characterChatModeCache[charId] = modeRes.mode
-      }
-    }).catch(() => { /* 保持 loadCharacters 预加载的值 */ }).finally(() => {
-      pendingChatModeLoad = null
-    })
-  }
+  })
 
 
 
@@ -15293,12 +15314,16 @@ async function handleAssistantResponse(
   promptTokens?: number,
   completionTokens?: number,
   cachedTokens?: number,
-  messageId?: string
+  messageId?: string,
+  senderId?: string // 🚀 新增可选参数：指示真正的发言人角色 ID（用于群聊）
 ) {
+  const sessionId = char.id
+  const actualSenderId = senderId || char.id
+
   // 极致物理防重锁：物理清洗掉一切可能因中英文标点、特殊标记、空格或换行等差异引起的误伤，取正文前 30 字紧凑串作为唯一比对锁
   const cleanLockStr = content.replace(/\s+/g, '').replace(/[\[\]\(\)\s［］（）:：,，\/]/g, '').slice(0, 30)
   if (cleanLockStr) {
-    const lockKey = char.id + '_' + cleanLockStr
+    const lockKey = sessionId + '_' + cleanLockStr
     if (activeTypingLocks.has(lockKey)) {
       console.warn('[Sync Gate] 拦截到并发打字弹射冲突，此内容正在播放中，静默丢弃：', cleanLockStr)
       return
@@ -15306,19 +15331,19 @@ async function handleAssistantResponse(
     activeTypingLocks.add(lockKey)
   }
 
-  const sessionKey = char.id + '_' + content.slice(0, 15)
+  const sessionKey = sessionId + '_' + content.slice(0, 15)
   activeTypingSessions.add(sessionKey)
-  // 获取该角色自身的聊天模式：优先读缓存（启动时已全量预加载），缓存未命中时直接查 DB 并回写缓存
+  // 获取该会话自身的聊天模式：优先读缓存（启动时已全量预加载），缓存未命中时直接查 DB 并回写缓存
   // 完全不依赖全局 chatMode.value，确保非当前选中角色的消息不会被错误分段
-  let charChatMode = characterChatModeCache[char.id]
+  let charChatMode = characterChatModeCache[sessionId]
   if (!charChatMode) {
     try {
-      const modeRes = await window.api.invoke('get-character-chat-mode', { characterId: char.id })
+      const modeRes = await window.api.invoke('get-character-chat-mode', { characterId: sessionId })
       charChatMode = (modeRes.success && modeRes.mode) ? modeRes.mode : 'descriptive'
     } catch {
       charChatMode = 'descriptive'
     }
-    characterChatModeCache[char.id] = charChatMode
+    characterChatModeCache[sessionId] = charChatMode
   }
   // 在 dialogue 模式下，记录当前正在弹射的内容，供 receive-message 精确去重
   if (charChatMode === 'dialogue') {
@@ -15329,8 +15354,8 @@ async function handleAssistantResponse(
     // 未读数由 MessageBusService → echo:unread-update 权威驱动，此处不再手动自增
 
     // A. 处理红包决策状态更新与返款
-    if (redPacketAction && char.id === selectedCharacterId.value) {
-      const msgs = allMessages[char.id] || []
+    if (redPacketAction) {
+      const msgs = allMessages[sessionId] || []
       const isReceive = redPacketAction === 'receive'
       const isReturn = redPacketAction === 'return'
       
@@ -15352,12 +15377,13 @@ async function handleAssistantResponse(
           
           // 物理保存红包的最新状态到 SQLite
           if (msg.id) {
-            const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify({
-              amount: msg.redPacket.amount,
-              title: msg.redPacket.title,
+            const updatedPayload = {
+              ...msg.redPacket,
               status: msg.redPacket.status
-            })}`
+            }
+            const updatedDbMessage = `[wechat_red_packet]:${JSON.stringify(updatedPayload)}`
             window.api.invoke('update-message-content', {
+              characterId: sessionId,
               messageId: msg.id,
               content: updatedDbMessage
             })
@@ -15367,8 +15393,8 @@ async function handleAssistantResponse(
       }
     }
 
-    // B. 根据该角色的聚天模式分发渲染（使用 charChatMode 而非全局 chatMode.value，防止非当前角色的消息被错误分段）
-    const msgs = allMessages[char.id] || []
+    // B. 根据该角色的聊天模式分发渲染（使用 charChatMode 而非全局 chatMode.value，防止非当前角色的消息被错误分段）
+    const msgs = allMessages[sessionId] || []
     
     if (charChatMode === 'descriptive' || charChatMode === 'director') {
       // B.1 包含描写模式/导演模式：直接向会话追加或更新助理回复气泡，瞬间呈现
@@ -15382,26 +15408,28 @@ async function handleAssistantResponse(
         if (promptTokens !== undefined) lastMsg.prompt_tokens = promptTokens
         if (completionTokens !== undefined) lastMsg.completion_tokens = completionTokens
         if (cachedTokens !== undefined) lastMsg.cached_tokens = cachedTokens
-        streamingCharsSet.delete(char.id)
+        streamingCharsSet.delete(sessionId)
         nextTick(() => scrollToBottom('smooth', true))
       } else {
         // 🚀 核心自愈去重：检查本地 msgs 中是否由于 receive-message 提前到达而已经存在了相同 id 或高度相同内容的消息！
         const isAlreadyExist = msgs.some(m => m.id === messageId || (m.role === 'assistant' && m.content === content))
         if (isAlreadyExist) {
           console.log(`[Sync Gate] 瞬间呈现模式：本地已被 receive-message 提前写入，不再重复 push`)
-          streamingCharsSet.delete(char.id)
+          streamingCharsSet.delete(sessionId)
           nextTick(() => scrollToBottom())
         } else {
           msgs.push({
             role: 'assistant',
             content: content,
             id: messageId, // 🚀 瞬间呈现直接绑定真实物理 ID
+            sender_id: actualSenderId, // 🚀 补全发送人 ID
+            character_id: sessionId,   // 🚀 补全会话 ID
             created_at: new Date().toISOString(),
             prompt_tokens: promptTokens,
             completion_tokens: completionTokens,
             cached_tokens: cachedTokens
           })
-          streamingCharsSet.delete(char.id)
+          streamingCharsSet.delete(sessionId)
           nextTick(() => {
             scrollToBottom('smooth', true)
             setTimeout(() => scrollToBottom('smooth', true), 80)
@@ -15410,6 +15438,48 @@ async function handleAssistantResponse(
       }
     } else {
       // B.2 纯对话模式：采用高维微信级智能分句重组算法，进行有节奏的逐句打字弹射播放
+      
+      const isSpecialMsg = content && (
+        content.startsWith('[character_diary]:') ||
+        content.startsWith('[wechat_red_packet]:') ||
+        content.startsWith('[wechat_custom_emoji]:') ||
+        content.startsWith('[wechat_image_media]:')
+      )
+
+      if (isSpecialMsg) {
+        // 🚀 特殊卡片消息（红包/表情包/图片/日记等）在仅对话模式下的串行排队弹射
+        streamingCharsSet.add(sessionId)
+        
+        // 拟真网络传输缓冲小延迟
+        await new Promise(resolve => setTimeout(resolve, 800))
+        
+        const currentMsgs = allMessages[sessionId] || []
+        let insertAt = currentMsgs.length
+        const safeInsertAt = Math.min(insertAt, currentMsgs.length)
+        
+        const rawMsg = {
+          role: 'assistant',
+          content: content,
+          id: messageId || 'msg_special_' + Math.random().toString(36).substr(2, 9),
+          sender_id: actualSenderId,
+          character_id: sessionId,
+          created_at: new Date().toISOString(),
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          cached_tokens: cachedTokens
+        }
+        
+        // 使用 restoreMessageProps 补全解析后的渲染字段（如红包对象等）
+        const restored = restoreMessageProps(rawMsg)
+        currentMsgs.splice(safeInsertAt, 0, restored)
+        
+        streamingCharsSet.delete(sessionId)
+        nextTick(() => {
+          scrollToBottom('smooth', true)
+        })
+        return
+      }
+
       const paragraphs: string[] = []
       const lines = content.split('\n').map(l => l.trim()).filter(Boolean)
       
@@ -15444,37 +15514,35 @@ async function handleAssistantResponse(
       }
 
       if (paragraphs.length === 0) {
-        streamingCharsSet.delete(char.id)
+        streamingCharsSet.delete(sessionId)
         return
       }
 
       // 开启串行异步微信分段打字发送模拟
       // 🔒 修复气泡顺序 Bug：在弹射开始前锁定插入位置（当前消息数组末尾）。
-      // 后续每段气泡用 splice 定点插入，而非 push 到末尾——
-      // 因为每次 await 期间用户可能发送新消息，新 user 气泡被追加到末尾，
-      // 若继续 push 则 AI 分句会错排在新用户消息之后，造成顺序混乱。
-      let insertAt = allMessages[char.id].length
+      let insertAt = allMessages[sessionId].length
 
       for (let idx = 0; idx < paragraphs.length; idx++) {
         const text = paragraphs[idx]
 
         // 在顶部标题栏显示"对方正在输入..."
-        streamingCharsSet.add(char.id)
+        streamingCharsSet.add(sessionId)
 
         // 根据每句话 of 字数拟真思考打字的时长
         const typeDelay = Math.min(Math.max(text.length * 100, 1000), 2800)
         await new Promise(resolve => setTimeout(resolve, typeDelay))
 
         // 延迟结束，该句段瞬间作为独立的微信助理气泡弹射展示出来！
-        // 使用 splice 定点插入而非 push，确保分句始终在正确位置（紧跟上一句之后）
         const isLast = (idx === paragraphs.length - 1)
-        const currentMsgs = allMessages[char.id]
+        const currentMsgs = allMessages[sessionId]
         // 安全边界：insertAt 不能超过数组当前长度
         const safeInsertAt = Math.min(insertAt, currentMsgs.length)
         currentMsgs.splice(safeInsertAt, 0, {
           role: 'assistant',
           content: text,
           id: isLast && messageId ? messageId : 'msg_part_' + Math.random().toString(36).substr(2, 9), // 🚀 最后一句绑定真实物理 ID，前几段用临时唯一 ID！
+          sender_id: actualSenderId, // 🚀 补全发送人 ID
+          character_id: sessionId,   // 🚀 补全会话 ID
           created_at: new Date().toISOString(),
           prompt_tokens: isLast ? promptTokens : undefined,
           completion_tokens: isLast ? completionTokens : undefined,
@@ -15485,12 +15553,12 @@ async function handleAssistantResponse(
 
         // 如果有下一句，微等 500ms 作为大脑思考打字间隔空隙，随后再次进入"对方正在输入"状态
         if (idx < paragraphs.length - 1) {
-          streamingCharsSet.delete(char.id)
+          streamingCharsSet.delete(sessionId)
           await new Promise(resolve => setTimeout(resolve, 500))
         }
       }
 
-      streamingCharsSet.delete(char.id)
+      streamingCharsSet.delete(sessionId)
       nextTick(() => {
         scrollToBottom('smooth', true)
         setTimeout(() => scrollToBottom('smooth', true), 80)
@@ -18508,6 +18576,19 @@ onMounted(async () => {
       const target = msgs.find(m => m.id === data.messageId)
       if (target) {
         target.content = data.content
+        // 🚀 重新解析状态，更新红包、表情包等附加渲染属性，保障界面响应式更新！
+        if (data.content.startsWith('[wechat_red_packet]:')) {
+          try {
+            const jsonStr = data.content.replace('[wechat_red_packet]:', '')
+            target.redPacket = JSON.parse(jsonStr)
+          } catch (_) {}
+        } else if (data.content.startsWith('[wechat_custom_emoji]:')) {
+          try {
+            const jsonStr = data.content.replace('[wechat_custom_emoji]:', '')
+            const emoji = JSON.parse(jsonStr)
+            target.customEmojiUrl = emoji.base64
+          } catch (_) {}
+        }
       }
     }
   })
@@ -19109,18 +19190,21 @@ onMounted(async () => {
         characterChatModeCache[charId] = msgCharMode
       }
       
-      if (msgCharMode === 'dialogue' && msg.role === 'assistant' && !isSpecialMsg) {
-        // 🚀 纯文字对话模式下，收到主动回复或搭讪消息（非时序重复）时，严禁直接扁平化瞬间 push 出来！
-        // 而是物理调用微信级仿真播放器 handleAssistantResponse 进行逐句延迟打字弹射播放，保障视觉与逻辑完全统一！
-        const char = characterList.value.find(c => c.id === charId)
+      if (msgCharMode === 'dialogue' && msg.role === 'assistant') {
+        // 🚀 仅对话模式下，收到 AI 回复（无论是否是红包、表情包等特殊卡片，为防插队乱序）均通过播放器进行排队！
+        const isGroup = groupChats.value.some(g => g.id === charId)
+        const char = isGroup
+          ? groupChats.value.find(g => g.id === charId)
+          : characterList.value.find(c => c.id === charId)
         if (char) {
-          // Web 端和 Electron 端现在路径完全一致：通过 playbackChain 串行化播放
+          // Web 端 and Electron 端现在路径完全一致：通过 playbackChain 串行化播放
           // Electron 端的 chat-stream 路径已改为 500ms 保底检查，主渲染路径统一走此处
           const msgId = msg.id
           pendingPlaybackMessageIds.add(msgId)
           // 使用该角色独立的播放链，不同角色互不阻塞
           const nextStep = getPlaybackChain(charId).then(async () => {
             try {
+              const senderId = msg.sender_id || (isGroup ? '' : charId)
               await handleAssistantResponse(
                 char,
                 msg.content,
@@ -19128,7 +19212,8 @@ onMounted(async () => {
                 msg.prompt_tokens,
                 msg.completion_tokens,
                 msg.cached_tokens,
-                msg.id
+                msg.id,
+                senderId
               )
             } catch (err) {
               console.error(`[playbackChain] handleAssistantResponse 异常 (charId=${charId}):`, err)

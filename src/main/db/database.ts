@@ -236,6 +236,7 @@ export class DatabaseService {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         avatar TEXT,
+        chat_mode TEXT DEFAULT 'descriptive',
         created_at INTEGER NOT NULL
       );
     `)
@@ -412,6 +413,17 @@ export class DatabaseService {
               db.prepare("INSERT INTO Settings (key, value) VALUES ('telemetry_reported', '0')").run()
             }
           } catch (_) {}
+        }
+      },
+      {
+        version: 8,
+        up: (db: Database.Database) => {
+          // 🚀 物理迁移：为 GroupChats 表新增 chat_mode 字段，默认 'descriptive'
+          const pragma = db.pragma("table_info(GroupChats)") as any[]
+          const hasCol = pragma.some((c: any) => c.name === 'chat_mode')
+          if (!hasCol) {
+            db.exec("ALTER TABLE GroupChats ADD COLUMN chat_mode TEXT DEFAULT 'descriptive';")
+          }
         }
       }
     ]
@@ -1106,6 +1118,29 @@ export class DatabaseService {
   public getGroupChat(id: string): any {
     const stmt = this.db.prepare('SELECT * FROM GroupChats WHERE id = ?')
     return stmt.get(id)
+  }
+
+  /**
+   * 获取群聊专属聊天模式
+   */
+  public getGroupChatMode(id: string): string | null {
+    try {
+      const stmt = this.db.prepare('SELECT chat_mode FROM GroupChats WHERE id = ?')
+      const row = stmt.get(id) as { chat_mode: string } | undefined
+      return row ? row.chat_mode : null
+    } catch (_) {
+      return null
+    }
+  }
+
+  /**
+   * 更新群聊专属聊天模式
+   */
+  public setGroupChatMode(id: string, mode: string): void {
+    try {
+      const stmt = this.db.prepare('UPDATE GroupChats SET chat_mode = ? WHERE id = ?')
+      stmt.run(mode, id)
+    } catch (_) { }
   }
 
   /**

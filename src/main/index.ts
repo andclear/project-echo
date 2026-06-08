@@ -309,7 +309,13 @@ function cleanMarkdownBlock(text: string): string {
  * - AI 绘图生成的图片消息（role = 'assistant'）：返回空字符串，调用方应将该消息整体过滤掉。
  * - 用户发送的图片消息（role = 'user'）：返回全角括号叙事描述，避免 LLM 将方括号标记误当作可输出文本。
  */
-function formatMessageContentForLLM(content: string, role?: string): string {
+function formatMessageContentForLLM(
+  content: string, 
+  role?: string,
+  isGroup?: boolean,
+  currentSpeakerName?: string,
+  senderName?: string
+): string {
   if (!content) return ''
   if (content.startsWith('[wechat_custom_emoji]:')) {
     try {
@@ -325,9 +331,37 @@ function formatMessageContentForLLM(content: string, role?: string): string {
       const jsonStr = content.substring('[wechat_red_packet]:'.length)
       const rp = JSON.parse(jsonStr)
       const statusDesc = rp.status === 'received' ? '（已领取）' : rp.status === 'returned' ? '（已退回）' : '（待处理）'
-      // 明确方向：用户发的还是角色发的，避免模型混淆红包归属
-      const directionDesc = role === 'user' ? '用户给你发送了' : '你给用户发送了'
-      return `[${directionDesc}一个微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}]`
+      
+      if (isGroup) {
+        // 群聊场景下的红包认知隔离
+        if (role !== 'user') {
+          // AI 成员发出的红包
+          const giverName = senderName || '某个角色'
+          if (giverName === currentSpeakerName) {
+            return `[你给用户发送了一个微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}]`
+          } else {
+            return `[${giverName}给用户发送了一个微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}。作为旁观者，该红包与你完全无关，你绝对禁止去领取它，也不要在对话中提及它。]`
+          }
+        } else {
+          // 用户发出的红包
+          const isExclusive = !!rp.targetId
+          if (isExclusive) {
+            // 专属红包
+            if (rp.targetName === currentSpeakerName) {
+              return `[用户给你发送了专属微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}]`
+            } else {
+              return `[用户给 ${rp.targetName} 发送了专属微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}。这是别人的专属红包，你绝不能领取，绝对不能在你的发言中误谢这个红包！]`
+            }
+          } else {
+            // 普通群红包
+            return `[用户发送了群红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}]`
+          }
+        }
+      } else {
+        // 单聊场景下的红包，保持原逻辑
+        const directionDesc = role === 'user' ? '用户给你发送了' : '你给用户发送了'
+        return `[${directionDesc}一个微信红包: ${rp.amount}元 (附言: ${rp.title}) ${statusDesc}]`
+      }
     } catch (_) {
       return '[微信红包]'
     }
@@ -1225,7 +1259,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle('get-character-chat-mode', async (_, payload: { characterId: string }) => {
     try {
       const db = getDatabaseService()
-      const mode = db.getSetting(`chat_mode_${payload.characterId}`) || 'dialogue'
+      const isGroup = !!db.getGroupChat(payload.characterId)
+      let mode: string
+      if (isGroup) {
+        mode = db.getGroupChatMode(payload.characterId) || 'descriptive'
+      } else {
+        mode = db.getSetting(`chat_mode_${payload.characterId}`) || 'dialogue'
+      }
       return { success: true, mode }
     } catch (error: any) {
       return { success: false, error: error.message || error }
@@ -1236,7 +1276,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle('set-character-chat-mode', async (_, payload: { characterId: string; mode: string }) => {
     try {
       const db = getDatabaseService()
-      db.setSetting(`chat_mode_${payload.characterId}`, payload.mode)
+      const isGroup = !!db.getGroupChat(payload.characterId)
+      if (isGroup) {
+        db.setGroupChatMode(payload.characterId, payload.mode)
+      } else {
+        db.setSetting(`chat_mode_${payload.characterId}`, payload.mode)
+      }
       // 通过 SseManager.broadcast 广播给所有 SSE 客户端
       SseManager.getInstance().broadcast('character-chat-mode-changed', { characterId: payload.characterId, mode: payload.mode })
       return { success: true }
@@ -3066,6 +3111,9 @@ ${soulContent}
             })
           )
 
+          const chatMode = (db.getGroupChatMode(groupId) || payload.chatMode || 'descriptive') as 'descriptive' | 'dialogue'
+          const isDialogue = chatMode === 'dialogue'
+
           const systemPrompt = ContextAssembler.assembleGroupChat(
             groupMeta.name,
             groupMemoryPath,
@@ -3073,14 +3121,13 @@ ${soulContent}
             globalUserPath,
             allMemberNames,
             globalPrompt,
-            memberProfiles
+            memberProfiles,
+            chatMode
           )
 
-          const groupSystemPromptFinal = systemPrompt + buildEmojiSystemPromptSuffix('descriptive')
+          const groupSystemPromptFinal = systemPrompt + buildEmojiSystemPromptSuffix(chatMode)
 
           // B. 拉取历史消息并格式化为剧本 RP 形式的大文本控制台（自适应群聊多气泡膨胀）
-          const chatMode = payload.chatMode || 'descriptive'
-          const isDialogue = chatMode === 'dialogue'
           const limit = isDialogue ? 200 : 60
           const rawHistory = db.getChatHistory(groupId, limit)
           const history = mergeChatHistory(rawHistory)
@@ -3094,19 +3141,31 @@ ${soulContent}
                 const matched = aiMembers.find((member: any) => member.id === m.sender_id)
                 senderName = matched ? matched.name : 'Character'
               }
-              return `[${senderName}]: ${formatMessageContentForLLM(m.content, m.sender_id === 'user' ? 'user' : 'assistant')}`
+              return `[${senderName}]: ${formatMessageContentForLLM(
+                m.content, 
+                m.sender_id === 'user' ? 'user' : 'assistant',
+                true,
+                currentSpeaker.name,
+                senderName
+              )}`
             }).join('\n')
 
-          const eligibleMembers = aiMembers.filter(m => m.id !== currentSpeakerId)
-
-          const userPromptText = `【群聊面板历史记录】
-${formattedHistory}
-
----
-[系统行动干涉]：现在轮到你（即 ${currentSpeaker.name}） in 发言了。
-请你严格坚守你的核心人设立心和说话习惯，在【包含描写】模式下，编写一段富有张力、带生动内心心理及肢体动作描写的群聊消息。
-注意：在这个世界里，你正与用户 ${realUserName} 以及 其他 成员 ${eligibleMembers.map(m => m.name).join('、')} 一起相处。如果你本轮认为非常有必要与某位成员互动（无论是反驳还是赞同），请在内容中直接 @ 他，但绝对不能凭空捏造不存在的人！
-如果决定发送回音红包，请只在回复的最开头输出控制符：\`[SEND_RED_PACKET: 金额, 附言]\`（扣减你各自的钱包余额，附言限15字以内），正文中绝对不能提到“我发了钱/塞红包”等。`
+           const eligibleMembers = aiMembers.filter(m => m.id !== currentSpeakerId)
+ 
+           const userPromptText = `【群聊面板历史记录】
+ ${formattedHistory}
+ 
+ ---
+ [系统行动干涉]：现在轮到你（即 ${currentSpeaker.name}）发言了。
+ ${isDialogue
+               ? `请你严格坚守你的核心人设立心和说话习惯，在【仅对话】模式下，编写一段极其简洁、碎片口语化的纯对话群聊消息，单次回复长度必须极其严格限制在 5 到 30 字以内，绝对禁止包含任何内心心理、肢体动作或环境描写，严禁使用中英文括号或星号包裹动作。`
+               : `请你严格坚守你的核心人设立心和说话习惯，在【包含描写】模式下，编写一段富有张力、带生动内心心理及肢体动作描写的群聊消息。`}
+ 注意：在这个世界里，你正与用户 ${realUserName} 以及 其他 成员 ${eligibleMembers.map(m => m.name).join('、')} 一起相处。如果你本轮认为非常有必要与某位成员互动（无论是反驳还是赞同），请在内容中直接 @ 他，但绝对不能凭空捏造不存在的人！
+ 
+ 【⚠️ 红包发送极其严苛的物理限制条件】：
+ 1. 你【极少数情况下】才可以主动给用户发送红包——仅限于极其特殊的场合（如重大节日祝福、用户非常需要被安慰的时刻、或极度深厚的情感回礼）。正常日常闲聊中【绝对禁止发红包】！绝对禁止动不动就发红包！
+ 2. 如果满足上述极少数的特殊条件决定发送红包，你【必须且只能】在回复的最开头输出控制符：\`[SEND_RED_PACKET: 金额, 附言]\`（扣减各自的钱包余额，附言限15字以内），正文中绝对不能提到发了红包或给钱。
+ 3. 你的红包【只能且必须发送给用户】，绝对禁止给群里其他 AI 成员发红包！同时也绝对禁止感谢或回应非自己所属的专属红包（别人发给用户的红包或用户给别人的专属红包，与你完全无关，请直接无视，绝不能领用或感谢）！`
 
           const chatMessages: ChatMessage[] = [
             { role: 'system', content: groupSystemPromptFinal },
@@ -3130,15 +3189,18 @@ ${formattedHistory}
             */
           }
 
-          // C. 清洗大模型回复（启用全局 stripThinkingTags）
+          // C. 提取与清洗控制符
           let finalResponse = stripThinkingTags(accumulatedResponse)
+
+          // 升级为最外层中括号可选的超强兼容正则
+          const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]?\s*`?/i
+          const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]?\s*`?/gi
+          const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/i
+          const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/gi
 
           // D. [回音红包动作决策] (扣减各自 State.md 的钱包余额)
           let redPacketSend: { amount: number; title: string; status: string } | null = null
-          const sendReg = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/i
-          const sendRegGlobal = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/gi
           const sendMatch = finalResponse.match(sendReg)
-
           let hasSentRedPacket = false
 
           if (sendMatch) {
@@ -3169,11 +3231,9 @@ ${formattedHistory}
             }
           }
 
-          // 群聊红包仅通过 AI 主动输出 [SEND_RED_PACKET:] 控制符触发，Auto-heal 自愈逻辑已移除
-
           // B. 判定是否为领取/退回用户群红包
           let redPacketAction: 'receive' | 'return' | null = null
-          if (finalResponse.includes('[RECEIVE_RED_PACKET]')) {
+          if (finalResponse.includes('RECEIVE_RED_PACKET')) {
             redPacketAction = 'receive'
             // 物理加钱给角色钱包
             try {
@@ -3192,6 +3252,21 @@ ${formattedHistory}
                       const charStatePath = join(speakerDir, 'State.md')
                       StateReaderWriter.applyStateUpdates(charStatePath, [{ key: 'balance', delta: receivedAmount }])
                       console.log(`[Group Economy] 角色 ${currentSpeaker.name} 领受用户红包，财富 +${receivedAmount} 元`)
+                      
+                      // 🚀 核心状态物理保存与更新 SQLite
+                      rp.status = 'received'
+                      const updatedContent = `[wechat_red_packet]:${JSON.stringify(rp)}`
+                      db.db.prepare("UPDATE Messages SET content = ? WHERE id = ?").run(updatedContent, lastRedMsg.id)
+                      
+                      // 广播给其他客户端与多端同步该消息的修改，保障红包卡片实时刷新
+                      const MessageBusService = (global as any).MessageBusService
+                      if (MessageBusService) {
+                        MessageBusService.publish('message-content-edited', {
+                          characterId: groupId,
+                          messageId: lastRedMsg.id,
+                          content: updatedContent
+                        })
+                      }
                     }
                   }
                 }
@@ -3199,14 +3274,42 @@ ${formattedHistory}
             } catch (err) {
               console.error('[Group Economy] 角色收群红包加款异常:', err)
             }
-          } else if (finalResponse.includes('[RETURN_RED_PACKET]')) {
+          } else if (finalResponse.includes('RETURN_RED_PACKET')) {
             redPacketAction = 'return'
+            try {
+              const lastRedMsg = db.db.prepare(
+                "SELECT * FROM Messages WHERE character_id = ? AND role = 'user' AND content LIKE '[wechat_red_packet]:%' ORDER BY timestamp DESC LIMIT 1"
+              ).get(groupId) as any
+              if (lastRedMsg) {
+                const jsonStr = lastRedMsg.content.replace('[wechat_red_packet]:', '')
+                const rp = JSON.parse(jsonStr)
+                if (!rp.status || rp.status === 'waiting') {
+                  const isExclusive = !!rp.targetId
+                  const isMatch = !isExclusive || rp.targetId === currentSpeakerId
+                  if (isMatch) {
+                    rp.status = 'returned'
+                    const updatedContent = `[wechat_red_packet]:${JSON.stringify(rp)}`
+                    db.db.prepare("UPDATE Messages SET content = ? WHERE id = ?").run(updatedContent, lastRedMsg.id)
+                    
+                    // 广播消息修改事件
+                    const MessageBusService = (global as any).MessageBusService
+                    if (MessageBusService) {
+                      MessageBusService.publish('message-content-edited', {
+                        characterId: groupId,
+                        messageId: lastRedMsg.id,
+                        content: updatedContent
+                      })
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('[Group Economy] 角色拒收群红包状态更新异常:', err)
+            }
           }
 
           // I. [自定义表情包动作决策]
           let customEmojiSend: any = null
-          const emojiReg = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/i
-          const emojiRegGlobal = /`?\s*\[SEND_CUSTOM_EMOJI[:：]\s*([\s\S]+?)\]\s*`?/gi
           const emojiMatch = finalResponse.match(emojiReg)
 
           if (emojiMatch) {
@@ -3236,9 +3339,25 @@ ${formattedHistory}
           finalResponse = finalResponse
             .replace(sendRegGlobal, '')
             .replace(emojiRegGlobal, '')
-            .replace(/\[RECEIVE_RED_PACKET\]/g, '')
-            .replace(/\[RETURN_RED_PACKET\]/g, '')
+            .replace(/`?\s*\[?RECEIVE_RED_PACKET\]?\s*`?/gi, '')
+            .replace(/`?\s*\[?RETURN_RED_PACKET\]?\s*`?/gi, '')
             .trim()
+
+          // 降维干涉：若匹配到红包，再次物理擦除，防止正则残留
+          if (sendMatch && sendMatch[0]) {
+            finalResponse = finalResponse.replace(sendMatch[0], '')
+          }
+
+          // 最后再在 text-only/dialogue 模式下执行动作清洗
+          if (isDialogue) {
+            finalResponse = finalResponse.split('\n').map(line => {
+              const trimmed = line.trim()
+              if (trimmed.startsWith('[Observation]') || trimmed.startsWith('[系统动作') || trimmed.startsWith('[ACTION')) {
+                return line
+              }
+              return ContextAssembler.cleanDialogueActions(line)
+            }).filter(line => line.trim().length > 0).join('\n')
+          }
 
           // E. 通过 MessageBusService 存盘并推送 AI 回复（群聊多成员序列化推送）
           let groupSeq = 1  // 用户消息占 seq=0
@@ -3246,19 +3365,70 @@ ${formattedHistory}
           const groupAssistantMsgId = crypto.randomUUID()
 
           if (finalResponse.trim().length > 0) {
-            groupMsgBatch.push({
-              id: groupAssistantMsgId,
-              round_id: groupRoundId,
-              seq: groupSeq++,
-              character_id: groupId,
-              role: 'assistant',
-              msg_type: 'text',
-              content: finalResponse,
-              timestamp: Date.now(),
-              token_usage: 0,
-              sender_id: currentSpeakerId,
-              redPacketAction: redPacketAction
-            })
+            if (isDialogue) {
+              const paragraphs: string[] = []
+              const lines = finalResponse.split('\n').map(l => l.trim()).filter(Boolean)
+
+              for (const line of lines) {
+                if (line.length <= 25) {
+                  paragraphs.push(line)
+                  continue
+                }
+
+                // 基于标准句尾标点进行高精度二次拆分
+                const sentences = line.split(/(?<=[。；！？!?])\s*/)
+                  .map(s => s.trim())
+                  .filter(Boolean)
+
+                let currentTemp = ''
+                for (const s of sentences) {
+                  if (currentTemp.length === 0) {
+                    currentTemp = s
+                  } else {
+                    if (currentTemp.length + s.length <= 15 || s.length < 4) {
+                      currentTemp += s
+                    } else {
+                      paragraphs.push(currentTemp)
+                      currentTemp = s
+                    }
+                  }
+                }
+                if (currentTemp) {
+                  paragraphs.push(currentTemp)
+                }
+              }
+
+              paragraphs.forEach((p, idx) => {
+                const isLastText = (idx === paragraphs.length - 1)
+                groupMsgBatch.push({
+                  id: isLastText ? groupAssistantMsgId : crypto.randomUUID(),
+                  round_id: groupRoundId,
+                  seq: groupSeq++,
+                  character_id: groupId,
+                  role: 'assistant',
+                  msg_type: 'text',
+                  content: p,
+                  timestamp: Date.now() + idx * 100,
+                  token_usage: 0,
+                  sender_id: currentSpeakerId,
+                  redPacketAction: isLastText ? redPacketAction : undefined
+                })
+              })
+            } else {
+              groupMsgBatch.push({
+                id: groupAssistantMsgId,
+                round_id: groupRoundId,
+                seq: groupSeq++,
+                character_id: groupId,
+                role: 'assistant',
+                msg_type: 'text',
+                content: finalResponse,
+                timestamp: Date.now(),
+                token_usage: 0,
+                sender_id: currentSpeakerId,
+                redPacketAction: redPacketAction
+              })
+            }
           }
 
           if (redPacketSend) {
@@ -4280,9 +4450,12 @@ ${memoryContent}
     let redPacketSend: { amount: number; title: string; status: string } | null = null
 
     // A. 判定是否为角色主动发红包
-    // 🚀 升级为超强容错正则，支持反单引号包裹、中文全角冒号/逗号、忽略大小写
-    const sendReg = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/i
-    const sendRegGlobal = /`?\s*[\[［]SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]\s*`?/gi
+    // 🚀 升级为最外层中括号可选的超强兼容正则
+    const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]?\s*`?/i
+    const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]?\s*`?/gi
+    const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/i
+    const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/gi
+
     const sendMatch = accumulatedResponse.match(sendReg)
     if (sendMatch) {
       const amount = parseFloat(sendMatch[1])
@@ -4311,7 +4484,7 @@ ${memoryContent}
     // 单聊红包仅通过 AI 主动输出 [SEND_RED_PACKET:] 控制符触发，Auto-heal 自愈逻辑已移除
 
     // B. 判定是否为领取/退回用户红包
-    if (accumulatedResponse.includes('[RECEIVE_RED_PACKET]')) {
+    if (accumulatedResponse.includes('RECEIVE_RED_PACKET')) {
       redPacketAction = 'receive'
       // 物理加钱给角色钱包
       try {
@@ -4325,25 +4498,62 @@ ${memoryContent}
             if (!isNaN(receivedAmount) && receivedAmount > 0) {
               StateReaderWriter.applyStateUpdates(statePath, [{ key: 'balance', delta: receivedAmount }])
               console.log(`[Economy] 角色 ${characterId} 领受用户红包，财富 +${receivedAmount} 元`)
+
+              // 🚀 核心状态物理保存与更新 SQLite
+              rp.status = 'received'
+              const updatedContent = `[wechat_red_packet]:${JSON.stringify(rp)}`
+              db.db.prepare("UPDATE Messages SET content = ? WHERE id = ?").run(updatedContent, lastRedMsg.id)
+
+              // 广播给其他客户端与多端同步该消息的修改，保障红包卡片实时刷新
+              const MessageBusService = (global as any).MessageBusService
+              if (MessageBusService) {
+                MessageBusService.publish('message-content-edited', {
+                  characterId,
+                  messageId: lastRedMsg.id,
+                  content: updatedContent
+                })
+              }
             }
           }
         }
       } catch (err) {
         console.error('[Economy] 角色收红包加款异常:', err)
       }
-    } else if (accumulatedResponse.includes('[RETURN_RED_PACKET]')) {
+    } else if (accumulatedResponse.includes('RETURN_RED_PACKET')) {
       redPacketAction = 'return'
+      try {
+        const lastRedMsg = db.getChatHistory(characterId, 50).filter((m: any) => m.role === 'user' && m.content.startsWith('[wechat_red_packet]:')).pop()
+        if (lastRedMsg) {
+          const jsonStr = lastRedMsg.content.replace('[wechat_red_packet]:', '')
+          const rp = JSON.parse(jsonStr)
+          if (!rp.status || rp.status === 'waiting') {
+            rp.status = 'returned'
+            const updatedContent = `[wechat_red_packet]:${JSON.stringify(rp)}`
+            db.db.prepare("UPDATE Messages SET content = ? WHERE id = ?").run(updatedContent, lastRedMsg.id)
+
+            // 广播消息修改事件，保障退回状态强同步
+            const MessageBusService = (global as any).MessageBusService
+            if (MessageBusService) {
+              MessageBusService.publish('message-content-edited', {
+                characterId,
+                messageId: lastRedMsg.id,
+                content: updatedContent
+              })
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Economy] 角色拒收红包状态更新异常:', err)
+      }
     }
 
     // 对 AI 回复进行系统控制符代码全局擦除，原汁原味地保留 AI 输出的所有对话描述与转账口语台词，杜绝暴力屏蔽带来的残损体验
     const halfBracketReg = /[（(][^）)]*$/g // 🚀 针对流式生成中断导致的未闭合半截括号动作（如：“(红”）进行优雅自愈擦除
 
-    // 用全局工具函数对 AI 回复进行思维链标签的物理擦除
+    // 用全局工具函数对 AI 回复进行思维链标签 of 物理擦除
     let finalResponse = stripThinkingTags(accumulatedResponse)
     // A3. [自定义表情包动作决策] (仅在非导演模式下触发)
     let customEmojiSend: any = null
-    const emojiReg = /`?\s*\[(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]\s*`?/i
-    const emojiRegGlobal = /`?\s*\[(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]\s*`?/gi
     const emojiMatch = chatMode !== 'director' ? finalResponse.match(emojiReg) : null
 
     if (emojiMatch) {
@@ -4381,8 +4591,8 @@ ${memoryContent}
     }
 
     finalResponse = finalResponse
-      .replace(/\[RECEIVE_RED_PACKET\]/g, '')
-      .replace(/\[RETURN_RED_PACKET\]/g, '')
+      .replace(/`?\s*\[?RECEIVE_RED_PACKET\]?\s*`?/gi, '')
+      .replace(/`?\s*\[?RETURN_RED_PACKET\]?\s*`?/gi, '')
       .replace(sendRegGlobal, '')
       .replace(emojiRegGlobal, '')
 
@@ -4900,11 +5110,28 @@ ${memoryContent}
   })
 
   // 15.3 物理更新聊天记录内容（用于保存红包和表情包的状态变化）
-  ipcMain.handle('update-message-content', async (_, payload: { messageId: string; content: string }) => {
+  ipcMain.handle('update-message-content', async (_, payload: { characterId?: string; messageId: string; content: string }) => {
     try {
-      const { messageId, content } = payload
+      const { characterId, messageId, content } = payload
       const db = getDatabaseService()
       db.updateMessageContent(messageId, content)
+
+      let finalCharId = characterId
+      if (!finalCharId) {
+        const row = db.db.prepare('SELECT character_id FROM Messages WHERE id = ?').get(messageId) as { character_id: string } | undefined
+        if (row) {
+          finalCharId = row.character_id
+        }
+      }
+
+      if (finalCharId) {
+        const updatePayload = { characterId: finalCharId, messageId, content }
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('message-content-edited', updatePayload)
+        }
+        SseManager.getInstance().broadcast('message-content-edited', updatePayload)
+      }
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
