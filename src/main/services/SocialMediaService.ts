@@ -797,6 +797,30 @@ Constraints:
           const memoryPath = path.join(baseDir, char.folder_name, 'Memory.md');
           const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
 
+          // 🚀 计算该角色绑定的用户马甲路径与名字
+          const { app } = require('electron');
+          const bindingProfileId = db.getProfileBinding(char.id);
+          let globalUserPath = bindingProfileId 
+            ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+            : '';
+          
+          // 🚀 首个人设卡兜底：若未绑定，则默认兜底读取第一个人设卡，保证能加载用户姓名与基础设定
+          if ((!globalUserPath || !fs.existsSync(globalUserPath)) && fs.existsSync(path.join(app.getPath('userData'), 'config', 'user_profiles'))) {
+            const targetProfilesDir = path.join(app.getPath('userData'), 'config', 'user_profiles');
+            const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'));
+            if (files.length > 0) {
+              files.sort();
+              globalUserPath = path.join(targetProfilesDir, files[0]);
+            }
+          }
+          let mappedUserName = '我';
+          if (globalUserPath && fs.existsSync(globalUserPath)) {
+            const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
+            if (profile && profile.name) {
+              mappedUserName = profile.name;
+            }
+          }
+
           let memoryInjection = `\n\nYour Long-term Memory & Personal Profile on User (Memory.md):\n${memoryContent}`;
           if (isUserTarget) {
             // 🚀 自适应双门限合并还原
@@ -807,11 +831,6 @@ Constraints:
             const history = mergeChatHistory(rawHistory).slice(0, 20);
             const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
             
-            const { app } = require('electron');
-            const bindingProfileId = db.getProfileBinding(char.id);
-            const globalUserPath = bindingProfileId 
-              ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
-              : '';
             const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
             const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
@@ -921,7 +940,9 @@ Please strictly apply these relationship constraints, mood, and custom personali
             }
           } catch (_) {}
 
-          const systemPrompt = `You are ${char.name}. You are commenting on ${target.author_name}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${target.author_name} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}
+          const targetAuthorDisplayName = (target.character_id === 'user' || target.author_name === '我' || target.author_name === 'User') ? mappedUserName : target.author_name;
+
+          const systemPrompt = `You are ${char.name}. You are commenting on ${targetAuthorDisplayName}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${targetAuthorDisplayName} is the USER {{user}} whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}
 Your comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.
 ${weatherInfoText}
 
@@ -935,11 +956,11 @@ Instructions:
 3. Output ONLY the raw comment text. No quotes, no wrappers.`;
 
           const userContent = `【当前互动条件 (Dynamic Constraints)】:${intimacyGuidance}${hiddenImageGuidance}
-
-【被评论目标动态内容 (Target Post Content)】:
-"${type === 'moment' ? target.content : (target.title + ': ' + target.content)}"
-
-用极简的语气，写一条对 ${target.author_name} 的简短评论吧。`;
+ 
+ 【被评论目标动态内容 (Target Post Content)】:
+ "${type === 'moment' ? target.content : (target.title + ': ' + target.content)}"
+ 
+ 用极简的语气，写一条对 ${targetAuthorDisplayName} 的简短评论吧。`;
 
           // 读取当前帖子/动态已有评论，注入给模型作为上下文，避免撞评和重复观点
           let existingCommentsContext = '';
@@ -953,7 +974,13 @@ Instructions:
             if (existingComments.length > 0) {
               const commentList = existingComments
                 .slice(-10) // 最多取最近 10 条避免 token 过多
-                .map((c: any) => `- ${c.author_name}: ${c.content}`)
+                .map((c: any) => {
+                  const author = (c.character_id === 'user' || c.author_name === '我' || c.author_name === 'User') ? mappedUserName : c.author_name;
+                  const replyTo = (c.reply_to_name === '我' || c.reply_to_name === 'User') ? mappedUserName : c.reply_to_name;
+                  const replyStr = replyTo ? ` 回复 ${replyTo}` : '';
+                  // 保护正文 c.content，不替换内容中代词
+                  return `- ${author}${replyStr}: ${c.content}`;
+                })
                 .join('\n');
               existingCommentsContext = `\n\n【已有评论列表（请避免与下列评论撞词或重复观点）】:\n${commentList}`;
             }
@@ -962,7 +989,7 @@ Instructions:
           const response = await modelAdapter.chat([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userContent + existingCommentsContext }
-          ], { useSecondary: true });
+          ], { useSecondary: true, characterId: char.id });
 
           const commentText = response.content.trim().replace(/^["']|["']$/g, '');
 
@@ -1110,6 +1137,30 @@ Instructions:
       const char = db.getAllCharacters().find(c => c.id === responderId);
       if (!char) return;
 
+      // 🚀 计算该角色绑定的用户马甲路径与名字
+      const { app } = require('electron');
+      const bindingProfileId = db.getProfileBinding(char.id);
+      let globalUserPath = bindingProfileId 
+        ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+        : '';
+      
+      // 🚀 首个人设卡兜底：若未绑定，则默认兜底读取第一个人设卡，保证能加载用户姓名与基础设定
+      if ((!globalUserPath || !fs.existsSync(globalUserPath)) && fs.existsSync(path.join(app.getPath('userData'), 'config', 'user_profiles'))) {
+        const targetProfilesDir = path.join(app.getPath('userData'), 'config', 'user_profiles');
+        const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'));
+        if (files.length > 0) {
+          files.sort();
+          globalUserPath = path.join(targetProfilesDir, files[0]);
+        }
+      }
+      let mappedUserName = '我';
+      if (globalUserPath && fs.existsSync(globalUserPath)) {
+        const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
+        if (profile && profile.name) {
+          mappedUserName = profile.name;
+        }
+      }
+
       const soulPath = path.join(baseDir, char.folder_name, 'Soul.md');
       const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
 
@@ -1145,8 +1196,11 @@ Instructions:
           // 只获取发生在当前被回复的评论之前（或同时）的所有评论，还原历史时间线的讨论记忆
           const prevComments = allComments.filter(c => c.timestamp <= comment.timestamp);
           const threadList = prevComments.map(c => {
-            const replyToText = c.reply_to_name ? ` (回复 ${c.reply_to_name})` : '';
-            return `- ${c.author_name}${replyToText}: ${c.content}`;
+            const author = (c.character_id === 'user' || c.author_name === '我' || c.author_name === 'User') ? mappedUserName : c.author_name;
+            const replyTo = (c.reply_to_name === '我' || c.reply_to_name === 'User') ? mappedUserName : c.reply_to_name;
+            const replyToText = replyTo ? ` (回复 ${replyTo})` : '';
+            // 保护正文 c.content 不做任何代词替换
+            return `- ${author}${replyToText}: ${c.content}`;
           }).join('\n');
           commentsContext = `\n\nAll existing discussion replies in this Forum thread (Context of discussion list):\n${threadList}`;
         }
@@ -1155,8 +1209,11 @@ Instructions:
         if (allComments && allComments.length > 0) {
           const prevComments = allComments.filter(c => c.timestamp <= comment.timestamp);
           const threadList = prevComments.map(c => {
-            const replyToText = c.reply_to_name ? ` (回复 ${c.reply_to_name})` : '';
-            return `- ${c.author_name}${replyToText}: ${c.content}`;
+            const author = (c.character_id === 'user' || c.author_name === '我' || c.author_name === 'User') ? mappedUserName : c.author_name;
+            const replyTo = (c.reply_to_name === '我' || c.reply_to_name === 'User') ? mappedUserName : c.reply_to_name;
+            const replyToText = replyTo ? ` (回复 ${replyTo})` : '';
+            // 保护正文 c.content 不做任何代词替换
+            return `- ${author}${replyToText}: ${c.content}`;
           }).join('\n');
           commentsContext = `\n\nAll existing comments in this Moments post (Context of comments list):\n${threadList}`;
         }
@@ -1221,11 +1278,6 @@ Please strictly apply these relationship constraints, mood, and custom personali
 
       let userProfilesXml = '';
       if (isUserComment) {
-        const { app } = require('electron');
-        const bindingProfileId = db.getProfileBinding(char.id);
-        const globalUserPath = bindingProfileId 
-          ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
-          : '';
         const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
         userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
       }
@@ -1279,7 +1331,7 @@ Instructions:
       const response = await modelAdapter.chat([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `回复 ${comment.author_name} 的评论吧。` }
-      ], { useSecondary: true });
+      ], { useSecondary: true, characterId: char.id });
 
       const replyText = response.content.trim().replace(/^["']|["']$/g, '');
 
@@ -1401,6 +1453,30 @@ Instructions:
     await new Promise(resolve => setTimeout(resolve, thinkDelay));
 
     try {
+      // 🚀 计算该角色绑定的用户马甲路径与名字
+      const { app } = require('electron');
+      const bindingProfileId = db.getProfileBinding(char.id);
+      let globalUserPath = bindingProfileId 
+        ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+        : '';
+      
+      // 🚀 首个人设卡兜底：若未绑定，则默认兜底读取第一个人设卡，保证能加载用户姓名与基础设定
+      if ((!globalUserPath || !fs.existsSync(globalUserPath)) && fs.existsSync(path.join(app.getPath('userData'), 'config', 'user_profiles'))) {
+        const targetProfilesDir = path.join(app.getPath('userData'), 'config', 'user_profiles');
+        const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'));
+        if (files.length > 0) {
+          files.sort();
+          globalUserPath = path.join(targetProfilesDir, files[0]);
+        }
+      }
+      let mappedUserName = '我';
+      if (globalUserPath && fs.existsSync(globalUserPath)) {
+        const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
+        if (profile && profile.name) {
+          mappedUserName = profile.name;
+        }
+      }
+
       const soulPath = path.join(baseDir, char.folder_name, 'Soul.md');
       const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
 
@@ -1474,8 +1550,11 @@ You current relationship with {{user}} ({{user}} explicitly @mentioned you in pu
         if (allComments && allComments.length > 0) {
           const prevComments = allComments.filter(c => c.timestamp <= comment.timestamp);
           const threadList = prevComments.map(c => {
-            const replyToText = c.reply_to_name ? ` (回复 ${c.reply_to_name})` : '';
-            return `- ${c.author_name}${replyToText}: ${c.content}`;
+            const author = (c.character_id === 'user' || c.author_name === '我' || c.author_name === 'User') ? mappedUserName : c.author_name;
+            const replyTo = (c.reply_to_name === '我' || c.reply_to_name === 'User') ? mappedUserName : c.reply_to_name;
+            const replyToText = replyTo ? ` (回复 ${replyTo})` : '';
+            // 保护正文 c.content 不做任何代词替换
+            return `- ${author}${replyToText}: ${c.content}`;
           }).join('\n');
           commentsContext = `\n\nAll existing discussion replies in this Forum thread (Context of discussion list):\n${threadList}`;
         }
@@ -1484,18 +1563,16 @@ You current relationship with {{user}} ({{user}} explicitly @mentioned you in pu
         if (allComments && allComments.length > 0) {
           const prevComments = allComments.filter(c => c.timestamp <= comment.timestamp);
           const threadList = prevComments.map(c => {
-            const replyToText = c.reply_to_name ? ` (回复 ${c.reply_to_name})` : '';
-            return `- ${c.author_name}${replyToText}: ${c.content}`;
+            const author = (c.character_id === 'user' || c.author_name === '我' || c.author_name === 'User') ? mappedUserName : c.author_name;
+            const replyTo = (c.reply_to_name === '我' || c.reply_to_name === 'User') ? mappedUserName : c.reply_to_name;
+            const replyToText = replyTo ? ` (回复 ${replyTo})` : '';
+            // 保护正文 c.content 不做任何代词替换
+            return `- ${author}${replyToText}: ${c.content}`;
           }).join('\n');
           commentsContext = `\n\nAll existing comments in this Moments post (Context of comments list):\n${threadList}`;
         }
       }
 
-      const { app } = require('electron');
-      const bindingProfileId = db.getProfileBinding(char.id);
-      const globalUserPath = bindingProfileId 
-        ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
-        : '';
       const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
       const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
@@ -1541,7 +1618,7 @@ Instructions:
       const response = await modelAdapter.chat([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `回复 {{user}} @ 你的内容：“${comment.content}”` }
-      ], { useSecondary: true });
+      ], { useSecondary: true, characterId: char.id });
 
       const replyText = response.content.trim().replace(/^["']|["']$/g, '');
 
