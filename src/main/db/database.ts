@@ -260,6 +260,13 @@ export class DatabaseService {
       );
     `)
 
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS ProfileBindings (
+        target_id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL
+      );
+    `)
+
     // 初始化设备唯一 ID (device_id)
     const existingDeviceId = this.getSetting('device_id')
     if (!existingDeviceId) {
@@ -435,6 +442,13 @@ export class DatabaseService {
           if (!hasCol) {
             db.exec("ALTER TABLE GroupChats ADD COLUMN chat_mode TEXT DEFAULT 'descriptive';")
           }
+          // 🚀 物理迁移：新增 ProfileBindings 绑定关系表
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS ProfileBindings (
+              target_id TEXT PRIMARY KEY,
+              profile_id TEXT NOT NULL
+            );
+          `)
         }
       }
     ]
@@ -1433,6 +1447,47 @@ export class DatabaseService {
       meta.hidden ? 1 : 0,
       meta.last_msg_ts ?? 0
     )
+  }
+
+  /**
+   * 获取会话绑定的人设 ID
+   */
+  public getProfileBinding(targetId: string): string | null {
+    try {
+      const stmt = this.db.prepare('SELECT profile_id FROM ProfileBindings WHERE target_id = ?')
+      const row = stmt.get(targetId) as { profile_id: string } | undefined
+      return row ? row.profile_id : null
+    } catch (_) {
+      return null
+    }
+  }
+
+  /**
+   * 设置会话绑定的人设 ID
+   */
+  public setProfileBinding(targetId: string, profileId: string): void {
+    try {
+      const stmt = this.db.prepare(`
+        INSERT INTO ProfileBindings (target_id, profile_id)
+        VALUES (?, ?)
+        ON CONFLICT(target_id) DO UPDATE SET profile_id = excluded.profile_id
+      `)
+      stmt.run(targetId, profileId)
+    } catch (err: any) {
+      console.error('[Database] 保存人设绑定失败:', err.message)
+    }
+  }
+
+  /**
+   * 解绑人设
+   */
+  public deleteProfileBinding(targetId: string): void {
+    try {
+      const stmt = this.db.prepare('DELETE FROM ProfileBindings WHERE target_id = ?')
+      stmt.run(targetId)
+    } catch (err: any) {
+      console.error('[Database] 删除人设绑定失败:', err.message)
+    }
   }
 }
 

@@ -905,10 +905,43 @@ function registerIpcHandlers(): void {
     try {
       const db = getDatabaseService()
       const profileStr = db.getSetting('echo_user_profile')
+      let profile: any = null
       if (profileStr) {
-        return { success: true, profile: JSON.parse(profileStr) }
+        profile = JSON.parse(profileStr)
+      } else {
+        profile = { nickname: '', signature: '', location: '', walletBalance: 1000 }
       }
-      return { success: true, profile: null }
+
+      // 从物理文件夹读取应用头像，避免存入数据库
+      const configDir = join(app.getPath('userData'), 'config')
+      const supportedExtensions = ['png', 'jpg', 'jpeg', 'webp']
+      let foundAvatar = false
+      
+      if (fs.existsSync(configDir)) {
+        for (const ext of supportedExtensions) {
+          const avatarPath = join(configDir, `echo-avatar.${ext}`)
+          if (fs.existsSync(avatarPath)) {
+            try {
+              const fileBuffer = fs.readFileSync(avatarPath)
+              const base64Str = fileBuffer.toString('base64')
+              let mimeType = 'image/png'
+              if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg'
+              else if (ext === 'webp') mimeType = 'image/webp'
+              
+              profile.appAvatarUrl = `data:${mimeType};base64,${base64Str}`
+              foundAvatar = true
+              break
+            } catch (err) {
+              console.error(`[IPC get-user-profile] 读取头像文件失败: ${avatarPath}`, err)
+            }
+          }
+        }
+      }
+      if (!foundAvatar) {
+        profile.appAvatarUrl = ''
+      }
+
+      return { success: true, profile }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
@@ -918,9 +951,50 @@ function registerIpcHandlers(): void {
   ipcMain.handle('save-user-profile', async (_, payload: any) => {
     try {
       const db = getDatabaseService()
-      db.setSetting('echo_user_profile', JSON.stringify(payload))
+      
+      // 拦截并提取应用头像，写入本地物理文件而不存入 SQLite 数据库
+      const appAvatarUrl = payload.appAvatarUrl
+      if (appAvatarUrl && typeof appAvatarUrl === 'string' && appAvatarUrl.startsWith('data:image/')) {
+        const configDir = join(app.getPath('userData'), 'config')
+        if (!fs.existsSync(configDir)) {
+          fs.mkdirSync(configDir, { recursive: true })
+        }
+        
+        // 匹配 Base64 格式的媒体类型
+        const match = appAvatarUrl.match(/^data:image\/(png|jpg|jpeg|webp);base64,/)
+        if (match) {
+          const ext = match[1]
+          const supportedExtensions = ['png', 'jpg', 'jpeg', 'webp']
+          
+          // 物理清理 config 下已存在的旧 echo-avatar.* 文件，防止重叠覆盖失效
+          for (const oldExt of supportedExtensions) {
+            const oldAvatarPath = join(configDir, `echo-avatar.${oldExt}`)
+            if (fs.existsSync(oldAvatarPath)) {
+              try {
+                fs.unlinkSync(oldAvatarPath)
+              } catch (_) {}
+            }
+          }
+          
+          const base64Data = appAvatarUrl.replace(/^data:image\/(png|jpg|jpeg|webp);base64,/, '')
+          const targetPath = join(configDir, `echo-avatar.${ext}`)
+          try {
+            fs.writeFileSync(targetPath, Buffer.from(base64Data, 'base64'))
+            console.log(`[IPC save-user-profile] 成功将应用头像写入物理文件: ${targetPath}`)
+          } catch (writeErr) {
+            console.error(`[IPC save-user-profile] 物理写入应用头像失败`, writeErr)
+          }
+        }
+      }
+      
+      // 深度拷贝并剔除所有头像字段 (包含 appAvatarUrl 及可能有残留的 avatarUrl)
+      const cleanPayload = { ...payload }
+      delete cleanPayload.appAvatarUrl
+      delete cleanPayload.avatarUrl // 数据库绝不存放头像数据
+      
+      db.setSetting('echo_user_profile', JSON.stringify(cleanPayload))
 
-      // 广播通知其他局域网客户端
+      // 广播通知中依然保留 appAvatarUrl，以便前端和多端 SSE 能够实时感知到头像的变更渲染
       mainWindow?.webContents.send('user-profile-updated', payload)
       SseManager.getInstance().broadcast('user-profile-updated', payload)
 
@@ -3007,7 +3081,10 @@ ${soulContent}
 
       const groupDir = join(app.getPath('userData'), 'groups', groupId)
       const groupMemoryPath = join(groupDir, 'Memory.md')
-      const globalUserPath = join(app.getPath('userData'), 'config', 'USER.md')
+      const bindingProfileId = db.getProfileBinding(groupId)
+      const globalUserPath = bindingProfileId 
+        ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+        : ''
 
       // 2. 将用户的发言首先持久化存盘入库
       const userMsgId = payload.userMsgId || crypto.randomUUID()
@@ -3132,6 +3209,7 @@ ${soulContent}
           const rawHistory = db.getChatHistory(groupId, limit)
           const history = mergeChatHistory(rawHistory)
 
+          // 新增：自动接力搭话机制。如果队列已空但发言总轮数未满 4 轮，100% 自动挑选另一个 AI 成员接力发言，确保群聊维持在 4 轮的充分热闹程度
           const formattedHistory = history
             // 过滤掉 AI 生成图片消息（assistant 图片），完全不注入上下文
             .filter((m: any) => !(m.sender_id !== 'user' && m.content?.startsWith('[wechat_image_media]:')))
@@ -3525,6 +3603,15 @@ ${soulContent}
               }
             }
           })
+          // 确保本地画像与 config 目录完备
+          const globalConfigDir = join(app.getPath('userData'), 'config')
+          if (!fs.existsSync(globalConfigDir)) {
+            fs.mkdirSync(globalConfigDir, { recursive: true })
+          }
+          if (globalUserPath && !fs.existsSync(globalUserPath)) {
+            // 物理画像初始化只写入空字符串，绝不产生任何占位内容，彻底留白给用户
+            fs.writeFileSync(globalUserPath, '', 'utf8')
+          }
 
           // 新增：自动接力搭话机制。如果队列已空但发言总轮数未满 4 轮，100% 自动挑选另一个 AI 成员接力发言，确保群聊维持在 4 轮的充分热闹程度
           if (speakerQueue.length === 0 && currentRound + 1 < 4) {
@@ -4048,14 +4135,17 @@ ${soulContent}
     const worldPath = join(charDir, 'World.md')
     const memoryPath = join(charDir, 'Memory.md')
     const charUserPath = join(charDir, 'USER.md')
-    const globalUserPath = join(app.getPath('userData'), 'config', 'USER.md')
+    const bindingProfileId = db.getProfileBinding(characterId)
+    const globalUserPath = bindingProfileId 
+      ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+      : ''
 
     // 确保本地画像与 config 目录完备
     const globalConfigDir = join(app.getPath('userData'), 'config')
     if (!fs.existsSync(globalConfigDir)) {
       fs.mkdirSync(globalConfigDir, { recursive: true })
     }
-    if (!fs.existsSync(globalUserPath)) {
+    if (globalUserPath && !fs.existsSync(globalUserPath)) {
       // 物理画像初始化只写入空字符串，绝不产生任何占位内容，彻底留白给用户
       fs.writeFileSync(globalUserPath, '', 'utf8')
     }
@@ -5380,29 +5470,61 @@ ${memoryContent}
     }
   })
 
-  // 16. 读取全局 USER.md 文件内容 IPC 通道
+  // 16. 读取全局 USER.md 文件内容 IPC 通道 (向前兼容，读取首个全局设定卡)
   ipcMain.handle('read-global-user-md', async () => {
     try {
+      // 触发可能的数据迁移
+      migrateLegacyUserProfile()
+
       const globalConfigDir = join(app.getPath('userData'), 'config')
-      const globalUserPath = join(globalConfigDir, 'USER.md')
-
-      console.log(`[IPC read-global-user-md] 读取路径: ${globalUserPath}`)
-
-      if (!fs.existsSync(globalConfigDir)) {
-        fs.mkdirSync(globalConfigDir, { recursive: true })
+      const targetProfilesDir = join(globalConfigDir, 'user_profiles')
+      
+      let filePath = join(globalConfigDir, 'USER.md')
+      
+      // 如果迁移后 USER.md 不存在了，则尝试读取 user_profiles 下的第一个设定
+      if (!fs.existsSync(filePath)) {
+        if (fs.existsSync(targetProfilesDir)) {
+          const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+          if (files.length > 0) {
+            files.sort()
+            filePath = join(targetProfilesDir, files[0])
+          }
+        }
       }
 
-      if (!fs.existsSync(globalUserPath)) {
-        // 物理画像初始化只写入空字符串，绝不产生任何占位内容，彻底留白给用户
-        fs.writeFileSync(globalUserPath, '', 'utf-8')
+      // 如果依然不存在，则写一个默认的空白文件，确保向前兼容逻辑不中断
+      if (!fs.existsSync(filePath)) {
+        if (!fs.existsSync(targetProfilesDir)) {
+          fs.mkdirSync(targetProfilesDir, { recursive: true })
+        }
+        filePath = join(targetProfilesDir, 'user_1.md')
+        const defaultMetadata = {
+          avatar: '',
+          name: '我',
+          gender: '其他',
+          age: '',
+          description: '默认创建的全局设定卡'
+        }
+        const fileComment = `<!--\n${JSON.stringify(defaultMetadata, null, 2)}\n-->`
+        fs.writeFileSync(filePath, fileComment + '\n\n', 'utf8')
       }
 
-      const content = fs.readFileSync(globalUserPath, 'utf-8')
-      const profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+      const content = fs.readFileSync(filePath, 'utf-8')
+      
+      // 读取元数据姓名
+      let nickname = '我'
+      const match = content.match(/<!--([\s\S]*?)-->/)
+      if (match && match[1]) {
+        try {
+          const parsed = JSON.parse(match[1].trim())
+          if (parsed.name) {
+            nickname = parsed.name
+          }
+        } catch (_) {}
+      }
 
-      console.log(`[IPC read-global-user-md] 读取完成, 字节=${Buffer.byteLength(content, 'utf8')}, nickname=${profile.name}`)
-
-      return { success: true, content, nickname: profile.name }
+      console.log(`[IPC read-global-user-md] 向前兼容读取完成, path=${filePath}, nickname=${nickname}`)
+      return { success: true, content, nickname }
     } catch (e: any) {
       console.error(`[IPC read-global-user-md] 读取失败:`, e)
       return { success: false, error: e.message || e }
@@ -5441,6 +5563,252 @@ ${memoryContent}
       return { success: true, updatedContent: finalContent, nickname: finalProfile.name }
     } catch (e: any) {
       console.error(`[IPC save-global-user-md] 保存失败:`, e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 17.5 增量物理迁移老用户个人人设辅助函数
+  function migrateLegacyUserProfile() {
+    try {
+      const configDir = join(app.getPath('userData'), 'config')
+      const legacyUserPath = join(configDir, 'USER.md')
+      if (fs.existsSync(legacyUserPath)) {
+        console.log('[Migration] 发现老用户 USER.md，开始执行物理迁移到 user_profiles/...')
+        const rawContent = fs.readFileSync(legacyUserPath, 'utf8')
+        const profile = UserProfileReaderWriter.readGlobalProfile(legacyUserPath)
+        
+        const name = (profile.name || 'user').trim()
+        const storageManager = new CharacterStorageManager()
+        const pinyinName = storageManager.convertToPinyin(name)
+        
+        const targetProfilesDir = join(configDir, 'user_profiles')
+        if (!fs.existsSync(targetProfilesDir)) {
+          fs.mkdirSync(targetProfilesDir, { recursive: true })
+        }
+        
+        const targetFileName = `${pinyinName}_1.md`
+        const targetPath = join(targetProfilesDir, targetFileName)
+        
+        if (!fs.existsSync(targetPath)) {
+          const pureMarkdown = rawContent.replace(/<!--[\s\S]*?-->/g, '').trim()
+          const newMetadata = {
+            avatar: '',
+            name: name,
+            gender: '其他',
+            age: profile.age || '',
+            description: '自 USER.md 兼容性迁移的设定卡'
+          }
+          const fileComment = `<!--\n${JSON.stringify(newMetadata, null, 2)}\n-->`
+          const newFileContent = `${fileComment}\n\n${pureMarkdown}`
+          fs.writeFileSync(targetPath, newFileContent, 'utf8')
+          console.log(`[Migration] 已成功物理迁移老用户个人设定至 ${targetPath}`)
+        }
+        
+        // 物理删除旧 USER.md
+        fs.unlinkSync(legacyUserPath)
+        console.log('[Migration] 旧的 USER.md 已物理删除')
+      }
+    } catch (err) {
+      console.error('[Migration] 个人人设物理迁移失败:', err)
+    }
+  }
+
+  // 17.6 获取所有用户设定卡列表
+  ipcMain.handle('list-user-profiles', async () => {
+    try {
+      migrateLegacyUserProfile()
+
+      const configDir = join(app.getPath('userData'), 'config')
+      const targetProfilesDir = join(configDir, 'user_profiles')
+      if (!fs.existsSync(targetProfilesDir)) {
+        fs.mkdirSync(targetProfilesDir, { recursive: true })
+      }
+
+      const files = fs.readdirSync(targetProfilesDir)
+      const list: any[] = []
+
+      for (const file of files) {
+        if (file.endsWith('.md')) {
+          const filePath = join(targetProfilesDir, file)
+          const content = fs.readFileSync(filePath, 'utf8')
+          const profileId = file.replace(/\.md$/, '')
+
+          let metadata: any = {
+            avatar: '',
+            name: '未知设定',
+            gender: '其他',
+            age: '',
+            description: ''
+          }
+
+          const match = content.match(/<!--([\s\S]*?)-->/)
+          if (match && match[1]) {
+            try {
+              const parsed = JSON.parse(match[1].trim())
+              metadata = { ...metadata, ...parsed }
+            } catch (_) {}
+          }
+
+          // 物理头像读取：与人设同名的图片文件，例如 ${profileId}.png
+          const avatarPath = join(targetProfilesDir, `${profileId}.png`)
+          if (fs.existsSync(avatarPath)) {
+            try {
+              const imgBuffer = fs.readFileSync(avatarPath)
+              metadata.avatar = `data:image/png;base64,${imgBuffer.toString('base64')}`
+            } catch (_) {}
+          } else {
+            metadata.avatar = ''
+          }
+
+          const pureMarkdown = content.replace(/<!--[\s\S]*?-->/g, '').trim()
+
+          list.push({
+            profileId,
+            ...metadata,
+            content: pureMarkdown,
+            filePath
+          })
+        }
+      }
+
+      list.sort((a, b) => a.profileId.localeCompare(b.profileId))
+
+      return { success: true, list }
+    } catch (e: any) {
+      console.error('[IPC list-user-profiles] 获取失败:', e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 17.7 保存用户设定卡（支持新增与编辑）
+  ipcMain.handle('save-user-profile-data', async (_, payload: {
+    profileId?: string | null
+    avatar: string
+    name: string
+    gender: string
+    age?: string
+    description?: string
+    content: string
+  }) => {
+    try {
+      const configDir = join(app.getPath('userData'), 'config')
+      const targetProfilesDir = join(configDir, 'user_profiles')
+      if (!fs.existsSync(targetProfilesDir)) {
+        fs.mkdirSync(targetProfilesDir, { recursive: true })
+      }
+
+      let profileId = payload.profileId
+
+      if (!profileId) {
+        const name = payload.name.trim()
+        const storageManager = new CharacterStorageManager()
+        const pinyinName = storageManager.convertToPinyin(name)
+
+        let counter = 1
+        let candidateId = `${pinyinName}_${counter}`
+        while (fs.existsSync(join(targetProfilesDir, `${candidateId}.md`))) {
+          counter++
+          candidateId = `${pinyinName}_${counter}`
+        }
+        profileId = candidateId
+      }
+
+      // 物理头像隔离：物理写入同目录下同名的图片文件
+      if (payload.avatar) {
+        if (payload.avatar.startsWith('data:image/')) {
+          const matches = payload.avatar.match(/^data:image\/([a-zA-Z0-9]+);base64,([\s\S]+)$/)
+          if (matches) {
+            const dataBuffer = Buffer.from(matches[2], 'base64')
+            const avatarPath = join(targetProfilesDir, `${profileId}.png`)
+            fs.writeFileSync(avatarPath, dataBuffer)
+          }
+        }
+      } else {
+        // 如果前台传空，且本地有旧的头像文件，则说明要删除这个头像
+        const avatarPath = join(targetProfilesDir, `${profileId}.png`)
+        if (fs.existsSync(avatarPath)) {
+          fs.unlinkSync(avatarPath)
+        }
+      }
+
+      const filePath = join(targetProfilesDir, `${profileId}.md`)
+      // 头部 JSON 彻底屏蔽 Base64 头像，变为空字符串保存
+      const metadata = {
+        avatar: '',
+        name: payload.name.trim(),
+        gender: payload.gender || '其他',
+        age: payload.age || '',
+        description: payload.description || ''
+      }
+
+
+      const fileComment = `<!--\n${JSON.stringify(metadata, null, 2)}\n-->`
+      const fullFileContent = `${fileComment}\n\n${payload.content.trim()}`
+
+      fs.writeFileSync(filePath, fullFileContent, 'utf8')
+      console.log(`[IPC save-user-profile-data] 人设 [${profileId}] 保存成功: ${filePath}`)
+
+      return { success: true, profileId }
+    } catch (e: any) {
+      console.error('[IPC save-user-profile-data] 保存失败:', e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 17.8 删除用户设定卡
+  ipcMain.handle('delete-user-profile-data', async (_, profileId: string) => {
+    try {
+      if (!profileId) {
+        return { success: false, error: '缺少 profileId' }
+      }
+
+      const configDir = join(app.getPath('userData'), 'config')
+      const filePath = join(configDir, 'user_profiles', `${profileId}.md`)
+
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+        console.log(`[IPC delete-user-profile-data] 物理删除人设 [${profileId}] 成功`)
+
+        const db = getDatabaseService()
+        db.db.prepare('DELETE FROM ProfileBindings WHERE profile_id = ?').run(profileId)
+      }
+
+      // 同步物理删除同名头像文件
+      const avatarPath = join(configDir, 'user_profiles', `${profileId}.png`)
+      if (fs.existsSync(avatarPath)) {
+        fs.unlinkSync(avatarPath)
+        console.log(`[IPC delete-user-profile-data] 物理删除人设头像 [${profileId}.png] 成功`)
+      }
+
+      return { success: true }
+    } catch (e: any) {
+      console.error('[IPC delete-user-profile-data] 删除失败:', e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 17.9 获取人设绑定关系
+  ipcMain.handle('get-profile-binding', async (_, targetId: string) => {
+    try {
+      const db = getDatabaseService()
+      const profileId = db.getProfileBinding(targetId)
+      return { success: true, profileId }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 17.10 设置人设绑定关系
+  ipcMain.handle('set-profile-binding', async (_, payload: { targetId: string; profileId: string | null }) => {
+    try {
+      const db = getDatabaseService()
+      if (payload.profileId) {
+        db.setProfileBinding(payload.targetId, payload.profileId)
+      } else {
+        db.deleteProfileBinding(payload.targetId)
+      }
+      return { success: true }
+    } catch (e: any) {
       return { success: false, error: e.message || e }
     }
   })

@@ -63,6 +63,9 @@ export class UserProfileReaderWriter {
       occupation: '',
       global_preferences: {}
     };
+    if (!filePath || !filePath.trim()) {
+      return defaultProfile;
+    }
     try {
       this.ensureFile(filePath, true);
       const content = fs.readFileSync(filePath, 'utf-8');
@@ -269,24 +272,7 @@ export class UserProfileReaderWriter {
    * 用于向大模型进行上下文注入
    */
   public static assembleProfiles(globalPath: string, charPath: string): string {
-    const globalProfile = this.readGlobalProfile(globalPath);
     const charFacts = this.readCharacterProfile(charPath);
-
-    // 优先读取并全量送达用户手写定制的 Markdown 全局画像内容
-    let globalStr = '';
-    if (fs.existsSync(globalPath)) {
-      const rawContent = fs.readFileSync(globalPath, 'utf-8').trim();
-      // 过滤 HTML 注释，仅提供纯净 Markdown 文本给大模型
-      globalStr = rawContent.replace(/<!--[\s\S]*?-->/g, '').trim();
-    }
-
-    // 容错降级：如果物理文件为空，则退回至根据字段拼装
-    if (!globalStr) {
-      globalStr = `- 姓名：${globalProfile.name}\n- 年龄：${globalProfile.age}\n- 职业：${globalProfile.occupation}\n`;
-      Object.keys(globalProfile.global_preferences).forEach((key) => {
-        globalStr += `- ${key}：${globalProfile.global_preferences[key]}\n`;
-      });
-    }
 
     // 格式化专属画像文本
     let charStr = '';
@@ -299,8 +285,32 @@ export class UserProfileReaderWriter {
     }
 
     // 拼装隔离 XML 标签结构
-    let result = `<global-user-profile>\n${globalStr.trim()}\n</global-user-profile>`;
-    result += `\n<character-specific-user-profile>\n${charStr.trim()}\n</character-specific-user-profile>`;
+    let result = '';
+
+    // 只有当全局画像路径非空且文件存在时，才进行解析并装配
+    if (globalPath && fs.existsSync(globalPath)) {
+      let globalStr = '';
+      const rawContent = fs.readFileSync(globalPath, 'utf-8').trim();
+      // 过滤 HTML 注释，仅提供纯净 Markdown 文本给大模型
+      globalStr = rawContent.replace(/<!--[\s\S]*?-->/g, '').trim();
+
+      // 容错降级：如果物理文件为空，则退回至根据字段拼装
+      if (!globalStr) {
+        const globalProfile = this.readGlobalProfile(globalPath);
+        globalStr = `- 姓名：${globalProfile.name}\n- 年龄：${globalProfile.age}\n- 职业：${globalProfile.occupation}\n`;
+        if (globalProfile.global_preferences) {
+          Object.keys(globalProfile.global_preferences).forEach((key) => {
+            globalStr += `- ${key}：${globalProfile.global_preferences[key]}\n`;
+          });
+        }
+      }
+
+      if (globalStr.trim()) {
+        result += `<global-user-profile>\n${globalStr.trim()}\n</global-user-profile>\n`;
+      }
+    }
+
+    result += `<character-specific-user-profile>\n${charStr.trim()}\n</character-specific-user-profile>`;
     
     return result;
   }

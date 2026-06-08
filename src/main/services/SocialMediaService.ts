@@ -808,7 +808,10 @@ Constraints:
             const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
             
             const { app } = require('electron');
-            const globalUserPath = path.join(app.getPath('userData'), 'config', 'USER.md');
+            const bindingProfileId = db.getProfileBinding(char.id);
+            const globalUserPath = bindingProfileId 
+              ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+              : '';
             const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
             const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
@@ -1219,7 +1222,10 @@ Please strictly apply these relationship constraints, mood, and custom personali
       let userProfilesXml = '';
       if (isUserComment) {
         const { app } = require('electron');
-        const globalUserPath = path.join(app.getPath('userData'), 'config', 'USER.md');
+        const bindingProfileId = db.getProfileBinding(char.id);
+        const globalUserPath = bindingProfileId 
+          ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+          : '';
         const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
         userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
       }
@@ -1486,7 +1492,10 @@ You current relationship with {{user}} ({{user}} explicitly @mentioned you in pu
       }
 
       const { app } = require('electron');
-      const globalUserPath = path.join(app.getPath('userData'), 'config', 'USER.md');
+      const bindingProfileId = db.getProfileBinding(char.id);
+      const globalUserPath = bindingProfileId 
+        ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+        : '';
       const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
       const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 

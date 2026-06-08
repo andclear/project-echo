@@ -358,8 +358,11 @@ export class NovelWriterService {
     const worldContent = storageManager.readCharacterFile(folderName, 'World.md') || ''
     const charUserProfile = storageManager.readCharacterFile(folderName, 'USER.md') || ''
     
-    const globalUserPath = join(app.getPath('userData'), 'config', 'USER.md')
-    const globalUserProfile = fs.existsSync(globalUserPath) ? fs.readFileSync(globalUserPath, 'utf8') : ''
+    const bindingProfileId = db.getProfileBinding(characterId)
+    const globalUserPath = bindingProfileId 
+      ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+      : ''
+    const globalUserProfile = globalUserPath && fs.existsSync(globalUserPath) ? fs.readFileSync(globalUserPath, 'utf8') : ''
 
     // 叙事人称与改编尺度设置
     const pov = db.getSetting(`novel_pov_${characterId}`) || 'third_user'
@@ -730,8 +733,11 @@ ${options.suggestedTitle ? `⑧ 章节标题建议：本次改编建议使用的
       const worldContent = storageManager.readCharacterFile(folderName, 'World.md') || ''
       const charUserProfile = storageManager.readCharacterFile(folderName, 'USER.md') || ''
       
-      const globalUserPath = join(app.getPath('userData'), 'config', 'USER.md')
-      const globalUserProfile = fs.existsSync(globalUserPath) ? fs.readFileSync(globalUserPath, 'utf8') : ''
+      const bindingProfileId = db.getProfileBinding(characterId)
+      const globalUserPath = bindingProfileId 
+        ? join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+        : ''
+      const globalUserProfile = globalUserPath && fs.existsSync(globalUserPath) ? fs.readFileSync(globalUserPath, 'utf8') : ''
 
       // 4. 读取该章节对应的聊天记录
       const rawMessages = db.db.prepare(`

@@ -534,7 +534,10 @@ export class AgentLifeEngine {
 
     const triggerEvent = wakeResult.triggerEvent;
 
-    const globalUserPath = path.join(app.getPath('userData'), 'config', 'USER.md');
+    const bindingProfileId = db.getProfileBinding(charId);
+    const globalUserPath = bindingProfileId 
+      ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+      : '';
     const charUserPath = path.join(baseDir, folderName, 'USER.md');
 
     // 日记功能与搭讪完全解耦：搭讪流程不触发日记，避免两者同时发送给用户
@@ -832,7 +835,10 @@ export class AgentLifeEngine {
     const memoryPath = path.join(baseDir, folderName, 'Memory.md');
     const schedulePath = path.join(baseDir, folderName, 'Schedule.md');
     const goalsPath = path.join(baseDir, folderName, 'Goals.md');
-    const globalUserPath = path.join(app.getPath('userData'), 'config', 'USER.md');
+    const bindingProfileId = db.getProfileBinding(charId);
+    const globalUserPath = bindingProfileId 
+      ? path.join(app.getPath('userData'), 'config', 'user_profiles', `${bindingProfileId}.md`)
+      : '';
     const charUserPath = path.join(baseDir, folderName, 'USER.md');
 
     const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';

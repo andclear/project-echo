@@ -128,10 +128,10 @@
           @click="sideView = 'settings'; activeSettingsTab = 'profile'; userProfileActiveTab = 'profile'; userMdEditing = false"
         >
           <img
-            v-if="userProfile.avatarUrl"
-            :src="userProfile.avatarUrl"
+            v-if="userProfile.appAvatarUrl"
+            :src="userProfile.appAvatarUrl"
             class="w-full h-full object-cover"
-            @error="userProfile.avatarUrl = ''"
+            @error="userProfile.appAvatarUrl = ''"
           />
           <img
             v-else
@@ -286,10 +286,10 @@
                 title="点击修改个人信息"
               >
                 <img
-                  v-if="userProfile.avatarUrl"
-                  :src="userProfile.avatarUrl"
+                  v-if="userProfile.appAvatarUrl"
+                  :src="userProfile.appAvatarUrl"
                   class="w-full h-full object-cover"
-                  @error="userProfile.avatarUrl = ''"
+                  @error="userProfile.appAvatarUrl = ''"
                 />
                 <img
                   v-else
@@ -2386,40 +2386,37 @@
                     class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all text-center cursor-pointer font-sans"
                     :class="userProfileActiveTab === 'userMd' ? 'bg-primary text-on-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-high/30'"
                   >
-                    个人设定（全局）
+                    用户设定
                   </button>
                 </div>
 
                 <div class="space-y-5">
                   <!-- A. 基础资料页签 -->
                   <template v-if="userProfileActiveTab === 'profile'">
-                    <!-- 个人名片卡片 -->
+                    <!-- 应用头像设置 -->
                     <div class="p-5 rounded-2xl bg-surface-low/40 border border-outline-variant/15 flex items-center space-x-4">
-                      <div class="w-16 h-16 rounded overflow-hidden border border-outline-variant bg-surface flex-shrink-0 cursor-pointer relative group transition-all hover:scale-102 active:scale-98" @click="triggerAvatarInput">
-                        <img v-if="userProfile.avatarUrl" :src="userProfile.avatarUrl" class="w-full h-full object-cover" />
+                      <div 
+                        class="w-14 h-14 rounded overflow-hidden border border-outline-variant bg-surface flex-shrink-0 cursor-pointer relative group transition-all hover:scale-105 active:scale-95 shadow-sm" 
+                        @click="triggerAvatarInput"
+                      >
+                        <img v-if="userProfile.appAvatarUrl" :src="userProfile.appAvatarUrl" class="w-full h-full object-cover" />
                         <img v-else :src="defaultAvatarSrc" class="w-full h-full object-cover" />
-                        <div class="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                        <div class="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                           <CameraIcon class="w-4 h-4 text-white" />
                         </div>
                       </div>
                       <input ref="avatarFileInput" type="file" accept="image/*" class="hidden" @change="handleAvatarChange" />
-                      <div class="flex-1 min-w-0 select-text">
-                        <div class="text-xs font-bold text-on-surface truncate">{{ userProfile.nickname || '未设置姓名' }}</div>
-                        <div class="text-[10px] text-on-surface-variant truncate mt-1 leading-relaxed opacity-85">{{ userProfile.signature || '这个人很懒，什么都没留下' }}</div>
-                        <div class="text-[10px] text-on-surface-variant mt-2 flex items-center space-x-1 font-semibold opacity-75">
-                          <GlobeIcon class="w-3.5 h-3.5 text-primary" />
-                          <span>{{ userProfile.location || '未知所在地' }}</span>
-                        </div>
+                      <div class="flex-1 flex flex-col space-y-1 select-none min-w-0">
+                        <span class="text-xs font-bold text-on-surface">应用头像</span>
+                        <span class="text-[10px] text-on-surface-variant/75 leading-relaxed">
+                          点击左侧头像上传新图片。此头像仅用于本客户端的侧边栏顶部展示，以物理文件存储，不占用数据库空间。
+                        </span>
                       </div>
                     </div>
 
-                    <!-- 网格编辑表单 -->
+                    <!-- 所在地编辑（只保留所在地） -->
                     <div class="grid grid-cols-2 gap-4 select-text">
-                      <div class="space-y-1.5 col-span-1">
-                        <label class="text-[10px] uppercase font-bold text-on-surface-variant font-mono">姓名</label>
-                        <input v-model="userProfile.nickname" type="text" placeholder="设置姓名" class="form-input text-xs w-full px-3 py-2 rounded-xl bg-surface border border-outline-variant focus:outline-none focus:border-primary transition-all" />
-                      </div>
-                      <div class="space-y-1.5 col-span-1 relative">
+                      <div class="space-y-1.5 col-span-2 relative">
                         <label class="text-[10px] uppercase font-bold text-on-surface-variant font-mono">所在地</label>
                         <input 
                           v-model="userProfile.location" 
@@ -2442,10 +2439,6 @@
                           </div>
                         </div>
                       </div>
-                      <div class="space-y-1.5 col-span-2">
-                        <label class="text-[10px] uppercase font-bold text-on-surface-variant font-mono">个性签名</label>
-                        <input v-model="userProfile.signature" type="text" placeholder="设置个性签名" class="form-input text-xs w-full px-3 py-2 rounded-xl bg-surface border border-outline-variant focus:outline-none focus:border-primary transition-all" />
-                      </div>
                     </div>
 
                     <!-- 数字钱包卡片 -->
@@ -2461,33 +2454,93 @@
                     </div>
                   </template>
 
-                  <!-- B. 全局画像页签 -->
+                  <!-- B. 全局人设设定卡片列表 -->
                   <template v-else>
                     <div class="flex flex-col space-y-3 min-h-[300px] h-[400px]">
-                      <div class="text-[10px] text-error font-bold leading-normal select-none">
-                        ⚠️ 用户设定的名称请与基础资料中的姓名保持一致
-                      </div>
                       <div class="flex items-center justify-between select-none">
-                        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">全局用户画像 (USER.md)</span>
+                        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">用户人设卡片</span>
                         <button
-                          @click="userMdEditing = !userMdEditing"
-                          class="flex items-center space-x-1.5 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-lg transition-all font-bold cursor-pointer select-none"
+                          @click="openAddUserProfile"
+                          class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-lg transition-all font-bold cursor-pointer select-none"
                         >
-                          <component :is="userMdEditing ? EyeIcon : PenLineIcon" class="w-3.5 h-3.5" />
-                          <span>{{ userMdEditing ? '编辑源码' : '预览文档' }}</span>
+                          <PlusIcon class="w-3.5 h-3.5" />
+                          <span>添加人设</span>
                         </button>
                       </div>
-                      
-                      <!-- 预览模式 -->
-                      <div v-if="!userMdEditing" class="flex-1 p-4 rounded-xl border border-outline-variant/15 bg-surface-low/30 text-xs leading-relaxed overflow-y-auto select-text markdown-body shadow-inner h-full font-sans" v-html="renderMarkdown(globalUserMdContent || '*暂无全局用户设定*')">
+
+                      <!-- 列表网格 -->
+                      <div v-if="userProfilesList.length > 0" class="flex-1 overflow-y-auto pr-1 space-y-2.5">
+                        <div class="grid grid-cols-2 gap-3">
+                          <div 
+                            v-for="item in userProfilesList" 
+                            :key="item.profileId" 
+                            class="relative p-3.5 rounded-xl border border-outline-variant/10 bg-surface-low/30 hover:bg-surface-low/60 hover:border-primary/25 transition-all flex flex-col justify-between group overflow-hidden"
+                          >
+                            <div>
+                              <!-- 顶部头像和基本信息 -->
+                              <div class="flex items-center space-x-2.5">
+                                <img :src="item.avatar || defaultAvatarSrc" class="w-9 h-9 rounded object-cover border border-outline-variant/20 flex-shrink-0 shadow-sm" />
+                                <div class="min-w-0 flex-1">
+                                  <div class="text-xs font-bold text-on-surface truncate" :title="item.name">{{ item.name }}</div>
+                                  <div class="flex flex-wrap items-center gap-1.5 mt-0.5 select-none">
+                                    <!-- 性别徽章 -->
+                                    <span 
+                                      class="text-[8px] font-bold px-1.5 py-0.5 rounded font-sans uppercase tracking-wider"
+                                      :class="{
+                                        'bg-blue-500/10 text-blue-500 border border-blue-500/15': item.gender === '男',
+                                        'bg-pink-500/10 text-pink-500 border border-pink-500/15': item.gender === '女',
+                                        'bg-purple-500/10 text-purple-500 border border-purple-500/15': item.gender !== '男' && item.gender !== '女'
+                                      }"
+                                    >
+                                      {{ item.gender }}
+                                    </span>
+                                    <!-- 年龄徽章 -->
+                                    <span 
+                                      v-if="item.age" 
+                                      class="text-[8px] font-bold px-1.5 py-0.5 rounded bg-surface-high/60 text-on-surface-variant/80 border border-outline-variant/15 font-sans"
+                                    >
+                                      {{ item.age }}岁
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <!-- 描述说明 -->
+                              <p class="text-[10px] text-on-surface-variant/75 mt-2.5 leading-relaxed line-clamp-2 select-text" :title="item.description || '暂无设定描述'">
+                                {{ item.description || '暂无设定描述' }}
+                              </p>
+                            </div>
+
+                            <!-- 悬浮动作栏 -->
+                            <div class="absolute inset-0 bg-surface-low/95 opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center justify-center space-x-3 backdrop-blur-sm">
+                              <button 
+                                @click="openEditUserProfile(item)"
+                                class="flex items-center space-x-1 text-xs text-primary border border-primary/20 hover:border-primary hover:bg-primary/10 bg-primary/5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer"
+                              >
+                                <PenLineIcon class="w-3.5 h-3.5" />
+                                <span>编辑设定</span>
+                              </button>
+                              <button 
+                                @click="deleteUserProfileData(item.profileId)"
+                                class="flex items-center space-x-1 text-xs text-error border border-error/20 hover:border-error hover:bg-error/10 bg-error/5 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer"
+                              >
+                                <Trash2Icon class="w-3.5 h-3.5" />
+                                <span>删除</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <!-- 编辑模式 -->
-                      <textarea v-else v-model="globalUserMdContent" class="flex-1 w-full font-mono text-xs bg-surface border border-outline-variant/15 rounded-xl p-3 focus:outline-none focus:border-primary resize-none text-on-surface overflow-y-auto shadow-inner h-full"></textarea>
+
+                      <!-- 空状态 -->
+                      <div v-else class="flex-1 flex flex-col items-center justify-center py-12 text-on-surface-variant/40 select-none space-y-2.5 bg-surface-low/10 rounded-xl border border-dashed border-outline-variant/20">
+                        <UserIcon class="w-8 h-8 opacity-40" />
+                        <span class="text-xs">暂无用户人设设定，点击右上角添加</span>
+                      </div>
                     </div>
                   </template>
 
                   <!-- 保存按钮 -->
-                  <div class="flex justify-end pt-3 border-t border-outline-variant/10">
+                  <div v-if="userProfileActiveTab === 'profile'" class="flex justify-end pt-3 border-t border-outline-variant/10">
                     <button
                       @click="saveUserProfile"
                       :disabled="saving"
@@ -3927,6 +3980,28 @@
                   <div class="flex items-center space-x-2 mt-2">
                     <span class="text-[9px] tracking-wider uppercase bg-primary/5 text-primary border border-primary/10 px-1.5 py-0.5 rounded font-bold font-mono">Soul Card</span>
                     <span class="text-[9px] tracking-wider uppercase bg-secondary/5 text-secondary border border-secondary/10 px-1.5 py-0.5 rounded font-bold font-mono">Agentic Life</span>
+                  </div>
+
+                  <!-- 绑定用户人设马甲 -->
+                  <div class="mt-4 pt-3 border-t border-outline-variant/10 flex items-center space-x-2.5 select-none">
+                    <span class="text-[10px] text-on-surface-variant font-bold flex items-center space-x-1 shrink-0">
+                      <UserCheckIcon class="w-3.5 h-3.5 text-primary" />
+                      <span>绑定马甲：</span>
+                    </span>
+                    <select 
+                      v-model="selectedContactBindingProfileId" 
+                      @change="handleContactBindingProfileChange"
+                      class="text-xs py-1.5 px-3.5 border border-outline-variant bg-surface rounded-xl focus:outline-none focus:border-primary text-on-surface cursor-pointer select-none max-w-[180px] truncate shadow-sm transition-all"
+                    >
+                      <option value="">(未绑定任何马甲)</option>
+                      <option 
+                        v-for="prof in userProfilesList" 
+                        :key="prof.profileId" 
+                        :value="prof.profileId"
+                      >
+                        {{ prof.name }} ({{ prof.description || prof.profileId }})
+                      </option>
+                    </select>
                   </div>
 
 
@@ -10054,6 +10129,153 @@
       </div>
     </div>
   </div>
+
+  <!-- C. 用户人设详情添加/编辑 Modal (全新宽屏毛玻璃设计) -->
+  <div v-if="showUserProfileDetailModal" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-md select-none animate-in fade-in duration-200">
+    <div class="bg-white border border-outline-variant/20 rounded-3xl w-[680px] max-w-[90vw] overflow-hidden flex flex-col shadow-[0_20px_50px_rgba(0,0,0,0.15)] animate-in zoom-in-95 duration-200">
+      <!-- 弹窗头部 -->
+      <div class="px-6 py-5 border-b border-outline-variant/10 flex items-center justify-between">
+        <span class="text-sm font-bold text-on-surface flex items-center space-x-2">
+          <UserIcon class="w-4 h-4 text-primary" />
+          <span>{{ editingUserProfile.profileId ? '编辑用户设定' : '添加用户设定' }}</span>
+        </span>
+        <button @click="showUserProfileDetailModal = false" class="text-on-surface-variant hover:text-on-surface transition-all rounded-full hover:bg-surface-container-high/60 p-1.5 cursor-pointer">
+          <XIcon class="w-4 h-4" />
+        </button>
+      </div>
+
+      <!-- 弹窗主体 (表单) -->
+      <div class="p-6 overflow-y-auto flex-1 space-y-6 select-text">
+        <!-- 第一行：头像上传与基本信息（姓名、年龄） -->
+        <div class="flex items-center space-x-6">
+          <!-- 头像上传 -->
+          <div 
+            @click="triggerFormAvatarInput"
+            class="w-24 h-24 rounded-2xl border-2 border-dashed border-outline-variant/60 bg-surface-low hover:border-primary/50 flex-shrink-0 cursor-pointer relative group transition-all duration-200 overflow-hidden flex flex-col items-center justify-center shadow-inner hover:scale-[1.02] active:scale-[0.98]"
+            title="点击上传人设头像"
+          >
+            <img v-if="editingUserProfile.avatar" :src="editingUserProfile.avatar" class="w-full h-full object-cover" />
+            <div v-else class="w-full h-full flex flex-col items-center justify-center text-on-surface-variant/55 p-2 text-center space-y-1">
+              <CameraIcon class="w-6 h-6 text-on-surface-variant/40 group-hover:text-primary transition-colors" />
+              <span class="text-[9px] font-bold tracking-wider uppercase leading-none mt-0.5">上传头像</span>
+              <span class="text-[7px] text-red-500 font-medium">(必填)</span>
+            </div>
+            <div class="absolute inset-0 bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <CameraIcon class="w-5 h-5 text-white" />
+            </div>
+          </div>
+          <input ref="userProfileFormInput" type="file" accept="image/*" class="hidden" @change="handleFormAvatarChange" />
+
+          <!-- 姓名与年龄表单组 -->
+          <div class="flex-1 grid grid-cols-2 gap-4">
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">人设姓名 <span class="text-red-500 font-bold">*</span></label>
+              <input 
+                v-model="editingUserProfile.name" 
+                type="text" 
+                placeholder="例如：林深" 
+                class="form-input text-xs w-full px-3.5 py-2.5 rounded-xl bg-surface border border-outline-variant/60 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all font-sans" 
+              />
+            </div>
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">人设年龄 <span class="text-on-surface-variant/50 text-[9px] font-normal font-sans">(非必填)</span></label>
+              <input 
+                v-model="editingUserProfile.age" 
+                type="number" 
+                min="0"
+                placeholder="例如：24" 
+                class="form-input text-xs w-full px-3.5 py-2.5 rounded-xl bg-surface border border-outline-variant/60 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all font-sans" 
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- 第二行：性别选择与一句话描述 -->
+        <div class="grid grid-cols-12 gap-5 items-start">
+          <!-- 性别选择 (占 5 列) -->
+          <div class="col-span-5 space-y-2 flex flex-col">
+            <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">性别选择 <span class="text-red-500 font-bold">*</span></label>
+            <div class="flex items-center space-x-1.5 p-1 bg-surface-low border border-outline-variant/35 rounded-xl">
+              <button 
+                type="button"
+                @click="editingUserProfile.gender = '男'"
+                class="flex-1 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all duration-200"
+                :class="editingUserProfile.gender === '男' ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
+              >
+                男
+              </button>
+              <button 
+                type="button"
+                @click="editingUserProfile.gender = '女'"
+                class="flex-1 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all duration-200"
+                :class="editingUserProfile.gender === '女' ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
+              >
+                女
+              </button>
+              <button 
+                type="button"
+                @click="editingUserProfile.gender = '其他'"
+                class="flex-1 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all duration-200"
+                :class="editingUserProfile.gender !== '男' && editingUserProfile.gender !== '女' ? 'bg-primary text-white shadow-sm' : 'text-on-surface-variant hover:text-on-surface'"
+              >
+                其他
+              </button>
+            </div>
+            <!-- 自定义输入 -->
+            <div v-if="editingUserProfile.gender !== '男' && editingUserProfile.gender !== '女'" class="animate-in slide-in-from-top-1 duration-150 mt-1.5">
+              <input 
+                v-model="editingUserProfile.otherGender" 
+                type="text" 
+                placeholder="请输入自定义性别" 
+                class="form-input text-xs w-full px-3 py-2 rounded-xl bg-surface border border-outline-variant/60 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all" 
+              />
+            </div>
+          </div>
+
+          <!-- 一句话描述 (占 7 列) -->
+          <div class="col-span-7 space-y-1.5">
+            <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">一句话描述 <span class="text-on-surface-variant/50 text-[9px] font-normal font-sans">(非必填)</span></label>
+            <textarea 
+              v-model="editingUserProfile.description" 
+              rows="2"
+              placeholder="用于区分重名设定（如：程序员、高冷剑客等）" 
+              class="form-input text-xs w-full px-3.5 py-2.5 rounded-xl bg-surface border border-outline-variant/60 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all font-sans resize-none h-[72px]" 
+            ></textarea>
+          </div>
+        </div>
+
+        <!-- 第三行：设定 Markdown 源码详情 -->
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between select-none">
+            <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">人设内容 (Markdown 源码) <span class="text-red-500 font-bold">*</span></label>
+            <span class="text-[8px] text-on-surface-variant/50 uppercase font-sans">将全量注入 SYSTEM PROMPT 中作为用户背景设定</span>
+          </div>
+          <textarea 
+            v-model="editingUserProfile.content" 
+            placeholder="在此输入您的全局人设 Markdown 详细内容。例如：
+# 个人偏好
+- 喜欢吃甜食，不喜欢吃辣
+- 在和你对话时，总是倾向于以客观专业的角度看待问题
+
+# 专属身份
+- 你是这名 AI 角色的大学室友，曾经有着极其深厚的友谊...
+" 
+            class="w-full h-44 p-4 rounded-xl border border-outline-variant/60 bg-surface text-xs leading-relaxed resize-none focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 font-mono shadow-inner text-on-surface"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- 弹窗页脚 -->
+      <div class="px-6 py-5 border-t border-outline-variant/10 flex items-center justify-end space-x-3 bg-surface-low/35">
+        <button @click="showUserProfileDetailModal = false" class="w-28 h-9 border border-outline-variant/60 text-on-surface-variant hover:text-on-surface hover:bg-surface-high/30 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-center">
+          取消
+        </button>
+        <button @click="saveUserProfileData" class="btn-primary w-28 h-9 text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer shadow-sm hover:shadow-md flex items-center justify-center !py-0">
+          保存设定
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -10163,7 +10385,9 @@ import {
   ExternalLink as ExternalLinkIcon,
   Cloud as CloudIcon,
   CheckSquare as CheckSquareIcon,
-  UserPlus as UserPlusIcon
+  UserPlus as UserPlusIcon,
+  UserCheck as UserCheckIcon,
+  Trash2 as Trash2Icon
 } from 'lucide-vue-next'
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue'
@@ -10904,6 +11128,7 @@ const contactTabs = computed(() => {
 
 // ===================== 用户个人信息 =====================
 const userProfile = reactive({
+  appAvatarUrl: '',
   avatarUrl: '',
   nickname: '用户',
   signature: '',
@@ -10912,6 +11137,149 @@ const userProfile = reactive({
 })
 const globalUserMdContent = ref('')
 const showUserProfileModal = ref(false)
+
+// ===================== 多用户人设设定相关状态与方法 =====================
+const userProfilesList = ref<any[]>([])
+const showUserProfileDetailModal = ref(false)
+const userProfileFormInput = ref<HTMLInputElement | null>(null)
+const editingUserProfile = ref({
+  profileId: '',
+  avatar: '',
+  name: '',
+  gender: '男',
+  otherGender: '',
+  age: '',
+  description: '',
+  content: ''
+})
+
+async function loadUserProfilesList() {
+  try {
+    const res = await window.api.invoke('list-user-profiles')
+    if (res.success) {
+      userProfilesList.value = res.list || []
+    }
+  } catch (err) {
+    console.error('加载人设列表失败:', err)
+  }
+}
+
+function openAddUserProfile() {
+  editingUserProfile.value = {
+    profileId: '',
+    avatar: '',
+    name: '',
+    gender: '男',
+    otherGender: '',
+    age: '',
+    description: '',
+    content: ''
+  }
+  showUserProfileDetailModal.value = true
+}
+
+function openEditUserProfile(item: any) {
+  editingUserProfile.value = {
+    profileId: item.profileId || '',
+    avatar: item.avatar || '',
+    name: item.name || '',
+    gender: ['男', '女'].includes(item.gender) ? item.gender : '其他',
+    otherGender: ['男', '女'].includes(item.gender) ? '' : (item.gender || ''),
+    age: item.age || '',
+    description: item.description || '',
+    content: item.content || ''
+  }
+  showUserProfileDetailModal.value = true
+}
+
+async function saveUserProfileData() {
+  const p = editingUserProfile.value
+  if (!p.name.trim()) {
+    alert('请输入设定姓名')
+    return
+  }
+  const genderVal = p.gender === '其他' ? p.otherGender.trim() : p.gender
+  if (!genderVal) {
+    alert('请选择或输入性别')
+    return
+  }
+  if (!p.avatar) {
+    alert('请上传头像')
+    return
+  }
+  if (!p.content.trim()) {
+    alert('请输入设定内容')
+    return
+  }
+
+  try {
+    const res = await window.api.invoke('save-user-profile-data', {
+      profileId: p.profileId || null,
+      avatar: p.avatar,
+      name: p.name.trim(),
+      gender: genderVal,
+      age: p.age,
+      description: p.description.trim(),
+      content: p.content.trim()
+    })
+
+    if (res.success) {
+      showUserProfileDetailModal.value = false
+      await loadUserProfilesList()
+    } else {
+      alert('保存失败: ' + res.error)
+    }
+  } catch (err: any) {
+    alert('保存出错: ' + (err.message || err))
+  }
+}
+
+async function deleteUserProfileData(profileId: string) {
+  showCustomConfirm(
+    '确认删除人设',
+    '确定要删除这个人设设定吗？这也会清空与之关联的所有会话绑定。',
+    async () => {
+      try {
+        const res = await window.api.invoke('delete-user-profile-data', profileId)
+        if (res.success) {
+          await loadUserProfilesList()
+        } else {
+          showCustomAlert('删除失败', res.error, 'error')
+        }
+      } catch (err: any) {
+        showCustomAlert('删除出错', err.message || err, 'error')
+      }
+    }
+  )
+}
+
+function triggerFormAvatarInput() {
+  if (userProfileFormInput.value) {
+    userProfileFormInput.value.click()
+  }
+}
+
+function handleFormAvatarChange(e: Event) {
+  const files = (e.target as HTMLInputElement).files
+  if (!files || !files[0]) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    editingUserProfile.value.avatar = reader.result as string
+  }
+  reader.readAsDataURL(files[0])
+}
+
+const selectedContactBindingProfileId = ref('')
+
+async function handleContactBindingProfileChange() {
+  if (!selectedContactId.value) return
+  const profileId = selectedContactBindingProfileId.value || null
+  await window.api.invoke('set-profile-binding', {
+    targetId: selectedContactId.value,
+    profileId
+  })
+  showToast('马甲绑定更新成功 🐾')
+}
 const avatarFileInput = ref<HTMLInputElement | null>(null)
 const userProfileActiveTab = ref<'profile' | 'userMd'>('profile')
 const userMdEditing = ref(false)
@@ -11182,32 +11550,39 @@ async function triggerBookChapterRewrite(chapterId: string) {
 
 // 删除章节
 async function triggerBookChapterDelete(chapterId: string) {
-  if (!confirm('确定要删除这一章小说吗？注意：为确保故事一致性，删除此章将会物理连带删除后续的所有小说章节。此操作不可逆！')) return
-  try {
-    const res = await window.api.invoke('novel-delete-chapter', { chapterId })
-    if (res && res.success) {
-      showToast('章节已成功删除')
-      await checkGlobalNovelStatus()
-      if (selectedBookId.value) {
-        const chaptersRes = await window.api.invoke('novel-get-chapters', { characterId: selectedBookId.value })
-        if (chaptersRes.success && chaptersRes.chapters) {
-          bookChapters.value = chaptersRes.chapters
-          if (chaptersRes.chapters.length > 0) {
-            const stillExists = chaptersRes.chapters.some((c: any) => c.id === selectedBookChapterId.value)
-            if (stillExists) {
-              await loadChapterContent(selectedBookChapterId.value!)
-            } else {
-              await loadChapterContent(chaptersRes.chapters[0].id)
+  showCustomConfirm(
+    '确认删除章节',
+    '确定要删除这一章小说吗？注意：为确保故事一致性，删除此章将会物理连带删除后续的所有小说章节。此操作不可逆！',
+    async () => {
+      try {
+        const res = await window.api.invoke('novel-delete-chapter', { chapterId })
+        if (res && res.success) {
+          showToast('章节已成功删除')
+          await checkGlobalNovelStatus()
+          if (selectedBookId.value) {
+            const chaptersRes = await window.api.invoke('novel-get-chapters', { characterId: selectedBookId.value })
+            if (chaptersRes.success && chaptersRes.chapters) {
+              bookChapters.value = chaptersRes.chapters
+              if (chaptersRes.chapters.length > 0) {
+                const stillExists = chaptersRes.chapters.some((c: any) => c.id === selectedBookChapterId.value)
+                if (stillExists) {
+                  await loadChapterContent(selectedBookChapterId.value!)
+                } else {
+                  await loadChapterContent(chaptersRes.chapters[0].id)
+                }
+              } else {
+                await closeBook()
+              }
             }
-          } else {
-            await closeBook()
           }
+        } else {
+          showCustomAlert('删除失败', (res && res.error) || '未知错误', 'error')
         }
+      } catch (err: any) {
+        showCustomAlert('删除出错', err.message || err, 'error')
       }
     }
-  } catch (err: any) {
-    showToast(`删除章节失败: ${err.message || err}`)
-  }
+  )
 }
 
 // 导出整书TXT
@@ -11394,18 +11769,23 @@ async function triggerNovelRewrite(chapterId: string) {
 async function triggerNovelDelete(chapterId: string) {
   const charId = selectedCharacterId.value
   if (!charId) return
-  if (!confirm('确定要删除这一章小说吗？注意：为确保故事一致性，删除此章将会物理连带删除后续的所有小说章节。此操作不可逆！')) return
-  try {
-    const res = await window.api.invoke('novel-delete-chapter', { chapterId })
-    if (res.success) {
-      showToast('章节已成功删除 🗑️')
-      loadNovelChapters(charId)
-    } else {
-      showCustomAlert('删除失败', res.error, 'error')
+  showCustomConfirm(
+    '确认删除章节',
+    '确定要删除这一章小说吗？注意：为确保故事一致性，删除此章将会物理连带删除后续的所有小说章节。此操作不可逆！',
+    async () => {
+      try {
+        const res = await window.api.invoke('novel-delete-chapter', { chapterId })
+        if (res.success) {
+          showToast('章节已成功删除 🗑️')
+          loadNovelChapters(charId)
+        } else {
+          showCustomAlert('删除失败', res.error, 'error')
+        }
+      } catch (err: any) {
+        showCustomAlert('删除失败', err.message || err, 'error')
+      }
     }
-  } catch (err: any) {
-    showCustomAlert('删除失败', err.message || err, 'error')
-  }
+  )
 }
 
 // 为章节评分
@@ -11778,6 +12158,7 @@ const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secon
 
 watch(activeSettingsTab, (newTab) => {
   if (newTab === 'profile') {
+    loadUserProfilesList()
     window.api.invoke('read-global-user-md').then((res: any) => {
       if (res.success) {
         globalUserMdContent.value = res.content
@@ -11787,6 +12168,12 @@ watch(activeSettingsTab, (newTab) => {
         }
       }
     })
+  }
+})
+
+watch(userProfileActiveTab, (newTab) => {
+  if (newTab === 'userMd') {
+    loadUserProfilesList()
   }
 })
 
@@ -12626,12 +13013,17 @@ function editPresetItem(item: any) {
 
 // 彻底删除某条状态预置项
 function deletePresetItem(id: string) {
-  if (!confirm('确定要删除该状态栏预设吗？如果它已被设为全局状态栏，删除后在角色对话中将不再作为全局渲染。')) return
-  statePresets.value = statePresets.value.filter(p => p.id !== id)
-  if (editingPresetId.value === id) {
-    cancelEditPreset()
-  }
-  saveAllStatePresets()
+  showCustomConfirm(
+    '确认删除状态栏预设',
+    '确定要删除该状态栏预设吗？如果它已被设为全局状态栏，删除后在角色对话中将不再作为全局渲染。',
+    () => {
+      statePresets.value = statePresets.value.filter(p => p.id !== id)
+      if (editingPresetId.value === id) {
+        cancelEditPreset()
+      }
+      saveAllStatePresets()
+    }
+  )
 }
 
 // 放弃编辑重设表单
@@ -13384,6 +13776,15 @@ async function saveContactName() {
 
 watch(selectedContactId, () => {
   isEditingContactName.value = false
+  selectedContactBindingProfileId.value = ''
+  if (selectedContactId.value) {
+    loadUserProfilesList()
+    window.api.invoke('get-profile-binding', selectedContactId.value).then((res: any) => {
+      if (res.success && res.profileId) {
+        selectedContactBindingProfileId.value = res.profileId
+      }
+    })
+  }
 })
 
 const contactAvatarInput = ref<HTMLInputElement | null>(null)
@@ -16201,7 +16602,7 @@ function handleAvatarChange(e: Event) {
   const files = (e.target as HTMLInputElement).files
   if (!files || !files[0]) return
   const reader = new FileReader()
-  reader.onload = () => { userProfile.avatarUrl = reader.result as string }
+  reader.onload = () => { userProfile.appAvatarUrl = reader.result as string }
   reader.readAsDataURL(files[0])
 }
 
@@ -16241,6 +16642,7 @@ async function saveUserProfile() {
 function saveUserProfileLocal(syncToBackend = true) {
   try {
     const profileData = {
+      appAvatarUrl: userProfile.appAvatarUrl,
       avatarUrl: userProfile.avatarUrl,
       nickname: userProfile.nickname,
       signature: userProfile.signature,
@@ -16259,6 +16661,7 @@ function loadUserProfileLocal() {
     const stored = localStorage.getItem('echo_user_profile')
     if (stored) {
       const data = JSON.parse(stored)
+      userProfile.appAvatarUrl = data.appAvatarUrl || ''
       userProfile.avatarUrl = data.avatarUrl || ''
       userProfile.nickname = data.nickname || ''
       userProfile.signature = data.signature || ''
