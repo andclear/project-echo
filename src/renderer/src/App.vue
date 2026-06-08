@@ -10277,6 +10277,13 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     eventSource.addEventListener('creator-bot-message', handleSseEvent)
     eventSource.addEventListener('character-imported', handleSseEvent)
 
+    // 🚀 监听小说 AI 写手事件，使局域网/移动端接收到红点和进程变更广播
+    eventSource.addEventListener('novel-chapter-added', handleSseEvent)
+    eventSource.addEventListener('novel-chapter-rewritten', handleSseEvent)
+    eventSource.addEventListener('novel-continue-done', handleSseEvent)
+    eventSource.addEventListener('novel-generation-state-changed', handleSseEvent)
+    eventSource.addEventListener('novel-unread-count-changed', handleSseEvent)
+
     eventSource.onerror = (err) => {
       console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err)
     }
@@ -13492,7 +13499,7 @@ async function selectCharacterForContactDetails(charId: string) {
   // B. 读取 Memory.md
   const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
   contactMemoryContent.value = memRes.success ? memRes.content : ''
-  contactMemoryRawContent.value = memRes.success ? memRes.content : ''
+  contactMemoryRawContent.value = memRes.success ? memRes.content.replace(/^<!--[\s\S]*?-->/g, '').trim() : ''
   
   // C. 读取 USER.md
   const userRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'USER.md' })
@@ -16227,7 +16234,7 @@ async function openBrainPanel() {
   brainWorldContent.value = worldRes.success ? worldRes.content : ''
 
   const memRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'Memory.md' })
-  brainMemoryContent.value = memRes.success ? memRes.content : ''
+  brainMemoryContent.value = memRes.success ? memRes.content.replace(/^<!--[\s\S]*?-->/g, '').trim() : ''
 
   const userRes = await window.api.invoke('read-character-file', { folderName: char.folder_name, fileName: 'USER.md' })
   brainCharUserContent.value = userRes.success ? userRes.content : ''
@@ -16242,7 +16249,7 @@ async function openGroupBrainPanel() {
   brainEditModes.summary = false
 
   const memRes = await window.api.invoke('read-group-file', { groupId, fileName: 'Memory.md' })
-  brainMemoryContent.value = memRes.success ? memRes.content : ''
+  brainMemoryContent.value = memRes.success ? memRes.content.replace(/^<!--[\s\S]*?-->/g, '').trim() : ''
 
   const sumRes = await window.api.invoke('read-group-file', { groupId, fileName: 'SUMMARY.md' })
   brainSummaryContent.value = sumRes.success ? sumRes.content : ''

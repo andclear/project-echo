@@ -1980,7 +1980,15 @@ ${soulContent}
         fs.mkdirSync(groupDir, { recursive: true })
       }
       const filePath = join(groupDir, fileName)
-      fs.writeFileSync(filePath, content, 'utf8')
+      if (fileName === 'Memory.md') {
+        const { stm, ltm } = parseMemoryMd(content)
+        const jsonData = { stm, ltm }
+        const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`
+        const fullFileContent = `${jsonComment}\n\n${content.trim()}`
+        fs.writeFileSync(filePath, fullFileContent, 'utf8')
+      } else {
+        fs.writeFileSync(filePath, content, 'utf8')
+      }
       console.log(`[IPC] 群聊文件 ${fileName} 保存成功: ${groupId}`)
       return { success: true }
     } catch (error: any) {
@@ -2132,8 +2140,8 @@ ${soulContent}
       }
       const storageManager = new CharacterStorageManager()
       let content = storageManager.readCharacterFile(payload.folderName, payload.fileName) || ''
-      // 若是记忆或专属用户画像，剥离头部的 HTML 注释元数据 block
-      if (payload.fileName === 'Memory.md' || payload.fileName === 'USER.md') {
+      // 若是专属用户画像，剥离头部的 HTML 注释元数据 block
+      if (payload.fileName === 'USER.md') {
         content = content.replace(/^<!--[\s\S]*?-->/g, '').trim()
       }
       return { success: true, content }

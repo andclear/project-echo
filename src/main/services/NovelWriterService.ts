@@ -305,8 +305,10 @@ export class NovelWriterService {
   /**
    * 从 pending 对话中分段并串行生成多章节
    */
-  private async generateChaptersFromPendingDialogue(characterId: string, isFirstChapter: boolean): Promise<void> {
+  private async generateChaptersFromPendingDialogue(characterId: string, _isFirstChapter: boolean): Promise<void> {
     const db = getDatabaseService()
+    // 串行队列内执行时，即时获取最新章节数以消除竞态判定错误
+    const isFirstChapter = db.getNovelChapterCount(characterId) === 0
 
     const startTsStr = db.getSetting(`novel_start_ts_${characterId}`) || '0'
     const startTs = parseInt(startTsStr, 10)
@@ -1155,6 +1157,13 @@ ${adaptationInstruction}
 
     // 物理去除多余的 Markdown 格式包围
     content = content.replace(/^```markdown/i, '').replace(/```$/, '').trim()
+
+    // 剔除可能的思维链推理过程标签以保证正文洁净
+    content = content
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
+      .replace(/<cot>[\s\S]*?<\/cot>/g, '')
+      .trim()
 
     return { title, content }
   }
