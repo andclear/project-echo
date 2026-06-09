@@ -9105,11 +9105,12 @@ async function performUserPlaceholderMigration() {
             let modified = false
             
             for (const name of allNames) {
-              if (name && name.trim() !== '' && content.includes(name)) {
-                const userNameRegex = new RegExp(name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
-                content = content.replace(userNameRegex, '{{user}}')
-                modified = true
-                console.log(`[Migration] ➜ 成功将 ${char.name} (${folderName}) 下 ${fileName} 中的 "${name}" 物理收缩替换为 "{{user}}"`)
+              const cleanName = name.trim();
+              if (cleanName.length >= 2 && content.includes(cleanName)) {
+                const userNameRegex = new RegExp(cleanName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+                content = content.replace(userNameRegex, '{{user}}');
+                modified = true;
+                console.log(`[Migration] ➜ 成功将 ${char.name} (${folderName}) 下 ${fileName} 中的 "${cleanName}" 物理收缩替换为 "{{user}}"`);
               }
             }
 
