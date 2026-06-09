@@ -255,6 +255,30 @@ describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () =
       const output = ContextAssembler.cleanDialogueActions(input);
       expect(output).toBe('微微叹气，头也不抬地整理着柜台上的药盒');
     });
+
+    it('应当能完美剥离红包发送指令且不留任何多余的闭括号或字符残留', () => {
+      const input = '[SEND_RED_PACKET: 10, 点钱，收好。]';
+      const output = ContextAssembler.cleanDialogueActions(input);
+      expect(output).toBe('[SEND_RED_PACKET: 10, 点钱，收好。]'); 
+    });
+
+    it('当红包发送指令附带多行对话时，应完美剥离指令并保留干净的对话文本', () => {
+      const input = '[SEND_RED_PACKET: 10, 点钱，收好。]\n今天天气挺好的。';
+      const output = ContextAssembler.cleanDialogueActions(input);
+      expect(output).toBe('[SEND_RED_PACKET: 10, 点钱，收好。]\n今天天气挺好的。'); 
+    });
+
+    it('应当能完美剥离自定义表情包指令且不留多余的闭括号或字符残留', () => {
+      const input = '[表情: 惊讶]';
+      const output = ContextAssembler.cleanDialogueActions(input);
+      expect(output).toBe('[SEND_CUSTOM_EMOJI: 惊讶]'); 
+    });
+
+    it('当自定义表情包指令附带多行对话时，应完美剥离指令并保留干净的对话文本', () => {
+      const input = '[SEND_CUSTOM_EMOJI: 惊讶]\n你怎么在这？';
+      const output = ContextAssembler.cleanDialogueActions(input);
+      expect(output).toBe('[SEND_CUSTOM_EMOJI: 惊讶]\n你怎么在这？'); 
+    });
   });
 });
 

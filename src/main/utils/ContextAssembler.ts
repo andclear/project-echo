@@ -425,7 +425,7 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
 
     // 保护角色发红包控制符 [SEND_RED_PACKET: amount, title]
     // 🚀 升级为超强容错正则，支持最外层中括号可选、反单引号包裹、中文全角冒号/逗号、忽略大小写
-    const sendReg = /`?\s*\[?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)\]?\s*`?/i;
+    const sendReg = /`?\s*\[?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\]]+)\]?\s*`?/i;
     const m = cleaned.match(sendReg);
     if (m) {
       // 🚀 核心优化：如果匹配到，将其标准化为绝对标准的半角格式，消除反单引号 and 全角符号，并确保附言不超过15字
@@ -439,7 +439,7 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     }
 
     // 保护自定义表情包控制符 [SEND_CUSTOM_EMOJI: name] 或者是 [表情: name]
-    const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/i;
+    const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\]]+)\]?\s*`?/i;
     const em = cleaned.match(emojiReg);
     if (em) {
       const emojiName = em[1].trim();

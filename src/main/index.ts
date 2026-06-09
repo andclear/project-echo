@@ -3682,11 +3682,11 @@ ${soulContent}
           // C. 提取与清洗控制符
           let finalResponse = stripThinkingTags(accumulatedResponse)
 
-          // 升级为最外层中括号可选的超强兼容正则
-          const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]?\s*`?/i
-          const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]?\s*`?/gi
-          const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/i
-          const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/gi
+          // 升级为最外层中括号可选的超强兼容正则，使用[^\\]］]+防短路
+          const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\\]］]+)[\]］]?\s*`?/i
+          const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\\]］]+)[\]］]?\s*`?/gi
+          const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\\]］]+)\]?\s*`?/i
+          const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\\]］]+)\]?\s*`?/gi
 
           // D. [回音红包动作决策] (扣减各自 State.md 的钱包余额)
           let redPacketSend: { amount: number; title: string; status: string } | null = null
@@ -4733,8 +4733,9 @@ ${memoryContent}
 
       systemPrompt += buildEmojiSystemPromptSuffix(chatMode)
 
-      // 🚀 组装高频变动的实时 Dynamic Context (只在最新一轮 user 消息中动态注入，让 systemPrompt 100% 绝对静止以获得 >90% 缓存命中)
-      const lastMsgTimestamp = rawHistory[0]?.timestamp
+      // 🚀 获取最后一条用户（User）消息的时间戳作为计算基准，防范 Assistant 自动发搭讪/日记重置流逝计数
+      const lastUserMsg = rawHistory.find((m: any) => m.role === 'user')
+      const lastMsgTimestamp = lastUserMsg ? lastUserMsg.timestamp : 0
       const dynamicContext = ContextAssembler.assembleDynamicContext(
         soulPath,
         memoryPath,
@@ -4748,10 +4749,24 @@ ${memoryContent}
         dynamicHeader = `[System Dynamic Context Update]\n${dynamicContext}\n---\n\n`
       }
 
+      // 🚀 核心优化：计算最新一轮与上一次用户发言的时间差，并在最新消息头部直接拼入相对时间插帧
+      let timeGapTag = '';
+      if (lastMsgTimestamp && lastMsgTimestamp > 0) {
+        const gapMs = Date.now() - lastMsgTimestamp;
+        if (gapMs >= 2 * 60 * 60 * 1000) { // 大于等于 2 小时
+          const gapHours = gapMs / (1000 * 60 * 60);
+          if (gapHours >= 24) {
+            timeGapTag = `[时空流逝：相隔 ${Math.floor(gapHours / 24)} 天后]\n`;
+          } else {
+            timeGapTag = `[时空流逝：相隔 ${Math.floor(gapHours)} 小时后]\n`;
+          }
+        }
+      }
+
       // 如果有粘贴图片，在用户消息中顺带注入 AI 刚理解出的多模态图片描述
       const userMessageFinal = payload.imageBase64
-        ? `${formatMessageContentForLLM(userMessage, 'user')}\n\n（用户发来了一张图片${imageDescription ? `，画面里是：${imageDescription}` : ''}）\n\n[请结合当前对话语境和这张图片的内容，做出非常自然、人设化的回应。]`
-        : formatMessageContentForLLM(userMessage, 'user')
+        ? `${timeGapTag}${formatMessageContentForLLM(userMessage, 'user')}\n\n（用户发来了一张图片${imageDescription ? `，画面里是：${imageDescription}` : ''}）\n\n[请结合当前对话语境和这张图片的内容，做出非常自然、人设化的回应。]`
+        : `${timeGapTag}${formatMessageContentForLLM(userMessage, 'user')}`
 
       // 获取当前角色的真实姓名
       const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
@@ -5029,11 +5044,11 @@ ${memoryContent}
     let redPacketSend: { amount: number; title: string; status: string } | null = null
 
     // A. 判定是否为角色主动发红包
-    // 🚀 升级为最外层中括号可选的超强兼容正则
-    const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]?\s*`?/i
-    const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([\s\S]+?)[\]］]?\s*`?/gi
-    const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/i
-    const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([\s\S]+?)\]?\s*`?/gi
+    // 🚀 升级为最外层中括号可选的超强兼容正则，使用[^\\]］]+防短路
+    const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\\]］]+)[\]］]?\s*`?/i
+    const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\\]］]+)[\]］]?\s*`?/gi
+    const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\\]］]+)\]?\s*`?/i
+    const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\\]］]+)\]?\s*`?/gi
 
     const sendMatch = accumulatedResponse.match(sendReg)
     if (sendMatch) {
