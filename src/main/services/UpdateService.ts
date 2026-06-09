@@ -4,6 +4,7 @@ import fs from 'fs'
 import https from 'https'
 import { spawn, exec } from 'child_process'
 import { DatabaseService } from '../db/database'
+import { SseManager } from './SseManager'
 
 // 1. 版本升级数据结构定义
 interface PlatformUpdate {
@@ -98,12 +99,14 @@ export class UpdateService {
 
       if (!hasNewVersion) {
         this.isChecking = false
-        if (manual) {
-          mainWindow.webContents.send('update-check-status', {
-            status: 'latest',
-            currentVersion
-          })
+        const latestPayload = {
+          status: 'latest',
+          currentVersion
         }
+        if (manual) {
+          mainWindow.webContents.send('update-check-status', latestPayload)
+        }
+        SseManager.getInstance().broadcast('update-check-status', latestPayload)
         return { success: true, hasUpdate: false, message: '当前已是最新版本' }
       }
 
@@ -126,12 +129,15 @@ export class UpdateService {
       // 有更新，通知渲染层已发现新版本
       const isDockerMode = process.env.DOCKER_MODE === 'true'
       
-      mainWindow.webContents.send('update-check-status', {
+      const updateFoundPayload = {
         status: 'update-found',
         version: config.version,
         changelog: config.changelog,
         isDocker: isDockerMode
-      })
+      }
+      
+      mainWindow.webContents.send('update-check-status', updateFoundPayload)
+      SseManager.getInstance().broadcast('update-check-status', updateFoundPayload)
 
       // 🚀 如果是 Docker 部署环境下：优雅熔断后续的静默包下载，防止在容器内执行无意义的下载操作
       if (isDockerMode) {
@@ -200,7 +206,9 @@ export class UpdateService {
         downloadedBytes += chunk.length
         if (totalBytes > 0) {
           const percent = Math.round((downloadedBytes / totalBytes) * 100)
-          mainWindow.webContents.send('update-download-progress', { progress: percent })
+          const progressPayload = { progress: percent }
+          mainWindow.webContents.send('update-download-progress', progressPayload)
+          SseManager.getInstance().broadcast('update-download-progress', progressPayload)
         }
       })
 
@@ -212,11 +220,13 @@ export class UpdateService {
         const fileSize = fs.existsSync(localFilePath) ? fs.statSync(localFilePath).size : 0
         console.log(`[UpdateService] 更新包下载完成！路径: ${localFilePath}, 大小: ${fileSize} 字节`)
 
-        mainWindow.webContents.send('update-download-status', {
+        const downloadedPayload = {
           status: 'downloaded',
           version: latestVersion,
           changelog: this.latestVersionInfo?.changelog || ''
-        })
+        }
+        mainWindow.webContents.send('update-download-status', downloadedPayload)
+        SseManager.getInstance().broadcast('update-download-status', downloadedPayload)
       })
 
       fileStream.on('error', (err) => {
@@ -265,10 +275,12 @@ export class UpdateService {
   private handleDownloadError(mainWindow: BrowserWindow, err: Error): void {
     this.isDownloading = false
     console.error('[UpdateService] 静默下载更新包出错:', err.message)
-    mainWindow.webContents.send('update-download-status', {
+    const errorPayload = {
       status: 'error',
       message: `下载更新包失败: ${err.message}`
-    })
+    }
+    mainWindow.webContents.send('update-download-status', errorPayload)
+    SseManager.getInstance().broadcast('update-download-status', errorPayload)
   }
 
   /**

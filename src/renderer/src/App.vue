@@ -255,11 +255,12 @@
 
           <button
             @click="openSettingsPage"
-            class="nav-icon-btn"
+            class="nav-icon-btn relative"
             :class="{ 'nav-icon-btn-active': sideView === 'settings' }"
             title="设置"
           >
             <SettingsIcon class="w-5 h-5" />
+            <span v-if="hasNewVersion" class="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 rounded-full shadow-sm scale-95 animate-pulse"></span>
           </button>
         </div>
       </nav>
@@ -507,8 +508,9 @@
               @click="activeSettingsTab = menu.id; isMobileSettingsActive = true"
             >
               <component :is="menu.icon" class="w-4 h-4 text-on-surface-variant flex-shrink-0 transition-all group-hover:scale-110" :class="{ '!text-primary': activeSettingsTab === menu.id }" stroke-width="1.5" />
-              <div class="flex-1 min-w-0">
+              <div class="flex-1 min-w-0 flex items-center justify-between">
                 <div class="text-xs font-semibold text-on-surface truncate">{{ menu.label }}</div>
+                <span v-if="menu.id === 'about' && hasNewVersion" class="w-2 h-2 bg-red-500 rounded-full shadow-sm scale-95 animate-pulse mr-1.5 shrink-0"></span>
               </div>
             </div>
           </div>
@@ -3669,7 +3671,7 @@
                     <SettingsIcon class="w-8 h-8 text-primary" />
                   </div>
                   <h2 class="text-base font-bold text-on-surface">Echo - 回音</h2>
-                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version 1.0.4 (桌面端)</p>
+                  <p class="text-xs text-on-surface-variant mt-1.5 font-mono">Version {{ appVersion }} (桌面端)</p>
                   <p class="text-[10px] text-on-surface-variant mt-1.5 opacity-60">Power By Laopobao</p>
 
                   <!-- 🚀 高科技炫彩玻璃检查更新控制组件 -->
@@ -10144,7 +10146,7 @@
           <div class="flex items-center justify-center space-x-3.5 py-2 px-4 bg-surface-low/30 dark:bg-[#1a1a1a]/30 border border-outline-variant/10 dark:border-[#202022] rounded-[18px] dark:rounded-[6px] max-w-[290px] mx-auto shadow-sm">
             <div class="flex flex-col items-center">
               <span class="text-[8px] text-on-surface-variant/40 dark:text-[#bbcabf]/30 font-bold tracking-wider uppercase font-mono">Current</span>
-              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v1.0.4</span>
+              <span class="text-[11px] font-bold text-on-surface-variant/70 dark:text-[#c6c6c6] font-mono select-text mt-0.5">v{{ appVersion }}</span>
             </div>
             
             <!-- 指示箭头带极精密虚线 -->
@@ -10215,16 +10217,24 @@
           </button>
 
           <!-- C. 常规电脑客户端重启安装按钮 -->
-          <button
-            v-else
-            @click="handleRestartAndInstall"
-            class="px-6 py-2.5 rounded-xl dark:rounded-[4px] bg-gradient-to-r from-primary to-[#6063ee] dark:bg-none dark:bg-[#e5e5e5] text-white dark:text-[#050505] hover:brightness-105 hover:shadow-[0_6px_18px_rgba(70,72,212,0.25)] hover:-translate-y-[1px] active:translate-y-0 transition-all duration-200 flex items-center justify-center space-x-1.5 cursor-pointer relative overflow-hidden group font-sans dark:font-mono dark:hover:shadow-[0_0_12px_var(--primary)]"
-          >
-            <!-- 闪光特效 -->
-            <div class="absolute inset-0 w-1/2 h-full bg-white/15 dark:bg-black/10 skew-x-12 -translate-x-full group-hover:animate-shine"></div>
-            <RefreshCwIcon class="w-3.5 h-3.5 animate-spin-slow" />
-            <span>重启并升级</span>
-          </button>
+          <template v-else>
+            <button
+              v-if="isElectron"
+              @click="handleRestartAndInstall"
+              class="px-6 py-2.5 rounded-xl dark:rounded-[4px] bg-gradient-to-r from-primary to-[#6063ee] dark:bg-none dark:bg-[#e5e5e5] text-white dark:text-[#050505] hover:brightness-105 hover:shadow-[0_6px_18px_rgba(70,72,212,0.25)] hover:-translate-y-[1px] active:translate-y-0 transition-all duration-200 flex items-center justify-center space-x-1.5 cursor-pointer relative overflow-hidden group font-sans dark:font-mono dark:hover:shadow-[0_0_12px_var(--primary)]"
+            >
+              <!-- 闪光特效 -->
+              <div class="absolute inset-0 w-1/2 h-full bg-white/15 dark:bg-black/10 skew-x-12 -translate-x-full group-hover:animate-shine"></div>
+              <RefreshCwIcon class="w-3.5 h-3.5 animate-spin-slow" />
+              <span>重启并升级</span>
+            </button>
+            <div
+              v-else
+              class="px-4 py-2 rounded-xl dark:rounded-[4px] bg-primary/10 dark:bg-primary/20 text-xs font-semibold text-primary dark:text-[#4edea3] text-center border border-primary/20 dark:border-[#4edea3]/20 shadow-sm font-sans dark:font-mono select-none"
+            >
+              🐾 请前往您的电脑端客户端点击重启升级
+            </div>
+          </template>
         </footer>
       </div>
     </div>
@@ -10898,6 +10908,9 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     eventSource.addEventListener('character-settings-updated', handleSseEvent)
     eventSource.addEventListener('character-file-updated', handleSseEvent)
     eventSource.addEventListener('custom-emojis-updated', handleSseEvent)
+    eventSource.addEventListener('update-check-status', handleSseEvent)
+    eventSource.addEventListener('update-download-progress', handleSseEvent)
+    eventSource.addEventListener('update-download-status', handleSseEvent)
 
     eventSource.onerror = (err) => {
       console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err)
@@ -11078,6 +11091,70 @@ const downloadStatus = ref<'idle' | 'downloading' | 'downloaded' | 'error'>('idl
 const updateErrorMsg = ref('')
 const isDockerUpdate = ref(false)
 const copiedDockerCmd = ref(false)
+
+const appVersion = ref('1.0.4')
+const isElectron = typeof window !== 'undefined' && !!(window.electron && window.electron.ipcRenderer)
+
+function isNewerVersion(current: string, latest: string): boolean {
+  const currParts = current.replace(/^v/, '').split('.').map(Number)
+  const lateParts = latest.replace(/^v/, '').split('.').map(Number)
+
+  for (let i = 0; i < 3; i++) {
+    const curr = currParts[i] || 0
+    const late = lateParts[i] || 0
+    if (late > curr) return true
+    if (late < curr) return false
+  }
+  return false
+}
+
+const hasNewVersion = computed(() => {
+  const latest = localStorage.getItem('latest_detected_version')
+  if (!latest) return false
+  return isNewerVersion(appVersion.value, latest)
+})
+
+const handleUpdateCheckStatus = (payload: any) => {
+  updateStatus.value = payload.status
+  if (payload.status === 'update-found') {
+    latestVersion.value = payload.version
+    localStorage.setItem('latest_detected_version', payload.version)
+    updateChangelog.value = payload.changelog
+    isDockerUpdate.value = !!payload.isDocker
+    
+    if (payload.isDocker) {
+      showUpdateModal.value = true
+      updateStatus.value = 'latest'
+      downloadStatus.value = 'idle'
+    } else {
+      downloadStatus.value = 'downloading'
+    }
+  } else if (payload.status === 'latest') {
+    updateStatus.value = 'latest'
+    localStorage.removeItem('latest_detected_version')
+  } else if (payload.status === 'error') {
+    updateStatus.value = 'error'
+    updateErrorMsg.value = payload.message || '更新检查出错'
+  }
+}
+
+const handleUpdateDownloadProgress = (payload: any) => {
+  updateProgress.value = payload.progress
+  downloadStatus.value = 'downloading'
+}
+
+const handleUpdateDownloadStatus = (payload: any) => {
+  downloadStatus.value = payload.status
+  if (payload.status === 'downloaded') {
+    latestVersion.value = payload.version
+    localStorage.setItem('latest_detected_version', payload.version)
+    updateChangelog.value = payload.changelog
+    showUpdateModal.value = true
+  } else if (payload.status === 'error') {
+    downloadStatus.value = 'error'
+    updateErrorMsg.value = payload.message || '下载升级包出错'
+  }
+}
 
 // 动态解析更新日志，支持按行渲染并自动去除原生序号
 const parsedChangelog = computed(() => {
@@ -19426,6 +19503,16 @@ onMounted(async () => {
   // 初始化全局网页字体大小
   initFontSize()
 
+  // 获取实际应用版本号
+  try {
+    const version = await window.api.invoke('get-app-version')
+    if (version && typeof version === 'string') {
+      appVersion.value = version
+    }
+  } catch (err) {
+    console.error('获取应用版本号失败:', err)
+  }
+
   // 检查小说可用状态
   await checkGlobalNovelStatus()
 
@@ -19602,44 +19689,16 @@ onMounted(async () => {
 
   // 注册客户端版本更新通知监听
   if (window.electron && window.electron.ipcRenderer) {
-    unlistenUpdateStatus = window.electron.ipcRenderer.on('update-check-status', (payload: any) => {
-      updateStatus.value = payload.status
-      if (payload.status === 'update-found') {
-        latestVersion.value = payload.version
-        updateChangelog.value = payload.changelog
-        isDockerUpdate.value = !!payload.isDocker
-        
-        if (payload.isDocker) {
-          showUpdateModal.value = true
-          updateStatus.value = 'latest'
-          downloadStatus.value = 'idle'
-        } else {
-          downloadStatus.value = 'downloading'
-        }
-      } else if (payload.status === 'latest') {
-        updateStatus.value = 'latest'
-      } else if (payload.status === 'error') {
-        updateStatus.value = 'error'
-        updateErrorMsg.value = payload.message || '更新检查出错'
-      }
-    })
-
-    unlistenDownloadProgress = window.electron.ipcRenderer.on('update-download-progress', (payload: any) => {
-      updateProgress.value = payload.progress
-      downloadStatus.value = 'downloading'
-    })
-
-    unlistenDownloadStatus = window.electron.ipcRenderer.on('update-download-status', (payload: any) => {
-      downloadStatus.value = payload.status
-      if (payload.status === 'downloaded') {
-        latestVersion.value = payload.version
-        updateChangelog.value = payload.changelog
-        showUpdateModal.value = true // 后台静默下载完成，立刻弹窗提醒！
-      } else if (payload.status === 'error') {
-        downloadStatus.value = 'error'
-        updateErrorMsg.value = payload.message || '下载升级包出错'
-      }
-    })
+    unlistenUpdateStatus = window.electron.ipcRenderer.on('update-check-status', handleUpdateCheckStatus)
+    unlistenDownloadProgress = window.electron.ipcRenderer.on('update-download-progress', handleUpdateDownloadProgress)
+    unlistenDownloadStatus = window.electron.ipcRenderer.on('update-download-status', handleUpdateDownloadStatus)
+  } else if (window.api && window.api.receive) {
+    const r1 = window.api.receive('update-check-status', handleUpdateCheckStatus)
+    unlistenUpdateStatus = typeof r1 === 'function' ? (r1 as any) : null
+    const r2 = window.api.receive('update-download-progress', handleUpdateDownloadProgress)
+    unlistenDownloadProgress = typeof r2 === 'function' ? (r2 as any) : null
+    const r3 = window.api.receive('update-download-status', handleUpdateDownloadStatus)
+    unlistenDownloadStatus = typeof r3 === 'function' ? (r3 as any) : null
   }
 
   checkIfMobile()

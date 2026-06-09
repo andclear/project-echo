@@ -913,6 +913,11 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // 获取当前应用版本号
+  ipcMain.handle('get-app-version', () => {
+    return app.getVersion()
+  })
+
   // 0.0.1.b 获取目前真实天气数据
   ipcMain.handle('get-realtime-weather', async (_, location: string, forceRefresh = false) => {
     try {
@@ -8884,6 +8889,14 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
     req.on('end', async () => {
       try {
         const { channel, payload } = JSON.parse(body);
+
+        // 🔒 安全熔断：禁止局域网 HTTP 桥接（手机端/Web 端）远程执行敏感的系统级更新重启操作
+        if (channel === 'restart-and-install') {
+          console.warn(`[IPC Bridge Server] 拒绝远程执行系统更新操作: ${channel}`);
+          res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ success: false, error: '安全拦截：请在电脑端客户端上进行更新操作 🐾' }));
+          return;
+        }
 
         // 从 Electron 的 ipcMain 内部 handlers Map 中寻找对应的 Channel 处理器
         const handler = (ipcMain as any)._invokeHandlers?.get(channel);
