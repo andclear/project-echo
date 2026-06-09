@@ -14,9 +14,11 @@ export interface NovelAiConfig {
   artistString?: string
   qualityPrompt?: string
   sampler?: string
-  defaultDimensions?: 'portrait' | 'landscape' | 'square'
+  defaultDimensions?: 'portrait' | 'landscape' | 'square' | 'custom'
   randomArtist?: boolean
   artistStringList?: (string | ArtistStringItem)[]
+  defaultWidth?: number
+  defaultHeight?: number
 }
 
 export class NovelAiService {
@@ -92,7 +94,7 @@ export class NovelAiService {
   public static async generateImage(
     config: NovelAiConfig,
     prompt: string,
-    dimensions: 'portrait' | 'landscape' | 'square' = 'portrait',
+    dimensions: 'portrait' | 'landscape' | 'square' | 'custom' | { width: number; height: number } = 'portrait',
     isRetry = false
   ): Promise<Buffer> {
     // 🚀 全局串行互斥锁：确保同一时间仅发起一个生图请求，彻底规避 NAI 官方并发 429 报错限制
@@ -153,16 +155,29 @@ export class NovelAiService {
       const baseUrl = (config.baseUrl || 'https://image.novelai.net').replace(/\/$/, '')
       const url = `${baseUrl}/ai/generate-image`
 
-      // 默认尺寸匹配（优先使用传入的 dimensions，其次使用全局默认生图尺寸，最底线以 portrait 兜底）
-      const activeDimensions = dimensions || config.defaultDimensions || 'portrait'
       let width = 832
       let height = 1216
-      if (activeDimensions === 'landscape') {
-        width = 1216
-        height = 832
-      } else if (activeDimensions === 'square') {
-        width = 1024
-        height = 1024
+      if (typeof dimensions === 'object' && dimensions && typeof dimensions.width === 'number' && typeof dimensions.height === 'number') {
+        width = dimensions.width
+        height = dimensions.height
+      } else {
+        // 默认尺寸匹配（优先使用传入的 dimensions，其次使用全局默认生图尺寸，最底线以 portrait 兜底）
+        const activeDimensions = dimensions || config.defaultDimensions || 'portrait'
+        if (activeDimensions === 'landscape') {
+          width = 1216
+          height = 832
+        } else if (activeDimensions === 'square') {
+          width = 1024
+          height = 1024
+        } else if (activeDimensions === 'custom') {
+          // 容错与类型转换：确保从配置读取的值能安全转换为有效数字高宽
+          const w = Number(config.defaultWidth)
+          const h = Number(config.defaultHeight)
+          if (!isNaN(w) && w > 0 && !isNaN(h) && h > 0) {
+            width = w
+            height = h
+          }
+        }
       }
 
       // 负面提示词

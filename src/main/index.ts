@@ -1555,7 +1555,7 @@ function registerIpcHandlers(): void {
     characterId: string
     folderName: string
     prompt: string
-    dimensions: 'portrait' | 'landscape' | 'square'
+    dimensions: 'portrait' | 'landscape' | 'square' | 'custom' | { width: number; height: number }
     prefixType?: 'chat' | 'social' | 'proactive'
   }) => {
     try {
@@ -5261,10 +5261,10 @@ ${memoryContent}
   })
 
   // 15. 拉取特定角色聊天记录 IPC 通道
-  ipcMain.handle('get-chat-history', async (_, payload: { characterId: string; limit?: number }) => {
+  ipcMain.handle('get-chat-history', async (_, payload: { characterId: string; limit?: number; beforeTimestamp?: number }) => {
     try {
       const db = getDatabaseService()
-      let history = db.getChatHistory(payload.characterId, payload.limit || 20)
+      let history = db.getChatHistory(payload.characterId, payload.limit || 20, payload.beforeTimestamp)
 
       // 选项一逻辑：读取窗口清除时间戳并过滤，使再次打开显示空白会话且在界面搜不到
       const clearTimeStr = db.getSetting('clear_chat_at_' + payload.characterId)

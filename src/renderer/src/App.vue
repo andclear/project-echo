@@ -3122,13 +3122,47 @@
                     </div>
 
                     <div class="form-group md:col-span-2 border-t border-outline-variant/20 pt-4 mt-2">
-                      <label class="form-label font-bold text-xs">默认生图尺寸 (Default Dimensions)</label>
+                      <label class="form-label font-bold text-xs">默认生图尺寸</label>
                       <select v-model="novelai.defaultDimensions" class="form-input text-xs bg-surface-high/30">
                         <option value="portrait">竖图 (832 x 1216) — 适合手机壁纸与人物全身立绘</option>
                         <option value="landscape">横图 (1216 x 832) — 适合桌面壁纸与宏大风景叙事</option>
                         <option value="square">方图 (1024 x 1024) — 适合社交头像与局部细节特特写</option>
+                        <option value="custom">自定义分辨率...</option>
                       </select>
                       <p class="text-[9px] text-on-surface-variant/70 mt-1">设置后，之后所有的生图内容（包括私聊生图、随拍及朋友圈帖子）都将默认以此尺寸进行绘制。</p>
+                    </div>
+
+                    <!-- 自定义默认尺寸高宽输入框 -->
+                    <div v-if="novelai.defaultDimensions === 'custom'" class="form-group md:col-span-2 p-3.5 bg-surface-high/30 rounded-xl border border-outline-variant/10 flex flex-col space-y-2">
+                      <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">自定义默认生图分辨率 (必须为 64 的倍数)</label>
+                      <div class="flex items-center space-x-3">
+                        <div class="flex-1 flex items-center bg-surface border border-outline-variant/50 rounded-lg px-3 py-1.5">
+                          <span class="text-[10px] text-on-surface-variant mr-2 select-none shrink-0 whitespace-nowrap">宽度:</span>
+                          <input 
+                            v-model.number="novelai.defaultWidth" 
+                            type="number" 
+                            step="64"
+                            min="256"
+                            max="2560"
+                            @blur="novelai.defaultWidth = Math.max(256, Math.min(2560, Math.round((novelai.defaultWidth || 832) / 64) * 64))" 
+                            class="w-full text-xs font-mono bg-transparent text-on-surface focus:outline-none"
+                          />
+                        </div>
+                        <span class="text-xs text-on-surface-variant font-bold">×</span>
+                        <div class="flex-1 flex items-center bg-surface border border-outline-variant/50 rounded-lg px-3 py-1.5">
+                          <span class="text-[10px] text-on-surface-variant mr-2 select-none shrink-0 whitespace-nowrap">高度:</span>
+                          <input 
+                            v-model.number="novelai.defaultHeight" 
+                            type="number" 
+                            step="64"
+                            min="256"
+                            max="2560"
+                            @blur="novelai.defaultHeight = Math.max(256, Math.min(2560, Math.round((novelai.defaultHeight || 1216) / 64) * 64))" 
+                            class="w-full text-xs font-mono bg-transparent text-on-surface focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/70 leading-normal">注意：默认宽度和高度将作为背景生图（如朋友圈、随拍、静默自动配图）的优先尺寸标准。</p>
                     </div>
 
                     <div class="md:col-span-2 flex items-center justify-between bg-surface-high/20 p-4 rounded-xl border border-outline-variant/10">
@@ -10266,35 +10300,77 @@
       <!-- 尺寸长宽比选择 -->
       <div class="space-y-2">
         <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">长宽比尺寸选择</label>
-        <div class="grid grid-cols-3 gap-2">
+        <div class="grid grid-cols-4 gap-2">
           <button 
             type="button" 
             @click="confirmedDimensions = 'portrait'" 
-            class="p-2.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95"
+            class="p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95 text-on-surface-variant"
             :class="confirmedDimensions === 'portrait' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/60 text-on-surface-variant'"
           >
             <div class="w-3 h-5 border border-current rounded-sm mb-1 opacity-70"></div>
-            <span class="text-[10px] font-bold">纵向 832x1216</span>
+            <span class="text-[9px] font-bold">纵向 832x1216</span>
           </button>
           <button 
             type="button" 
             @click="confirmedDimensions = 'landscape'" 
-            class="p-2.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95"
+            class="p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95 text-on-surface-variant"
             :class="confirmedDimensions === 'landscape' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/60 text-on-surface-variant'"
           >
             <div class="w-5 h-3 border border-current rounded-sm mb-1 opacity-70"></div>
-            <span class="text-[10px] font-bold">横向 1216x832</span>
+            <span class="text-[9px] font-bold">横向 1216x832</span>
           </button>
           <button 
             type="button" 
             @click="confirmedDimensions = 'square'" 
-            class="p-2.5 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95"
+            class="p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95 text-on-surface-variant"
             :class="confirmedDimensions === 'square' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/60 text-on-surface-variant'"
           >
             <div class="w-4 h-4 border border-current rounded-sm mb-1.5 opacity-70"></div>
-            <span class="text-[10px] font-bold">正方 1024x1024</span>
+            <span class="text-[9px] font-bold">正方 1024x1024</span>
+          </button>
+          <button 
+            type="button" 
+            @click="confirmedDimensions = 'custom'" 
+            class="p-2 rounded-xl border-2 flex flex-col items-center justify-center transition-all bg-surface hover:border-primary active:scale-95 text-on-surface-variant"
+            :class="confirmedDimensions === 'custom' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/60 text-on-surface-variant'"
+          >
+            <div class="w-4 h-4 border-2 border-dashed border-current rounded-sm mb-1.5 opacity-70 flex items-center justify-center text-[7px] font-black">⚙️</div>
+            <span class="text-[9px] font-bold">自定义尺寸</span>
           </button>
         </div>
+      </div>
+
+      <!-- 自定义尺寸高宽输入框 -->
+      <div v-if="confirmedDimensions === 'custom'" class="space-y-2 p-3 bg-surface-high/30 rounded-xl border border-outline-variant/10 animate-in fade-in slide-in-from-top-2 duration-200">
+        <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider font-mono">自定义尺寸 (必须为 64 的倍数)</label>
+        <div class="flex items-center space-x-3">
+          <div class="flex-1 flex items-center bg-surface border border-outline-variant/50 rounded-lg px-3 py-1.5">
+            <span class="text-[10px] text-on-surface-variant mr-2 select-none shrink-0 whitespace-nowrap">宽度:</span>
+            <input 
+              v-model.number="customWidth" 
+              type="number" 
+              step="64"
+              min="256"
+              max="2560"
+              @blur="customWidth = Math.max(256, Math.min(2560, Math.round(customWidth / 64) * 64))" 
+              class="w-full text-xs font-mono bg-transparent text-on-surface focus:outline-none"
+            />
+          </div>
+          <span class="text-xs text-on-surface-variant font-bold">×</span>
+          <div class="flex-1 flex items-center bg-surface border border-outline-variant/50 rounded-lg px-3 py-1.5">
+            <span class="text-[10px] text-on-surface-variant mr-2 select-none shrink-0 whitespace-nowrap">高度:</span>
+            <input 
+              v-model.number="customHeight" 
+              type="number" 
+              step="64"
+              min="256"
+              max="2560"
+              @blur="customHeight = Math.max(256, Math.min(2560, Math.round(customHeight / 64) * 64))" 
+              class="w-full text-xs font-mono bg-transparent text-on-surface focus:outline-none"
+            />
+          </div>
+        </div>
+        <p class="text-[9px] text-on-surface-variant/70 leading-normal">说明：尺寸越大会消耗越多的 Anlas 算力点数。超出 1024 x 1024 面积将扣除额外点数。</p>
       </div>
 
       <!-- 操作按钮 -->
@@ -10348,7 +10424,7 @@
             </div>
             <div class="flex justify-between">
               <span>长宽尺寸:</span>
-              <span class="font-mono">{{ bigImageInfo?.dimensions === 'landscape' ? '1216 x 832' : bigImageInfo?.dimensions === 'square' ? '1024 x 1024' : '832 x 1216' }}</span>
+              <span class="font-mono">{{ typeof bigImageInfo?.dimensions === 'object' && bigImageInfo.dimensions ? `${bigImageInfo.dimensions.width} x ${bigImageInfo.dimensions.height}` : bigImageInfo?.dimensions === 'landscape' ? '1216 x 832' : bigImageInfo?.dimensions === 'square' ? '1024 x 1024' : '832 x 1216' }}</span>
             </div>
           </div>
 
@@ -12600,6 +12676,8 @@ const novelai = reactive({
   sampler: 'k_euler_ancestral',
   defaultDimensions: 'portrait',
   randomArtist: false,
+  defaultWidth: 832,
+  defaultHeight: 1216,
   artistStringList: [] as Array<{ name?: string, value: string }>,
   fixedArtistIndex: 0
 })
@@ -17990,8 +18068,19 @@ async function saveNovelAiConfig() {
       }
     }
 
+    // ⚡️ 验证并规整自定义默认高宽分辨率为数字且是 64 的倍数，防止输入非法内容导致生图错误
+    if (novelai.defaultDimensions === 'custom') {
+      const w = Math.round((Number(novelai.defaultWidth) || 832) / 64) * 64
+      const h = Math.round((Number(novelai.defaultHeight) || 1216) / 64) * 64
+      novelai.defaultWidth = Math.max(256, Math.min(2560, w))
+      novelai.defaultHeight = Math.max(256, Math.min(2560, h))
+    }
+
     const res = await window.api.invoke('save-novelai-config', toRaw(novelai))
     if (res.success) {
+      // 同时同步更新当前自定义分辨率输入框的默认初始值
+      customWidth.value = novelai.defaultWidth || 832
+      customHeight.value = novelai.defaultHeight || 1216
       showSettingsModal.value = false
       showCustomAlert('配置保存成功', 'NovelAI 绘图配置已成功写入本地 SQLite，并已实时生效！', 'success')
     } else {
@@ -18342,10 +18431,14 @@ const isDrawingImage = computed(() => {
 const activeDrawingContextMap = reactive<Record<string, {
   prompt: string;
   description: string;
-  dimensions: 'portrait' | 'landscape' | 'square';
+  dimensions: 'portrait' | 'landscape' | 'square' | 'custom' | { width: number; height: number };
 }>>({})
 // 锚定当前弹出的确认框所属的角色 ID
 const confirmModalCharacterId = ref<string>('')
+
+// 自定义高宽分辨率响应式状态定义
+const customWidth = ref<number>(832)
+const customHeight = ref<number>(1216)
 
 // 🚀 桥接 computed：为了零改动 Vue 模版并实现 100% 编译安全，使用 computed 将旧的 confirmed 变量智能路由到当前选中的确认框角色专属 Map
 const confirmedPrompt = computed({
@@ -18364,12 +18457,17 @@ const confirmedDescription = computed(() => {
 })
 const confirmedDimensions = computed({
   get: () => confirmModalCharacterId.value ? (activeDrawingContextMap[confirmModalCharacterId.value]?.dimensions || 'portrait') : 'portrait',
-  set: (val: 'portrait' | 'landscape' | 'square') => {
+  set: (val: 'portrait' | 'landscape' | 'square' | 'custom') => {
     if (confirmModalCharacterId.value) {
       if (!activeDrawingContextMap[confirmModalCharacterId.value]) {
         activeDrawingContextMap[confirmModalCharacterId.value] = { prompt: '', description: '', dimensions: 'portrait' }
       }
       activeDrawingContextMap[confirmModalCharacterId.value].dimensions = val
+      // ⚡️ 当用户在弹窗中点选或切换到“自定义尺寸”时，如果全局有配置自定义默认高宽，则将弹窗输入框默认值初始化为全局默认值
+      if (val === 'custom') {
+        customWidth.value = novelai.defaultWidth || 832
+        customHeight.value = novelai.defaultHeight || 1216
+      }
     }
   }
 })
@@ -18400,7 +18498,13 @@ async function triggerChatImageGeneration() {
       activeDrawingContextMap[charId] = {
         prompt: res.prompt,
         description: res.description,
-        dimensions: (novelai.defaultDimensions as 'portrait' | 'landscape' | 'square') || 'portrait'
+        dimensions: (novelai.defaultDimensions as any) || 'portrait'
+      }
+
+      // ⚡️ 若默认生图尺寸为自定义，则把 customWidth / customHeight 状态初始化为全局自定义默认高宽
+      if (novelai.defaultDimensions === 'custom') {
+        customWidth.value = novelai.defaultWidth || 832
+        customHeight.value = novelai.defaultHeight || 1216
       }
 
       if (novelai.confirmMode) {
@@ -18449,7 +18553,9 @@ async function executeNovelAiImageGeneration(targetCharId?: string, targetFolder
       characterId: charId,
       folderName: folderName,
       prompt: context.prompt,
-      dimensions: context.dimensions,
+      dimensions: context.dimensions === 'custom' 
+        ? { width: customWidth.value, height: customHeight.value }
+        : context.dimensions,
       prefixType: 'drawing'
     })
 
@@ -19128,6 +19234,10 @@ async function initializeCoreApp() {
       if (novelai.fixedArtistIndex >= novelai.artistStringList.length || novelai.fixedArtistIndex < 0) {
         novelai.fixedArtistIndex = 0
       }
+
+      // ⚡️ 初始化自定义高宽输入框初始值，同步使用全局配置中的默认尺寸
+      customWidth.value = novelai.defaultWidth || 832
+      customHeight.value = novelai.defaultHeight || 1216
     }
   } catch (e) {
     console.error('加载 NovelAI 配置异常:', e)
@@ -19951,7 +20061,12 @@ onMounted(async () => {
           activeDrawingContextMap[charId] = {
             prompt: promptRes.prompt,
             description: promptRes.description || '',
-            dimensions: (novelai.defaultDimensions as 'portrait' | 'landscape' | 'square') || 'portrait'
+            dimensions: (novelai.defaultDimensions as any) || 'portrait'
+          }
+          // ⚡️ 若默认生图尺寸为自定义，则把 customWidth / customHeight 状态初始化为全局自定义默认高宽
+          if (novelai.defaultDimensions === 'custom') {
+            customWidth.value = novelai.defaultWidth || 832
+            customHeight.value = novelai.defaultHeight || 1216
           }
           await executeNovelAiImageGeneration(charId, char.folder_name)
         }
