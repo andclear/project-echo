@@ -187,8 +187,8 @@ export class NovelWriterService {
         needNewBook = true
       } else {
         const startTsVal = parseInt(db.getSetting(`novel_start_ts_${characterId}`) || '0', 10)
-        // 只有当首条聊天记录晚于 startTs 时，才认为用户彻底清空/重置了角色，需要创建新卷
-        if (firstMsg && firstMsg.timestamp > startTsVal) {
+        // 只有当首条聊天记录晚于 startTs，且 startTsVal 大于 0（代表有实际分割时间线起点限制）时，才认为用户彻底清空/重置了角色，需要创建新卷
+        if (startTsVal > 0 && firstMsg && firstMsg.timestamp > startTsVal) {
           console.log('[NovelWriterService] 检测到聊天记录已被物理清空，判定旧书无效，准备创建新书。')
           needNewBook = true
         } else {
@@ -341,7 +341,7 @@ export class NovelWriterService {
   public async generateChapter(characterId: string, options: { isFirstChapter: boolean }): Promise<void> {
     console.log(`[NovelWriterService] 角色 ${characterId} 触发小说生成，正在加入全局串行队列...`)
     this.broadcastGenerationState(characterId, true)
-    NovelWriterService.enqueue(characterId, async () => {
+    await NovelWriterService.enqueue(characterId, async () => {
       try {
         await this.generateChaptersFromPendingDialogue(characterId, options.isFirstChapter)
       } finally {

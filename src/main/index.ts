@@ -36,6 +36,7 @@ import { WeatherService } from './utils/WeatherService'
 import { MessageBusService, EchoMessage, MessageType } from './services/MessageBusService'
 import { parseMemoryMd, parseUserMd } from './utils/MarkdownMetadataParser'
 import { SseManager } from './services/SseManager'
+import { migrateLegacyUserProfile, performEmojiBase64DecoupleMigration } from './utils/MigrationHelper'
 
 
 
@@ -6085,72 +6086,6 @@ ${memoryContent}
     }
   })
 
-  // 17.5 增量物理迁移老用户个人人设辅助函数
-  function migrateLegacyUserProfile() {
-    try {
-      const configDir = join(app.getPath('userData'), 'config')
-      const legacyUserPath = join(configDir, 'USER.md')
-      if (fs.existsSync(legacyUserPath)) {
-        console.log('[Migration] 发现老用户 USER.md，开始执行物理迁移到 user_profiles/...')
-        const rawContent = fs.readFileSync(legacyUserPath, 'utf8')
-        const profile = UserProfileReaderWriter.readGlobalProfile(legacyUserPath)
-        
-        const name = (profile.name || 'user').trim()
-        const storageManager = new CharacterStorageManager()
-        const pinyinName = storageManager.convertToPinyin(name)
-        
-        const targetProfilesDir = join(configDir, 'user_profiles')
-        if (!fs.existsSync(targetProfilesDir)) {
-          fs.mkdirSync(targetProfilesDir, { recursive: true })
-        }
-        
-        const targetFileName = `${pinyinName}_1.md`
-        const targetPath = join(targetProfilesDir, targetFileName)
-        
-        if (!fs.existsSync(targetPath)) {
-          const pureMarkdown = rawContent.replace(/<!--[\s\S]*?-->/g, '').trim()
-          const newMetadata = {
-            avatar: '',
-            name: name,
-            gender: '其他',
-            age: profile.age || '',
-            description: '自 USER.md 兼容性迁移的设定卡'
-          }
-          const fileComment = `<!--\n${JSON.stringify(newMetadata, null, 2)}\n-->`
-          const newFileContent = `${fileComment}\n\n${pureMarkdown}`
-          fs.writeFileSync(targetPath, newFileContent, 'utf8')
-          console.log(`[Migration] 已成功物理迁移老用户个人设定至 ${targetPath}`)
-        }
-        
-        // 物理删除旧 USER.md
-        fs.unlinkSync(legacyUserPath)
-        console.log('[Migration] 旧的 USER.md 已物理删除')
-
-        // 增量自动静默关联老用户的历史会话
-        try {
-          const db = getDatabaseService()
-          const profileId = targetFileName.replace(/\.md$/, '')
-          
-          const characters = db.getAllCharacters()
-          for (const char of characters) {
-            const charId = char.id
-            const isGroup = !!db.getGroupChat(charId)
-            if (!isGroup) {
-              const currentBinding = db.getProfileBinding(charId)
-              if (!currentBinding) {
-                db.setProfileBinding(charId, profileId)
-                console.log(`[Migration] 已自动为历史角色 [${char.name} (${charId})] 静默绑定老用户人设 [${profileId}]`)
-              }
-            }
-          }
-        } catch (dbErr) {
-          console.error('[Migration] 静默关联历史角色人设失败:', dbErr)
-        }
-      }
-    } catch (err) {
-      console.error('[Migration] 个人人设物理迁移失败:', err)
-    }
-  }
 
   // 17.6 获取所有用户设定卡列表
   ipcMain.handle('list-user-profiles', async () => {
@@ -9187,58 +9122,6 @@ async function performUserPlaceholderMigration() {
   }
 }
 
-/**
- * 🚀 静默数据迁移 V4：对聊天记录表中的自定义表情包大体积 Base64 进行脱水清洗
- * 将 Messages 表中所有带 Base64 原始图片大字段的自定义表情包 JSON，安全剔除 base64 字段，彻底瘦身数据库
- */
-function performEmojiBase64DecoupleMigration() {
-  try {
-    const db = getDatabaseService()
-    const done = db.getSetting('emoji_base64_migration_done_v4')
-    if (done === '1') {
-      console.log('[Migration] 表情包 Base64 数据库瘦身迁移 V4 已在之前完成，静默跳过。')
-      return
-    }
-
-    console.log('[Migration] 🚀 开始执行一次性的表情包 Base64 数据库瘦身物理迁移 V4...')
-    
-    // 找出所有可能带有自定义表情包大字段的历史消息
-    const rows = db.db.prepare("SELECT id, content FROM Messages WHERE content LIKE '[wechat_custom_emoji]:%'").all() as { id: string; content: string }[]
-    
-    if (rows.length === 0) {
-      console.log('[Migration] 未发现历史表情包消息记录，跳过 V4。')
-      db.setSetting('emoji_base64_migration_done_v4', '1')
-      return
-    }
-
-    let count = 0
-    const updateStmt = db.db.prepare('UPDATE Messages SET content = ? WHERE id = ?')
-
-    // 使用事务以确保批量更新的极致性能与安全
-    const runUpdates = db.db.transaction(() => {
-      for (const row of rows) {
-        try {
-          const jsonStr = row.content.substring('[wechat_custom_emoji]:'.length)
-          const emojiData = JSON.parse(jsonStr)
-          // 如果存在 base64 大字段，且具有 id
-          if (emojiData.base64 && emojiData.id) {
-            delete emojiData.base64
-            const cleanedContent = `[wechat_custom_emoji]:${JSON.stringify(emojiData)}`
-            updateStmt.run(cleanedContent, row.id)
-            count++
-          }
-        } catch (_) {}
-      }
-    })
-
-    runUpdates()
-    
-    db.setSetting('emoji_base64_migration_done_v4', '1')
-    console.log(`[Migration] ✨ 表情包 Base64 瘦身自愈迁移 V4 顺利完成，共清洗了 ${count} 条大表情包消息！`)
-  } catch (err) {
-    console.error('[Migration] ✘ 执行表情包 Base64 数据库瘦身迁移 V4 发生异常:', err)
-  }
-}
 
 app.whenReady().then(() => {
   // 设置 App 用户模型 Id
@@ -9247,6 +9130,7 @@ app.whenReady().then(() => {
   // 初始化本地 SQLite 数据库及数据表
   try {
     getDatabaseService()
+    
     // 注册 ReaderWriter 回调，解耦底层 utils 与 db 模块，防止物理打包单文件后相对 require 发生 MODULE_NOT_FOUND 报错
     MemoryReaderWriter.setGetUserNameCallback((folderName) => {
       return getDatabaseService().getUserNameByFolderName(folderName)
@@ -9254,6 +9138,13 @@ app.whenReady().then(() => {
     UserProfileReaderWriter.setGetUserNameCallback((folderName) => {
       return getDatabaseService().getUserNameByFolderName(folderName)
     })
+
+    // 🚀 启动时立刻强制物理执行老用户个人人设卡迁移与绑定自愈 V5，彻底消除竞态造成的空白卡霸占与人设丢失 Bug
+    try {
+      migrateLegacyUserProfile()
+    } catch (setupMigrateErr) {
+      console.error('[App Setup] 同步迁移与绑定自愈老设定卡失败:', setupMigrateErr)
+    }
 
     // 🚀 启动时异步静默执行老用户数据一次性人设占位符物理大扫除与收缩迁移
     setTimeout(() => {

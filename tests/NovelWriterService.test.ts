@@ -28,10 +28,15 @@ let mockChapterCount = 0
 const mockDbService = {
   getSetting: (key: string) => mockSettings[key] || null,
   setSetting: (key: string, val: string) => { mockSettings[key] = val },
+  getActiveNovelId: (characterId: string) => mockSettings[`current_active_novel_id_${characterId}`] || null,
+  setActiveNovelId: (characterId: string, novelId: string) => { mockSettings[`current_active_novel_id_${characterId}`] = novelId },
+  getNovelChapterCountByNovelId: () => 1,
+  getProfileBinding: () => null,
   getNovelChapterCount: () => mockChapterCount,
   getNovelChapters: () => mockChapters,
   getNovelChapterContent: (id: string) => ({ content: mockChapterContent[id] || '' }),
   sumMessageTokensSince: () => 2000, // 默认模拟新增 2000 token
+  insertNovel: () => {},
   insertNovelChapter: (ch: any) => {
     mockChapters.push(ch)
     mockChapterContent[ch.id] = ch.content
@@ -50,6 +55,9 @@ const mockDbService = {
     prepare: (sql: string) => {
       return {
         get: () => {
+          if (sql.includes('SELECT * FROM Novels')) {
+            return { id: 'novel_active_uuid', character_id: 'test_char', title: '测试小说', created_at: 1000 }
+          }
           if (sql.includes('Messages') && sql.includes('role')) {
             return mockMessages.some(m => m.role === 'assistant') ? { 1: 1 } : null
           }
@@ -58,7 +66,17 @@ const mockDbService = {
           }
           return null
         },
-        all: () => mockMessages
+        all: (arg1?: any, arg2?: any) => {
+          if (sql.includes('Messages') && sql.includes('role')) {
+            const startTs = typeof arg2 === 'number' ? arg2 : 0
+            return mockMessages.filter(m => m.role === 'assistant' && m.timestamp > startTs)
+          }
+          if (sql.includes('Messages')) {
+            const baseTs = typeof arg2 === 'number' ? arg2 : (typeof arg1 === 'number' ? arg1 : 0)
+            return mockMessages.filter(m => m.timestamp > baseTs)
+          }
+          return mockMessages
+        }
       }
     }
   }
@@ -162,6 +180,7 @@ describe('NovelWriterService 自动章节生成与改编服务测试', () => {
     mockSettings[`novel_enabled_${testCharId}`] = '1'
     mockSettings[`chat_mode_${testCharId}`] = 'dialogue' // 阈值 1500
     mockSettings[`last_novel_chapter_end_ts_${testCharId}`] = '2000'
+    mockSettings[`current_active_novel_id_${testCharId}`] = 'novel_active_uuid'
 
     // 已有一章
     mockChapters = [
