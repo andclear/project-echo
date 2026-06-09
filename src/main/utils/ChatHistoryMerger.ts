@@ -18,7 +18,7 @@ export function mergeChatHistory(history: any[]): any[] {
       msg.role === 'assistant' &&
       !msg.is_proactive &&         // 搭讪消息不参与合并（自身不被吸收进上一条）
       !currentMsg.is_proactive &&  // 上一条是搭讪消息时也不吸收后续消息
-      (msg.timestamp - currentMsg.timestamp < 15000) // 15秒内连续的多气泡，判定为同一条消息的分段
+      (Math.abs(currentMsg.timestamp - msg.timestamp) < 15000) // 🔒 使用 Math.abs 安全防护，杜绝由于负数导致误吞合并
     ) {
       // 融合成单条消息并换行拼接
       currentMsg.content = currentMsg.content + '\n' + msg.content;
@@ -127,7 +127,7 @@ export function formatHistoryWithTimeGaps(history: any[]): any[] {
           } else {
             gapTag = `[时空流逝：相隔 ${Math.floor(gapHours)} 小时后]\n`;
           }
-          current.content = gapTag + current.content;
+          current.timeGapTag = gapTag; // 🔒 仅作为属性保存，避免污染 m.content 字符串
         }
       }
     }

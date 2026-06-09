@@ -4631,6 +4631,25 @@ ${soulContent}
       rawHistory = rawHistory.filter((m: any) => m.timestamp > lastCompressionTs)
     }
 
+    // 🚀 在物理 splice 剔除最新发言之前，安全计算出用于相对时间差定位的 lastMsgTimestamp，防止 splice 后索引错位
+    const preUserMsgs = rawHistory.filter((m: any) => m.role === 'user')
+    const lastUserMsg = payload.isRegenerate
+      ? preUserMsgs[preUserMsgs.length - 2] // 重新回复时，跳过本轮，取真正上一轮的发言作为计算基准
+      : preUserMsgs[preUserMsgs.length - 1] // 正常发送时，取数据库里最近的一条
+    const lastMsgTimestamp = lastUserMsg ? lastUserMsg.timestamp : 0
+
+    if (payload.isRegenerate) {
+      // 重新生成时，最近的那条用户消息已入库，需要从历史中剔除，
+      // 因为它将在 messages 末尾以包含 Annotations 的 finalUserContent 形式统一传入！
+      // 这样同时确保 lastUserMsg 能够正确拿到上一次（真正前一轮）的用户消息。
+      const lastUserIdx = [...rawHistory].reverse().findIndex((m: any) => m.role === 'user')
+      if (lastUserIdx !== -1) {
+        const actualIdx = rawHistory.length - 1 - lastUserIdx
+        // 🔒 核心自愈：不仅剔除最近一条用户消息，还要将其之后的所有消息（如果有需要被重新生成的助理回复残体）一同擦除
+        rawHistory.splice(actualIdx)
+      }
+    }
+
     // 内存级反向流式合并，恢复高保真上下文
     const history = mergeChatHistory(rawHistory)
 
@@ -4768,10 +4787,6 @@ ${memoryContent}
 
       systemPrompt += buildEmojiSystemPromptSuffix(chatMode)
 
-      // 🚀 获取最后一条用户（User）消息的时间戳作为计算基准，防范 Assistant 自动发搭讪/日记重置流逝计数
-      // 🔒 安全修复：必须使用 findLast（或 slice.reverse.find）来寻找最新的一条，原 find 误选为 160 条历史里最老的第一条！
-      const lastUserMsg = rawHistory.slice().reverse().find((m: any) => m.role === 'user')
-      const lastMsgTimestamp = lastUserMsg ? lastUserMsg.timestamp : 0
       const dynamicContext = ContextAssembler.assembleDynamicContext(
         soulPath,
         memoryPath,
@@ -4785,31 +4800,41 @@ ${memoryContent}
         dynamicHeader = `[System Dynamic Context Update]\n${dynamicContext}\n---\n\n`
       }
 
+      // 获取当前角色的真实姓名与用户的真实姓名，用于精准的人称指代消除和时空流逝事实绑定
+      const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
+      const charName = charRow ? charRow.name : '角色'
+      const userProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+      const userName = (userProfile && userProfile.name) ? userProfile.name : '用户'
+
       // 🚀 核心优化：计算最新一轮与上一次用户发言的时间差，并在最新消息头部直接拼入相对时间插帧
-      let timeGapTag = '';
+      let messagePrefix = `[用户最新发言]:`;
       let timeGapWarning = '';
       if (lastMsgTimestamp && lastMsgTimestamp > 0) {
         const gapMs = Date.now() - lastMsgTimestamp;
-        if (gapMs >= 2 * 60 * 60 * 1000) { // 大于等于 2 小时
+        if (gapMs >= 3 * 60 * 60 * 1000) { // 大于等于 3 小时
           const gapHours = gapMs / (1000 * 60 * 60);
+          const gapDesc = gapHours >= 24 
+            ? `${Math.floor(gapHours / 24)} 天` 
+            : `${Math.floor(gapHours)} 小时`;
+
           if (gapHours >= 24) {
             const gapDays = Math.floor(gapHours / 24);
-            timeGapTag = `[时空流逝：相隔 ${gapDays} 天后]\n`;
-            timeGapWarning = `\n\n【⚠️ 时空物理流逝警示】：距离你上一次与用户对话已经过去了 ${gapDays} 天。现在的物理时间是 ${new Date().toLocaleString()}，你们已经很久没有见面了。你【绝对不能】认为这是昨天的连续，也【绝对不能】在动作描写中延续上一次的物理身体亲密动作（例如不能继续躺在昨天的床上、不能继续昨天的早晨动作）。你现在的物理空间和心境已经发生了时间断层，请以“好久不见”的隔阂感和新心境做出符合时间流逝的自然回应。`;
-          } else {
-            timeGapTag = `[时空流逝：相隔 ${Math.floor(gapHours)} 小时后]\n`;
+            timeGapWarning = `\n\n【⚠️ 时空流逝物理警示 — ${userName} 离线久未联系】：距离上一次 ${userName} 主动发消息与你（即 ${charName}）对话已经过去了 ${gapDays} 天。在这 ${gapDays} 天里，${userName} 没有主动联系过你，在你的手机通知栏里没有收到过他/她的任何新消息。
+  
+现在的物理时间是 ${new Date().toLocaleString()}。由于是 ${userName} 主动消失了 ${gapDays} 天，你与他/她的物理接触已发生时间断层。
+- 你【绝对不能】在内心活动或叙事中脑补是自己太忙、故意忽略或冷落了 ${userName}，在这段时间里你只是正常生活，不存在任何“你冷落了对方”的自责自省戏份；
+- 你【绝对不能】认为这是上一轮对话的直接连续，也【绝对不能】在动作描写中延续上一次的物理身体亲密动作（例如不能继续躺在昨天的床上、不能继续上一轮的动作细节）；
+- 请以“好久不见”的现实距离感和重新被开启对话的新心境做出回应。`;
           }
+
+          messagePrefix = `[用户最新发言] (⚠️ 叙事背景：在 ${userName} 主动消失并与 ${charName} 断联 ${gapDesc} 后，这是 ${userName} 于今天刚刚发给 ${charName} 的最新一句发言，请针对该发言做出最新回应):`;
         }
       }
 
       // 如果有粘贴图片，在用户消息中顺带注入 AI 刚理解出的多模态图片描述
       const userMessageFinal = payload.imageBase64
-        ? `${timeGapTag}${formatMessageContentForLLM(userMessage, 'user')}\n\n（用户发来了一张图片${imageDescription ? `，画面里是：${imageDescription}` : ''}）\n\n[请结合当前对话语境和这张图片的内容，做出非常自然、人设化的回应。]`
-        : `${timeGapTag}${formatMessageContentForLLM(userMessage, 'user')}`
-
-      // 获取当前角色的真实姓名
-      const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
-      const charName = charRow ? charRow.name : '角色'
+        ? `${formatMessageContentForLLM(userMessage, 'user')}\n\n（${userName}发来了一张图片${imageDescription ? `，画面里是：${imageDescription}` : ''}）\n\n[请结合当前对话语境和${userName}发来的这张图片的内容，做出非常自然、人设化的回应。]`
+        : `${formatMessageContentForLLM(userMessage, 'user')}`
 
       // 查找最近一个等待处理的用户红包，动态为当前发言人注入领取/退回红包的操作提示
       let rpInstruction = ''
@@ -4848,19 +4873,28 @@ ${memoryContent}
       }
       if (timeGapWarning) systemAnnotations += timeGapWarning + '\n\n'
 
-      finalUserContent = systemAnnotations + `[用户最新发言]:\n` + userMessageFinal
+      finalUserContent = systemAnnotations + `${messagePrefix}\n` + userMessageFinal
 
       messages = [
         { role: 'system', content: systemPrompt },
-        // 过滤掉 AI 生成图片消息（assistant 图片），保留用户图片占位符
+        // 🔒 双保险过滤：过滤掉 AI 绘图生成的图片消息，绝对不写入上下文，也就根本不会产生该图片的时间
         ...historyWithTime
-          .filter((m: any) => !(m.role === 'assistant' && m.content?.startsWith('[wechat_image_media]:')))
-          .map((m: any) => ({ role: m.role as any, content: formatMessageContentForLLM(m.content, m.role) }))
+          .filter((m: any) => !(m.role === 'assistant' && (m.content?.startsWith('[wechat_image_media]:') || m.content?.includes('[wechat_image_media]:'))))
+          .map((m: any) => {
+            const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleString() : ''
+            // 🔒 仅对用户（user）发送的消息前置注入绝对发送时间戳，斩断大模型对该Few-Shot格式的自主模仿
+            const timePrefix = (m.role === 'user' && timeStr) ? `[发送时间: ${timeStr}]\n` : ''
+            const timeGapPrefix = m.timeGapTag || ''
+            
+            return {
+              role: m.role as any,
+              content: `${timePrefix}${timeGapPrefix}${formatMessageContentForLLM(m.content, m.role)}`
+            }
+          })
       ]
 
-      if (!payload.isRegenerate) {
-        messages.push({ role: 'user', content: finalUserContent })
-      }
+      // 无论正常回复还是重新回复，最新包装的用户发言都统一在 messages 尾部传入大模型，确保大模型读得到最新 user 发言
+      messages.push({ role: 'user', content: finalUserContent })
     }
 
     // 如果有粘贴/拖拽大图，物理保存至磁盘角色 media 目录中，实现索引化极速落盘
@@ -5202,6 +5236,10 @@ ${memoryContent}
 
     // 用全局工具函数对 AI 回复进行思维链标签 of 物理擦除
     let finalResponse = stripThinkingTags(accumulatedResponse)
+
+    // 🔒 兜底自愈清洗：强力剥离 AI 误输出或模仿出的各种格式的时间戳前缀，防止污染对话气泡，且不会生成空的气泡
+    const timeTagReg = /[\[［(（]\s*(?:发送时间|Send Time)\s*[:：]?\s*[^\])）]+[\]］)）]\s*\n?/gi
+    finalResponse = finalResponse.replace(timeTagReg, '')
     // A3. [自定义表情包动作决策] (仅在非导演模式下触发)
     let customEmojiSend: any = null
     const emojiMatch = chatMode !== 'director' ? finalResponse.match(emojiReg) : null

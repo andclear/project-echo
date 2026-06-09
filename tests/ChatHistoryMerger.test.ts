@@ -62,7 +62,8 @@ describe('ChatHistoryMerger 图片描述与降维转换测试', () => {
       ]
       const formatted = formatHistoryWithTimeGaps(history)
       expect(formatted[0].content).toBe('消息一')
-      expect(formatted[1].content).toContain('[时空流逝：相隔 3 小时后]\n')
+      expect(formatted[1].content).toBe('消息二')
+      expect(formatted[1].timeGapTag).toContain('[时空流逝：相隔 3 小时后]\n')
     })
 
     it('当相邻消息间隔大于等于 24 小时，应插入天数流逝标签', () => {
@@ -73,7 +74,8 @@ describe('ChatHistoryMerger 图片描述与降维转换测试', () => {
       ]
       const formatted = formatHistoryWithTimeGaps(history)
       expect(formatted[0].content).toBe('消息一')
-      expect(formatted[1].content).toContain('[时空流逝：相隔 2 天后]\n')
+      expect(formatted[1].content).toBe('消息二')
+      expect(formatted[1].timeGapTag).toContain('[时空流逝：相隔 2 天后]\n')
     })
   })
 })
