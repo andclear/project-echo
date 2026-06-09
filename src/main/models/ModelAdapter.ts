@@ -631,6 +631,71 @@ export class ModelAdapter {
   }
 
   /**
+   * 使用主大模型（多模态）分析图片，并返回画面客观描述。
+   */
+  public async analyzeImage(imageBase64: string): Promise<string> {
+    try {
+      const config = this.primary
+      const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...COMMON_HEADERS
+      }
+      if (config.apiKey) {
+        headers['Authorization'] = `Bearer ${config.apiKey}`
+      }
+
+      const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '')
+      const mimeType = imageBase64.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/png'
+
+      const payload = {
+        model: config.model,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: '请用一两句话以简体中文极其客观、精炼地描述这张图片中呈现的内容（包含主体、动作、物品和环境），不要有任何废话、猜测或长篇大论，直接陈述画面事实，控制在50字内。'
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:${mimeType};base64,${cleanBase64}`
+                }
+              }
+            ]
+          }
+        ],
+        stream: false,
+        max_tokens: 150
+      }
+
+      console.log(`[Vision Service] 正在向模型 [${config.model}] 发起多模态图片识别分析...`)
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      })
+
+      if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(`Vision API 响应错误 (${response.status}): ${errText}`)
+      }
+
+      const result = await response.json()
+      const desc = result.choices?.[0]?.message?.content?.trim() || ''
+      console.log(`[Vision Service] 图像识别结果已提炼: "${desc}"`)
+      return desc
+    } catch (err: any) {
+      console.warn('[Vision Service] 多模态图像识别异常，跳过分析:', err.message || err)
+      return ''
+    }
+  }
+
+  /**
    * 自动从 SQLite 读取全局提示词，并前置拼接注入到 system 消息中
    */
   private injectGlobalPrompt(messages: ChatMessage[]): ChatMessage[] {

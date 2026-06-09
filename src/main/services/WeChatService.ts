@@ -5,7 +5,7 @@ import { getDatabaseService } from '../db/database';
 import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { WeChatClient } from './WeChatClient';
-import { mergeChatHistory, cleanContentForLLM } from '../utils/ChatHistoryMerger';
+import { mergeChatHistory, cleanContentForLLM, formatUserImageForLLM } from '../utils/ChatHistoryMerger';
 import { NovelAiService } from './NovelAiService';
 import crypto from 'crypto';
 import QRCode from 'qrcode';
@@ -414,7 +414,25 @@ export class WeChatService {
               const fullPath = join(mediaDir, filename);
               fs.writeFileSync(fullPath, imageBuffer);
 
-              finalUserMessage = `[wechat_image_media]:media/${filename}`;
+              // 微信端接收图片消息进行多模态分析
+              let imgDesc = '';
+              try {
+                const configStr = db.getSetting('model_config');
+                if (configStr) {
+                  const modelSettings = JSON.parse(configStr);
+                  const modelAdapter = new ModelAdapter(modelSettings.primary, modelSettings.secondary);
+                  const imageBase64 = `data:image/png;base64,${imageBuffer.toString('base64')}`;
+                  imgDesc = await modelAdapter.analyzeImage(imageBase64);
+                }
+              } catch (err) {
+                console.error('[WeChatService] 微信图片识别多模态分析发生异常:', err);
+              }
+
+              if (imgDesc) {
+                finalUserMessage = `[wechat_image_media]:media/${filename}[image_desc:${imgDesc}]`;
+              } else {
+                finalUserMessage = `[wechat_image_media]:media/${filename}`;
+              }
               console.log('[WeChatService] 微信图片消息成功下载解密并保存至:', fullPath);
             }
           } else {
@@ -681,7 +699,7 @@ export class WeChatService {
         .map((h: any) => {
           const label = h.role === 'user' ? '用户' : '角色';
           const content = (h.role === 'user' && (h.content || '').startsWith('[wechat_image_media]:')
-            ? '（用户发来了一张图片）'
+            ? formatUserImageForLLM(h.content)
             : cleanContentForLLM(h.content));
           return `${label}: ${content}`;
         }).join('\n');
@@ -850,14 +868,14 @@ export class WeChatService {
           .filter((m: any) => !(m.role === 'assistant' && (m.content || '').startsWith('[wechat_image_media]:')))
           .map((m: any) => {
             const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
-              ? '（用户发来了一张图片）'
+              ? formatUserImageForLLM(m.content)
               : cleanContentForLLM(m.content));
             return {
               role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
               content: content
             };
           }),
-        { role: 'user', content: userMessage.startsWith('[wechat_image_media]:') ? '（用户发来了一张图片）' : cleanContentForLLM(userMessage) }
+        { role: 'user', content: userMessage.startsWith('[wechat_image_media]:') ? formatUserImageForLLM(userMessage) : cleanContentForLLM(userMessage) }
       ];
 
       const response = await modelAdapter.chat(chatMessages, { usePrimary: true });

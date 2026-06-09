@@ -72,6 +72,10 @@ export function cleanContentForLLM(content: string): string {
 
   // 3. 绘图或图片消息净化：避免包含 Base64 的旧图片记录进入
   if (trimmed.startsWith('[wechat_image_media]:')) {
+    const descMatch = trimmed.match(/\[image_desc:(.*?)\]/)
+    if (descMatch && descMatch[1]) {
+      return `[图片消息: ${descMatch[1]}]`
+    }
     return '[图片消息]';
   }
 
@@ -87,3 +91,21 @@ export function cleanContentForLLM(content: string): string {
 
   return trimmed;
 }
+
+/**
+ * 辅助函数：将图片协议内容解析为对 LLM 友好的描述信息（用于微信、生活引擎、记忆服务等）
+ * 如果有图片描述，返回 “（用户发来了一张图片，画面里是：描述）”
+ * 如果无图片描述，返回 “（用户发来了一张图片）”
+ */
+export function formatUserImageForLLM(content: string): string {
+  if (!content) return '';
+  if (content.startsWith('[wechat_image_media]:')) {
+    const descMatch = content.match(/\[image_desc:(.*?)\]/);
+    if (descMatch && descMatch[1]) {
+      return `（用户发来了一张图片，画面里是：${descMatch[1]}）`;
+    }
+    return '（用户发来了一张图片）';
+  }
+  return '';
+}
+

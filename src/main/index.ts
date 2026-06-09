@@ -371,6 +371,10 @@ function formatMessageContentForLLM(
     // AI 绘图消息（assistant 发出）：返回空字符串，由调用方 filter 掉，绝不让噪音进入上下文
     if (role === 'assistant') return ''
     // 用户发送的图片消息：用全角括号叙事描述，避免 LLM 将方括号标记误当作可输出文本
+    const descMatch = content.match(/\[image_desc:(.*?)\]/)
+    if (descMatch && descMatch[1]) {
+      return `（用户发来了一张图片，画面里是：${descMatch[1]}）`
+    }
     return '（用户发来了一张图片）'
   }
   return content
@@ -1376,7 +1380,8 @@ function registerIpcHandlers(): void {
 
       // 2. 如果存在且是图片消息，物理硬删除它
       if (msg && msg.content && msg.content.startsWith('[wechat_image_media]:')) {
-        const relativePath = msg.content.substring('[wechat_image_media]:'.length) // e.g. "media/drawing_xxxx.png"
+        const rawRelativePath = msg.content.substring('[wechat_image_media]:'.length) // e.g. "media/drawing_xxxx.png[image_desc:描述]"
+        const relativePath = rawRelativePath.split('[image_desc:')[0]
 
         // 3. 查出对应角色的 folder_name
         const charStmt = db.db.prepare('SELECT folder_name FROM Characters WHERE id = ?')
@@ -1923,9 +1928,17 @@ function registerIpcHandlers(): void {
         .filter((m: any) => !(m.role === 'assistant' && (m.content || '').startsWith('[wechat_image_media]:')))
         .map((m: any) => {
           const label = m.role === 'user' ? '用户' : '角色'
-          const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:'))
-            ? '（用户发来了一张图片）'
-            : cleanContentForLLM(m.content || '')
+          let content = ''
+          if (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')) {
+            const descMatch = m.content.match(/\[image_desc:(.*?)\]/)
+            if (descMatch && descMatch[1]) {
+              content = `（用户发来了一张图片，画面里是：${descMatch[1]}）`
+            } else {
+              content = '（用户发来了一张图片）'
+            }
+          } else {
+            content = cleanContentForLLM(m.content || '')
+          }
           return `${label}: ${content}`
         }).join('\n')
 
@@ -4566,6 +4579,16 @@ ${soulContent}
       })
     }
 
+    // 🚀 多模态图片内容分析：如果前台发送了图片且不是创角 Bot，先用 Vision 提取客观画面描述
+    let imageDescription = ''
+    if (payload.imageBase64 && characterId !== CREATOR_BOT_ID) {
+      try {
+        imageDescription = await modelAdapter.analyzeImage(payload.imageBase64)
+      } catch (err) {
+        console.error('[Vision Service] IPC chat-stream 图片分析失败:', err)
+      }
+    }
+
     // 组装 System Prompt (至尊三层前缀保温排布)
     // 🔒 安全修复：始终从数据库读取该角色的专属 chatMode，不信任前端 payload 传来的值，
     // 防止前端 UI 状态（currentChatMode）因 race condition 或选中角色错位导致 chatMode 串号。
@@ -4712,9 +4735,9 @@ ${memoryContent}
         dynamicHeader = `[System Dynamic Context Update]\n${dynamicContext}\n---\n\n`
       }
 
-      // 如果有粘贴图片，在用户消息中追加图片描述提示
+      // 如果有粘贴图片，在用户消息中顺带注入 AI 刚理解出的多模态图片描述
       const userMessageFinal = payload.imageBase64
-        ? `${formatMessageContentForLLM(userMessage, 'user')}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
+        ? `${formatMessageContentForLLM(userMessage, 'user')}\n\n（用户发来了一张图片${imageDescription ? `，画面里是：${imageDescription}` : ''}）\n\n[请结合当前对话语境和这张图片的内容，做出非常自然、人设化的回应。]`
         : formatMessageContentForLLM(userMessage, 'user')
 
       // 获取当前角色的真实姓名
@@ -4778,7 +4801,11 @@ ${memoryContent}
         const fullPath = join(mediaDir, filename)
         const base64Data = payload.imageBase64.replace(/^data:image\/\w+;base64,/, '')
         fs.writeFileSync(fullPath, Buffer.from(base64Data, 'base64'))
-        dbContent = `[wechat_image_media]:media/${filename}`
+        if (imageDescription) {
+          dbContent = `[wechat_image_media]:media/${filename}[image_desc:${imageDescription}]`
+        } else {
+          dbContent = `[wechat_image_media]:media/${filename}`
+        }
       } catch (e) {
         console.error('[Image Storage] 保存大图失败:', e)
       }
@@ -6556,10 +6583,11 @@ ${memoryContent}
     try {
       const storageManager = new CharacterStorageManager()
       const charDir = join(storageManager.getBaseDir(), payload.folderName)
-      const fullPath = join(charDir, payload.mediaPath)
+      const cleanPath = payload.mediaPath.split('[image_desc:')[0]
+      const fullPath = join(charDir, cleanPath)
       if (fs.existsSync(fullPath)) {
         const fileBuffer = fs.readFileSync(fullPath)
-        const ext = extname(fullPath).toLowerCase()
+        const ext = extname(cleanPath).toLowerCase()
         const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg'
 
         let meta: any = null

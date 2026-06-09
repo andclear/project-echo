@@ -14970,7 +14970,10 @@ function restoreMessageProps(m: any) {
         }
       } catch (_) {}
     } else if (m.content.startsWith('[wechat_image_media]:')) {
-      const mediaPath = m.content.replace('[wechat_image_media]:', '')
+      let mediaPath = m.content.replace('[wechat_image_media]:', '')
+      if (mediaPath.includes('[image_desc:')) {
+        mediaPath = mediaPath.split('[image_desc:')[0]
+      }
       result.content = ''
       result.imageBase64 = '' // 初始占位，待异步读取填充
       result.imageMeta = null // 元数据初始占位
@@ -20256,7 +20259,13 @@ onMounted(async () => {
 
     
     // 物理去除内容中的所有换行、空白字符、特有标签用于高精准比对
-    const cleanStr = (s: string) => (s || '').replace(/\s+/g, '').replace(/\[wechat_image_media\]/g, '').replace(/\[image_desc\]/g, '')
+    const cleanStr = (s: string) => {
+      let temp = s || ''
+      if (temp.startsWith('[wechat_image_media]:')) {
+        temp = temp.split('[image_desc:')[0]
+      }
+      return temp.replace(/\s+/g, '')
+    }
     
     if (msg.role === 'assistant') {
       const normBroadcast = cleanStr(msg.content)
