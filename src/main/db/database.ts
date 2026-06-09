@@ -866,19 +866,19 @@ export class DatabaseService {
   public getChatHistory(characterId: string, limit: number = 20, beforeTimestamp?: number): any[] {
     let rows: any[]
     if (beforeTimestamp !== undefined && beforeTimestamp !== null) {
-      // 分页拉取：只获取指定时间戳之前的历史消息
+      // 分页拉取：只获取指定时间戳之前的历史消息 (物理排除日记内容)
       const stmt = this.db.prepare(`
         SELECT * FROM Messages
-        WHERE character_id = ? AND timestamp < ?
+        WHERE character_id = ? AND timestamp < ? AND content NOT LIKE '[character_diary]%'
         ORDER BY timestamp DESC
         LIMIT ?
       `)
       rows = stmt.all(characterId, beforeTimestamp, limit)
     } else {
-      // 默认拉取：获取最新的历史消息
+      // 默认拉取：获取最新的历史消息 (物理排除日记内容)
       const stmt = this.db.prepare(`
         SELECT * FROM Messages
-        WHERE character_id = ?
+        WHERE character_id = ? AND content NOT LIKE '[character_diary]%'
         ORDER BY timestamp DESC
         LIMIT ?
       `)
@@ -942,7 +942,7 @@ export class DatabaseService {
   public searchChatHistory(characterId: string, keyword: string, limit: number = 200): any[] {
     const stmt = this.db.prepare(`
       SELECT * FROM Messages
-      WHERE character_id = ? AND content LIKE ?
+      WHERE character_id = ? AND content LIKE ? AND content NOT LIKE '[character_diary]%'
       ORDER BY timestamp DESC
       LIMIT ?
     `)

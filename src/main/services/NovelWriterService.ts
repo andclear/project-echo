@@ -323,7 +323,7 @@ export class NovelWriterService {
     
     const pendingMessages = db.db.prepare(`
       SELECT content, role FROM Messages
-      WHERE character_id = ? AND timestamp > ?
+      WHERE character_id = ? AND timestamp > ? AND content NOT LIKE '[character_diary]%'
     `).all(characterId, baseTs) as any[]
 
     let newTokens = 0
@@ -485,7 +485,7 @@ export class NovelWriterService {
     const baseTs = Math.max(lastEndTs, startTs)
     const rawMessages = db.db.prepare(`
       SELECT * FROM Messages 
-      WHERE character_id = ? AND timestamp > ? 
+      WHERE character_id = ? AND timestamp > ? AND content NOT LIKE '[character_diary]%'
       ORDER BY timestamp ASC
     `).all(characterId, baseTs) as any[]
 
@@ -961,7 +961,7 @@ ${options.suggestedTitle ? `⑧ 章节标题建议：本次改编建议使用的
       // 4. 读取该章节对应的聊天记录
       const rawMessages = db.db.prepare(`
         SELECT * FROM Messages 
-        WHERE character_id = ? AND timestamp >= ? AND timestamp <= ?
+        WHERE character_id = ? AND timestamp >= ? AND timestamp <= ? AND content NOT LIKE '[character_diary]%'
         ORDER BY timestamp ASC
       `).all(characterId, dialogue_start_ts, dialogue_end_ts) as any[]
 

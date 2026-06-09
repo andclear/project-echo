@@ -71,6 +71,11 @@ let tray: Tray | null = null
 
 // 🚀 极致缓存前缀保温还原全局内存字典：以角色ID为键值，缓存最近一次大模型吐出的 100% 原始未清洗的 assistant 消息内容
 export const LastAssistantRawResponse: Record<string, string> = {}
+// 🚀 极致缓存前缀保温还原全局内存字典：以角色ID为键值，缓存最近一次向大模型发送的 100% 原始拼装好的 user 消息内容 (含 annotations)
+export const LastUserRawResponse: Record<string, string> = {}
+// 🚀 全量长对话缓存前缀保温还原全局内存字典：以消息ID为键值，缓存会话生命周期内的 100% 原始拼装 user 消息内容 (含 annotations) 与 assistant 消息
+export const UserRawResponseMap: Map<string, string> = new Map()
+export const AssistantRawResponseMap: Map<string, string> = new Map()
 
 /**
  * 全局公共工具：物理剔除大模型思维链标签及其内容
@@ -1426,6 +1431,9 @@ function registerIpcHandlers(): void {
 
         // 4. 清除进程内存级前缀缓存（防止删除最后一条 AI 消息后，旧原始内容被还原进下一轮 history 造成上下文污染）
         delete LastAssistantRawResponse[charId]
+        delete LastUserRawResponse[charId]
+        UserRawResponseMap.delete(payload.messageId)
+        AssistantRawResponseMap.delete(payload.messageId)
       }
 
       return { success: true }
@@ -2771,7 +2779,7 @@ ${soulContent}
 
       const pendingMessages = db.db.prepare(`
         SELECT content FROM Messages
-        WHERE character_id = ? AND timestamp > ?
+        WHERE character_id = ? AND timestamp > ? AND content NOT LIKE '[character_diary]%'
       `).all(payload.characterId, baseTs) as any[]
 
       // 估算 Token 数量，同 NovelWriterService.ts 逻辑
@@ -3682,11 +3690,11 @@ ${soulContent}
           // C. 提取与清洗控制符
           let finalResponse = stripThinkingTags(accumulatedResponse)
 
-          // 升级为最外层中括号可选的超强兼容正则，使用[^\\]］]+防短路
-          const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\\]］]+)[\]］]?\s*`?/i
-          const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\\]］]+)[\]］]?\s*`?/gi
-          const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\\]］]+)\]?\s*`?/i
-          const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\\]］]+)\]?\s*`?/gi
+          // 升级为最外层中括号可选的超强兼容正则，使用[^\]］]+防短路
+          const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\]］]+)[\]］]?\s*`?/i
+          const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\]］]+)[\]］]?\s*`?/gi
+          const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\]］]+)\]?\s*`?/i
+          const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\]］]+)\]?\s*`?/gi
 
           // D. [回音红包动作决策] (扣减各自 State.md 的钱包余额)
           let redPacketSend: { amount: number; title: string; status: string } | null = null
@@ -4615,6 +4623,8 @@ ${soulContent}
     const isDialogue = chatMode === 'dialogue'
     const limit = isDialogue ? 160 : 60
     let rawHistory = db.getChatHistory(characterId, limit)
+    // 过滤掉后台自动生成的日记消息，不作为微信对话上下文塞给 LLM，防止时空幻觉崩塌
+    rawHistory = rawHistory.filter((m: any) => !m.content?.startsWith('[character_diary]:'))
 
     // 增量逻辑物理截断：只保留上一次压缩之后的新消息，完美对齐缓存哈希！
     if (lastCompressionTs > 0) {
@@ -4624,15 +4634,40 @@ ${soulContent}
     // 内存级反向流式合并，恢复高保真上下文
     const history = mergeChatHistory(rawHistory)
 
-    // 🚀 极致缓存前缀保温还原：大模型底层完美对齐上一轮吐出的原始动作和控制符，彻底打通滚雪球缓存哈希
+    // 🚀 极致缓存前缀保温还原：大模型底层完美对齐历史上吐出的原始动作和控制符，彻底打通滚雪球缓存哈希
     if (history.length > 0) {
+      // 1. 优先通过 Map 全量还原会话生命周期内的所有 user 和 assistant 消息，保证 3 轮以上长对话前缀缓存完美锁定
+      for (const m of history) {
+        if (m.role === 'user') {
+          const raw = UserRawResponseMap.get(m.id)
+          if (raw && raw.trim()) {
+            m.content = raw
+          }
+        } else if (m.role === 'assistant') {
+          const raw = AssistantRawResponseMap.get(m.id)
+          if (raw && raw.trim()) {
+            m.content = raw
+          }
+        }
+      }
+
+      // 2. 对最后一轮的 assistant 和 user 消息做降级备用兜底（防 Map 重启丢失等边界情况）
       const lastAssistantIndex = [...history].reverse().findIndex(m => m.role === 'assistant')
       if (lastAssistantIndex !== -1) {
         const idx = history.length - 1 - lastAssistantIndex
         const rawContent = LastAssistantRawResponse[characterId]
-        if (rawContent && rawContent.trim()) {
-          console.log(`[Cache Heat] 成功将上一轮清洗后的助理消息内容还原为原始序列以锁死前缀缓存: "${rawContent.substring(0, 40).replace(/\n/g, ' ')}..."`)
+        if (rawContent && rawContent.trim() && history[idx].content !== rawContent) {
+          console.log(`[Cache Heat] 成功将上一轮清洗后的助理消息内容通过 LastAssistantRawResponse 降级还原: "${rawContent.substring(0, 40).replace(/\n/g, ' ')}..."`)
           history[idx].content = rawContent
+        }
+      }
+      const lastUserIndex = [...history].reverse().findIndex(m => m.role === 'user')
+      if (lastUserIndex !== -1) {
+        const idx = history.length - 1 - lastUserIndex
+        const rawUserContent = LastUserRawResponse[characterId]
+        if (rawUserContent && rawUserContent.trim() && history[idx].content !== rawUserContent) {
+          console.log(`[Cache Heat] 成功将上一轮带有 Annotations 的用户消息通过 LastUserRawResponse 降级还原: "${rawUserContent.substring(0, 40).replace(/\n/g, ' ')}..."`)
+          history[idx].content = rawUserContent
         }
       }
     }
@@ -4734,7 +4769,8 @@ ${memoryContent}
       systemPrompt += buildEmojiSystemPromptSuffix(chatMode)
 
       // 🚀 获取最后一条用户（User）消息的时间戳作为计算基准，防范 Assistant 自动发搭讪/日记重置流逝计数
-      const lastUserMsg = rawHistory.find((m: any) => m.role === 'user')
+      // 🔒 安全修复：必须使用 findLast（或 slice.reverse.find）来寻找最新的一条，原 find 误选为 160 条历史里最老的第一条！
+      const lastUserMsg = rawHistory.slice().reverse().find((m: any) => m.role === 'user')
       const lastMsgTimestamp = lastUserMsg ? lastUserMsg.timestamp : 0
       const dynamicContext = ContextAssembler.assembleDynamicContext(
         soulPath,
@@ -4751,12 +4787,15 @@ ${memoryContent}
 
       // 🚀 核心优化：计算最新一轮与上一次用户发言的时间差，并在最新消息头部直接拼入相对时间插帧
       let timeGapTag = '';
+      let timeGapWarning = '';
       if (lastMsgTimestamp && lastMsgTimestamp > 0) {
         const gapMs = Date.now() - lastMsgTimestamp;
         if (gapMs >= 2 * 60 * 60 * 1000) { // 大于等于 2 小时
           const gapHours = gapMs / (1000 * 60 * 60);
           if (gapHours >= 24) {
-            timeGapTag = `[时空流逝：相隔 ${Math.floor(gapHours / 24)} 天后]\n`;
+            const gapDays = Math.floor(gapHours / 24);
+            timeGapTag = `[时空流逝：相隔 ${gapDays} 天后]\n`;
+            timeGapWarning = `\n\n【⚠️ 时空物理流逝警示】：距离你上一次与用户对话已经过去了 ${gapDays} 天。现在的物理时间是 ${new Date().toLocaleString()}，你们已经很久没有见面了。你【绝对不能】认为这是昨天的连续，也【绝对不能】在动作描写中延续上一次的物理身体亲密动作（例如不能继续躺在昨天的床上、不能继续昨天的早晨动作）。你现在的物理空间和心境已经发生了时间断层，请以“好久不见”的隔阂感和新心境做出符合时间流逝的自然回应。`;
           } else {
             timeGapTag = `[时空流逝：相隔 ${Math.floor(gapHours)} 小时后]\n`;
           }
@@ -4800,7 +4839,16 @@ ${memoryContent}
         } catch (_) {}
       }
 
-      finalUserContent = dynamicHeader + userMessageFinal + rpInstruction
+      // 🚀 核心优化：将动态上下文 annotations 前置，红包指令增加防频发警告，将用户最真实发言纯净尾置，以达成绝对焦点强化与超高缓存命中
+      let systemAnnotations = ''
+      if (dynamicHeader) systemAnnotations += dynamicHeader
+      if (rpInstruction) {
+        // 在红包提示词后强行追加防发红包幻觉警告
+        systemAnnotations += rpInstruction + `\n  - （⚠️ 绝对警告：此操作指南仅限用于你领用/退回上述已存在的用户红包，你绝对禁止以此为借口本轮主动给用户发送新的红包。本轮如无特殊重大转折，禁止主动发红包，违者将被系统物理判定为穿帮异常。）` + '\n\n'
+      }
+      if (timeGapWarning) systemAnnotations += timeGapWarning + '\n\n'
+
+      finalUserContent = systemAnnotations + `[用户最新发言]:\n` + userMessageFinal
 
       messages = [
         { role: 'system', content: systemPrompt },
@@ -5044,11 +5092,11 @@ ${memoryContent}
     let redPacketSend: { amount: number; title: string; status: string } | null = null
 
     // A. 判定是否为角色主动发红包
-    // 🚀 升级为最外层中括号可选的超强兼容正则，使用[^\\]］]+防短路
-    const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\\]］]+)[\]］]?\s*`?/i
-    const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\\]］]+)[\]］]?\s*`?/gi
-    const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\\]］]+)\]?\s*`?/i
-    const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\\]］]+)\]?\s*`?/gi
+    // 🚀 升级为最外层中括号可选的超强兼容正则，使用[^\]］]+防短路
+    const sendReg = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\]］]+)[\]］]?\s*`?/i
+    const sendRegGlobal = /`?\s*[\[［]?SEND_RED_PACKET[:：]\s*(\d+(\.\d+)?)\s*[,，]\s*([^\]］]+)[\]］]?\s*`?/gi
+    const emojiReg = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\]］]+)\]?\s*`?/i
+    const emojiRegGlobal = /`?\s*\[?(?:SEND_CUSTOM_EMOJI|表情)[:：]\s*([^\]］]+)\]?\s*`?/gi
 
     const sendMatch = accumulatedResponse.match(sendReg)
     if (sendMatch) {
@@ -5401,6 +5449,11 @@ ${memoryContent}
     // 若还原进历史 assistant 消息，模型下一轮会把这些控制符当成正常输出示范（few-shot 污染），
     // 导致角色频繁发红包、角色混淆等问题。代价是前缀缓存命中率略降，但逻辑正确性更重要。
     LastAssistantRawResponse[characterId] = finalResponse
+    LastUserRawResponse[characterId] = finalUserContent
+    if (!payload.isRegenerate) {
+      UserRawResponseMap.set(userMsgId, finalUserContent)
+    }
+    AssistantRawResponseMap.set(assistantMsgId, finalResponse)
 
 
     // 触发静默记忆提炼（延迟确认模式：结果暂存为草稿，等待用户下次发消息时核验后落盘）
@@ -5638,6 +5691,7 @@ ${memoryContent}
       // I. 清除进程内存级 raw response 缓存（保存上一轮 AI 原始输出，用于前缀缓存保温；
       //    不清除则下次对话可能把旧内容还原进 history[idx]，造成隐性上下文污染）
       delete LastAssistantRawResponse[characterId]
+      delete LastUserRawResponse[characterId]
 
       console.log(`[IPC] 物理清空角色 [${folderName}] 的历史消息、记忆、日记、大事记、State.md、画像和 Settings 参数全部完成！`)
 
