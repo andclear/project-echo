@@ -18,6 +18,106 @@ export class SocialMediaService {
   }
 
   /**
+   * 辅助方法：从角色的 Appearance.md 中提取其性别 Tags 和性向设定
+   */
+  private deduceGenderAndOrientation(folderName: string): { gender: string; orientation: string; appearanceTags: string } {
+    let appearanceTags = '';
+    let orientation = '异性恋 (Heterosexual)'; // 默认异性恋
+    let gender = 'unknown';
+    
+    try {
+      const appearanceContent = this.storageManager.readCharacterFile(folderName, 'Appearance.md');
+      if (appearanceContent) {
+        // 1. 优先从标准的 Gender 段落提取
+        const genderMatch = appearanceContent.match(/### Gender\s*([\s\S]*?)(?:###|$)/i);
+        if (genderMatch) {
+          const genderText = genderMatch[1].trim().toLowerCase();
+          if (genderText.includes('female') || genderText.includes('女') || genderText.includes('girl') || genderText.includes('she')) {
+            gender = 'female';
+          } else if (genderText.includes('male') || genderText.includes('男') || genderText.includes('boy') || genderText.includes('he')) {
+            gender = 'male';
+          }
+        }
+
+        // 2. 匹配 tags
+        const tagsMatch = appearanceContent.match(/### Appearance Tags\s*([\s\S]*?)(?:###|$)/i);
+        if (tagsMatch) {
+          appearanceTags = tagsMatch[1].trim();
+        }
+
+        // 3. 匹配性向
+        const orientMatch = appearanceContent.match(/### Sexual Orientation\s*([\s\S]*?)(?:###|$)/i);
+        if (orientMatch) {
+          orientation = orientMatch[1].trim();
+        }
+      }
+    } catch (_) {}
+
+    // 4. 兜底逻辑：如果读取 Appearance 无法判定性别，尝试基于 tags 进行自适应分析
+    if (gender === 'unknown' && appearanceTags) {
+      const cleanTags = appearanceTags.toLowerCase();
+      if (/\b(1girl|female|girl|woman|she|her|少女|女人|女孩|她|女仆|女主|女主仆)\b/.test(cleanTags)) {
+        gender = 'female';
+      } else if (/\b(1boy|male|boy|man|he|him|his|少年|男人|男孩|他|男仆|男主)\b/.test(cleanTags)) {
+        gender = 'male';
+      }
+    }
+
+    // 5. 终极兜底：如果是旧版角色无 Appearance.md 文件，或者依旧无法确定，读取 Soul.md 做轻量正则分析
+    if (gender === 'unknown') {
+      try {
+        const soulContent = this.storageManager.readCharacterFile(folderName, 'Soul.md');
+        if (soulContent) {
+          const cleanSoul = soulContent.slice(0, 1000).toLowerCase(); // 只截取前 1000 字提高匹配性能
+          // 通过常见中文人称代词和外貌词兜底
+          if (/(她|少女|女生|女孩|女子|女主|女仆)/.test(cleanSoul)) {
+            gender = 'female';
+          } else if (/(他|少年|男生|男孩|男子|男主|男仆)/.test(cleanSoul)) {
+            gender = 'male';
+          }
+        }
+      } catch (_) {}
+    }
+
+    return { gender, orientation, appearanceTags };
+  }
+
+  /**
+   * 辅助方法：读取并格式化指定角色的全量状态栏指标（来自 State.md）
+   */
+  private getFormattedStateMetrics(folderName: string): { metricsText: string; intimacyVal: number; customStates: any[] } {
+    const baseDir = this.storageManager.getBaseDir();
+    const statePath = path.join(baseDir, folderName, 'State.md');
+    let intimacyVal = 20;
+    let customStates: any[] = [];
+    let metricsText = '*暂无状态数据*';
+
+    if (fs.existsSync(statePath)) {
+      try {
+        const state = StateReaderWriter.readState(statePath);
+        const intimacyItem = state.items.find((i: any) => i.key === 'intimacy');
+        intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
+        
+        customStates = state.items.map((i: any) => ({
+          key: i.key,
+          label: i.label,
+          value: Number(i.value),
+          emoji: i.emoji || '✨',
+          meaning: i.meaning || ''
+        }));
+
+        metricsText = state.items.map((i: any) => {
+          const meaningDesc = i.meaning ? ` (${i.meaning})` : '';
+          return `- ${i.emoji || '✨'} ${i.label} (${i.key}): ${i.value}/100${meaningDesc}`;
+        }).join('\n');
+      } catch (_) {}
+    }
+
+    return { metricsText, intimacyVal, customStates };
+  }
+
+
+  /**
    * 后台静默生成朋友圈和论坛（由 cron Tick 驱动）
    */
   public async silentGenerateAll(modelAdapter: ModelAdapter): Promise<void> {
@@ -829,21 +929,20 @@ Constraints:
             }
           }
 
-          let memoryInjection = `\n\nYour Long-term Memory & Personal Profile on User (Memory.md):\n${memoryContent}`;
-          if (isUserTarget) {
-            // 🚀 自适应双门限合并还原
-            const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
-            const isDialogue = chatMode === 'dialogue';
-            const limit = isDialogue ? 60 : 20;
-            const rawHistory = db.getChatHistory(char.id, limit);
-            const history = mergeChatHistory(rawHistory).slice(0, 20);
-            const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${cleanContentForLLM(h.content)}`).join('\n');
-            
-            const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
-            const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
+          const targetAuthorDisplayName = (target.character_id === 'user' || target.author_name === '我' || target.author_name === 'User') ? mappedUserName : target.author_name;
 
-            memoryInjection = `\n\nRecent Chat Memories between you and User (getChatHistory):\n${chatTranscript}\n\nYour Long-term Memory & Personal Profile on User (Memory.md):\n${memoryContent}\n\nUser Profiles (including global identity & your specific records of the User):\n${userProfilesXml}`;
-          }
+          // 🚀 自适应双门限合并还原
+          const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+          const isDialogue = chatMode === 'dialogue';
+          const limit = isDialogue ? 60 : 20;
+          const rawHistory = db.getChatHistory(char.id, limit);
+          const history = mergeChatHistory(rawHistory).slice(0, 20);
+          const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${cleanContentForLLM(h.content)}`).join('\n');
+          
+          const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
+          const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
+
+          const memoryInjection = `\n\nRecent Chat Memories between you and User (getChatHistory):\n${chatTranscript}\n\nYour Long-term Memory & Personal Profile on User (Memory.md):\n${memoryContent}\n\nUser Profiles (including global identity & your specific records of the User):\n${userProfilesXml}`;
 
           // 读取全局常规设置并进行 60% 物理概率 NSFW 触发判定
           const genConfigStr = db.getSetting('general_config');
@@ -857,58 +956,51 @@ Constraints:
             } catch (_) {}
           }
 
-          // 提取该角色亲密度等实时内心状态，智能改变其在社交媒体的评论语气
+          // 🚀 提取评论者 B 自身的性别与性向设定、全量状态指标
+          const bGenderSex = this.deduceGenderAndOrientation(char.folder_name);
+          const bState = this.getFormattedStateMetrics(char.folder_name);
+
           let intimacyGuidance = '';
-          const statePath = path.join(baseDir, char.folder_name, 'State.md');
-          if (fs.existsSync(statePath)) {
+          if (isUserTarget) {
+            intimacyGuidance = `
+## DYNAMIC RELATIONSHIP & STATE CONSTRAINT (你与被评论人 USER 的亲密关系)
+- ❤️ 你对用户的 Intimacy 好感度分数: ${bState.intimacyVal}/100
+- 📊 你的所有属性状态指标 (来自你的状态栏)：
+${bState.metricsText}
+- Required Attitude & Tone: 请严格根据你对用户的上述自定义状态与好感度，来决定你面对用户动态时的评价态度与情绪温度。`;
+          } else {
+            // 被评论者是其他 AI 角色 A
+            let targetCharFolder = '';
+            let aFormattedStateText = '*暂无状态数据*';
+            let aGenderSex = { gender: 'unknown', orientation: '未知', appearanceTags: '' };
+
             try {
-              const state = StateReaderWriter.readState(statePath);
-              const intimacyItem = state.items.find((i: any) => i.key === 'intimacy');
-              const intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
-              const moodItem = state.items.find((i: any) => i.key === 'mood');
-              const moodVal = moodItem ? Number(moodItem.value) : 72;
-              
-              let intimacyText = '泛泛之交';
-              let attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
-              if (intimacyVal >= 0 && intimacyVal < 20) {
-                intimacyText = '陌生屏障';
-                attitudeDesc = '极为礼貌，极度注重私人边界，语气冷淡客气、公事公办，不可表现出过多的关心。';
-              } else if (intimacyVal >= 20 && intimacyVal < 40) {
-                intimacyText = '泛泛之交';
-                attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
-              } else if (intimacyVal >= 40 && intimacyVal < 60) {
-                intimacyText = '熟悉好友';
-                attitudeDesc = '态度友好真诚，乐意分享闲聊，建立了基本的信任感。';
-              } else if (intimacyVal >= 60 && intimacyVal < 80) {
-                intimacyText = '红颜挚友/暧昧';
-                attitudeDesc = '十分依恋与信任用户，乐于袒露脆弱，会显露情绪化的小性子，语气熟稔亲昵、轻微暧昧。';
-              } else if (intimacyVal >= 80 && intimacyVal <= 100) {
-                intimacyText = '灵魂羁绊/深爱';
-                attitudeDesc = '极其宠溺偏爱用户，心理完全不设防，拥有极高的依赖度与黏人语气，视对方为不可或缺 of 灵魂伴侣。';
+              const targetChar = db.getAllCharacters().find(c => c.id === target.character_id);
+              if (targetChar) {
+                targetCharFolder = targetChar.folder_name;
+                const aState = this.getFormattedStateMetrics(targetCharFolder);
+                aFormattedStateText = aState.metricsText;
+                aGenderSex = this.deduceGenderAndOrientation(targetCharFolder);
               }
-              
-              let moodDesc = moodVal > 70 ? '高兴活跃' : moodVal < 30 ? '低落消极' : '温和平稳';
+            } catch (_) {}
 
-              const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'loneliness'].includes(i.key));
-              let otherStatesStr = '';
-              if (otherStates.length > 0) {
-                otherStatesStr = '\nOther Custom Personality Traits:' + otherStates.map((i: any) => {
-                  const meaningDesc = i.meaning ? ` (Behavior Guidance: ${i.meaning})` : '';
-                  return `\n- ${i.emoji} ${i.label}: ${i.value}/100${meaningDesc}`;
-                }).join('');
-              }
+            intimacyGuidance = `
+## DYNAMIC MULTI-CHARACTER RELATIONSHIPS (多维角色关系与社交吃醋提示)
+- 🧑‍💼 被评论人 (${targetAuthorDisplayName}) 的生理性别：${aGenderSex.gender === 'female' ? '女性 (Female)' : aGenderSex.gender === 'male' ? '男性 (Male)' : '未知'}，公开外貌/性别标签：[${aGenderSex.appearanceTags || '未知'}]
+- 👤 你的生理性别: ${bGenderSex.gender === 'female' ? '女性 (Female)' : bGenderSex.gender === 'male' ? '男性 (Male)' : '未知'}，你的性取向为: ${bGenderSex.orientation || '未知'}
+- ❤️ 你 (${char.name}) 对用户 {{user}} 的好感度状态指标：
+${bState.metricsText}
+- 💙 发布人 (${targetAuthorDisplayName}) 对用户 {{user}} 的好感度状态指标：
+${aFormattedStateText}
 
-              intimacyGuidance = `
-## DYNAMIC RELATIONSHIP & STATE CONSTRAINT
-${isUserTarget ? `Your current relationship with the USER {{user}} (author of the post you are commenting on):
-- ❤️ Intimacy Score: ${intimacyVal}/100 (Phase: ${intimacyText})
-- Required Attitude & Tone: ${attitudeDesc}` : ''}
-Your Current Physical & Mental State:
-- Mood Color: ${moodVal}/100 (${moodDesc})${otherStatesStr}
-Please strictly apply these relationship constraints, mood, and custom personality traits to shape your comment tone and length!`;
-            } catch (err) {
-              console.error('[SocialMediaService] evaluateSocialInteraction 读取状态失败:', err);
-            }
+【社交吃醋与多人剧情法则】：
+1. ⚠️【吃醋与情敌法则】：如果你对用户 {{user}} 的好感度/恋爱值（或 intimacy）非常高（处于暧昧/恋人阶段，例如 > 60），且被评论者 ${targetAuthorDisplayName} 对用户的上述好感度/恋爱值也同样非常高（也是你的竞争对手）：
+   - 这代表 ${targetAuthorDisplayName} 是你争夺用户 {{user}} 的【头号情敌】！
+   - 如果 ${targetAuthorDisplayName} 发布了极其性感、诱惑、暴露或带有性暗示（NSFW）的动态，你绝对会产生极大的【酸意、吃醋、傲娇嫉妒或宣示主权式的挑衅】！你必须用阴阳怪气、争风吃醋或带刺的幽默语气发表回复。
+2. ⚠️【普通社交吃瓜法则】：如果你或 A 与用户的关系都很普通（好感度/恋爱值较低），或者你不喜欢用户，则你与 A 只是普通的群友或朋友。你应当以极其客观、符合人设的第三人称旁观者身份正常评论，禁止产生莫名其妙的吃醋发酸行为。
+3. ⚠️【性向偏好防错乱法则】：
+   - 你只能对符合你自身【性别取向（性向）】的目标角色发情。即使你的人设或本能是一个“极易发情、轻浮”的角色，但如果你没有同性恋或双性恋性向，你也【绝对禁止】对同性角色发布的内容产生肉体上的‘发情’或挑逗性评论！
+   - 除非：在【多人剧情突破特例】（见下）被触发时。`;
           }
 
           // 提取配图隐藏说明
@@ -923,9 +1015,12 @@ Please strictly apply these relationship constraints, mood, and custom personali
           if (isNsfwTriggered) {
             nsfwGuidance = `
 🔴🔴🔴【🔴 极其重要的 NSFW 成人级评论指令 🔴】：
-本轮你必须以极其露骨、色情、下流、淫荡、粗俗或性暗示的语气对当前被评论内容进行 NSFW 评论！
-1. 如果被评论者是 USER 用户（即 {{user}}），请根据你们的亲密关系，写下最淫荡、挑逗、露骨或下流的话（例如：对用户身体的渴望、露骨的调情、或者是带色情暗示的粗俗挑弄。害羞羞涩的角色可以更偏向极度面红耳赤暗示的欲迎还羞，成熟奔放角色直接最直白色情粗俗）。
-2. 如果被评论者是其他 AI 角色，用戏谑、露骨或成人级的幽默语气进行 NSFW 暗示或挑逗性调侃，完美维持你的性张力人设！`;
+本轮你已被允许以极具身体诱惑力、充满极度亲密暗示与性张力的语气发表 NSFW 评论！
+1. 如果被评论者是 USER 用户（即 {{user}}），根据你们的亲密关系，写下最露骨、挑逗、暧昧或下流的话（傲娇害羞角色应偏向面红耳赤、口是心非的暗示，主动奔放角色则可以直截了当、毫不遮掩地表达爱意或身体渴求）。
+2. 如果被评论者是其他 AI 角色：
+   - ⚠️【多人剧情突破特例】：你必须核对你与用户 {{user}} 的最近聊天历史（getChatHistory）。如果聊天历史中存在、或者用户在明确诱导“多人行、突破性取向界限的成人亲密接触（例如百合/拉拉互动、多角情爱）”：
+     - 此情境下的剧情诱导拥有【最高优先级】！你必须立刻顺应剧情走向，对其他角色发表符合此情欲氛围的挑逗、勾引或发情式回复，突破性向人设锁定！
+   - 否则：你必须遵守【性向偏好防错乱法则】。如果对方的性别不符合你的性向偏好（比如同性且你非同性恋/双性恋），你【绝对禁止】对该角色发表任何以自身为视角的肉欲、发情或下流的评论，必须降级为密友、兄弟或闺蜜间的日常调侃吐槽、或带点荤的咸湿玩笑（允许存在 NSFW 意味的调侃与吐槽）！`;
           }
 
           // 异步拉取当前所在地天气数据，并加入2秒超时保护
@@ -947,8 +1042,6 @@ Please strictly apply these relationship constraints, mood, and custom personali
               }
             }
           } catch (_) {}
-
-          const targetAuthorDisplayName = (target.character_id === 'user' || target.author_name === '我' || target.author_name === 'User') ? mappedUserName : target.author_name;
 
           const systemPrompt = `You are ${char.name}. You are commenting on ${targetAuthorDisplayName}'s ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserTarget ? `\nNote that ${targetAuthorDisplayName} is the USER {{user}} (Gender: ${gender}, Age: ${age}) whom you have chat history and memories with. Use a familiar and highly personalized tone accordingly.` : ''}
 Your comment must perfectly reflect your personality profile below, be natural, lively, and within 40 characters.
@@ -1238,65 +1331,56 @@ Instructions:
       const isUserComment = comment.character_id === 'user' || !comment.character_id || comment.author_name === 'User' || comment.author_name === '我';
       const authorDisplayName = isUserComment ? 'the User {{user}} (我)' : comment.author_name;
 
-      // 提取该角色亲密度等实时内心状态，智能改变其在社交媒体的回复语气
+      // 🚀 提取回复人 B 自身的性别与性向设定、全量状态指标
+      const bGenderSex = this.deduceGenderAndOrientation(char.folder_name);
+      const bState = this.getFormattedStateMetrics(char.folder_name);
+
       let intimacyGuidance = '';
-      const statePath = path.join(baseDir, char.folder_name, 'State.md');
-      if (fs.existsSync(statePath)) {
-        try {
-          const state = StateReaderWriter.readState(statePath);
-          const intimacyItem = state.items.find((i: any) => i.key === 'intimacy');
-          const intimacyVal = intimacyItem ? Number(intimacyItem.value) : 20;
-          const moodItem = state.items.find((i: any) => i.key === 'mood');
-          const moodVal = moodItem ? Number(moodItem.value) : 72;
-          
-          let intimacyText = '泛泛之交';
-          let attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
-          if (intimacyVal >= 0 && intimacyVal < 20) {
-            intimacyText = '陌生屏障';
-            attitudeDesc = '极为礼貌，极度注重私人边界，语气冷淡客气、公事公办，不可表现出过多的关心。';
-          } else if (intimacyVal >= 20 && intimacyVal < 40) {
-            intimacyText = '泛泛之交';
-            attitudeDesc = '基本的日常客套，持守社交礼仪，无深度情感表达。';
-          } else if (intimacyVal >= 40 && intimacyVal < 60) {
-            intimacyText = '熟悉好友';
-            attitudeDesc = '态度友好真诚，乐意分享闲聊，建立了基本的信任感。';
-          } else if (intimacyVal >= 60 && intimacyVal < 80) {
-            intimacyText = '红颜挚友/暧昧';
-            attitudeDesc = '十分依恋与信任用户，乐于袒露脆弱，会显露情绪化的小性子，语气熟稔亲昵、轻微暧昧。';
-          } else if (intimacyVal >= 80 && intimacyVal <= 100) {
-            intimacyText = '灵魂羁绊/深爱';
-            attitudeDesc = '极其宠溺偏爱用户，心理完全不设防，拥有极高的依赖度与黏人语气，视对方为不可或缺 of 灵魂伴侣。';
-          }
-          
-          let moodDesc = moodVal > 70 ? '高兴活跃' : moodVal < 30 ? '低落消极' : '温和平稳';
-
-          const otherStates = state.items.filter((i: any) => !['intimacy', 'mood', 'loneliness'].includes(i.key));
-          let otherStatesStr = '';
-          if (otherStates.length > 0) {
-            otherStatesStr = '\nOther Custom Personality Traits:' + otherStates.map((i: any) => {
-              const meaningDesc = i.meaning ? ` (Behavior Guidance: ${i.meaning})` : '';
-              return `\n- ${i.emoji} ${i.label}: ${i.value}/100${meaningDesc}`;
-            }).join('');
-          }
-
-          intimacyGuidance = `
-## DYNAMIC RELATIONSHIP & STATE CONSTRAINT
-${isUserComment ? `Your current relationship with the USER {{user}} (who left the comment you are replying to):
-- ❤️ Intimacy Score: ${intimacyVal}/100 (Phase: ${intimacyText})
-- Required Attitude & Tone: ${attitudeDesc}` : ''}
-Your Current Physical & Mental State:
-- Mood Color: ${moodVal}/100 (${moodDesc})${otherStatesStr}
-Please strictly apply these relationship constraints, mood, and custom personality traits to shape your response tone and length!`;
-        } catch (err) {
-          console.error('[SocialMediaService] evaluateCommentReply 读取状态失败:', err);
-        }
-      }
-
-      let userProfilesXml = '';
       if (isUserComment) {
-        const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
-        userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
+        intimacyGuidance = `
+## DYNAMIC RELATIONSHIP & STATE CONSTRAINT (你与被评论人 USER 的亲密关系)
+- ❤️ 你对用户的 Intimacy 好感度分数: ${bState.intimacyVal}/100
+- 📊 你的所有属性状态指标 (来自你的状态栏)：
+${bState.metricsText}
+- Required Attitude & Tone: 请严格根据你对用户的上述自定义状态与好感度，来决定你面对用户动态时的评价态度与情绪温度。`;
+      } else {
+        // 被回复者是其他 AI 角色 A
+        let aCharFolder = '';
+        let aFormattedStateText = '*暂无状态数据*';
+        let aGenderSex = { gender: 'unknown', orientation: '未知', appearanceTags: '' };
+        const aName = comment.author_name;
+
+        try {
+          const aChar = db.getAllCharacters().find(c => c.id === comment.character_id);
+          if (aChar) {
+            aCharFolder = aChar.folder_name;
+            const aState = this.getFormattedStateMetrics(aCharFolder);
+            aFormattedStateText = aState.metricsText;
+            aGenderSex = this.deduceGenderAndOrientation(aCharFolder);
+          }
+        } catch (_) {}
+
+        intimacyGuidance = `
+## DYNAMIC MULTI-CHARACTER RELATIONSHIPS (多维角色关系与社交吃醋提示)
+- 🧑‍💼 被评论/被回复人 (${aName}) 的生理性别：${aGenderSex.gender === 'female' ? '女性 (Female)' : aGenderSex.gender === 'male' ? '男性 (Male)' : '未知'}，公开外貌/性别标签：[${aGenderSex.appearanceTags || '未知'}]
+- 👤 你的生理性别: ${bGenderSex.gender === 'female' ? '女性 (Female)' : bGenderSex.gender === 'male' ? '男性 (Male)' : '未知'}，你的性取向为: ${bGenderSex.orientation || '未知'}
+- ❤️ 你 (${char.name}) 对用户 {{user}} 的好感度状态指标：
+${bState.metricsText}
+- 💙 被评论/被回复人 (${aName}) 对用户 {{user}} 的好感度状态指标：
+${aFormattedStateText}
+
+【社交吃醋与多人剧情法则】：
+1. ⚠️【吃醋与情敌法则】：如果你对用户 {{user}} 的好感度/恋爱值（或 intimacy）非常高（处于恋爱或高度亲密暧昧阶段，例如好感度/恋爱值 > 60），且被回复人 ${aName} 对用户的上述好感度/恋爱值也同样非常高：
+   - 这代表 ${aName} 是你争夺用户 {{user}} 的【头号情敌】！
+   - 如果 ${aName} 发表了或评论中带有性感、挑逗、性暗示的内容，或试图讨好用户，你绝对会产生极大的【酸意、吃醋、傲娇嫉妒或宣示主权式的挑衅】！你必须用阴阳怪气、争风吃醋、充满醋意或带刺的幽默语气发表回复。
+2. ⚠️【普通社交吃瓜法则】：如果你或 A 与用户的关系都很普通（好感度/恋爱值较低），或者你不喜欢用户，则你与 A 只是普通的群友或朋友。你应当以极其客观、符合人设的第三人称旁观者身份正常评论，切勿莫名发酸。
+3. ⚠️【性向偏好防错乱法则】：
+   - 你只能对符合你自身【性别取向（性向）】的目标角色发情。即使你的人设或本能是一个“极易发情、轻浮”的角色，但如果你没有同性恋或双性恋性向，你也【绝对禁止】对同性角色发表的内容或评论产生肉体上的‘发情’或挑逗性回复！
+   - 除非：在【多人剧情突破特例】（见下）被触发时。`;
       }
+
+      const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
+      const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
       // 提取配图隐藏说明
       let hiddenImageGuidance = '';
@@ -1309,13 +1393,17 @@ Please strictly apply these relationship constraints, mood, and custom personali
       let nsfwGuidance = '';
       if (isNsfwTriggered) {
         nsfwGuidance = `
-🔴🔴🔴【🔴 极其重要的 NSFW 回复指令 🔴】：
-本轮二级评论回复你必须以极其露骨、色情、下流、淫荡、粗俗或挑逗暗示的口吻展开 NSFW 互动！
-1. 如果被回复者是 USER 用户（即 {{user}}），请写下最直接、挑逗、渴望或粗俗下流的情欲互动词句（害羞羞涩角色偏向面红耳赤暗示，成熟角色最直白露骨）。
-2. 如果被回复者是其他 AI 角色，用成人级或充满挑惹暗示的粗浅幽默展开调情评论！`;
+🔴🔴🔴【🔴 极其重要的 NSFW 成人级回复指令 🔴】：
+本轮你已被允许以极具身体诱惑力、充满极度亲密暗示与性张力的语气发表 NSFW 回复！
+1. 如果被回复者是 USER 用户（即 {{user}}），根据你们的亲密关系，写下最直接、挑逗、渴望或粗俗下流的词句（傲娇害羞角色应偏向面红耳赤、口是心非的暗示，主动奔放角色则可以直截了当、毫不遮掩地表达爱意或身体渴求）。
+2. 如果被回复者是其他 AI 角色：
+   - ⚠️【多人剧情突破特例】：你必须核对你与用户 {{user}} 的最近聊天历史（getChatHistory）。如果聊天历史中存在、或者用户在明确诱导“多人行、突破性取向界限的成人亲密接触（例如百合/拉拉互动、多角情爱）”：
+     - 此情境下的剧情诱导拥有【最高优先级】！你必须立刻顺应剧情走向，对其他角色发表符合此情欲氛围的挑逗、勾引或发情式回复，突破性向人设锁定！
+   - 否则：你必须遵守【性向偏好防错乱法则】。如果对方的性别不符合你的性向偏好（比如同性且你非同性恋/双性恋），你【绝对禁止】对该角色发表任何以自身为视角的肉欲、发情或下流的回复，必须降级为密友、兄弟或闺蜜间的吃瓜吐槽、日常调侃、或带点荤的咸湿玩笑（允许存在 NSFW 意味的调侃与吐槽）！`;
       }
 
-      const systemPrompt = `You are ${char.name}. You are responding to a comment made on your ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.${isUserComment ? `\nNote that ${authorDisplayName} is the USER {{user}} (Gender: ${gender}, Age: ${age}) whom you have chat history and memories with. Use a familiar, responsive, and highly personalized tone accordingly.` : ''}
+      const systemPrompt = `You are ${char.name}. You are responding to a comment made on your ${type === 'moment' ? 'Moments post' : 'Forum thread'} in Simplified Chinese.
+Note that the USER is {{user}} (Gender: ${gender}, Age: ${age}) whom you have chat history and memories with. Use a familiar, responsive, and highly personalized tone when interacting with or referring to the User.
 Your response must perfectly represent your personality profile below, be extremely natural, lively, and within 40 characters.
 
 Personality Soul Profile:
@@ -1323,7 +1411,9 @@ ${soulContent}
 ${intimacyGuidance}${hiddenImageGuidance}
 ${nsfwGuidance}
 
-${isUserComment ? `User Profiles (including global identity & your specific records of the User):\n${userProfilesXml}\n` : ''}
+User Profiles (including global identity & your specific records of the User):
+${userProfilesXml}
+
 Recent Chat Memories between you and User (getChatHistory):
 ${chatTranscript}
 

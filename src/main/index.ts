@@ -2012,11 +2012,12 @@ function registerIpcHandlers(): void {
     cardData: any
     soul: string
     world: string
+    appearance: string
     uint8ArrayData: number[]
   }) => {
     try {
       console.log('[IPC] ➜ 收到角色确认导入请求，拟建文件夹:', payload.folderName, '角色名称:', payload.name, '卡片数据大小:', payload.uint8ArrayData.length)
-      const { folderName, name, cardData, soul, world, uint8ArrayData } = payload
+      const { folderName, name, cardData, soul, world, appearance, uint8ArrayData } = payload
       const buffer = Buffer.from(uint8ArrayData)
 
       // 保存物理文件并自动规整流水号
@@ -2029,14 +2030,17 @@ function registerIpcHandlers(): void {
       
       let processedSoul = soul
       let processedWorld = world
+      let processedAppearance = appearance
       if (userName) {
         const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
         processedSoul = soul.replace(userNameRegex, '{{user}}')
         processedWorld = world.replace(userNameRegex, '{{user}}')
+        processedAppearance = appearance.replace(userNameRegex, '{{user}}')
       }
 
       const writeResult = storageManager.saveCharacter(confirmedFolderName, buffer, processedSoul, processedWorld)
-      console.log('[IPC] 2/3 角色 5 个核心物理文件落盘成功，路径:', writeResult.folderPath)
+      storageManager.writeCharacterFile(confirmedFolderName, 'Appearance.md', processedAppearance)
+      console.log('[IPC] 2/3 角色 6 个核心物理文件落盘成功，路径:', writeResult.folderPath)
 
       // 保存至 SQLite 数据库元数据表
       db.saveCharacterMetadata({

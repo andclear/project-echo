@@ -5,7 +5,7 @@ export class CharacterSummarizer {
   /**
    * 自动调用大模型，归纳总结性格设定 Soul.md 与 世界设定 World.md
    */
-  public static async summarize(cardData: any, userInstruction?: string): Promise<{ soul: string; world: string }> {
+  public static async summarize(cardData: any, userInstruction?: string): Promise<{ soul: string; world: string; appearance: string }> {
     const db = getDatabaseService()
     const configStr = db.getSetting('model_config')
     
@@ -120,6 +120,33 @@ ${cleanWorldInput}
 ${cleanWorldInput}
 `
 
+    const appearancePrompt = `你是一个专业的人格设定提炼专家。请阅读以下精炼角色数据，为该角色总结并提炼出一份精炼、格式标准的外观与性向特征文档（Appearance.md）。
+你的输出必须是标准的 Markdown 格式，且【必须严格遵循】以下格式排版，绝对不能输出任何 markdown 语法之外的废话或引言，直接以标题 "# 角色设定 - 外观特征" 开始输出：
+
+# 角色设定 - 外观特征
+
+### Gender
+(在这里明确写出该角色的性别，必须是以下两者之一：'女性 (Female)' 或 '男性 (Male)'。如果是无性别或非人类，根据外形偏向或人称代词进行推定。)
+
+### Appearance Tags
+(在这里用英文逗号分隔的 Danbooru 风格 Tag 来描述角色的外貌。
+⚠️【重要性别约束】：你必须在第一行或最开始的几个标签中，明确指定该角色的性别，例如如果是女性，必须包含 '1girl, female'；如果是男性，必须包含 '1boy, male'。
+例如：1girl, female, solo, long silver hair, blue eyes, white dress, smiling)
+
+### Sexual Orientation
+(在这里写出该角色设定的性取向/性向偏好，必须是以下三者之一：'异性恋 (Heterosexual)'、'双性恋 (Bisexual)'、'同性恋 (Homosexual)'。如果设定中未明确性取向，根据开场白、关系背景或一般常识进行合理推定，最常见的情况默认归纳为 '异性恋 (Heterosexual)'。对于双性恋的标准，有出现的可能，需要写成双性恋。
+例如：异性恋 (Heterosexual))
+
+### Appearance Description
+(在这里用一两段话以简体中文详细描述角色的长相、身高、身材、穿着以及给人的整体外在印象。必须统一且只使用 {{user}} 占位符指代玩家/用户。)
+
+原始高纯度人设数据：
+${cleanSoulInput}
+
+如果下方的世界书中也明确包含主角 ${name} 的核心外貌或性别性向设定，请一并提炼总结：
+${cleanWorldInput}
+`
+
     try {
       // 并行请求主模型进行归纳提炼，提升导入速度
       const soulPromise = adapter.chat([
@@ -130,20 +157,27 @@ ${cleanWorldInput}
         { role: 'user', content: worldPrompt }
       ], { usePrimary: true })
 
-      const [soulRes, worldRes] = await Promise.all([soulPromise, worldPromise])
+      const appearancePromise = adapter.chat([
+        { role: 'user', content: appearancePrompt }
+      ], { usePrimary: true })
+
+      const [soulRes, worldRes, appearanceRes] = await Promise.all([soulPromise, worldPromise, appearancePromise])
 
       let soulContent = soulRes.content || '# 暂无提炼人设'
       let worldContent = worldRes.content || '# 暂无提炼世界观'
+      let appearanceContent = appearanceRes.content || '# 暂无提炼外貌特征'
 
       // 去除可能的大模型 Markdown 代码包裹标记 ```markdown ... ```
       soulContent = this.cleanMarkdownBlock(soulContent)
       worldContent = this.cleanMarkdownBlock(worldContent)
+      appearanceContent = this.cleanMarkdownBlock(appearanceContent)
 
       console.log('[Summarizer] AI 提炼圆满完成！')
 
       return {
         soul: soulContent,
-        world: worldContent
+        world: worldContent,
+        appearance: appearanceContent
       }
     } catch (error: any) {
       console.error('[Summarizer] 提炼异常:', error)
