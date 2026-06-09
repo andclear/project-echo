@@ -798,6 +798,18 @@ export class DatabaseService {
     seq?: number           // 轮次内序号（v7 新增）
     msg_type?: string      // 消息类型（v7 新增）
   }): void {
+    let finalContent = msg.content
+    if (finalContent && finalContent.startsWith('[wechat_custom_emoji]:')) {
+      try {
+        const jsonStr = finalContent.substring('[wechat_custom_emoji]:'.length)
+        const emojiData = JSON.parse(jsonStr)
+        if (emojiData.base64 && emojiData.id) {
+          delete emojiData.base64
+          finalContent = `[wechat_custom_emoji]:${JSON.stringify(emojiData)}`
+        }
+      } catch (_) {}
+    }
+
     const stmt = this.db.prepare(`
       INSERT INTO Messages
         (id, character_id, role, content, timestamp, token_usage,
@@ -809,7 +821,7 @@ export class DatabaseService {
       msg.id,
       msg.character_id,
       msg.role,
-      msg.content,
+      finalContent,
       msg.timestamp,
       msg.token_usage,
       msg.prompt_tokens !== undefined ? msg.prompt_tokens : null,

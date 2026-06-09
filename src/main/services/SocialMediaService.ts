@@ -5,7 +5,7 @@ import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { StateReaderWriter } from '../utils/StateReaderWriter';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
-import { mergeChatHistory } from '../utils/ChatHistoryMerger';
+import { mergeChatHistory, cleanContentForLLM } from '../utils/ChatHistoryMerger';
 import { NovelAiService } from './NovelAiService';
 import { WeatherService } from '../utils/WeatherService';
 import { SseManager } from './SseManager';
@@ -113,7 +113,7 @@ export class SocialMediaService {
     const limit = isDialogue ? 60 : 20;
     const rawHistory = db.getChatHistory(char.id, limit);
     const history = mergeChatHistory(rawHistory).slice(0, 20);
-    const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
+    const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${cleanContentForLLM(h.content)}`).join('\n');
 
     const soulPath = path.join(baseDir, folderName, 'Soul.md');
     const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
@@ -837,7 +837,7 @@ Constraints:
             const limit = isDialogue ? 60 : 20;
             const rawHistory = db.getChatHistory(char.id, limit);
             const history = mergeChatHistory(rawHistory).slice(0, 20);
-            const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
+            const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${cleanContentForLLM(h.content)}`).join('\n');
             
             const charUserPath = path.join(baseDir, char.folder_name, 'USER.md');
             const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
@@ -1190,7 +1190,7 @@ Instructions:
       const limit = isDialogue ? 60 : 20;
       const rawHistory = db.getChatHistory(char.id, limit);
       const history = mergeChatHistory(rawHistory).slice(0, 20);
-      const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
+      const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${cleanContentForLLM(h.content)}`).join('\n');
 
       // 检测全局常规设置并进行 60% 物理概率 NSFW 触发判定
       const genConfigStr = db.getSetting('general_config');
@@ -1565,7 +1565,7 @@ You current relationship with {{user}} ({{user}} explicitly @mentioned you in pu
       const limit = isDialogue ? 60 : 20;
       const rawHistory = db.getChatHistory(char.id, limit);
       const history = mergeChatHistory(rawHistory).slice(0, 20);
-      const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
+      const chatTranscript = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${cleanContentForLLM(h.content)}`).join('\n');
 
       // 提取该帖子/朋友圈动态内已有的所有历史评论互动作为“社媒上下文讨论记忆”
       let commentsContext = '';

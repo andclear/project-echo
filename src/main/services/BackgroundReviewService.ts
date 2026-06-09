@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
+import { cleanContentForLLM } from '../utils/ChatHistoryMerger';
 
 /**
  * BackgroundReviewService
@@ -44,7 +45,7 @@ export class BackgroundReviewService {
 
     // 1. 组装对话简报上下文
     const chatTranscript = chatTurns
-      .map(t => `[${t.role === 'user' ? 'User' : 'Character'}]: ${t.content}`)
+      .map(t => `[${t.role === 'user' ? 'User' : 'Character'}]: ${cleanContentForLLM(t.content)}`)
       .join('\n');
 
     // 读取已有的 DREAM.md 内容作为语义排重的比对上下文

@@ -8,6 +8,7 @@ import { CharacterStorageManager } from '../utils/CharacterStorageManager'
 import { InferenceMutex } from '../utils/InferenceMutex'
 import { SseManager } from './SseManager'
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter'
+import { cleanContentForLLM } from '../utils/ChatHistoryMerger'
 
 export const NOVEL_TOKEN_THRESHOLD: Record<string, number> = {
   dialogue: 1500,
@@ -631,7 +632,7 @@ export class NovelWriterService {
     const formattedList = rawMessages.map(m => {
       const roleName = m.role === 'user' ? '用户' : '角色'
       const timeStr = this.formatTimestamp(m.timestamp)
-      return `[ID: ${m.id}] [时间: ${timeStr}] [${roleName}]: ${m.content.substring(0, 100)}`
+      return `[ID: ${m.id}] [时间: ${timeStr}] [${roleName}]: ${cleanContentForLLM(m.content).substring(0, 100)}`
     }).join('\n')
 
     const userPrompt = `【待分章的原始对话列表】\n${formattedList}\n\n请输出你的分章计划：`
@@ -1074,6 +1075,9 @@ ${chapterIndex === 1 ? '⑦ 首章铺垫规范（仅限首章）：绝对严禁�
             content = '（发出了一个微信红包）'
           }
         }
+        
+        // 统一过滤其他大体积消息（如自定义表情包、超长文本）
+        content = cleanContentForLLM(content)
         // 替换 placeholder
         content = content
           .replace(/\{\{user\}\}/g, userName)

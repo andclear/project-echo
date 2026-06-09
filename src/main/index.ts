@@ -17,6 +17,7 @@ import { CharacterSummaryService } from './utils/CharacterSummaryService'
 import { StreamSplitController } from './utils/StreamSplitController'
 import { SkillSandboxManager } from './services/SkillSandboxManager'
 import { AgentLifeEngine } from './services/AgentLifeEngine'
+import { cleanContentForLLM } from './utils/ChatHistoryMerger'
 import { BackgroundReviewService } from './services/BackgroundReviewService'
 import { ContextAssembler } from './utils/ContextAssembler'
 import { MemoryAgentService } from './services/MemoryAgentService'
@@ -410,6 +411,21 @@ ${meaningList}
 
 // 注册主进程 IPC 监听器
 function registerIpcHandlers(): void {
+  // 读取物理表情包文件（脱水还原）
+  ipcMain.handle('read-custom-emoji-file', async (_, payload: { id: string, ext: string }) => {
+    try {
+      const emojisDir = join(app.getPath('userData'), 'custom_emojis')
+      const filePath = join(emojisDir, `${payload.id}.${payload.ext}`)
+      if (fs.existsSync(filePath)) {
+        const buf = fs.readFileSync(filePath)
+        const ext = payload.ext.toLowerCase()
+        const mime = ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/png'
+        const base64 = `data:${mime};base64,${buf.toString('base64')}`
+        return { success: true, base64 }
+      }
+    } catch (_) {}
+    return { success: false }
+  })
 
   // ===================== 微信个人号接入专属 IPC 通道注册 =====================
   // 获取当前微信服务的全部状态与绑定映射表
@@ -1909,7 +1925,7 @@ function registerIpcHandlers(): void {
           const label = m.role === 'user' ? '用户' : '角色'
           const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:'))
             ? '（用户发来了一张图片）'
-            : (m.content || '')
+            : cleanContentForLLM(m.content || '')
           return `${label}: ${content}`
         }).join('\n')
 
@@ -4698,8 +4714,8 @@ ${memoryContent}
 
       // 如果有粘贴图片，在用户消息中追加图片描述提示
       const userMessageFinal = payload.imageBase64
-        ? `${userMessage}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
-        : userMessage
+        ? `${formatMessageContentForLLM(userMessage, 'user')}\n\n[用户发来了一张图片，请根据对话语境做出自然的回应]`
+        : formatMessageContentForLLM(userMessage, 'user')
 
       // 获取当前角色的真实姓名
       const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
@@ -4915,8 +4931,10 @@ ${memoryContent}
 
         const followUpMessages: ChatMessage[] = [
           { role: 'system', content: systemPrompt },
-          ...history.map(m => ({ role: m.role as any, content: m.content })),
-          { role: 'user', content: userMessage },
+          ...history
+            .filter((m: any) => !(m.role === 'assistant' && m.content?.startsWith('[wechat_image_media]:')))
+            .map(m => ({ role: m.role as any, content: formatMessageContentForLLM(m.content, m.role) })),
+          { role: 'user', content: formatMessageContentForLLM(userMessage, 'user') },
           { role: 'assistant', content: accumulatedResponse },
           { role: 'user', content: `[ACTION OBSERVATION RESULT]\n${lastObservation}\n请基于该观察结果以性格化语气告知用户播放情况。` }
         ]
@@ -6684,7 +6702,7 @@ ${memoryContent}
       const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory
       let historyContext = ''
       if (history.length > 0) {
-        historyContext = history.map(m => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n')
+        historyContext = history.map(m => `[${m.role === 'user' ? 'User' : 'Character'}]: ${cleanContentForLLM(m.content)}`).join('\n')
       } else {
         historyContext = '*今天没有发生与用户的互动对话。*'
       }
@@ -9132,6 +9150,59 @@ async function performUserPlaceholderMigration() {
   }
 }
 
+/**
+ * 🚀 静默数据迁移 V4：对聊天记录表中的自定义表情包大体积 Base64 进行脱水清洗
+ * 将 Messages 表中所有带 Base64 原始图片大字段的自定义表情包 JSON，安全剔除 base64 字段，彻底瘦身数据库
+ */
+function performEmojiBase64DecoupleMigration() {
+  try {
+    const db = getDatabaseService()
+    const done = db.getSetting('emoji_base64_migration_done_v4')
+    if (done === '1') {
+      console.log('[Migration] 表情包 Base64 数据库瘦身迁移 V4 已在之前完成，静默跳过。')
+      return
+    }
+
+    console.log('[Migration] 🚀 开始执行一次性的表情包 Base64 数据库瘦身物理迁移 V4...')
+    
+    // 找出所有可能带有自定义表情包大字段的历史消息
+    const rows = db.db.prepare("SELECT id, content FROM Messages WHERE content LIKE '[wechat_custom_emoji]:%'").all() as { id: string; content: string }[]
+    
+    if (rows.length === 0) {
+      console.log('[Migration] 未发现历史表情包消息记录，跳过 V4。')
+      db.setSetting('emoji_base64_migration_done_v4', '1')
+      return
+    }
+
+    let count = 0
+    const updateStmt = db.db.prepare('UPDATE Messages SET content = ? WHERE id = ?')
+
+    // 使用事务以确保批量更新的极致性能与安全
+    const runUpdates = db.db.transaction(() => {
+      for (const row of rows) {
+        try {
+          const jsonStr = row.content.substring('[wechat_custom_emoji]:'.length)
+          const emojiData = JSON.parse(jsonStr)
+          // 如果存在 base64 大字段，且具有 id
+          if (emojiData.base64 && emojiData.id) {
+            delete emojiData.base64
+            const cleanedContent = `[wechat_custom_emoji]:${JSON.stringify(emojiData)}`
+            updateStmt.run(cleanedContent, row.id)
+            count++
+          }
+        } catch (_) {}
+      }
+    })
+
+    runUpdates()
+    
+    db.setSetting('emoji_base64_migration_done_v4', '1')
+    console.log(`[Migration] ✨ 表情包 Base64 瘦身自愈迁移 V4 顺利完成，共清洗了 ${count} 条大表情包消息！`)
+  } catch (err) {
+    console.error('[Migration] ✘ 执行表情包 Base64 数据库瘦身迁移 V4 发生异常:', err)
+  }
+}
+
 app.whenReady().then(() => {
   // 设置 App 用户模型 Id
   electronApp.setAppUserModelId('com.echo.app')
@@ -9150,6 +9221,7 @@ app.whenReady().then(() => {
     // 🚀 启动时异步静默执行老用户数据一次性人设占位符物理大扫除与收缩迁移
     setTimeout(() => {
       performUserPlaceholderMigration()
+      performEmojiBase64DecoupleMigration()
     }, 2000)
   } catch (error) {
     console.error('SQLite 数据库初始化异常:', error)

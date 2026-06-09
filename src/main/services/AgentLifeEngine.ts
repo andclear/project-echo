@@ -9,7 +9,7 @@ import { SocialMediaService } from './SocialMediaService';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { NovelAiService } from './NovelAiService';
 import { NovelWriterService } from './NovelWriterService';
-import { mergeChatHistory } from '../utils/ChatHistoryMerger';
+import { mergeChatHistory, cleanContentForLLM } from '../utils/ChatHistoryMerger';
 import { ContextAssembler } from '../utils/ContextAssembler';
 import { MemoryAgentService } from './MemoryAgentService';
 import { WeatherService } from '../utils/WeatherService';
@@ -511,7 +511,7 @@ export class AgentLifeEngine {
         const sender = m.role === 'user' ? 'User' : char.name;
         const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
           ? '（用户发来了一张图片）'
-          : m.content);
+          : cleanContentForLLM(m.content));
         return `[${sender}]: ${content}`;
       }).join('\n');
     } else {
@@ -556,7 +556,7 @@ export class AgentLifeEngine {
       // 用户图片消息用占位符替换，避免原始标记进入 LLM
       const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
         ? '（用户发来了一张图片）'
-        : (m.content || ''));
+        : cleanContentForLLM(m.content || ''));
       // 合并连续同角色的发言，但搭讪消息（is_proactive）保持独立不参与合并
       if (
         historyMessages.length > 0 &&
@@ -865,7 +865,7 @@ export class AgentLifeEngine {
           const label = m.role === 'user' ? 'User' : char.name;
           const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
             ? '（用户发来了一张图片）'
-            : m.content);
+            : cleanContentForLLM(m.content));
           return `[${label}]: ${content}`;
         }).join('\n')
       : '*先前没有发生与用户的互动对话。*';
@@ -1113,7 +1113,7 @@ export class AgentLifeEngine {
         const sender = m.role === 'user' ? 'User' : charName;
         const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
           ? '（用户发来了一张图片）'
-          : m.content);
+          : cleanContentForLLM(m.content));
         return `[${sender}]: ${content}`;
       }).join('\n');
     } else {

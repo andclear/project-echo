@@ -5,7 +5,7 @@ import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { BrowserWindow } from 'electron';
-import { mergeChatHistory } from '../utils/ChatHistoryMerger';
+import { mergeChatHistory, cleanContentForLLM } from '../utils/ChatHistoryMerger';
 import { SseManager } from './SseManager';
 
 export class SoulEvolutionService {
@@ -87,7 +87,7 @@ export class SoulEvolutionService {
     const limit = isDialogue ? 80 : 30;
     const rawHistory = db.getChatHistory(characterId, limit);
     const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
-    const chatContext = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${h.content}`).join('\n');
+    const chatContext = history.map(h => `${h.role === 'user' ? 'User' : 'Character'}: ${cleanContentForLLM(h.content)}`).join('\n');
 
     const systemPrompt = `You are the ultimate personality evolution curator of the AI Character "${char.name}".
 Your task is to analyze the character's core personality profile (Soul.md) and their accumulated behavioral habit patches (DREAM.md), combined with recent conversations, to propose a highly disciplined, organic, and subtle personality evolution draft.

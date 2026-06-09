@@ -8,7 +8,7 @@ import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { StateReaderWriter } from '../utils/StateReaderWriter';
 import { getDatabaseService } from '../db/database';
 import { SummaryReaderWriter } from '../utils/SummaryReaderWriter';
-import { mergeChatHistory } from '../utils/ChatHistoryMerger';
+import { mergeChatHistory, cleanContentForLLM } from '../utils/ChatHistoryMerger';
 import { SseManager } from './SseManager';
 
 /**
@@ -636,7 +636,7 @@ Target JSON 格式：
         const sender = m.role === 'user' ? 'User' : charName;
         const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
           ? '（用户发来了一张图片）'
-          : m.content);
+          : cleanContentForLLM(m.content));
         return `[${sender}]: ${content}`;
       }).join('\n');
     } else {
@@ -848,7 +848,7 @@ ${charUserContent}
           }
           const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
             ? '（用户发来了一张图片）'
-            : m.content);
+            : cleanContentForLLM(m.content));
           return `[${name}]: ${content}`;
         }).join('\n');
 
@@ -1031,7 +1031,7 @@ Target JSON 格式：
             const label = m.role === 'user' ? 'User' : 'Character';
             const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
               ? '（用户发来了一张图片）'
-              : m.content);
+              : cleanContentForLLM(m.content));
             return `[${label}]: ${content}`;
           }).join('\n')
       : '（暂无聊天历史）';
@@ -1123,7 +1123,7 @@ Target JSON 格式：
     const rawHistory = db.getChatHistory(charId, limit);
     const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory;
     const historyContext = history.length > 0
-      ? history.map((m: any) => `[${m.role === 'user' ? 'User' : 'Character'}]: ${m.content}`).join('\n')
+      ? history.map((m: any) => `[${m.role === 'user' ? 'User' : 'Character'}]: ${cleanContentForLLM(m.content)}`).join('\n')
       : '（暂无聊天历史）';
 
     // 2. 格式化已有长期记忆

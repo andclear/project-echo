@@ -14957,8 +14957,17 @@ function restoreMessageProps(m: any) {
       try {
         const jsonStr = m.content.replace('[wechat_custom_emoji]:', '')
         const emoji = JSON.parse(jsonStr)
-        result.customEmojiUrl = emoji.base64
         result.content = `[表情: ${emoji.meaning}]`
+        result.customEmojiUrl = ''
+        if (emoji.base64) {
+          result.customEmojiUrl = emoji.base64
+        } else if (emoji.id) {
+          window.api.invoke('read-custom-emoji-file', { id: emoji.id, ext: emoji.ext }).then(res => {
+            if (res.success) {
+              result.customEmojiUrl = res.base64
+            }
+          })
+        }
       } catch (_) {}
     } else if (m.content.startsWith('[wechat_image_media]:')) {
       const mediaPath = m.content.replace('[wechat_image_media]:', '')

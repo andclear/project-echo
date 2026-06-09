@@ -5,7 +5,7 @@ import { getDatabaseService } from '../db/database';
 import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
 import { WeChatClient } from './WeChatClient';
-import { mergeChatHistory } from '../utils/ChatHistoryMerger';
+import { mergeChatHistory, cleanContentForLLM } from '../utils/ChatHistoryMerger';
 import { NovelAiService } from './NovelAiService';
 import crypto from 'crypto';
 import QRCode from 'qrcode';
@@ -682,7 +682,7 @@ export class WeChatService {
           const label = h.role === 'user' ? '用户' : '角色';
           const content = (h.role === 'user' && (h.content || '').startsWith('[wechat_image_media]:')
             ? '（用户发来了一张图片）'
-            : h.content);
+            : cleanContentForLLM(h.content));
           return `${label}: ${content}`;
         }).join('\n');
 
@@ -851,13 +851,13 @@ export class WeChatService {
           .map((m: any) => {
             const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
               ? '（用户发来了一张图片）'
-              : m.content);
+              : cleanContentForLLM(m.content));
             return {
               role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
               content: content
             };
           }),
-        { role: 'user', content: userMessage.startsWith('[wechat_image_media]:') ? '（用户发来了一张图片）' : userMessage }
+        { role: 'user', content: userMessage.startsWith('[wechat_image_media]:') ? '（用户发来了一张图片）' : cleanContentForLLM(userMessage) }
       ];
 
       const response = await modelAdapter.chat(chatMessages, { usePrimary: true });
