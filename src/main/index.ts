@@ -2532,9 +2532,14 @@ ${soulContent}
         const chapterCount = db.getNovelChapterCount(payload.characterId)
         if (chapterCount === 0) {
           const currentStartTs = db.getSetting(`novel_start_ts_${payload.characterId}`)
-          if (!currentStartTs || payload.startFrom !== undefined) {
+          // 只有当 novel_start_ts 不存在，或者显式从 'all' 切换到 'today' 时，才将开始时间设定为当前时间戳
+          if (!currentStartTs) {
             const startTs = payload.startFrom === 'today' ? Date.now().toString() : '0'
             db.setSetting(`novel_start_ts_${payload.characterId}`, startTs)
+          } else if (payload.startFrom === 'all' && currentStartTs !== '0') {
+            db.setSetting(`novel_start_ts_${payload.characterId}`, '0')
+          } else if (payload.startFrom === 'today' && currentStartTs === '0') {
+            db.setSetting(`novel_start_ts_${payload.characterId}`, Date.now().toString())
           }
         }
       }

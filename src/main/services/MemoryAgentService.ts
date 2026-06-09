@@ -569,7 +569,7 @@ Target JSON 格式：
       const lastUpdate = new Date(lastUpdateStr);
       const daysPassed = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
       // 🚀 日程更新自省自适应双门限
-      const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+      const chatMode = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
       const isDialogue = chatMode === 'dialogue';
       const stepLimit = isDialogue ? 240 : 100;
       if (daysPassed >= 7 || messagesPassed >= stepLimit) {
@@ -611,7 +611,7 @@ Target JSON 格式：
     const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
 
     // 🚀 日程更新自省历史拉取拼合
-    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
     const isDialogue = chatMode === 'dialogue';
     const limit = isDialogue ? 160 : 60;
     let rawHistory = db.getChatHistory(charId, limit);
@@ -792,7 +792,7 @@ ${charUserContent}
     const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
 
     // 🚀 活跃大事记压缩阈值自适应物理门限与拉取量
-    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive';
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'dialogue';
     const isDialogue = chatMode === 'dialogue';
     const compressThreshold = isDialogue ? 160 : 60;
     const limit = isDialogue ? 200 : 100;
@@ -1018,7 +1018,7 @@ Target JSON 格式：
     const currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
 
     // 1. 获取近期聊天历史（提炼深度事实需要充足的上下文，这里取最多 100 条且自适应合并）
-    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
     const isDialogue = chatMode === 'dialogue';
     const limit = isDialogue ? 200 : 100;
     const rawHistory = db.getChatHistory(charId, limit);
@@ -1117,7 +1117,7 @@ Target JSON 格式：
     const currentStm = currentMemory.stm;
 
     // 1. 获取近期聊天历史并进行自适应双门限合并还原
-    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
     const isDialogue = chatMode === 'dialogue';
     const limit = isDialogue ? 200 : 100;
     const rawHistory = db.getChatHistory(charId, limit);

@@ -490,7 +490,7 @@ export class AgentLifeEngine {
     const goalsContent = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
 
     // 读出聊天的最近 20 条历史消息快照并精细清洗非对话系统消息 (自适应双门限合并还原)
-    const chatModeRaw = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const chatModeRaw = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
     const isDialogue = chatModeRaw === 'dialogue';
     const limit = isDialogue ? 60 : 20;
     const dbHistory = db.getChatHistory(charId, limit);
@@ -657,16 +657,28 @@ export class AgentLifeEngine {
         characterName: char.name
       });
       const rawContent = response.content.trim();
-
-      // 解析 <message>
-      const messageMatch = rawContent.match(/<message>([\s\S]*?)<\/message>/);
-      const messageText = messageMatch ? messageMatch[1].trim() : '[SILENT]';
+      console.log(`[AgentLifeEngine] 角色 ${char.name} 搭讪模型原始输出:`, rawContent);
 
       // 增强型静默判断逻辑，全面兼容大小写、拼写错误 [SLIENT]、带引号或括号的各种静默标记
       const isSilentMsg = (text: string): boolean => {
         const clean = text.replace(/[\[\]"'\s]/g, '').trim().toLowerCase();
         return clean === 'silent' || clean === 'slient';
       };
+
+      // 解析 <message>
+      const messageMatch = rawContent.match(/<message>([\s\S]*?)<\/message>/);
+      let messageText = '[SILENT]';
+
+      if (messageMatch) {
+        messageText = messageMatch[1].trim();
+      } else if (rawContent && !isSilentMsg(rawContent)) {
+        // 🚀 兜底防御：若没有标签包裹，且原始输出并不表明静默，则直接剔除 <think> 标签后作为兜底消息发送，防格式穿帮误吞消息
+        const cleanRaw = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        if (cleanRaw) {
+          messageText = cleanRaw;
+          console.warn(`[AgentLifeEngine] 角色 ${char.name} 搭讪未解析到 <message> 标签，但有非静默文本，触发兜底提取。`);
+        }
+      }
 
       // 2. 发送主动消息（若非静默）
       if (messageText && !isSilentMsg(messageText)) {
@@ -854,7 +866,7 @@ export class AgentLifeEngine {
     const goalsContent = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
 
     // 拉取最近聊天历史作为日记上下文
-    const chatModeRaw = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const chatModeRaw = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
     const isDialogue = chatModeRaw === 'dialogue';
     const rawHistory = db.getChatHistory(charId, isDialogue ? 60 : 20);
     const mergedHistory = mergeChatHistory(rawHistory);
@@ -1089,7 +1101,7 @@ export class AgentLifeEngine {
     const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
 
     // 自适应双门限合并还原
-    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'descriptive';
+    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
     const isDialogue = chatMode === 'dialogue';
     const limit = isDialogue ? 160 : 60;
     let rawHistory = db.getChatHistory(charId, limit);

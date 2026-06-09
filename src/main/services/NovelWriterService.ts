@@ -154,91 +154,133 @@ export class NovelWriterService {
    * 🚀 强力校验与自愈逻辑：确保该角色当前拥有一个有效的故事线小说实体。
    * 若活跃小说不存在、被清空、或与最新绑定的人设卡不一致，则重新生成一本隔离的新书。
    */
-  private ensureActiveNovel(characterId: string): string {
+  /**
+   * 🚀 故事线小说活跃状态检测与防丢失机制（纯内存计算 + 极简占位持久化）
+   * 只有在无活跃小说，或聊天记录被物理清空过时，才返回 needInsert=true。
+   * 为防软件重启或异步并发导致预定新书 ID 漂移，我们在判定需要新书时，将新书 ID 以占位符存入 Settings 表，
+   * 但绝不物理写入 Novels 主表。直到小说章节成功生成时，才物理写入。
+   */
+  private getOrDetectActiveNovel(characterId: string): { activeNovelId: string; needInsert: boolean; title?: string; startTs: number } {
     const db = getDatabaseService()
     let activeNovelId = db.getActiveNovelId(characterId)
     let needNewBook = false
+    let startTs = 0
 
     const currentUserName = this.getUserName(characterId)
+    const firstMsg = db.db.prepare('SELECT timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp ASC LIMIT 1').get(characterId) as { timestamp: number } | undefined
 
     if (!activeNovelId) {
-      needNewBook = true
+      // 🚀 自愈防线 C：如果在 Settings 中没有找到活跃小说 ID，但 Novels 表里其实已有该角色的书，
+      // 说明可能是因为重命名角色、切换人设卡等原因导致关联设置丢失，我们应自动找回最新的一本书作为活跃小说，防止误创卷二！
+      const latestNovel = db.db.prepare('SELECT id FROM Novels WHERE character_id = ? ORDER BY created_at DESC LIMIT 1').get(characterId) as { id: string } | undefined
+      if (latestNovel) {
+        activeNovelId = latestNovel.id
+        db.setActiveNovelId(characterId, activeNovelId)
+        console.log(`[NovelWriterService] 在 Settings 中未找到活跃小说 ID，但检测到 Novels 表中已有历史小说，自动绑定激活: ${activeNovelId}`)
+      } else {
+        needNewBook = true
+      }
     } else {
       const novel = db.db.prepare('SELECT * FROM Novels WHERE id = ?').get(activeNovelId) as any
       if (!novel) {
+        // 说明此 ID 已经在 Settings 中作为新书占位符，但 Novels 主表中还没有记录（尚无任何章节物理落地）
         needNewBook = true
       } else {
-        // 先尝试从 Settings 中获取该书绑定的人设卡 ID
-        const boundProfileId = db.getSetting(`novel_binding_profile_id_${activeNovelId}`)
-        const currentProfileId = db.getProfileBinding(characterId) || ''
-        
-        if (boundProfileId !== null) {
-          // 如果有绑定记录，则以人设卡 ID 是否一致为唯一准则（不论书名被用户改成什么）
-          if (boundProfileId !== currentProfileId) {
-            console.log(`[NovelWriterService] 人设卡 ID 变更 (书绑定: "${boundProfileId}", 当前: "${currentProfileId}")，判定旧书无效，准备创建新书。`)
-            needNewBook = true
-          }
+        const startTsVal = parseInt(db.getSetting(`novel_start_ts_${characterId}`) || '0', 10)
+        // 只有当首条聊天记录晚于 startTs 时，才认为用户彻底清空/重置了角色，需要创建新卷
+        if (firstMsg && firstMsg.timestamp > startTsVal) {
+          console.log('[NovelWriterService] 检测到聊天记录已被物理清空，判定旧书无效，准备创建新书。')
+          needNewBook = true
         } else {
-          // 老数据兼容：无绑定记录时，解析书名中的人设姓名
-          const bookUserName = novel.title.split('与')[0].trim()
-          if (bookUserName !== currentUserName) {
-            console.log(`[NovelWriterService] 老书人设卡姓名不符 (书关联: "${bookUserName}", 当前: "${currentUserName}")，判定旧书无效，准备创建新书。`)
-            needNewBook = true
-          } else {
-            // 老书如果留下来了，顺手帮它补上当前的绑定关系，防止后续被再次判定
-            db.setSetting(`novel_binding_profile_id_${activeNovelId}`, currentProfileId)
-          }
-        }
-
-        if (!needNewBook) {
-          // 检查聊天记录首条时间戳，如果首条消息时间晚于这本书最近一章结束的时间，说明用户重置过历史
-          const firstMsg = db.db.prepare('SELECT timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp ASC LIMIT 1').get(characterId) as { timestamp: number } | undefined
-          const startTs = parseInt(db.getSetting(`novel_start_ts_${characterId}`) || '0', 10)
-          
-          if (firstMsg && firstMsg.timestamp > startTs) {
-            console.log('[NovelWriterService] 检测到聊天记录已被物理清空，判定旧书无效，准备创建新书。')
-            needNewBook = true
-          }
+          startTs = startTsVal
         }
       }
     }
 
     if (needNewBook) {
+      // 如果 activeNovelId 已经存在，说明之前已生成了占位 ID 且尚未物理创建新书，我们继续沿用以防止 ID 漂移
+      let finalTitle = ''
+      const isPlaceholderExists = !!activeNovelId && !db.db.prepare('SELECT * FROM Novels WHERE id = ?').get(activeNovelId)
+      
       const char = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
       const charName = char ? char.name : 'AI'
       const baseTitle = `${currentUserName}与${charName}`
-      
-      // 查找该人设与该角色已有的书，并用 LIKE 严格限制命名
+
+      if (isPlaceholderExists) {
+        // 尝试获取保存的绑定关联，还原 title
+        const existingBooks = db.db.prepare('SELECT title FROM Novels WHERE character_id = ? AND title LIKE ?').all(characterId, `${baseTitle}%`) as { title: string }[]
+        finalTitle = baseTitle
+        if (existingBooks.length > 0) {
+          finalTitle = `${baseTitle}${this.getChineseVolumeSuffix(existingBooks.length + 1)}`
+        }
+        const startTsVal = parseInt(db.getSetting(`novel_start_ts_${characterId}`) || '0', 10)
+        let targetStartTs = startTsVal || (firstMsg ? firstMsg.timestamp - 1 : 0)
+
+        // 🚀 自愈防线 A：如果是占位新书，且 startTs 被写坏成了一个“晚于最新聊天记录”的未来值
+        const lastMsg = db.db.prepare('SELECT timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp DESC LIMIT 1').get(characterId) as { timestamp: number } | undefined
+        if (lastMsg && targetStartTs > lastMsg.timestamp) {
+          let correctedStartTs = firstMsg ? firstMsg.timestamp - 1 : 0
+          const maxChapterEndRow = db.db.prepare('SELECT MAX(dialogue_end_ts) as maxTs FROM NovelChapters WHERE character_id = ?').get(characterId) as { maxTs: number | null } | undefined
+          if (maxChapterEndRow && maxChapterEndRow.maxTs) {
+            correctedStartTs = maxChapterEndRow.maxTs
+          }
+          console.warn(`[NovelWriterService] 检测到新书占位符起跑时间戳越界(startTs=${targetStartTs} > lastMsg=${lastMsg.timestamp})，自动纠偏为 ${correctedStartTs}`)
+          targetStartTs = correctedStartTs
+          db.setSetting(`novel_start_ts_${characterId}`, targetStartTs.toString())
+        }
+
+        return {
+          activeNovelId: activeNovelId!,
+          needInsert: true,
+          title: finalTitle,
+          startTs: targetStartTs
+        }
+      }
+
+      // 否则，完全生成一个全新的新书占位符
       const existingBooks = db.db.prepare('SELECT title FROM Novels WHERE character_id = ? AND title LIKE ?').all(characterId, `${baseTitle}%`) as { title: string }[]
-      
-      let finalTitle = baseTitle
+      finalTitle = baseTitle
       if (existingBooks.length > 0) {
         finalTitle = `${baseTitle}${this.getChineseVolumeSuffix(existingBooks.length + 1)}`
       }
 
-      activeNovelId = crypto.randomUUID()
-      db.insertNovel({
-        id: activeNovelId,
-        character_id: characterId,
-        title: finalTitle,
-        created_at: Date.now()
-      })
-      db.setActiveNovelId(characterId, activeNovelId)
-      
-      // 写入小说与当前绑定人设卡的关联信息
-      const currentProfileId = db.getProfileBinding(characterId) || ''
-      db.setSetting(`novel_binding_profile_id_${activeNovelId}`, currentProfileId)
-      
-      // 重置起止时间戳
-      const firstMsg = db.db.prepare('SELECT timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp ASC LIMIT 1').get(characterId) as { timestamp: number } | undefined
-      const startVal = firstMsg ? (firstMsg.timestamp - 1).toString() : '0'
-      db.setSetting(`novel_start_ts_${characterId}`, startVal)
+      const newNovelId = crypto.randomUUID()
+      const newStartTs = firstMsg ? firstMsg.timestamp - 1 : 0
+
+      // 写入 Settings 占位以抗软件重启
+      db.setActiveNovelId(characterId, newNovelId)
+      db.setSetting(`novel_start_ts_${characterId}`, newStartTs.toString())
       db.setSetting(`last_novel_chapter_end_ts_${characterId}`, '0')
-      
-      console.log(`[NovelWriterService] 成功创建隔离新书《${finalTitle}》，活跃ID: ${activeNovelId}`)
+
+      return {
+        activeNovelId: newNovelId,
+        needInsert: true,
+        title: finalTitle,
+        startTs: newStartTs
+      }
     }
 
-    return activeNovelId!
+    // 🚀 自愈防线 B：针对已经物理入库的书（needInsert === false），但章节数为 0，且 startTs 越界的情况
+    const chapterCount = activeNovelId ? db.getNovelChapterCountByNovelId(activeNovelId) : 0
+    if (chapterCount === 0) {
+      const lastMsg = db.db.prepare('SELECT timestamp FROM Messages WHERE character_id = ? ORDER BY timestamp DESC LIMIT 1').get(characterId) as { timestamp: number } | undefined
+      if (lastMsg && startTs > lastMsg.timestamp) {
+        let correctedStartTs = firstMsg ? firstMsg.timestamp - 1 : 0
+        const maxChapterEndRow = db.db.prepare('SELECT MAX(dialogue_end_ts) as maxTs FROM NovelChapters WHERE character_id = ?').get(characterId) as { maxTs: number | null } | undefined
+        if (maxChapterEndRow && maxChapterEndRow.maxTs) {
+          correctedStartTs = maxChapterEndRow.maxTs
+        }
+        console.warn(`[NovelWriterService] 检测到已物理建书的卷起跑时间戳越界(startTs=${startTs} > lastMsg=${lastMsg.timestamp})，自动纠偏为 ${correctedStartTs}`)
+        startTs = correctedStartTs
+        db.setSetting(`novel_start_ts_${characterId}`, correctedStartTs.toString())
+      }
+    }
+
+    return {
+      activeNovelId: activeNovelId!,
+      needInsert: false,
+      startTs
+    }
   }
 
   /**
@@ -254,11 +296,11 @@ export class NovelWriterService {
     if (chatMode === 'director') return
 
     // 🚀 核心校验与自愈判定
-    this.ensureActiveNovel(characterId)
+    const novelState = this.getOrDetectActiveNovel(characterId)
 
-    const chapterCount = db.getNovelChapterCount(characterId)
-    const startTsStr = db.getSetting(`novel_start_ts_${characterId}`) || '0'
-    const startTs = parseInt(startTsStr, 10)
+    // 如果是一本待物理创建的新书，它的章节数肯定为 0
+    const chapterCount = novelState.needInsert ? 0 : db.getNovelChapterCount(characterId)
+    const startTs = novelState.startTs
 
     // 1. 首章：开启AI写手、章节数为 0，且是用户和角色第一次发消息时（未改编消息中包含且仅包含 1 条角色回复时）立即触发
     if (chapterCount === 0) {
@@ -712,8 +754,12 @@ export class NovelWriterService {
       // 格式化聊天记录
       const formattedDialogue = this.preprocessMessages(rawMessages, userName, charName)
 
+      // 🚀 预检新书判定
+      const novelState = this.getOrDetectActiveNovel(characterId)
+      const isNewBook = novelState.needInsert
+
       // 读取已有章节的摘要与最近 2 章全文 (连贯性注入)
-      const allChapters = db.getNovelChapters(characterId)
+      const allChapters = isNewBook ? [] : db.getNovelChapters(characterId)
       let prevSummaries = ''
       allChapters.forEach((ch: any) => {
         prevSummaries += `[第${ch.chapter_index}章]《${ch.title}》：${ch.summary}\n`
@@ -721,7 +767,7 @@ export class NovelWriterService {
       if (!prevSummaries) prevSummaries = '暂无前序章节。'
 
       let prevFullChapters = ''
-      if (allChapters.length > 0) {
+      if (!isNewBook && allChapters.length > 0) {
         const recentChapters = allChapters.slice(-2)
         for (const ch of recentChapters) {
           const fullContent = db.getNovelChapterContent(ch.id)
@@ -783,6 +829,27 @@ ${options.suggestedTitle ? `⑧ 章节标题建议：本次改编建议使用的
       const partSummary = await this.generateChapterSummary(rawContent, charName)
       const chapterId = crypto.randomUUID()
       const chapterIndex = newChapterIndex
+
+      // 🚀 如果需要创建新书，在写入章节的前一刻进行物理创建
+      if (novelState.needInsert) {
+        db.insertNovel({
+          id: novelState.activeNovelId,
+          character_id: characterId,
+          title: novelState.title!,
+          created_at: Date.now()
+        })
+        db.setActiveNovelId(characterId, novelState.activeNovelId)
+        
+        // 写入小说与当前绑定人设卡的关联信息
+        const currentProfileId = db.getProfileBinding(characterId) || ''
+        db.setSetting(`novel_binding_profile_id_${novelState.activeNovelId}`, currentProfileId)
+        
+        // 写入起止时间戳
+        db.setSetting(`novel_start_ts_${characterId}`, novelState.startTs.toString())
+        db.setSetting(`last_novel_chapter_end_ts_${characterId}`, '0')
+        
+        console.log(`[NovelWriterService] 检测到有章节生成成功，正式物理创建新书《${novelState.title}》，ID: ${novelState.activeNovelId}`)
+      }
 
       const activeNovelId = db.getActiveNovelId(characterId)
 
@@ -1430,7 +1497,11 @@ ${adaptationInstruction}
       throw new Error('导演模式不支持自动写小说。')
     }
 
-    // 检查是否有新对话内容（上一章结束时间戳之后是否有 assistant 消息）
+    // 🚀 在进行“无新对话内容”校验之前，必须无条件执行 getOrDetectActiveNovel，
+    // 以触发自愈逻辑，修正可能写坏的（未来的）novel_start_ts 时间戳
+    this.getOrDetectActiveNovel(characterId)
+
+    // 检查是否有新对话内容（对于手动触发，只要有未改编的任何聊天内容即可）
     const isFirstChapter = db.getNovelChapterCount(characterId) === 0
     const startTsStr = db.getSetting(`novel_start_ts_${characterId}`) || '0'
     const startTs = parseInt(startTsStr, 10)
@@ -1441,7 +1512,7 @@ ${adaptationInstruction}
 
     const hasNewMessages = (db.db.prepare(`
       SELECT 1 FROM Messages
-      WHERE character_id = ? AND timestamp > ? AND role = 'assistant'
+      WHERE character_id = ? AND timestamp > ?
       LIMIT 1
     `).get(characterId, baseTs)) != null
 

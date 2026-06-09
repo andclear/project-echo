@@ -82,7 +82,7 @@ export class SoulEvolutionService {
     const dreamContent = fs.existsSync(dreamPath) ? fs.readFileSync(dreamPath, 'utf8') : '';
 
     // 最近对话 (自适应双门限合并还原)
-    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive';
+    const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'dialogue';
     const isDialogue = chatMode === 'dialogue';
     const limit = isDialogue ? 80 : 30;
     const rawHistory = db.getChatHistory(characterId, limit);

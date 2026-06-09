@@ -688,7 +688,7 @@ export class WeChatService {
       const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无记忆';
 
       // 🚀 微信生图意境自省自适应提取合并
-      const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive';
+      const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'dialogue';
       const isDialogue = chatMode === 'dialogue';
       const limit = isDialogue ? 45 : 15;
       const rawHistory = db.getChatHistory(characterId, limit);
@@ -856,7 +856,7 @@ export class WeChatService {
 
     try {
       // 3. 构建历史记忆并调用大模型推理 (自适应双门限合并还原)
-      const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive';
+      const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'dialogue';
       const isDialogue = chatMode === 'dialogue';
       const limit = isDialogue ? 45 : 15;
       const rawHistory = db.getChatHistory(characterId, limit);

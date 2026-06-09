@@ -223,7 +223,7 @@ export class SocialMediaService {
     const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
 
     // 🚀 自适应双门限合并还原
-    const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+    const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'dialogue';
     const isDialogue = chatMode === 'dialogue';
     const limit = isDialogue ? 60 : 20;
     const rawHistory = db.getChatHistory(char.id, limit);
@@ -410,7 +410,39 @@ Instructions:
       }
     }
 
-    textContent = textContent.trim();
+    // 🚀 HTML <img> 标签兜底解析与属性提取
+    const imgMatch = textContent.match(/<img\s+([^>]*?)>/i);
+    if (imgMatch) {
+      const imgAttributes = imgMatch[1];
+      const srcMatch = imgAttributes.match(/src=["']([\s\S]*?)["']/i);
+      if (srcMatch) {
+        const potentialPrompt = srcMatch[1].trim();
+        if (potentialPrompt && !imagePrompt) {
+          imagePrompt = potentialPrompt;
+        }
+      }
+      const altMatch = imgAttributes.match(/alt=["']([\s\S]*?)["']/i);
+      if (altMatch) {
+        const potentialDesc = altMatch[1].trim();
+        if (potentialDesc && potentialDesc.toLowerCase() !== 'image' && !imageDesc) {
+          imageDesc = potentialDesc;
+        }
+      }
+      // 从文本中剥离这个 <img> 标签
+      textContent = textContent.replace(imgMatch[0], '');
+    }
+
+    // 🚀 画面描述防空/防无意义值兜底，确保可以正常触发 NovelAI 生图
+    if (imagePrompt && (!imageDesc || imageDesc.toLowerCase() === 'image')) {
+      imageDesc = '生活瞬间';
+    }
+
+    // 🚀 终极防穿帮清洗：强行剔除正文中任何残留的 img 或 XML 自定义提示词标签
+    textContent = textContent
+      .replace(/<img\s+[^>]*?>/gi, '')
+      .replace(/<\/?(?:[a-z0-9_]*image[a-z0-9_]*prompt|[a-z0-9_]*img[a-z0-9_]*prompt)>/gi, '')
+      .replace(/<\/?(?:[a-z0-9_]*image[a-z0-9_]*desc|[a-z0-9_]*img[a-z0-9_]*desc)>/gi, '')
+      .trim();
 
     if (textContent) {
       let finalContent = textContent;
@@ -512,7 +544,7 @@ Constraints:
       // forceInteract=true → 100% 点赞/评论（调试模式）；false → 正常 30% 概率随机互动
       // forceDraw 仅控制图片是否同步等待，不再决定互动强度
       if (forceInteract) {
-        await this.evaluateSocialInteraction(moment, 'moment', modelAdapter, true).catch(err => {
+        await this.evaluateSocialInteraction(moment, 'moment', modelAdapter, false).catch(err => {
           console.error('[SocialMediaService] 角色朋友圈互动评估出错:', err);
         });
       } else {
@@ -741,7 +773,7 @@ Body: [Your post rich text content]
     const title = titleMatch ? titleMatch[1].trim() : `${char.name}的最新感悟`;
     const body = bodyMatch ? bodyMatch[1].trim() : raw;
 
-    // 🚀 万能宽容正则，解析配图提示词和描述标签，支持以任何字符连接的 image_prompt/img_prompt
+    // 🚀 万能宽容正则，解析配图提示词和描述标签，支持以任何字符连接 of image_prompt/img_prompt
     const promptStartRegex = /<(?:[a-z0-9_]*image[a-z0-9_]*prompt|[a-z0-9_]*img[a-z0-9_]*prompt)>/i;
     const promptEndRegex = /<\/(?:[a-z0-9_]*image[a-z0-9_]*prompt|[a-z0-9_]*img[a-z0-9_]*prompt)>/i;
     const descStartRegex = /<(?:[a-z0-9_]*image[a-z0-9_]*desc|[a-z0-9_]*img[a-z0-9_]*desc)>/i;
@@ -784,7 +816,39 @@ Body: [Your post rich text content]
       }
     }
 
-    textBody = textBody.trim();
+    // 🚀 HTML <img> 标签兜底解析与属性提取
+    const imgMatch = textBody.match(/<img\s+([^>]*?)>/i);
+    if (imgMatch) {
+      const imgAttributes = imgMatch[1];
+      const srcMatch = imgAttributes.match(/src=["']([\s\S]*?)["']/i);
+      if (srcMatch) {
+        const potentialPrompt = srcMatch[1].trim();
+        if (potentialPrompt && !imagePrompt) {
+          imagePrompt = potentialPrompt;
+        }
+      }
+      const altMatch = imgAttributes.match(/alt=["']([\s\S]*?)["']/i);
+      if (altMatch) {
+        const potentialDesc = altMatch[1].trim();
+        if (potentialDesc && potentialDesc.toLowerCase() !== 'image' && !imageDesc) {
+          imageDesc = potentialDesc;
+        }
+      }
+      // 从文本中剥离这个 <img> 标签
+      textBody = textBody.replace(imgMatch[0], '');
+    }
+
+    // 🚀 画面描述防空/防无意义值兜底，确保可以正常触发 NovelAI 生图
+    if (imagePrompt && (!imageDesc || imageDesc.toLowerCase() === 'image')) {
+      imageDesc = '生活瞬间';
+    }
+
+    // 🚀 终极防穿帮清洗：强行剔除正文中任何残留的 img 或 XML 自定义提示词标签
+    textBody = textBody
+      .replace(/<img\s+[^>]*?>/gi, '')
+      .replace(/<\/?(?:[a-z0-9_]*image[a-z0-9_]*prompt|[a-z0-9_]*img[a-z0-9_]*prompt)>/gi, '')
+      .replace(/<\/?(?:[a-z0-9_]*image[a-z0-9_]*desc|[a-z0-9_]*img[a-z0-9_]*desc)>/gi, '')
+      .trim();
     let finalBody = textBody;
 
     if (body) {
@@ -889,7 +953,7 @@ Constraints:
       // 触发社交互动评估（评论）
       // forceInteract=true → 100% 评论（调试模式）；false → 正常 30% 概率随机互动
       if (forceInteract) {
-        await this.evaluateSocialInteraction(post, 'forum_post', modelAdapter, true).catch(err => {
+        await this.evaluateSocialInteraction(post, 'forum_post', modelAdapter, false).catch(err => {
           console.error('[SocialMediaService] 角色论坛互动评估出错:', err);
         });
       } else {
@@ -1017,7 +1081,7 @@ Constraints:
           const targetAuthorDisplayName = (target.character_id === 'user' || target.author_name === '我' || target.author_name === 'User') ? mappedUserName : target.author_name;
 
           // 🚀 自适应双门限合并还原
-          const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+          const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'dialogue';
           const isDialogue = chatMode === 'dialogue';
           const limit = isDialogue ? 60 : 20;
           const rawHistory = db.getChatHistory(char.id, limit);
@@ -1388,7 +1452,7 @@ Instructions:
       const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
 
       // 🚀 自适应双门限合并还原
-      const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+      const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'dialogue';
       const isDialogue = chatMode === 'dialogue';
       const limit = isDialogue ? 60 : 20;
       const rawHistory = db.getChatHistory(char.id, limit);
@@ -1785,7 +1849,7 @@ You current relationship with {{user}} ({{user}} explicitly @mentioned you in pu
       const memoryContent = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf8') : '暂无专属记忆';
 
       // 🚀 自适应双门限合并还原
-      const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'descriptive';
+      const chatMode = db.getSetting(`chat_mode_${char.id}`) || 'dialogue';
       const isDialogue = chatMode === 'dialogue';
       const limit = isDialogue ? 60 : 20;
       const rawHistory = db.getChatHistory(char.id, limit);
