@@ -955,8 +955,9 @@ export class AgentLifeEngine {
         return;
       }
 
-      // 全量物理去名化收缩：将所有已注册用户名替换为 {{user}} 占位符
-      const processedDiaryText = UserProfileReaderWriter.replaceUserNamesToPlaceholder(diaryText);
+      // 精准物理去名化收缩：将当前绑定人设卡姓名替换为 {{user}} 占位符
+      const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+      const processedDiaryText = UserProfileReaderWriter.replaceUserNameToPlaceholder(diaryText, userName);
 
       // 物理写入 Diary.md
       const diaryPath = path.join(baseDir, folderName, 'Diary.md');
@@ -1170,7 +1171,8 @@ ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
 
       const newSchedule = scheduleResponse.content.trim();
       if (newSchedule && !newSchedule.includes('Error')) {
-        const processedSchedule = UserProfileReaderWriter.replaceUserNamesToPlaceholder(newSchedule);
+        const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+        const processedSchedule = UserProfileReaderWriter.replaceUserNameToPlaceholder(newSchedule, userName);
         fs.writeFileSync(schedulePath, processedSchedule, 'utf8');
         console.log(`[AgentLifeEngine] 物理写入 Schedule.md 成功: ${char.name}`);
       }
@@ -1226,7 +1228,8 @@ ${charUserContent}
 
       const newGoals = goalsResponse.content.trim();
       if (newGoals && !newGoals.includes('Error')) {
-        const processedGoals = UserProfileReaderWriter.replaceUserNamesToPlaceholder(newGoals);
+        const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+        const processedGoals = UserProfileReaderWriter.replaceUserNameToPlaceholder(newGoals, userName);
         fs.writeFileSync(goalsPath, processedGoals, 'utf8');
         console.log(`[AgentLifeEngine] 物理更新 Goals.md 成功: ${char.name}`);
       }

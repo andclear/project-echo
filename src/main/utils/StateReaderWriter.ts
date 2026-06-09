@@ -181,8 +181,10 @@ ${state.items.map(item => {
 *最后更新时间：${state.last_updated}*`;
     let processedContent = mdContent;
     try {
+      const folderName = path.basename(path.dirname(filePath));
       const { UserProfileReaderWriter } = require('./UserProfileReaderWriter');
-      processedContent = UserProfileReaderWriter.replaceUserNamesToPlaceholder(mdContent);
+      const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+      processedContent = UserProfileReaderWriter.replaceUserNameToPlaceholder(mdContent, userName);
     } catch (_) {}
     fs.writeFileSync(filePath, processedContent, 'utf8');
   }

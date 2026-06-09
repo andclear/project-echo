@@ -87,6 +87,10 @@ export class UserProfileReaderWriter {
     this.getUserNameCallback = cb;
   }
 
+  public static getUserNameByFolder(folderName: string): string | null {
+    return this.getUserName(folderName);
+  }
+
   private static getUserName(folderName: string): string | null {
     if (this.getUserNameCallback) {
       try {

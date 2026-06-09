@@ -184,8 +184,9 @@ Target JSON format:
       }
 
       if (applied) {
-        // 全量物理去名化收缩：将所有已注册用户名替换为 {{user}} 占位符
-        soulContent = UserProfileReaderWriter.replaceUserNamesToPlaceholder(soulContent);
+        // 精准物理去名化收缩：将当前绑定人设卡姓名替换为 {{user}} 占位符
+        const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+        soulContent = UserProfileReaderWriter.replaceUserNameToPlaceholder(soulContent, userName);
         fs.writeFileSync(soulPath, soulContent, 'utf8');
         db.setSetting(`soul_last_changed_${characterId}`, Date.now().toString());
         db.setSetting(`soul_draft_${characterId}`, ''); // 清空草案

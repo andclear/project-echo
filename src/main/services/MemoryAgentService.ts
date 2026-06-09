@@ -699,7 +699,8 @@ ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
 
         const newSchedule = scheduleResponse.content.trim();
         if (newSchedule && !newSchedule.includes('Error')) {
-          const processedSchedule = UserProfileReaderWriter.replaceUserNamesToPlaceholder(newSchedule);
+          const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+          const processedSchedule = UserProfileReaderWriter.replaceUserNameToPlaceholder(newSchedule, userName);
           fs.writeFileSync(schedulePath, processedSchedule, 'utf8');
           console.log(`[MemoryAgentService] 物理覆写/生成 Schedule.md 成功: ${folderName}`);
         }
@@ -757,7 +758,8 @@ ${charUserContent}
 
         const newGoals = goalsResponse.content.trim();
         if (newGoals && !newGoals.includes('Error')) {
-          const processedGoals = UserProfileReaderWriter.replaceUserNamesToPlaceholder(newGoals);
+          const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+          const processedGoals = UserProfileReaderWriter.replaceUserNameToPlaceholder(newGoals, userName);
           fs.writeFileSync(goalsPath, processedGoals, 'utf8');
           console.log(`[MemoryAgentService] 物理覆写/生成 Goals.md 成功: ${folderName}`);
         }

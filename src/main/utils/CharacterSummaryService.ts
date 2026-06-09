@@ -97,7 +97,8 @@ ${worldContent || '（无世界观背景设定）'}`;
       if (!fs.existsSync(speakerDir)) {
         fs.mkdirSync(speakerDir, { recursive: true });
       }
-      const processedSummary = UserProfileReaderWriter.replaceUserNamesToPlaceholder(finalSummary);
+      const userName = UserProfileReaderWriter.getUserNameByFolder(characterId);
+      const processedSummary = UserProfileReaderWriter.replaceUserNameToPlaceholder(finalSummary, userName);
       fs.writeFileSync(summaryPath, processedSummary, 'utf-8');
       console.log(`[SummaryService] 角色 ${characterId} 核心总结提炼存盘成功！内容: "${processedSummary}"`);
 

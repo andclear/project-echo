@@ -140,8 +140,10 @@ export class SummaryReaderWriter {
 
     let processedSummary = summary;
     try {
+      const folderName = path.basename(path.dirname(filePath));
       const { UserProfileReaderWriter } = require('./UserProfileReaderWriter');
-      processedSummary = UserProfileReaderWriter.replaceUserNamesToPlaceholder(summary);
+      const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+      processedSummary = UserProfileReaderWriter.replaceUserNameToPlaceholder(summary, userName);
     } catch (_) {}
 
     const markdownContent = this.generateSummaryMarkdown(processedSummary);

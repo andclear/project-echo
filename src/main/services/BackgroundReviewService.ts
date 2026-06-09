@@ -137,7 +137,8 @@ Target JSON format:
         }
         
         if (hasNewPatch) {
-          dreamContent = UserProfileReaderWriter.replaceUserNamesToPlaceholder(dreamContent);
+          const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+          dreamContent = UserProfileReaderWriter.replaceUserNameToPlaceholder(dreamContent, userName);
           fs.writeFileSync(dreamMdPath, dreamContent, 'utf8');
         }
       }
