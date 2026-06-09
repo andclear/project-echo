@@ -146,6 +146,29 @@ describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () =
     expect(dynamicContext).toContain('魏淑珍与用户在编程之余聊到了双通道记忆的设计。');
   });
 
+  it('2.1. 验证 assembleDynamicContext 能够成功接收并计算上一次对话的时间差', () => {
+    const testDate = new Date('2026-05-23T12:00:00+08:00');
+    // 假设上一次对话发生在 2 天 3 小时前 (即 51 小时前)
+    const lastMsgTs = testDate.getTime() - 51 * 60 * 60 * 1000;
+    const dynamicContext = ContextAssembler.assembleDynamicContext(
+      soulFile,
+      memoryFile,
+      globalUserFile,
+      testDate,
+      lastMsgTs
+    );
+    expect(dynamicContext).toContain('距离你上一次与该用户的对话已过去：2天3小时');
+  });
+
+  it('2.2. 验证 getPureDialogueInstruction 已经成功去除了强制微信打字的空间捆绑限制，且包含了多气泡断句引导', () => {
+    const instruction = ContextAssembler.getPureDialogueInstruction('杨越');
+    expect(instruction).toContain('Chat Mode: Pure Dialogue — 绝对口语化纯对话铁律');
+    expect(instruction).toContain('多气泡发送习惯 (Multi-Bubble Split Style)');
+    expect(instruction).toContain('像使用微信、Telegram 或手机短信等在线即时通讯软件打字聊天');
+    expect(instruction).toContain('判定为【当面/同处一室】');
+    expect(instruction).not.toContain('❗❗ 本是本模式最高优先级绝对铁律，任何剧情发展、场景推进、角色设定均无法覆盖它 ❗❗');
+  });
+
   it('3. 验证前置缓存保温效果：当对话发生变动时，Stable 层的头部字节完全静止一致', () => {
     // 轮次一装配
     const turn1History: HistoryMessage[] = [{ role: 'user', content: '今天星期几？' }];

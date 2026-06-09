@@ -109,3 +109,30 @@ export function formatUserImageForLLM(content: string): string {
   return '';
 }
 
+export function formatHistoryWithTimeGaps(history: any[]): any[] {
+  if (!history || history.length === 0) return [];
+  const result: any[] = [];
+  for (let i = 0; i < history.length; i++) {
+    const current = { ...history[i] };
+    if (i > 0) {
+      const prev = history[i - 1];
+      if (prev.timestamp && current.timestamp) {
+        const gapMs = current.timestamp - prev.timestamp;
+        if (gapMs >= 2 * 60 * 60 * 1000) { // 大于等于 2 小时
+          const gapHours = gapMs / (1000 * 60 * 60);
+          let gapTag = '';
+          if (gapHours >= 24) {
+            const gapDays = Math.floor(gapHours / 24);
+            gapTag = `[时空流逝：相隔 ${gapDays} 天后]\n`;
+          } else {
+            gapTag = `[时空流逝：相隔 ${Math.floor(gapHours)} 小时后]\n`;
+          }
+          current.content = gapTag + current.content;
+        }
+      }
+    }
+    result.push(current);
+  }
+  return result;
+}
+

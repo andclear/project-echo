@@ -17,7 +17,7 @@ import { CharacterSummaryService } from './utils/CharacterSummaryService'
 import { StreamSplitController } from './utils/StreamSplitController'
 import { SkillSandboxManager } from './services/SkillSandboxManager'
 import { AgentLifeEngine } from './services/AgentLifeEngine'
-import { cleanContentForLLM } from './utils/ChatHistoryMerger'
+import { cleanContentForLLM, formatHistoryWithTimeGaps } from './utils/ChatHistoryMerger'
 import { BackgroundReviewService } from './services/BackgroundReviewService'
 import { ContextAssembler } from './utils/ContextAssembler'
 import { MemoryAgentService } from './services/MemoryAgentService'
@@ -4636,6 +4636,7 @@ ${soulContent}
         }
       }
     }
+    const historyWithTime = formatHistoryWithTimeGaps(history)
 
     // 🚀 识别导演模式下黄金开局专属斜杠命令
     const isOpeningCommand = chatMode === 'director' && (
@@ -4724,7 +4725,7 @@ ${memoryContent}
         memoryPath,
         globalUserPath,
         charUserPath,
-        history,
+        historyWithTime,
         new Date(),
         chatMode,
         globalPrompt
@@ -4733,11 +4734,13 @@ ${memoryContent}
       systemPrompt += buildEmojiSystemPromptSuffix(chatMode)
 
       // 🚀 组装高频变动的实时 Dynamic Context (只在最新一轮 user 消息中动态注入，让 systemPrompt 100% 绝对静止以获得 >90% 缓存命中)
+      const lastMsgTimestamp = rawHistory[0]?.timestamp
       const dynamicContext = ContextAssembler.assembleDynamicContext(
         soulPath,
         memoryPath,
         globalUserPath,
-        new Date()
+        new Date(),
+        lastMsgTimestamp
       )
 
       let dynamicHeader = ''
@@ -4787,7 +4790,7 @@ ${memoryContent}
       messages = [
         { role: 'system', content: systemPrompt },
         // 过滤掉 AI 生成图片消息（assistant 图片），保留用户图片占位符
-        ...history
+        ...historyWithTime
           .filter((m: any) => !(m.role === 'assistant' && m.content?.startsWith('[wechat_image_media]:')))
           .map((m: any) => ({ role: m.role as any, content: formatMessageContentForLLM(m.content, m.role) }))
       ]
