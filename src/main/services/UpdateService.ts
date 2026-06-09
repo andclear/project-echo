@@ -92,7 +92,7 @@ export class UpdateService {
       const config = await this.fetchUpdateConfig()
       this.latestVersionInfo = config
 
-      const currentVersion = app.getVersion()
+      const currentVersion = getRealAppVersion()
       const hasNewVersion = this.isNewerVersion(currentVersion, config.version)
 
       console.log(`[UpdateService] 当前版本: v${currentVersion}, 最新版本: v${config.version}, 是否有更新: ${hasNewVersion}`)
@@ -428,4 +428,29 @@ export class UpdateService {
 
     return null
   }
+}
+
+export function getRealAppVersion(): string {
+  let version = app.getVersion()
+  if (version === '0.0' || !version) {
+    try {
+      const pathsToTry = [
+        join(app.getAppPath(), 'package.json'),
+        join(process.cwd(), 'package.json'),
+        join(app.getAppPath(), '..', '..', 'package.json')
+      ]
+      for (const p of pathsToTry) {
+        if (fs.existsSync(p)) {
+          const pkg = JSON.parse(fs.readFileSync(p, 'utf-8'))
+          if (pkg && pkg.version) {
+            version = pkg.version
+            break
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[VersionService] 读取 package.json 版本号失败:', err)
+    }
+  }
+  return version || '1.0.5'
 }

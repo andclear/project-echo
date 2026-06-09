@@ -277,6 +277,15 @@ export class DatabaseService {
       }
     } catch (_) {}
 
+    try {
+      const pragma = this.db.pragma("table_info(Novels)") as any[]
+      const hasCol = pragma.some((c: any) => c.name === 'cover_path')
+      if (!hasCol) {
+        this.db.exec("ALTER TABLE Novels ADD COLUMN cover_path TEXT DEFAULT NULL;")
+        console.log("[Database Auto-heal] 成功为 Novels 追加 cover_path 字段！")
+      }
+    } catch (_) {}
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS Novels (
         id TEXT PRIMARY KEY,
@@ -934,6 +943,14 @@ export class DatabaseService {
   public deleteChatHistory(characterId: string): void {
     const stmt = this.db.prepare('DELETE FROM Messages WHERE character_id = ?')
     stmt.run(characterId)
+
+    // 🚀 清空聊天历史时，同步重置该小说写手的活跃书籍和时间线起点，确保物理清空判定绝对准确
+    const stmtSettings = this.db.prepare('DELETE FROM Settings WHERE key IN (?, ?, ?)')
+    stmtSettings.run(
+      `current_active_novel_id_${characterId}`,
+      `novel_start_ts_${characterId}`,
+      `last_novel_chapter_end_ts_${characterId}`
+    )
   }
 
   /**
@@ -1615,8 +1632,35 @@ export class DatabaseService {
   }
 
   public deleteNovelChapter(chapterId: string): void {
+    // 1. 获取原章节的 novel_id、character_id 和 dialogue_end_ts 信息
+    const info = this.db.prepare('SELECT novel_id, character_id, dialogue_end_ts FROM NovelChapters WHERE id = ?').get(chapterId) as { novel_id: string; character_id: string; dialogue_end_ts: number } | undefined
+    
+    // 2. 物理删除该章节
     const stmt = this.db.prepare('DELETE FROM NovelChapters WHERE id = ?')
     stmt.run(chapterId)
+
+    if (info) {
+      const { novel_id, character_id } = info
+      const activeNovelId = this.getActiveNovelId(character_id)
+      
+      // 3. 如果被删除的这一章是当前活跃小说的章节，且 last_novel_chapter_end_ts 正好指向被删除这一章的终点（说明删除了最新的最后一章）
+      const lastEndTsKey = `last_novel_chapter_end_ts_${character_id}`
+      const currentLastEndTs = parseInt(this.getSetting(lastEndTsKey) || '0', 10)
+      
+      if (activeNovelId === novel_id && currentLastEndTs === info.dialogue_end_ts) {
+        // 查找出当前活跃小说在删除后最大的章节
+        const lastChapter = this.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE novel_id = ? ORDER BY chapter_index DESC LIMIT 1').get(novel_id) as { dialogue_end_ts: number } | undefined
+        
+        if (lastChapter) {
+          // 如果还有其他章节，把 last_novel_chapter_end_ts 退回到新的最后一章的结束时间戳，以供后续无缝续章
+          this.setSetting(lastEndTsKey, lastChapter.dialogue_end_ts.toString())
+        } else {
+          // 如果删光了所有章节，把 last_novel_chapter_end_ts 重置为这本小说的起跑起点 startTs
+          const startTs = this.getSetting(`novel_start_ts_${character_id}`) || '0'
+          this.setSetting(lastEndTsKey, startTs)
+        }
+      }
+    }
   }
 
   public sumMessageTokensSince(characterId: string, afterTs: number): number {

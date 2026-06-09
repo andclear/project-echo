@@ -30,7 +30,7 @@ import { SoulEvolutionService } from './services/SoulEvolutionService'
 import { MusicService, Mp3Id3Writer } from './services/MusicService'
 import { NovelAiService } from './services/NovelAiService'
 import { NovelWriterService, NOVEL_TOKEN_THRESHOLD } from './services/NovelWriterService'
-import { UpdateService } from './services/UpdateService'
+import { UpdateService, getRealAppVersion } from './services/UpdateService'
 import { WeChatService } from './services/WeChatService'
 import { WeatherService } from './utils/WeatherService'
 import { MessageBusService, EchoMessage, MessageType } from './services/MessageBusService'
@@ -38,7 +38,23 @@ import { parseMemoryMd, parseUserMd } from './utils/MarkdownMetadataParser'
 import { SseManager } from './services/SseManager'
 import { migrateLegacyUserProfile, performEmojiBase64DecoupleMigration } from './utils/MigrationHelper'
 
-
+// 🚀 至尊级日志静默盾：劫持全局 console.error，静默过滤掉由于 Electron 内部对已销毁/已刷新渲染帧发送 IPC 消息时，在底层 JS init 代码中强行抛出的 WebFrameMain/disposed 冗余控制台报错
+const originalConsoleError = console.error
+console.error = function (...args: any[]) {
+  const shouldSkip = args.some(arg => {
+    if (typeof arg === 'string') {
+      return arg.includes('Error sending from webFrameMain') || arg.includes('Render frame was disposed')
+    }
+    if (arg && (arg instanceof Error || typeof arg === 'object')) {
+      const msg = (arg as any).message || ''
+      const stack = (arg as any).stack || ''
+      return msg.includes('disposed') || msg.includes('WebFrameMain') || stack.includes('Render frame was disposed')
+    }
+    return false
+  })
+  if (shouldSkip) return
+  originalConsoleError.apply(console, args)
+}
 
 // 完美解决 macOS 系统代理或 VPN 拦截导致的 Chromium 网络服务崩溃及本地 Dev 调试加载问题，确保开发服务器端口彻底绕过系统代理自检，且网络进程防崩
 app.commandLine.appendSwitch('proxy-bypass-list', '127.0.0.1;localhost;<local>;127.0.0.1:5173;localhost:5173;127.0.0.1:5174;localhost:5174;127.0.0.1:5175;localhost:5175')
@@ -187,6 +203,24 @@ function createWindow(): void {
   })
 
   const win = mainWindow!
+
+  // 🚀 全局 WebContents.send 健壮性劫持：防止任何渲染进程窗口在销毁/刷新过程中，主进程异步推送 IPC 消息报 WebFrameMain/disposed 异常
+  const proto = Object.getPrototypeOf(win.webContents)
+  if (proto && !proto.__is_wrapped__) {
+    proto.__is_wrapped__ = true
+    const originalSend = proto.send
+    proto.send = function (channel: string, ...args: any[]) {
+      try {
+        if (this.isDestroyed()) return
+        originalSend.call(this, channel, ...args)
+      } catch (err: any) {
+        if (err.message && (err.message.includes('disposed') || err.message.includes('WebFrameMain'))) {
+          return
+        }
+        console.error('[WebContents Send Error]', err)
+      }
+    }
+  }
 
   // 绑定 MessageBusService 主窗口（注意：不要劫持 webContents.send，让 MessageBusService 直接使用原始 send）
   MessageBusService.getInstance().bindMainWindow(() => mainWindow)
@@ -915,7 +949,7 @@ function registerIpcHandlers(): void {
 
   // 获取当前应用版本号
   ipcMain.handle('get-app-version', () => {
-    return app.getVersion()
+    return getRealAppVersion()
   })
 
   // 0.0.1.b 获取目前真实天气数据
@@ -2708,11 +2742,14 @@ ${soulContent}
           const lastCh = db.db.prepare('SELECT dialogue_end_ts FROM NovelChapters WHERE novel_id = ? ORDER BY chapter_index DESC LIMIT 1').get(remaining.id) as { dialogue_end_ts: number } | undefined
           const newTs = lastCh ? lastCh.dialogue_end_ts.toString() : (db.getSetting(`novel_start_ts_${characterId}`) || '0')
           db.setSetting(`last_novel_chapter_end_ts_${characterId}`, newTs)
+          // 🚀 核心校准：同步将该小说的起跑起点 novel_start_ts 重置为对应老书最后一章的结束时间戳，彻底消除脏起点残留
+          db.setSetting(`novel_start_ts_${characterId}`, newTs)
         } else {
           // 没有剩余小说了，清空激活小说 ID，并重置时间游标为初始 ts
           db.setActiveNovelId(characterId, null)
-          const startTs = db.getSetting(`novel_start_ts_${characterId}`) || '0'
-          db.setSetting(`last_novel_chapter_end_ts_${characterId}`, startTs)
+          // 🚀 核心校准：没有任何小说剩余时，彻底清除该小说的起跑起点和结束游标，防止残留脏数据影响下次新建小说或范围设置
+          db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`novel_start_ts_${characterId}`)
+          db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`last_novel_chapter_end_ts_${characterId}`)
         }
       }
 
