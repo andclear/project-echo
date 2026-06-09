@@ -716,7 +716,7 @@ export class AgentLifeEngine {
         db.setSetting(`active_count_today_${charId}`, String(currentCount + 1));
         db.setSetting(`active_last_timestamp_${charId}`, Date.now().toString());
         db.setSetting(`active_today_date_${charId}`, todayStr);
-        console.log(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪文本落盘与推送成功: "${cleanText}"`);
+        console.log(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪文本落盘与推送成功`);
 
         // 异步触发后台记忆提取，让搭讪消息也被记忆系统处理
         setImmediate(() => {

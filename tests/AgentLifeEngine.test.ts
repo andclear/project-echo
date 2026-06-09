@@ -143,9 +143,9 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
     expect(wakeResult.reason).toContain('用户已离线');
   });
 
-  test('4. 清晨问候 (07:00-09:00) 弱事件触发', () => {
-    // 构造清晨时间环境: 2026-05-25 08:30:00
-    const morningTime = new Date('2026-05-25T08:30:00');
+  test('4. 清晨问候 (07:00-08:00) 弱事件触发', () => {
+    // 构造清晨时间环境: 2026-05-25 07:30:00
+    const morningTime = new Date('2026-05-25T07:30:00');
     // 注入消息在 10 小时前 (小于 36 小时)
     const tenHoursAgo = morningTime.getTime() - 10 * 60 * 60 * 1000;
     mockHistory = [
@@ -167,7 +167,7 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
 
   test('5. 今日重要日程 (Schedule.md) 强事件门控唤醒', () => {
     // 写入一个当天（2026-05-25）有具体日程的安排
-    fs.writeFileSync(path.join(charPath, 'Schedule.md'), '# 近7天日程\n- **2026-05-25**: 参加水神大剧院的庆功宴', 'utf8');
+    fs.writeFileSync(path.join(charPath, 'Schedule.md'), '# 近7天日程\n- **2026-05-25**: 参加水神大剧院 of 庆功宴', 'utf8');
 
     // 检测时间设为当天：2026-05-25 12:00:00
     const evalTime = new Date('2026-05-25T12:00:00');
@@ -189,10 +189,10 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
     expect(wakeResult.wakeAgent).toBe(true);
     expect(wakeResult.triggerStrength).toBe('strong');
     expect(wakeResult.triggerEvent?.type).toBe('schedule_event');
-    expect(wakeResult.triggerEvent?.detail).toContain('参加水神大剧院的庆功宴');
+    expect(wakeResult.triggerEvent?.detail).toContain('参加水神大剧院 of 庆功宴');
   });
 
-  test('6. 主动搭讪 2 小时冷却强拦截 (Cooldown)', () => {
+  test('6. 主动搭讪 3 小时冷却强拦截 (Cooldown)', () => {
     const evalTime = new Date('2026-05-25T12:00:00');
     // 注入聊天历史以满足非全新静默条件
     mockHistory = [
@@ -206,7 +206,7 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
       }
     ];
 
-    // 模拟上一次搭讪时间戳在 30 分钟前 (小于 2 小时)
+    // 模拟上一次搭讪时间戳在 30 分钟前 (小于 3 小时)
     const thirtyMinsAgo = evalTime.getTime() - 30 * 60 * 1000;
     mockSettings[`active_last_timestamp_${testCharId}`] = thirtyMinsAgo.toString();
     mockSettings[`active_count_today_${testCharId}`] = '1';
@@ -216,12 +216,12 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
     // 试图在 2026-05-25 12:00:00 (触发久未联系强事件) 进行唤醒检测
     const wakeResult = engine.checkWakeGate(testCharId, evalTime);
 
-    // 期望：因为未满 2 小时冷却，门控强行关闭
+    // 期望：因为未满 3 小时冷却，门控强行关闭
     expect(wakeResult.wakeAgent).toBe(false);
-    expect(wakeResult.reason).toContain('目前处于 2 小时搭讪冷却期内');
+    expect(wakeResult.reason).toContain('目前处于 3 小时搭讪冷却期内');
   });
 
-  test('7. 主动搭讪今日 3 次上限强拦截 (Daily Limit)', () => {
+  test('7. 主动搭讪今日 2 次上限强拦截 (Daily Limit)', () => {
     const evalTime = new Date('2026-05-25T12:00:00');
     // 注入聊天历史以满足非全新静默条件
     mockHistory = [
@@ -235,24 +235,24 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
       }
     ];
 
-    // 模拟今日已搭讪 3 次，且最后一次是在 3 小时前 (已过 2 小时冷却)
-    const threeHoursAgo = evalTime.getTime() - 3 * 60 * 60 * 1000;
-    mockSettings[`active_last_timestamp_${testCharId}`] = threeHoursAgo.toString();
-    mockSettings[`active_count_today_${testCharId}`] = '3';
+    // 模拟今日已搭讪 2 次，且最后一次是在 4 小时前 (已过 3 小时冷却)
+    const fourHoursAgo = evalTime.getTime() - 4 * 60 * 60 * 1000;
+    mockSettings[`active_last_timestamp_${testCharId}`] = fourHoursAgo.toString();
+    mockSettings[`active_count_today_${testCharId}`] = '2';
     mockSettings[`active_today_date_${testCharId}`] = '2026-5-25';
     mockSettings[`last_diary_date_${testCharId}`] = '2026-5-25'; // 今日已自省写过日记
 
     // 试图进行唤醒检测
     const wakeResult = engine.checkWakeGate(testCharId, evalTime);
 
-    // 期望：因为今日已达 3 次上限，门控强行关闭
+    // 期望：因为今日已达 2 次上限，门控强行关闭
     expect(wakeResult.wakeAgent).toBe(false);
-    expect(wakeResult.reason).toContain('今日主动搭讪已达 3 次上限');
+    expect(wakeResult.reason).toContain('今日主动搭讪已达 2 次上限');
   });
 
-  test('8. 对话期间 20 分钟静默防打扰拦截', () => {
+  test('8. 对话期间 30 分钟静默防打扰拦截', () => {
     const evalTime = new Date('2026-05-25T12:00:00');
-    // 注入最后一条消息在 15 分钟前 (小于 20 分钟)
+    // 注入最后一条消息在 15 分钟前 (小于 30 分钟)
     const fifteenMinsAgo = evalTime.getTime() - 15 * 60 * 1000;
     mockHistory = [
       {
@@ -268,8 +268,8 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
     // 试图进行唤醒检测
     const wakeResult = engine.checkWakeGate(testCharId, evalTime);
 
-    // 期望：因为在 20 分钟内有对话，门控强行关闭且原因明确
+    // 期望：因为在 30 分钟内有对话，门控强行关闭且原因明确
     expect(wakeResult.wakeAgent).toBe(false);
-    expect(wakeResult.reason).toContain('20 分钟内与该角色有过对话交流');
+    expect(wakeResult.reason).toContain('30 分钟内与该角色有过对话交流');
   });
 });

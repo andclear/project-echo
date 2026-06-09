@@ -73,9 +73,11 @@ describe('MemoryReaderWriter 单元测试', () => {
     const data = MemoryReaderWriter.readMemory(memoryFile);
     // 验证容量截断上限
     expect(data.stm.length).toBe(50);
+    const now = new Date();
+    const dateTag = `[${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}]`;
     // 验证先进先出剔除 (最老的 10 条已被移出，前台应该保留 11 到 60)
-    expect(data.stm[0]).toBe('记忆事实条目 #11');
-    expect(data.stm[49]).toBe('记忆事实条目 #60');
+    expect(data.stm[0]).toBe(`${dateTag} 记忆事实条目 #11`);
+    expect(data.stm[49]).toBe(`${dateTag} 记忆事实条目 #60`);
 
     // 物理落盘验证
     const rawText = fs.readFileSync(memoryFile, 'utf-8');

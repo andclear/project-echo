@@ -91,7 +91,7 @@ describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () =
     expect(prompt.startsWith('# SYSTEM IDENTITY & WORLD RULES (Stable Tier)')).toBe(true);
     expect(prompt).toContain('我是一个温和、专业的 AI 编程助手。');
     expect(prompt).toContain('回音平台是一个本地化桌面角色扮演系统。');
-    expect(prompt).toContain('独立心智与情感本能总纲');
+    expect(prompt).toContain('核心存在宣言与情感本能法则');
 
     // B. 验证已清空、剥离了所有高频变动字段以达成完美静止保温
     expect(prompt).not.toContain('## 魏淑珍与用户的对话大事记');
@@ -133,8 +133,8 @@ describe('ContextAssembler 单元测试 (Prompt 前缀缓存极致保温)', () =
 
     // C. 验证实时内心世界心智与钱包余额成功组装
     expect(dynamicContext).toContain('## 实时内心世界与心智投射 (Character Internal State & Subjective Attitude)');
-    expect(dynamicContext).toContain('❤️ 情感亲密水准：85/100 (当前相处境界：【灵魂羁绊/深爱】)');
-    expect(dynamicContext).toContain('😊 心情色彩：90/100');
+    expect(dynamicContext).toContain('❤️ 与 杨越 当前的情感相处境界：【灵魂羁绊/深爱】');
+    expect(dynamicContext).toContain('😊 当前心情状态：愉悦高涨');
     expect(dynamicContext).toContain('🪙 钱包余额：1314.00 元');
 
     // D. 验证自省梦境 DREAM.md 成功组装
