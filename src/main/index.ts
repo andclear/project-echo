@@ -4403,12 +4403,22 @@ ${soulContent}
           const pinyinName = storageManager.convertToPinyin(session.charName)
           const confirmedFolderName = storageManager.getUniqueFolderName(pinyinName)
 
+          // 获取绑定的用户人设真实姓名，执行存盘前收缩替换为 {{user}}
+          const userName = db.getUserNameByCharacterId(null)
+          let processedSoul = session.soulContent || '# 暂无提炼人设'
+          let processedWorld = session.worldContent || '# 暂无提炼世界观'
+          if (userName) {
+            const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
+            processedSoul = processedSoul.replace(userNameRegex, '{{user}}')
+            processedWorld = processedWorld.replace(userNameRegex, '{{user}}')
+          }
+
           // 物理写盘（五大核心文件）
           const writeResult = storageManager.saveCharacter(
             confirmedFolderName,
             avatarBuffer,
-            session.soulContent || '# 暂无提炼人设',
-            session.worldContent || '# 暂无提炼世界观'
+            processedSoul,
+            processedWorld
           )
 
           // 确保角色专属 USER.md 也落盘
@@ -8936,37 +8946,82 @@ export function stopIpcBridgeServer() {
  * 🚀 静默数据迁移：升级老用户数据，将角色相关文件中的绑定真实姓名一键物理收缩替换为 {{user}}
  * 本替换在后台静默进行，且在生命周期中一生仅执行一次 (基于 Settings 表中的 user_placeholder_migration_done 标记)
  */
+/**
+ * 🚀 静默数据迁移：升级老用户数据，将角色相关文件中的所有用户人设姓名一键物理收缩替换为 {{user}}
+ * 本替换在后台静默进行，且在生命周期中一生仅执行一次 (基于 Settings 表中的 user_placeholder_migration_done_v2 标记)
+ */
+function getAllUserProfileNames(): string[] {
+  const names: string[] = []
+  try {
+    const userDataPath = app.getPath('userData')
+    const targetProfilesDir = join(userDataPath, 'config', 'user_profiles')
+    if (fs.existsSync(targetProfilesDir)) {
+      const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'))
+      for (const file of files) {
+        const filePath = join(targetProfilesDir, file)
+        const content = fs.readFileSync(filePath, 'utf-8')
+        
+        let userName = ''
+        // 1. 尝试解析 HTML 注释中的 JSON 块以获得姓名
+        const match = content.match(/<!--([\s\S]*?)-->/)
+        if (match && match[1]) {
+          try {
+            const parsed = JSON.parse(match[1].trim())
+            if (parsed && parsed.name) {
+              userName = String(parsed.name).trim()
+            }
+          } catch (_) {}
+        }
+        // 2. 备用容错：如果注释中无姓名，则从 Markdown 语法行正则捕获姓名
+        if (!userName) {
+          const nameMatch = content.match(/(?:^|\n)[-\s*]*(?:\*\*|)?姓名(?:\*\*|)?\s*[：:]\s*([^\n\r]*)/)
+          if (nameMatch && nameMatch[1]) {
+            userName = nameMatch[1].trim()
+          }
+        }
+        if (userName && !names.includes(userName)) {
+          names.push(userName)
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[Migration] 获取所有人设卡姓名失败:', e)
+  }
+  return names
+}
+
 async function performUserPlaceholderMigration() {
   try {
     const db = getDatabaseService()
-    const done = db.getSetting('user_placeholder_migration_done')
+    const done = db.getSetting('user_placeholder_migration_done_v2')
     if (done === '1') {
-      console.log('[Migration] 用户人设占位符收缩迁移已在之前完成，静默跳过。')
+      console.log('[Migration] 用户人设占位符收缩迁移 V2 已在之前完成，静默跳过。')
       return
     }
 
-    console.log('[Migration] 🚀 开始执行一次性的老用户数据人设占位符 {{user}} 收缩物理迁移...')
+    console.log('[Migration] 🚀 开始执行一次性的老用户数据人设占位符 {{user}} 收缩物理迁移 V2 (全量自愈)...')
     const characters = db.getAllCharacters()
     const storageManager = new CharacterStorageManager()
     const baseDir = storageManager.getBaseDir() // /userData/characters
+
+    // 获取所有人设卡的真实姓名列表
+    const allNames = getAllUserProfileNames()
+    if (allNames.length === 0) {
+      console.log('[Migration] 未发现任何人设卡，跳过收缩自愈。')
+      db.setSetting('user_placeholder_migration_done', '1')
+      db.setSetting('user_placeholder_migration_done_v2', '1')
+      return
+    }
+
+    console.log('[Migration] 识别到系统内所有注册的用户姓名:', allNames)
 
     for (const char of characters) {
       const charId = char.id
       const folderName = char.folder_name || charId
       if (!folderName) continue
 
-      // 获取当前角色绑定的真实姓名
-      const userName = db.getUserNameByFolderName(folderName)
-      if (!userName || userName.trim() === '') {
-        // 如果未绑定人设或人设卡无真实姓名，则无需收缩
-        continue
-      }
-
       const charDir = join(baseDir, folderName)
       if (!fs.existsSync(charDir)) continue
-
-      const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
-      console.log(`[Migration] 正在处理角色: ${char.name} (${folderName}), 绑定姓名: ${userName}`)
 
       // 需要处理并扫除收缩的文件列表
       const filesToProcess = ['Soul.md', 'World.md', 'Memory.md', 'USER.md', 'Diary.md']
@@ -8974,11 +9029,20 @@ async function performUserPlaceholderMigration() {
         const filePath = join(charDir, fileName)
         if (fs.existsSync(filePath)) {
           try {
-            const rawContent = fs.readFileSync(filePath, 'utf-8')
-            if (rawContent.includes(userName)) {
-              const newContent = rawContent.replace(userNameRegex, '{{user}}')
-              fs.writeFileSync(filePath, newContent, 'utf-8')
-              console.log(`[Migration] ➜ 成功将 ${fileName} 中的 "${userName}" 物理收缩替换为 "{{user}}"`)
+            let content = fs.readFileSync(filePath, 'utf-8')
+            let modified = false
+            
+            for (const name of allNames) {
+              if (name && name.trim() !== '' && content.includes(name)) {
+                const userNameRegex = new RegExp(name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
+                content = content.replace(userNameRegex, '{{user}}')
+                modified = true
+                console.log(`[Migration] ➜ 成功将 ${char.name} (${folderName}) 下 ${fileName} 中的 "${name}" 物理收缩替换为 "{{user}}"`)
+              }
+            }
+
+            if (modified) {
+              fs.writeFileSync(filePath, content, 'utf-8')
             }
           } catch (fileErr) {
             console.error(`[Migration] 警告: 处理角色 ${folderName} 的文件 ${fileName} 失败:`, fileErr)
@@ -8989,9 +9053,10 @@ async function performUserPlaceholderMigration() {
 
     // 写入迁移成功标记，确保往后完全不再执行
     db.setSetting('user_placeholder_migration_done', '1')
-    console.log('[Migration] ✨ 用户人设占位符收缩物理迁移全部顺利完成！')
+    db.setSetting('user_placeholder_migration_done_v2', '1')
+    console.log('[Migration] ✨ 用户人设占位符收缩物理迁移 V2 全部顺利完成！')
   } catch (err) {
-    console.error('[Migration] ✘ 执行人设占位符迁移过程中发生异常:', err)
+    console.error('[Migration] ✘ 执行人设占位符迁移 V2 过程中发生异常:', err)
   }
 }
 

@@ -183,6 +183,12 @@ Target JSON format:
       }
 
       if (applied) {
+        // 获取绑定的用户人设真实姓名，执行存盘前收缩替换为 {{user}}
+        const userName = db.getUserNameByCharacterId(characterId);
+        if (userName) {
+          const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+          soulContent = soulContent.replace(userNameRegex, '{{user}}');
+        }
         fs.writeFileSync(soulPath, soulContent, 'utf8');
         db.setSetting(`soul_last_changed_${characterId}`, Date.now().toString());
         db.setSetting(`soul_draft_${characterId}`, ''); // 清空草案
