@@ -6851,8 +6851,8 @@
               </div>
 
               <!-- 移动端 Emoji 悬浮面板 (绝对定位) -->
-              <div v-if="showEmojiPanel" @click.stop class="absolute bottom-full left-2 right-2 mb-3.5 z-40 p-3.5 flex flex-col h-[260px] justify-between animate-fade-in select-none glass-panel shadow-2xl rounded-2xl">
-                <input ref="emojiFileInput" type="file" accept="image/*" class="hidden" @change="handleEmojiFileSelect" />
+              <div v-if="showEmojiPanel" @click.stop class="absolute bottom-full left-2 right-2 mb-3.5 z-40 p-3.5 flex flex-col h-[260px] justify-between animate-fade-in select-none bg-surface border border-outline-variant shadow-2xl rounded-2xl">
+                <input ref="emojiFileInput" type="file" accept="image/*" class="hidden" multiple @change="handleEmojiFileSelect" />
                 
                 <!-- 默认表情 -->
                 <div v-if="emojiActiveTab === 'default'" class="flex flex-wrap gap-1.5 overflow-y-auto flex-1 select-none pr-1 py-1">
@@ -6864,27 +6864,27 @@
                   >{{ emoji }}</button>
                 </div>
                 
-                <!-- 自定义表情 -->
-                <div v-else class="grid grid-cols-6 gap-2 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
-                  <button
-                    @click="triggerEmojiUpload"
-                    class="aspect-square rounded-lg border border-dashed border-outline-variant/60 hover:border-primary/50 flex items-center justify-center bg-surface hover:bg-primary/5 cursor-pointer active:scale-95 transition-all shadow-sm group"
-                  >
-                    <PlusIcon class="w-4 h-4 text-on-surface-variant/50 group-hover:text-primary transition-colors" />
-                  </button>
-                  <div
-                    v-for="emoji in customEmojiList"
-                    :key="emoji.id"
-                    @click="sendCustomEmoji(emoji)"
-                    class="aspect-square rounded-lg overflow-hidden border border-outline-variant/60 hover:border-primary bg-surface flex items-center justify-center p-1 cursor-pointer hover:scale-105 active:scale-95 transition-all group relative shadow-sm"
-                  >
-                    <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
-                    <button
-                      @click.stop="deleteCustomEmoji(emoji.id)"
-                      class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 hover:bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow active:scale-90"
-                    >×</button>
-                  </div>
-                </div>
+                 <!-- 自定义表情 -->
+                 <div v-else class="flex flex-wrap gap-2.5 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
+                   <button
+                     @click="triggerEmojiUpload"
+                     class="w-14 h-14 flex-shrink-0 rounded-lg border border-dashed border-outline-variant/60 hover:border-primary/50 flex items-center justify-center bg-surface hover:bg-primary/5 cursor-pointer active:scale-95 transition-all shadow-sm group"
+                   >
+                     <PlusIcon class="w-4 h-4 text-on-surface-variant/50 group-hover:text-primary transition-colors" />
+                   </button>
+                   <div
+                     v-for="emoji in customEmojiList"
+                     :key="emoji.id"
+                     @click="sendCustomEmoji(emoji)"
+                     class="w-14 h-14 flex-shrink-0 rounded-lg overflow-hidden flex items-center justify-center p-0.5 cursor-pointer hover:scale-105 active:scale-95 transition-all group relative"
+                   >
+                     <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
+                     <button
+                       @click.stop="deleteCustomEmoji(emoji.id)"
+                       class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 hover:bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow active:scale-90"
+                     >×</button>
+                   </div>
+                 </div>
                 
                 <!-- 切换页签 -->
                 <div class="flex items-center space-x-3 pt-2 border-t border-outline-variant/20 mt-1.5 flex-shrink-0 select-none">
@@ -6970,8 +6970,8 @@
               </div>
 
               <!-- Emoji 面板 (PC绝对定位浮窗) -->
-              <div v-if="showEmojiPanel" @click.stop class="absolute bottom-full left-4 right-4 mb-2.5 z-40 p-4 flex flex-col h-[280px] justify-between animate-fade-in select-none glass-panel shadow-2xl rounded-2xl">
-                <input ref="emojiFileInput" type="file" accept="image/*" class="hidden" @change="handleEmojiFileSelect" />
+              <div v-if="showEmojiPanel" @click.stop class="absolute bottom-full left-4 right-4 mb-2.5 z-40 p-4 flex flex-col h-[280px] justify-between animate-fade-in select-none bg-surface border border-outline-variant shadow-2xl rounded-2xl">
+                <input ref="emojiFileInput" type="file" accept="image/*" class="hidden" multiple @change="handleEmojiFileSelect" />
                 
                 <!-- A. 默认表情 -->
                 <div v-if="emojiActiveTab === 'default'" class="flex flex-wrap gap-2 overflow-y-auto flex-1 select-none pr-1 py-1">
@@ -6983,30 +6983,30 @@
                   >{{ emoji }}</button>
                 </div>
                 
-                <!-- B. 自定义表情 -->
-                <div v-else class="grid grid-cols-8 gap-2 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
-                  <button
-                    @click="triggerEmojiUpload"
-                    class="aspect-square rounded-lg border border-dashed border-outline-variant/60 hover:border-primary/50 flex items-center justify-center bg-surface hover:bg-primary/5 cursor-pointer active:scale-95 transition-all shadow-sm group"
-                    title="添加自定义表情"
-                  >
-                    <PlusIcon class="w-5 h-5 text-on-surface-variant/50 group-hover:text-primary transition-colors" />
-                  </button>
-                  <div
-                    v-for="emoji in customEmojiList"
-                    :key="emoji.id"
-                    @click="sendCustomEmoji(emoji)"
-                    class="aspect-square rounded-lg overflow-hidden border border-outline-variant/60 hover:border-primary bg-surface flex items-center justify-center p-1 cursor-pointer hover:scale-105 active:scale-95 transition-all group relative shadow-sm"
-                    :title="emoji.meaning"
-                  >
-                    <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
-                    <button
-                      @click.stop="deleteCustomEmoji(emoji.id)"
-                      class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 hover:bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow active:scale-90"
-                      title="删除表情"
-                    >×</button>
-                  </div>
-                </div>
+                 <!-- B. 自定义表情 -->
+                 <div v-else class="flex flex-wrap gap-2.5 overflow-y-auto flex-1 select-none pr-1 py-1 min-h-0">
+                   <button
+                     @click="triggerEmojiUpload"
+                     class="w-14 h-14 flex-shrink-0 rounded-lg border border-dashed border-outline-variant/60 hover:border-primary/50 flex items-center justify-center bg-surface hover:bg-primary/5 cursor-pointer active:scale-95 transition-all shadow-sm group"
+                     title="添加自定义表情"
+                   >
+                     <PlusIcon class="w-5 h-5 text-on-surface-variant/50 group-hover:text-primary transition-colors" />
+                   </button>
+                   <div
+                     v-for="emoji in customEmojiList"
+                     :key="emoji.id"
+                     @click="sendCustomEmoji(emoji)"
+                     class="w-14 h-14 flex-shrink-0 rounded-lg overflow-hidden flex items-center justify-center p-0.5 cursor-pointer hover:scale-105 active:scale-95 transition-all group relative"
+                     :title="emoji.meaning"
+                   >
+                     <img :src="emoji.base64" class="w-full h-full object-contain select-none" />
+                     <button
+                       @click.stop="deleteCustomEmoji(emoji.id)"
+                       class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-black/60 hover:bg-red-500 text-white text-[8px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow active:scale-90"
+                       title="删除表情"
+                     >×</button>
+                   </div>
+                 </div>
                 
                 <!-- 底部切换 Tab 页签 -->
                 <div class="flex items-center space-x-3.5 pt-2.5 pb-1 border-t border-outline-variant/20 mt-2 flex-shrink-0 select-none">
@@ -8356,34 +8356,61 @@
       </div>
     </div>
 
-    <!-- ========================= 弹窗：添加自定义表情 ========================= -->
-    <div v-if="showAddEmojiModal" class="modal-overlay" @click.self="showAddEmojiModal = false">
-      <div class="modal-panel w-[280px] p-5 space-y-4 animate-fade-in shadow-2xl rounded-2xl border bg-surface select-none">
-        <div class="text-center font-bold text-xs text-on-surface">添加自定义表情</div>
-        
-        <!-- 图片预览 -->
-        <div class="w-24 h-24 mx-auto rounded-xl border border-outline-variant bg-surface-low p-2 flex items-center justify-center shadow-inner overflow-hidden">
-          <img :src="tempEmojiBase64" class="max-w-full max-h-full object-contain" />
+    <!-- ========================= 弹窗：添加自定义表情 (统一批量与单张) ========================= -->
+    <div v-if="showBatchEmojiModal" class="modal-overlay z-[99999]" @click.self="showBatchEmojiModal = false">
+      <div 
+        class="modal-panel p-5 space-y-4 animate-fade-in shadow-2xl rounded-2xl border bg-surface select-none transition-all duration-300"
+        :class="batchEmojiList.length === 1 ? 'w-[320px]' : 'w-[520px] max-w-[95vw]'"
+      >
+        <div class="text-center font-bold text-xs text-on-surface">
+          {{ batchEmojiList.length === 1 ? '添加自定义表情' : `批量添加自定义表情 (${batchEmojiList.length} 张)` }}
         </div>
         
-        <div class="form-group">
-          <label class="form-label text-[9px] uppercase font-bold text-on-surface-variant font-mono">表情文字含义/描述</label>
-          <input
-            v-model="tempEmojiMeaning"
-            type="text"
-            placeholder="如：哭哭、得意 (回车确认)"
-            class="form-input text-xs"
-            @keyup.enter="confirmAddEmoji"
-          />
+        <!-- 表情列表网格 -->
+        <div 
+          class="pr-1 py-1"
+          :class="batchEmojiList.length === 1 ? 'flex flex-col space-y-3' : 'grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-y-auto max-h-[380px] min-h-0'"
+        >
+          <div 
+            v-for="(item, index) in batchEmojiList" 
+            :key="item.id" 
+            class="flex items-center space-x-3.5 p-3.5 rounded-xl border border-outline-variant bg-surface-low relative group shadow-sm"
+          >
+            <!-- 左侧：图片预览 -->
+            <div class="w-16 h-16 rounded-xl border border-outline-variant bg-surface p-1.5 flex items-center justify-center shadow-inner overflow-hidden relative flex-shrink-0">
+              <img :src="item.base64" class="max-w-full max-h-full object-contain pointer-events-none select-none" />
+              <!-- 悬浮删除小按钮 -->
+              <button 
+                @click="removeBatchEmojiItem(item.id)" 
+                class="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center rounded-full bg-error/95 hover:bg-error text-white text-[9px] font-bold shadow-md hover:scale-110 active:scale-95 transition-all select-none cursor-pointer"
+                title="移除此项"
+              >
+                ✕
+              </button>
+            </div>
+            <!-- 右侧：文字描述编辑 -->
+            <div class="flex-1 min-w-0">
+              <label class="block text-[8px] uppercase font-bold text-on-surface-variant font-mono mb-1 select-none">表情描述 ({{ index + 1 }})</label>
+              <input
+                v-model="item.meaning"
+                type="text"
+                placeholder="表情文字含义 (如：得意)"
+                class="form-input text-xs py-1.5 px-2.5 rounded-lg border border-outline-variant bg-surface focus:border-primary w-full"
+                @keyup.enter="confirmAddBatchEmojis"
+              />
+            </div>
+          </div>
         </div>
         
-        <div class="flex justify-end space-x-2 pt-1 select-none">
-          <button @click="showAddEmojiModal = false" class="btn-secondary text-xs py-1.5 px-4 rounded-lg">取消</button>
+        <div class="flex justify-end space-x-2 pt-2.5 select-none border-t border-outline-variant/40">
+          <button @click="showBatchEmojiModal = false" class="btn-secondary text-xs py-1.5 px-4 rounded-lg">取消</button>
           <button
-            @click="confirmAddEmoji"
-            :disabled="!tempEmojiMeaning.trim()"
-            class="btn-primary text-xs py-1.5 px-4 font-bold rounded-lg disabled:opacity-40"
-          >确认添加</button>
+            @click="confirmAddBatchEmojis"
+            :disabled="isBatchImportDisabled"
+            class="btn-primary text-xs py-1.5 px-4 font-bold rounded-lg disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {{ batchEmojiList.length === 1 ? '确认添加' : '一键导入' }}
+          </button>
         </div>
       </div>
     </div>
@@ -14481,13 +14508,17 @@ function shouldShowTime(msg: any, prevMsg: any): boolean {
 // ===================== Emoji & 自定义表情 =====================
 const showEmojiPanel = ref(false)
 const emojiActiveTab = ref<'default' | 'favorites'>('default')
-const showAddEmojiModal = ref(false)
+const showBatchEmojiModal = ref(false)
+interface BatchEmojiItem {
+  id: string
+  base64: string
+  meaning: string
+}
+const batchEmojiList = ref<BatchEmojiItem[]>([])
 const showEditMessageModal = ref(false)
 const editingMessageText = ref('')
 const activeEditingMessage = ref<any>(null)
 const emojiFileInput = ref<HTMLInputElement | null>(null)
-const tempEmojiBase64 = ref('')
-const tempEmojiMeaning = ref('')
 const customEmojiList = ref<{ id: string; base64: string; meaning: string }[]>([])
 
 // ── 多端复用单例表情包选择面板 ──
@@ -17012,66 +17043,129 @@ function triggerEmojiUpload() {
   emojiFileInput.value?.click()
 }
 
-function handleEmojiFileSelect(e: Event) {
+function processSingleEmojiFile(file: File): Promise<BatchEmojiItem> {
+  return new Promise((resolve, reject) => {
+    // 1. 若为 GIF 动图，为了保持其动画不失真不降帧，跳过 Canvas 压缩重绘
+    if (file.type === 'image/gif') {
+      const MAX_SIZE = 3 * 1024 * 1024 // 限制 3MB
+      if (file.size > MAX_SIZE) {
+        showCustomAlert('表情文件过大', `动图表情包“${file.name}”体积不能超过 3MB，请先压缩！`, 'error')
+        reject(new Error('GIF 动图体积超限'))
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        resolve({
+          id: Math.random().toString(36).substring(2, 9),
+          base64: event.target?.result as string,
+          meaning: "" // 初始强制留空，不提取文件名作为含义，要求用户必须配置
+        })
+      }
+      reader.onerror = () => reject(new Error('GIF 文件读取失败'))
+      reader.readAsDataURL(file)
+      return
+    }
+
+    // 2. 普通静态图：继续使用 Canvas 等比压缩至 128x128 WebP
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const MAX_WIDTH = 128
+        const MAX_HEIGHT = 128
+        let width = img.width
+        let height = img.height
+        
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height = Math.round((height * MAX_WIDTH) / width)
+            width = MAX_WIDTH
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width = Math.round((width * MAX_HEIGHT) / height)
+            height = MAX_HEIGHT
+          }
+        }
+        
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0, width, height)
+        
+        const compressedBase64 = canvas.toDataURL('image/webp', 0.8)
+        
+        resolve({
+          id: Math.random().toString(36).substring(2, 9),
+          base64: compressedBase64,
+          meaning: "" // 初始强制留空，不提取文件名作为含义，要求用户必须配置
+        })
+      }
+      img.onerror = () => reject(new Error('图片加载失败'))
+      img.src = event.target?.result as string
+    }
+    reader.onerror = () => reject(new Error('文件读取失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function handleEmojiFileSelect(e: Event) {
   const files = (e.target as HTMLInputElement).files
   if (!files || files.length === 0) return
-  const file = files[0]
   
-  const reader = new FileReader()
-  reader.onload = (event) => {
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const MAX_WIDTH = 128
-      const MAX_HEIGHT = 128
-      let width = img.width
-      let height = img.height
-      
-      if (width > height) {
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width)
-          width = MAX_WIDTH
-        }
-      } else {
-        if (height > MAX_HEIGHT) {
-          width = Math.round((width * MAX_HEIGHT) / height)
-          height = MAX_HEIGHT
-        }
-      }
-      
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-      ctx?.drawImage(img, 0, 0, width, height)
-      
-      const compressedBase64 = canvas.toDataURL('image/webp', 0.8)
-      tempEmojiBase64.value = compressedBase64
-      tempEmojiMeaning.value = ''
-      showAddEmojiModal.value = true
+  const newItems: BatchEmojiItem[] = []
+  for (let i = 0; i < files.length; i++) {
+    try {
+      const item = await processSingleEmojiFile(files[i])
+      newItems.push(item)
+    } catch (err) {
+      console.error('处理表情文件失败:', err)
     }
-    img.src = event.target?.result as string
   }
-  reader.readAsDataURL(file)
+  
+  if (newItems.length > 0) {
+    batchEmojiList.value = newItems
+    showBatchEmojiModal.value = true
+  }
   
   if (emojiFileInput.value) emojiFileInput.value.value = ''
 }
 
-function confirmAddEmoji() {
-  if (!tempEmojiMeaning.value.trim() || !tempEmojiBase64.value) return
-  if (customEmojiList.value.length >= 60) {
-    showCustomAlert('表情包上限', '自定义表情包最多添加 60 个，请先删除部分旧表情！', 'error')
+function removeBatchEmojiItem(id: string) {
+  batchEmojiList.value = batchEmojiList.value.filter(item => item.id !== id)
+}
+
+function confirmAddBatchEmojis() {
+  if (batchEmojiList.value.some(item => !item.meaning.trim())) return
+  const currentCount = customEmojiList.value.length
+  const toAddCount = batchEmojiList.value.length
+  
+  if (currentCount + toAddCount > 60) {
+    showCustomAlert('表情包上限', `自定义表情包最多添加 60 个，您当前已有 ${currentCount} 个，无法一次性导入 ${toAddCount} 个。请先清理旧表情！`, 'error')
     return
   }
   
-  customEmojiList.value.push({
-    id: Date.now().toString(),
-    base64: tempEmojiBase64.value,
-    meaning: tempEmojiMeaning.value.trim()
-  })
+  const nowStr = Date.now().toString()
+  const addedItems = batchEmojiList.value.map((item, idx) => ({
+    id: `${nowStr}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+    base64: item.base64,
+    meaning: item.meaning.trim()
+  }))
   
+  customEmojiList.value.push(...addedItems)
   saveCustomEmojis()
-  showAddEmojiModal.value = false
+  
+  showBatchEmojiModal.value = false
+  batchEmojiList.value = []
+  
+  showCustomAlert('表情导入成功', `成功添加了 ${toAddCount} 个自定义表情！`, 'success')
 }
+
+const isBatchImportDisabled = computed(() => {
+  return batchEmojiList.value.length === 0 || batchEmojiList.value.some(item => !item.meaning.trim())
+})
 
 function deleteCustomEmoji(id: string) {
   customEmojiList.value = customEmojiList.value.filter(item => item.id !== id)

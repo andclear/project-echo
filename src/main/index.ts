@@ -375,7 +375,7 @@ function formatMessageContentForLLM(
   return content
 }
 
-// 动态读取用户自定义大图表情包列表并拼装 Prompt 注入块，使得大模型能够完美感知用户的表情包资产
+// 动态读取用户自定义大图表情包列表并拼装 Prompt 注入块，使得大模型能够完美感知用户的表情包资产与用户发送的表情包
 function buildEmojiSystemPromptSuffix(chatMode?: string): string {
   if (chatMode === 'director') {
     return '' // 🚀 导演模式下绝对不允许发送或注入表情包 Prompt 规则，保持纯净文学剧作
@@ -384,24 +384,24 @@ function buildEmojiSystemPromptSuffix(chatMode?: string): string {
     const db = getDatabaseService()
     const emojisStr = db.getSetting('echo_custom_emojis')
     const customEmojis = emojisStr ? JSON.parse(emojisStr) : []
-    if (customEmojis.length === 0) {
-      return ''
-    }
-    const meaningList = customEmojis.map((e: any) => `- ${e.meaning}`).join('\n')
-    return `\n\n【微信自定义大图表情包库】
-用户当前添加了以下可供你选择发送的自定义微信表情包名称列表：
+    const meaningList = customEmojis.length > 0 
+      ? customEmojis.map((e: any) => `- ${e.meaning}`).join('\n')
+      : '*暂无表情资产*'
+      
+    return `\n\n【微信表情包互动法则】
+1. **用户发送表情包认知**：
+   当你在历史记录或当前输入中看到用户发来形如 \`[表情: 表情含义]\`（例如 \`[表情: 震惊]\`）的消息时，这代表用户向你发送了一张自定义大图或动图表情包，方括号内的词（如“震惊”）代表了该表情包所展现的画面含义、肢体动作或情绪态度。
+   ⚠️ **重要认知**：微信自定义表情包通常具有强烈的互联网“梗图 (Memes)”和“斗图/玩梗”的幽默社交属性。用户发送这些表情包，往往是在向你“甩梗”、“斗图”或以调侃的方式互动。你应当敏锐捕捉这层玩梗的氛围，用更加轻松、俏皮、生动甚至带调侃吐槽的语气配合接梗，切忌死板严肃地去生硬解释词义。
+
+2. **你拥有主动发送表情包的特权**：
+   用户当前添加了以下可供你选择发送的微信表情包名称列表：
 ${meaningList}
+   如果在聊天中，你觉得当前的【对话语义、语境或情绪温度】非常适合发送某个表情包，请严格选择上述列表中存在的表情包名称，并在你的回复正文的【最末尾】输出特定指令格式（单次回复限发一个表情包）：
+   👉 特定指令格式：[SEND_CUSTOM_EMOJI: 表情包名称]
 
-【特定发送格式规则】
-如果在与用户的聊天中，你觉得当前的【对话语义、叙事语境或情绪契合度】非常适合发送某个表情包，请严格选择上述列表中存在的表情包名称，并在你的回复正文的【最末尾】输出以下特定指令格式（单次回复限发一个表情包）：
-👉 特定指令格式：[SEND_CUSTOM_EMOJI: 表情包名称]
-
-【小说叙事与包含描写模式的特化发送规则】
-如果你当前处于【包含描写】（descriptive）或【导演模式】（director）等第三人称小说叙事文风下：
-你必须将该特定表情指令输出在【小说正文的最末尾】（如果有 </content> 标签，请务必输出在 </content> 标签的内部最末尾，即与正文连在一起输出）。
-例如：
-“……街上的梧桐树影晃了晃，又安静下来。彤彤锁好店门，走下台阶去。脚步声很轻，慢慢消失在夜色里。[SEND_CUSTOM_EMOJI: 开心]</content>”
-系统在后台会自动为你物理拦截并擦除该指令，并在你的精美描写气泡下方追加一张真实的微信大图表情卡片展现给用户。请不要输出列表中不存在的表情包名称，也不要进行多余的代码层面的口头说明。`
+3. **小说叙事模式下的表情特化规则**：
+   如果你当前处于【包含描写】（descriptive）模式下，必须将 \`[SEND_CUSTOM_EMOJI: 表情包名称]\` 特定指令输出在【小说正文的最末尾】（如果有 </content> 标签，请输出在标签内部最末尾，即与正文紧连着输出）。
+   系统在后台会自动物理拦截并擦除该指令，并在你的气泡下方追加一张真实的微信大图表情卡片。请不要输出列表中不存在的名称，也不要进行多余的代码层面的口头解释。`
   } catch (err) {
     console.error('[Emoji Prompt Injection Error]:', err)
     return ''
@@ -1030,29 +1030,166 @@ function registerIpcHandlers(): void {
     }
   })
 
-  // 0.0.3 获取自定义表情包列表
+  // 0.0.3 获取自定义表情包列表 (支持平滑迁移与物理文件读回)
   ipcMain.handle('get-custom-emojis', async () => {
     try {
       const db = getDatabaseService()
       const emojisStr = db.getSetting('echo_custom_emojis')
-      if (emojisStr) {
-        return { success: true, emojis: JSON.parse(emojisStr) }
+      if (!emojisStr) {
+        return { success: true, emojis: [] }
       }
-      return { success: true, emojis: [] }
+      
+      const emojis = JSON.parse(emojisStr)
+      const emojisDir = join(app.getPath('userData'), 'custom_emojis')
+      if (!fs.existsSync(emojisDir)) {
+        fs.mkdirSync(emojisDir, { recursive: true })
+      }
+
+      let migrated = false
+      const processedEmojis = emojis.map((emoji: any) => {
+        const filePathPrefix = join(emojisDir, emoji.id)
+        // 检查物理文件是否已经存在 (寻找可能的后缀: webp, gif, png, jpg, jpeg)
+        const possibleExts = ['webp', 'gif', 'png', 'jpg', 'jpeg']
+        let foundPath = ''
+        let foundExt = ''
+        for (const ext of possibleExts) {
+          const p = `${filePathPrefix}.${ext}`
+          if (fs.existsSync(p)) {
+            foundPath = p
+            foundExt = ext
+            break
+          }
+        }
+
+        // 如果数据库里的项包含 Base64 真实内容，说明这是老用户的旧数据，进行透明平滑迁移
+        if (emoji.base64 && emoji.base64.startsWith('data:image/')) {
+          const match = emoji.base64.match(/^data:image\/(png|jpg|jpeg|webp|gif);base64,/)
+          const ext = match ? match[1] : 'webp'
+          const base64Data = emoji.base64.replace(/^data:image\/(png|jpg|jpeg|webp|gif);base64,/, '')
+          const buffer = Buffer.from(base64Data, 'base64')
+          
+          const targetPath = `${filePathPrefix}.${ext}`
+          fs.writeFileSync(targetPath, buffer)
+          
+          emoji.base64 = '' // 剥离大体积 Base64 数据
+          emoji.ext = ext  // 保存文件后缀
+          migrated = true
+          
+          foundPath = targetPath
+          foundExt = ext
+        }
+
+        // 实时读取物理文件内容填充回 base64，以便前端完全透明地无痛使用
+        if (foundPath) {
+          const finalExt = foundExt || emoji.ext || 'webp'
+          const finalPath = foundPath
+          if (fs.existsSync(finalPath)) {
+            const fileBuffer = fs.readFileSync(finalPath)
+            const base64Str = fileBuffer.toString('base64')
+            const mimeType = finalExt === 'jpg' ? 'jpeg' : finalExt
+            return {
+              id: emoji.id,
+              meaning: emoji.meaning,
+              base64: `data:image/${mimeType};base64,${base64Str}`
+            }
+          }
+        }
+
+        return emoji
+      })
+
+      if (migrated) {
+        // 将不带 base64 大数据字段的元数据列表保存回数据库，彻底给 SQLite 脱水瘦身
+        const metadataOnly = emojis.map((e: any) => ({
+          id: e.id,
+          meaning: e.meaning,
+          base64: '', 
+          ext: e.ext || 'webp'
+        }))
+        db.setSetting('echo_custom_emojis', JSON.stringify(metadataOnly))
+        console.log('[Migration] 成功将老用户的表情包数据从 SQLite 剥离并平滑迁移至物理文件夹中！')
+      }
+
+      return { success: true, emojis: processedEmojis }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
   })
 
-  // 0.0.4 保存自定义表情包列表，并广播通知其他局域网客户端
+  // 0.0.4 保存自定义表情包列表，并广播通知其他局域网客户端 (剥离 base64 保存为物理文件)
   ipcMain.handle('save-custom-emojis', async (_, payload: any[]) => {
     try {
       const db = getDatabaseService()
-      db.setSetting('echo_custom_emojis', JSON.stringify(payload))
+      const emojisDir = join(app.getPath('userData'), 'custom_emojis')
+      if (!fs.existsSync(emojisDir)) {
+        fs.mkdirSync(emojisDir, { recursive: true })
+      }
 
-      // 广播通知其他局域网客户端
-      mainWindow?.webContents.send('custom-emojis-updated', payload)
-      SseManager.getInstance().broadcast('custom-emojis-updated', payload)
+      // 1. 回收垃圾文件：找出当前列表中所有表情的 ID，删除已经被用户在面板上剔除的物理文件
+      const currentIds = payload.map(e => e.id)
+      if (fs.existsSync(emojisDir)) {
+        const files = fs.readdirSync(emojisDir)
+        for (const file of files) {
+          const idWithoutExt = file.substring(0, file.lastIndexOf('.'))
+          if (idWithoutExt && !currentIds.includes(idWithoutExt)) {
+            try {
+              fs.unlinkSync(join(emojisDir, file))
+            } catch (err) {
+              console.error('垃圾回收物理表情文件失败:', err)
+            }
+          }
+        }
+      }
+
+      // 2. 遍历前端传来的新表情包数据，若携带 Base64 大二进制流，则物理写入磁盘
+      const metadataOnly = payload.map((emoji: any) => {
+        let ext = emoji.ext || 'webp'
+        
+        if (emoji.base64 && emoji.base64.startsWith('data:image/')) {
+          const match = emoji.base64.match(/^data:image\/(png|jpg|jpeg|webp|gif);base64,/)
+          ext = match ? match[1] : 'webp'
+          const base64Data = emoji.base64.replace(/^data:image\/(png|jpg|jpeg|webp|gif);base64,/, '')
+          const buffer = Buffer.from(base64Data, 'base64')
+          
+          const targetPath = join(emojisDir, `${emoji.id}.${ext}`)
+          fs.writeFileSync(targetPath, buffer)
+        }
+
+        return {
+          id: emoji.id,
+          meaning: emoji.meaning,
+          base64: '', // 剥离大字段，仅存索引，极限收容
+          ext: ext
+        }
+      })
+
+      // 3. 将精简后的元数据列表写入配置表
+      db.setSetting('echo_custom_emojis', JSON.stringify(metadataOnly))
+
+      // 4. 广播同步消息给其他窗口和 SSE 局域网端时，必须带上全量 Base64 数据以便渲染
+      const processedEmojis = payload.map((emoji: any) => {
+        if (emoji.base64 && emoji.base64.startsWith('data:image/')) {
+          return emoji
+        }
+        
+        const filePathPrefix = join(emojisDir, emoji.id)
+        const finalExt = emoji.ext || 'webp'
+        const finalPath = `${filePathPrefix}.${finalExt}`
+        if (fs.existsSync(finalPath)) {
+          const fileBuffer = fs.readFileSync(finalPath)
+          const base64Str = fileBuffer.toString('base64')
+          const mimeType = finalExt === 'jpg' ? 'jpeg' : finalExt
+          return {
+            id: emoji.id,
+            meaning: emoji.meaning,
+            base64: `data:image/${mimeType};base64,${base64Str}`
+          }
+        }
+        return emoji
+      })
+
+      mainWindow?.webContents.send('custom-emojis-updated', processedEmojis)
+      SseManager.getInstance().broadcast('custom-emojis-updated', processedEmojis)
 
       return { success: true }
     } catch (e: any) {
@@ -3620,9 +3757,20 @@ ${soulContent}
                 e.meaning.includes(targetMeaning)
               )
               if (matchedEmoji) {
+                let base64Data = ''
+                const emojisDir = join(app.getPath('userData'), 'custom_emojis')
+                const finalExt = matchedEmoji.ext || 'webp'
+                const finalPath = join(emojisDir, `${matchedEmoji.id}.${finalExt}`)
+                if (fs.existsSync(finalPath)) {
+                  const fileBuffer = fs.readFileSync(finalPath)
+                  const base64Str = fileBuffer.toString('base64')
+                  const mimeType = finalExt === 'jpg' ? 'jpeg' : finalExt
+                  base64Data = `data:image/${mimeType};base64,${base64Str}`
+                }
+                
                 customEmojiSend = {
                   meaning: matchedEmoji.meaning,
-                  base64: matchedEmoji.base64
+                  base64: base64Data
                 }
                 console.log(`[Group Custom Emoji] 成员 ${currentSpeaker.name} 根据语义匹配发送了表情包: [${matchedEmoji.meaning}]`)
               }
@@ -4926,9 +5074,20 @@ ${memoryContent}
           e.meaning.includes(targetMeaning)
         )
         if (matchedEmoji) {
+          let base64Data = ''
+          const emojisDir = join(app.getPath('userData'), 'custom_emojis')
+          const finalExt = matchedEmoji.ext || 'webp'
+          const finalPath = join(emojisDir, `${matchedEmoji.id}.${finalExt}`)
+          if (fs.existsSync(finalPath)) {
+            const fileBuffer = fs.readFileSync(finalPath)
+            const base64Str = fileBuffer.toString('base64')
+            const mimeType = finalExt === 'jpg' ? 'jpeg' : finalExt
+            base64Data = `data:image/${mimeType};base64,${base64Str}`
+          }
+
           customEmojiSend = {
             meaning: matchedEmoji.meaning,
-            base64: matchedEmoji.base64
+            base64: base64Data
           }
           console.log(`[Single Custom Emoji] 角色 ${characterId} 根据语义匹配发送了表情包: [${matchedEmoji.meaning}]`)
         }
@@ -7484,30 +7643,30 @@ Please output in exactly this XML format:
     }
   })
 
-  // 2.5 读取角色实时状态 State.md 结构化数组 (包含老角色补充亲密度及过滤孤独感功能)
-  ipcMain.handle('get-character-states', async (_, payload: { folderName: string }) => {
-    try {
-      const storageManager = new CharacterStorageManager()
-      const statePath = join(storageManager.getBaseDir(), payload.folderName, 'State.md')
-      const state = StateReaderWriter.readState(statePath)
+  // =================== 状态栏指标统一规整与排序方法 ===================
+  // 辅助函数：统一获取、补齐、过滤、注入全局预设、排序并持久化写入当前角色的状态
+  const getProcessedCharacterStates = (folderName: string): StateItem[] => {
+    const storageManager = new CharacterStorageManager()
+    const statePath = join(storageManager.getBaseDir(), folderName, 'State.md')
+    const state = StateReaderWriter.readState(statePath)
 
-      // 检查老角色是否有 intimacy，如果没有，补充上默认值并自动触发评估
-      let intimacyItem = state.items.find(i => i.key === 'intimacy')
-      if (!intimacyItem) {
-        state.items.unshift({ key: "intimacy", label: "亲密度", value: 20, emoji: "❤️", min: 0, max: 100, type: 'number' })
-        StateReaderWriter.writeState(statePath, state)
+    // 检查老角色是否有 intimacy，如果没有，补充上默认值并自动触发评估
+    let intimacyItem = state.items.find(i => i.key === 'intimacy')
+    if (!intimacyItem) {
+      state.items.unshift({ key: "intimacy", label: "亲密度", value: 20, emoji: "❤️", min: 0, max: 100, type: 'number' })
+      StateReaderWriter.writeState(statePath, state)
 
-        // 异步后台自动评估老角色的亲密度
-        const soulPath = join(storageManager.getBaseDir(), payload.folderName, 'Soul.md')
-        if (fs.existsSync(soulPath)) {
-          const soulContent = fs.readFileSync(soulPath, 'utf8')
-          const db = getDatabaseService()
-          const configStr = db.getSetting('model_config')
-          const settings = configStr ? JSON.parse(configStr) : { primary: null, secondary: null }
-          const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
-          const evaluateOldCharIntimacy = async () => {
-            try {
-              const prompt = `你是一个背景人设分析专家。你需要分析角色与用户 {{user}} 在背景设定（Lore）中原有的亲密关系级别。
+      // 异步后台自动评估老角色的亲密度
+      const soulPath = join(storageManager.getBaseDir(), folderName, 'Soul.md')
+      if (fs.existsSync(soulPath)) {
+        const soulContent = fs.readFileSync(soulPath, 'utf8')
+        const db = getDatabaseService()
+        const configStr = db.getSetting('model_config')
+        const settings = configStr ? JSON.parse(configStr) : { primary: null, secondary: null }
+        const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+        const evaluateOldCharIntimacy = async () => {
+          try {
+            const prompt = `你是一个背景人设分析专家。你需要分析角色与用户 {{user}} 在背景设定（Lore）中原有的亲密关系级别。
 角色的人设背景（Soul.md）内容如下：
 """
 ${soulContent}
@@ -7527,96 +7686,103 @@ ${soulContent}
   "reason": "简短的一句话理由"
 }
 `;
-              const response = await modelAdapter.chat([
-                { role: 'user', content: prompt }
-              ], { useSecondary: true })
-              const match = response.content.match(/\{[\s\S]*?\}/)
-              let score = 20
-              if (match) {
-                const parsed = JSON.parse(match[0])
-                if (typeof parsed.intimacy === 'number') {
-                  score = Math.max(0, Math.min(100, parsed.intimacy))
-                }
+            const response = await modelAdapter.chat([
+              { role: 'user', content: prompt }
+            ], { useSecondary: true })
+            const match = response.content.match(/\{[\s\S]*?\}/)
+            let score = 20
+            if (match) {
+              const parsed = JSON.parse(match[0])
+              if (typeof parsed.intimacy === 'number') {
+                score = Math.max(0, Math.min(100, parsed.intimacy))
               }
-              const currentState = StateReaderWriter.readState(statePath)
-              const curIntimacy = currentState.items.find(i => i.key === 'intimacy')
-              if (curIntimacy) {
-                curIntimacy.value = score
-                StateReaderWriter.writeState(statePath, currentState)
-                console.log(`[get-character-states] 成功评估并补充老角色 ${payload.folderName} 的亲密度: ${score}`)
-              }
-            } catch (err) {
-              console.error('[get-character-states] 后台评估老角色亲密度失败:', err)
             }
-          }
-          evaluateOldCharIntimacy()
-        }
-      }
-
-      // 去掉可能残存的老角色孤独感
-      let filteredItems = state.items.filter(item => item.key !== 'loneliness')
-
-      // 读取全局预设状态栏
-      const db = getDatabaseService()
-      const presetsStr = db.getSetting('state_presets')
-      const presets = presetsStr ? JSON.parse(presetsStr) : []
-      const globalPresets = presets.filter((p: any) => p.is_global)
-
-      let stateChanged = filteredItems.length !== state.items.length
-
-      // 遍历并动态注入全局预设状态栏
-      for (const gp of globalPresets) {
-        const existingItem = filteredItems.find(i => i.key === gp.id)
-        if (!existingItem) {
-          const emoji = gp.type === 'number' ? '📊' : '🏷️'
-          filteredItems.push({
-            key: gp.id,
-            label: gp.label,
-            value: gp.type === 'number' ? 0 : '暂无',
-            emoji,
-            type: gp.type,
-            rule: gp.rule,
-            meaning: gp.meaning,
-            ...(gp.type === 'number' ? { min: 0, max: 100 } : {})
-          })
-          stateChanged = true
-        } else {
-          // 如果存在，强刷含义与规则配置，保持最新状态栏配置一致性
-          if (existingItem.label !== gp.label || existingItem.rule !== gp.rule || existingItem.meaning !== gp.meaning) {
-            existingItem.label = gp.label
-            existingItem.rule = gp.rule
-            existingItem.meaning = gp.meaning
-            stateChanged = true
+            const currentState = StateReaderWriter.readState(statePath)
+            const curIntimacy = currentState.items.find(i => i.key === 'intimacy')
+            if (curIntimacy) {
+              curIntimacy.value = score
+              StateReaderWriter.writeState(statePath, currentState)
+              console.log(`[get-character-states] 成功评估并补充老角色 ${folderName} 的亲密度: ${score}`)
+            }
+          } catch (err) {
+            console.error('[get-character-states] 后台评估老角色亲密度失败:', err)
           }
         }
+        evaluateOldCharIntimacy()
       }
+    }
 
-      // 对列表项进行精密的层级排序：基础内置属性 -> 全局预设属性 -> 局部自定义属性
-      const order = ['intimacy', 'mood']
-      filteredItems.sort((a, b) => {
-        const aPre = order.indexOf(a.key)
-        const bPre = order.indexOf(b.key)
-        if (aPre !== -1 && bPre !== -1) return aPre - bPre
-        if (aPre !== -1) return -1
-        if (bPre !== -1) return 1
+    // 去掉可能残存的老角色孤独感
+    let filteredItems = state.items.filter(item => item.key !== 'loneliness')
 
-        const aIsGlobal = globalPresets.some((gp: any) => gp.id === a.key)
-        const bIsGlobal = globalPresets.some((gp: any) => gp.id === b.key)
-        if (aIsGlobal && !bIsGlobal) return -1
-        if (!aIsGlobal && bIsGlobal) return 1
-        return 0
-      })
+    // 读取全局预设状态栏
+    const db = getDatabaseService()
+    const presetsStr = db.getSetting('state_presets')
+    const presets = presetsStr ? JSON.parse(presetsStr) : []
+    const globalPresets = presets.filter((p: any) => p.is_global)
 
-      if (stateChanged) {
-        state.items = filteredItems
-        StateReaderWriter.writeState(statePath, state)
+    let stateChanged = filteredItems.length !== state.items.length
+
+    // 遍历并动态注入全局预设状态栏
+    for (const gp of globalPresets) {
+      const existingItem = filteredItems.find(i => i.key === gp.id)
+      if (!existingItem) {
+        const emoji = gp.type === 'number' ? '📊' : '🏷️'
+        filteredItems.push({
+          key: gp.id,
+          label: gp.label,
+          value: gp.type === 'number' ? 0 : '暂无',
+          emoji,
+          type: gp.type,
+          rule: gp.rule,
+          meaning: gp.meaning,
+          ...(gp.type === 'number' ? { min: 0, max: 100 } : {})
+        })
+        stateChanged = true
       } else {
-        // 即便无项新增，排序后也应物理写盘以确保持久化顺序的一致
-        state.items = filteredItems
-        StateReaderWriter.writeState(statePath, state)
+        // 如果存在，强刷含义与规则配置，保持最新状态栏配置一致性
+        if (existingItem.label !== gp.label || existingItem.rule !== gp.rule || existingItem.meaning !== gp.meaning) {
+          existingItem.label = gp.label
+          existingItem.rule = gp.rule
+          existingItem.meaning = gp.meaning
+          stateChanged = true
+        }
       }
+    }
 
-      return { success: true, states: state.items }
+    // 对列表项进行精密的层级排序：基础内置属性 -> 全局预设属性 -> 局部自定义属性
+    const order = ['intimacy', 'mood']
+    filteredItems.sort((a, b) => {
+      const aPre = order.indexOf(a.key)
+      const bPre = order.indexOf(b.key)
+      if (aPre !== -1 && bPre !== -1) return aPre - bPre
+      if (aPre !== -1) return -1
+      if (bPre !== -1) return 1
+
+      const aIsGlobal = globalPresets.some((gp: any) => gp.id === a.key)
+      const bIsGlobal = globalPresets.some((gp: any) => gp.id === b.key)
+      if (aIsGlobal && !bIsGlobal) return -1
+      if (!aIsGlobal && bIsGlobal) return 1
+      return 0
+    })
+
+    if (stateChanged) {
+      state.items = filteredItems
+      StateReaderWriter.writeState(statePath, state)
+    } else {
+      // 即便无项新增，排序后也应物理写盘以确保持久化顺序的一致
+      state.items = filteredItems
+      StateReaderWriter.writeState(statePath, state)
+    }
+
+    return state.items
+  }
+
+  // 2.5 读取角色实时状态 State.md 结构化数组 (包含老角色补充亲密度及过滤孤独感功能)
+  ipcMain.handle('get-character-states', async (_, payload: { folderName: string }) => {
+    try {
+      const states = getProcessedCharacterStates(payload.folderName)
+      return { success: true, states }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
@@ -7732,6 +7898,9 @@ ${soulContent}
   // 2.6 手动更新单个状态值（数字/文本）
   ipcMain.handle('update-character-state-value', async (_, payload: { folderName: string; key: string; value: number | string }) => {
     try {
+      // 在修改之前，先运行一次规整排序方法，以保证修改的目标 key 存在且结构一致
+      getProcessedCharacterStates(payload.folderName)
+
       const storageManager = new CharacterStorageManager()
       const statePath = join(storageManager.getBaseDir(), payload.folderName, 'State.md')
       const state = StateReaderWriter.readState(statePath)
@@ -7753,7 +7922,10 @@ ${soulContent}
         }
         state.last_updated = new Date().toISOString().split('T')[0]
         StateReaderWriter.writeState(statePath, state)
-        return { success: true, states: state.items }
+
+        // 再次调用 getProcessedCharacterStates 进行注入与排序后返回，保证返回数据绝对一致
+        const finalStates = getProcessedCharacterStates(payload.folderName)
+        return { success: true, states: finalStates }
       }
       return { success: false, error: '未找到该属性' }
     } catch (e: any) {
@@ -7766,10 +7938,6 @@ ${soulContent}
     try {
       const storageManager = new CharacterStorageManager()
       const baseDir = storageManager.getBaseDir()
-      const characters = fs.readdirSync(baseDir).filter(f => {
-        return fs.statSync(join(baseDir, f)).isDirectory()
-      })
-
       const randomId = Math.random().toString(36).substring(2, 8)
       const key = `custom_${randomId}`
       const emoji = payload.type === 'number' ? '📊' : '🏷️'
@@ -7795,11 +7963,9 @@ ${soulContent}
         }
       }
 
-      // 返回当前角色的所有状态，以用于立即重渲染
-      const curStatePath = join(baseDir, payload.folderName, 'State.md')
-      const curState = StateReaderWriter.readState(curStatePath)
-
-      return { success: true, states: curState.items }
+      // 统一调用 getProcessedCharacterStates 进行规整与排序后返回
+      const finalStates = getProcessedCharacterStates(payload.folderName)
+      return { success: true, states: finalStates }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
@@ -7824,7 +7990,9 @@ ${soulContent}
         state.last_updated = new Date().toISOString().split('T')[0]
         StateReaderWriter.writeState(statePath, state)
 
-        return { success: true, states: state.items }
+        // 统一调用 getProcessedCharacterStates 进行规整与排序后返回
+        const finalStates = getProcessedCharacterStates(payload.folderName)
+        return { success: true, states: finalStates }
       }
       return { success: false, error: '未找到该角色的状态文件' }
     } catch (e: any) {
