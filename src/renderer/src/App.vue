@@ -19866,9 +19866,16 @@ onMounted(async () => {
   window.api.receive('chat-chunk', (data: { characterId: string; content: string; done: boolean; isSystem?: boolean }) => {
     // 🚀 $admin 系统提示快速通道：在所有流式逻辑之前优先处理，无视 done 状态
     if (data.isSystem) {
-      const sysCharId = data.characterId || selectedCharacterId.value || ''
+      const sysCharId = data.characterId
+      if (!sysCharId) return // 物理隔离：无明确 characterId 的系统提示不予分发，防止串窗口显示
       if (!allMessages[sysCharId]) allMessages[sysCharId] = []
-      allMessages[sysCharId].push({ role: 'system', content: data.content, isSystem: true })
+      
+      // 防止同一条系统提示被重复 push (例如 electron 本地和广播通道重复触发)
+      const isDuplicate = allMessages[sysCharId].some(m => m.isSystem && m.content === data.content)
+      if (!isDuplicate) {
+        allMessages[sysCharId].push({ role: 'system', content: data.content, isSystem: true })
+      }
+      
       if (sysCharId === selectedCharacterId.value) {
         nextTick(() => scrollToBottom())
       }

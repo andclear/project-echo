@@ -116,6 +116,21 @@ export class SocialMediaService {
     return { metricsText, intimacyVal, customStates };
   }
 
+  /**
+   * 辅助方法：从角色的 World.md 中提炼出前 300 字左右的核心世界观概要
+   */
+  private getCharacterWorldSummary(folderName: string): string {
+    const baseDir = this.storageManager.getBaseDir();
+    const worldPath = path.join(baseDir, folderName, 'World.md');
+    if (fs.existsSync(worldPath)) {
+      try {
+        const content = fs.readFileSync(worldPath, 'utf8').trim();
+        // 过滤掉 markdown 标题和空白，截取前 300 个字
+        return content.replace(/[#*`]/g, '').slice(0, 300).replace(/\s+/g, ' ');
+      } catch (_) {}
+    }
+    return '未知世界观背景';
+  }
 
   /**
    * 后台静默生成朋友圈和论坛（由 cron Tick 驱动）
@@ -193,7 +208,7 @@ export class SocialMediaService {
    */
   public async generateMoment(char: any, modelAdapter: ModelAdapter, forceDraw = false, forceNsfw = false, forceInteract = false): Promise<any> {
     const db = getDatabaseService();
-    if (db.getChatHistory(char.id, 1).length === 0) {
+    if (!forceInteract && db.getChatHistory(char.id, 1).length === 0) {
       console.log(`[SocialMediaService] 0-Token 物理拦截：角色 ${char.name} 从未与用户产生过聊天历史，拒绝生成朋友圈。`);
       return null;
     }
@@ -352,21 +367,55 @@ Instructions:
 
     let raw = response.content.trim().replace(/^["']|["']$/g, ''); // 清理两端引号
 
-    // 解析配图标签
-    const imagePromptMatch = raw.match(/<(?:image|img)_prompt>([\s\S]*?)<\/(?:image|img)_prompt>/i);
-    const imageDescMatch = raw.match(/<(?:image|img)_desc>([\s\S]*?)<\/(?:image|img)_desc>/i);
+    // 🚀 万能宽容正则，解析配图提示词和描述标签，支持以任何字符连接的 image_prompt/img_prompt
+    const promptStartRegex = /<(?:[a-z0-9_]*image[a-z0-9_]*prompt|[a-z0-9_]*img[a-z0-9_]*prompt)>/i;
+    const promptEndRegex = /<\/(?:[a-z0-9_]*image[a-z0-9_]*prompt|[a-z0-9_]*img[a-z0-9_]*prompt)>/i;
+    const descStartRegex = /<(?:[a-z0-9_]*image[a-z0-9_]*desc|[a-z0-9_]*img[a-z0-9_]*desc)>/i;
+    const descEndRegex = /<\/(?:[a-z0-9_]*image[a-z0-9_]*desc|[a-z0-9_]*img[a-z0-9_]*desc)>/i;
 
-    let textContent = raw
-      .replace(/<(?:image|img)_prompt>[\s\S]*?<\/(?:image|img)_prompt>/gi, '')
-      .replace(/<(?:image|img)_desc>[\s\S]*?<\/(?:image|img)_desc>/gi, '')
-      .trim();
+    let imagePrompt = '';
+    let imageDesc = '';
+
+    const pStartMatch = raw.match(promptStartRegex);
+    const pEndMatch = raw.match(promptEndRegex);
+    let textContent = raw;
+
+    if (pStartMatch && pEndMatch) {
+      const startIndex = textContent.indexOf(pStartMatch[0]) + pStartMatch[0].length;
+      const endIndex = textContent.indexOf(pEndMatch[0]);
+      if (endIndex > startIndex) {
+        imagePrompt = textContent.substring(startIndex, endIndex).trim();
+      }
+      // 从文本中剥离提示词标签及其内部内容
+      const startIdx = textContent.indexOf(pStartMatch[0]);
+      const endIdx = textContent.indexOf(pEndMatch[0]) + pEndMatch[0].length;
+      if (endIdx > startIdx) {
+        textContent = textContent.substring(0, startIdx) + textContent.substring(endIdx);
+      }
+    }
+
+    const dStartMatch = textContent.match(descStartRegex);
+    const dEndMatch = textContent.match(descEndRegex);
+    if (dStartMatch && dEndMatch) {
+      const startIndex = textContent.indexOf(dStartMatch[0]) + dStartMatch[0].length;
+      const endIndex = textContent.indexOf(dEndMatch[0]);
+      if (endIndex > startIndex) {
+        imageDesc = textContent.substring(startIndex, endIndex).trim();
+      }
+      // 从文本中剥离描述标签及其内部内容
+      const startIdx = textContent.indexOf(dStartMatch[0]);
+      const endIdx = textContent.indexOf(dEndMatch[0]) + dEndMatch[0].length;
+      if (endIdx > startIdx) {
+        textContent = textContent.substring(0, startIdx) + textContent.substring(endIdx);
+      }
+    }
+
+    textContent = textContent.trim();
 
     if (textContent) {
       let finalContent = textContent;
 
-      if (shouldDraw && imagePromptMatch && imageDescMatch) {
-        const imagePrompt = imagePromptMatch[1].trim();
-        const imageDesc = imageDescMatch[1].trim();
+      if (shouldDraw && imagePrompt && imageDesc) {
 
         try {
           if (config) {
@@ -485,7 +534,7 @@ Constraints:
    */
   public async generateForumPost(char: any, modelAdapter: ModelAdapter, forceDraw = false, forceNsfw = false, forceInteract = false): Promise<any> {
     const db = getDatabaseService();
-    if (db.getChatHistory(char.id, 1).length === 0) {
+    if (!forceInteract && db.getChatHistory(char.id, 1).length === 0) {
       console.log(`[SocialMediaService] 0-Token 物理拦截：角色 ${char.name} 从未与用户产生过聊天历史，拒绝生成论坛帖子。`);
       return null;
     }
@@ -692,21 +741,54 @@ Body: [Your post rich text content]
     const title = titleMatch ? titleMatch[1].trim() : `${char.name}的最新感悟`;
     const body = bodyMatch ? bodyMatch[1].trim() : raw;
 
-    let finalBody = body;
+    // 🚀 万能宽容正则，解析配图提示词和描述标签，支持以任何字符连接的 image_prompt/img_prompt
+    const promptStartRegex = /<(?:[a-z0-9_]*image[a-z0-9_]*prompt|[a-z0-9_]*img[a-z0-9_]*prompt)>/i;
+    const promptEndRegex = /<\/(?:[a-z0-9_]*image[a-z0-9_]*prompt|[a-z0-9_]*img[a-z0-9_]*prompt)>/i;
+    const descStartRegex = /<(?:[a-z0-9_]*image[a-z0-9_]*desc|[a-z0-9_]*img[a-z0-9_]*desc)>/i;
+    const descEndRegex = /<\/(?:[a-z0-9_]*image[a-z0-9_]*desc|[a-z0-9_]*img[a-z0-9_]*desc)>/i;
 
-    // 解析配图标签
-    const imagePromptMatch = body.match(/<(?:image|img)_prompt>([\s\S]*?)<\/(?:image|img)_prompt>/i);
-    const imageDescMatch = body.match(/<(?:image|img)_desc>([\s\S]*?)<\/(?:image|img)_desc>/i);
+    let imagePrompt = '';
+    let imageDesc = '';
 
-    let textBody = body
-      .replace(/<(?:image|img)_prompt>[\s\S]*?<\/(?:image|img)_prompt>/gi, '')
-      .replace(/<(?:image|img)_desc>[\s\S]*?<\/(?:image|img)_desc>/gi, '')
-      .trim();
+    const pStartMatch = body.match(promptStartRegex);
+    const pEndMatch = body.match(promptEndRegex);
+    let textBody = body;
+
+    if (pStartMatch && pEndMatch) {
+      const startIndex = textBody.indexOf(pStartMatch[0]) + pStartMatch[0].length;
+      const endIndex = textBody.indexOf(pEndMatch[0]);
+      if (endIndex > startIndex) {
+        imagePrompt = textBody.substring(startIndex, endIndex).trim();
+      }
+      // 从文本中剥离提示词标签及其内部内容
+      const startIdx = textBody.indexOf(pStartMatch[0]);
+      const endIdx = textBody.indexOf(pEndMatch[0]) + pEndMatch[0].length;
+      if (endIdx > startIdx) {
+        textBody = textBody.substring(0, startIdx) + textBody.substring(endIdx);
+      }
+    }
+
+    const dStartMatch = textBody.match(descStartRegex);
+    const dEndMatch = textBody.match(descEndRegex);
+    if (dStartMatch && dEndMatch) {
+      const startIndex = textBody.indexOf(dStartMatch[0]) + dStartMatch[0].length;
+      const endIndex = textBody.indexOf(dEndMatch[0]);
+      if (endIndex > startIndex) {
+        imageDesc = textBody.substring(startIndex, endIndex).trim();
+      }
+      // 从文本中剥离描述标签及其内部内容
+      const startIdx = textBody.indexOf(dStartMatch[0]);
+      const endIdx = textBody.indexOf(dEndMatch[0]) + dEndMatch[0].length;
+      if (endIdx > startIdx) {
+        textBody = textBody.substring(0, startIdx) + textBody.substring(endIdx);
+      }
+    }
+
+    textBody = textBody.trim();
+    let finalBody = textBody;
 
     if (body) {
-      if (shouldDraw && imagePromptMatch && imageDescMatch) {
-        const imagePrompt = imagePromptMatch[1].trim();
-        const imageDesc = imageDescMatch[1].trim();
+      if (shouldDraw && imagePrompt && imageDesc) {
 
         try {
           if (config) {
@@ -852,6 +934,9 @@ Constraints:
 
     const baseDir = this.storageManager.getBaseDir();
 
+    // 🚀 随机选出一个活跃角色作为本轮“保底必评角色”，保证不会全场静默
+    const fallbackCommentCharId = activeChars[Math.floor(Math.random() * activeChars.length)].id;
+
     // 🚀 改为串行处理：让后面的角色能看到前面角色已落盘的评论，避免撞评，评论更有层次感
     for (const char of activeChars) {
       // 1. 50% 概率自动点赞，调试模式下 100% 点赞
@@ -885,8 +970,8 @@ Constraints:
         }
       }
 
-      // 2. 50% 概率自动发表初始评论，调试模式下 100% 发表
-      if (forceInteract || Math.random() < 0.5) {
+      // 2. 50% 概率自动发表初始评论，保底必评角色或调试模式下 100% 发表
+      if (forceInteract || char.id === fallbackCommentCharId || Math.random() < 0.5) {
         try {
           const soulPath = path.join(baseDir, char.folder_name, 'Soul.md');
           const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8') : '';
@@ -973,6 +1058,8 @@ ${bState.metricsText}
             let targetCharFolder = '';
             let aFormattedStateText = '*暂无状态数据*';
             let aGenderSex = { gender: 'unknown', orientation: '未知', appearanceTags: '' };
+            let aWorldSummary = '未知世界观背景';
+            let aIntimacyVal = 20;
 
             try {
               const targetChar = db.getAllCharacters().find(c => c.id === target.character_id);
@@ -980,9 +1067,29 @@ ${bState.metricsText}
                 targetCharFolder = targetChar.folder_name;
                 const aState = this.getFormattedStateMetrics(targetCharFolder);
                 aFormattedStateText = aState.metricsText;
+                aIntimacyVal = aState.intimacyVal;
                 aGenderSex = this.deduceGenderAndOrientation(targetCharFolder);
+                aWorldSummary = this.getCharacterWorldSummary(targetCharFolder);
               }
             } catch (_) {}
+
+            const bWorldSummary = this.getCharacterWorldSummary(char.folder_name);
+
+            // 🚀 双向好感度皆高于 60 且 30% 物理概率才会触发吃醋，避免吃醋频率过高影响用户观感
+            const isJealousyTriggered = (bState.intimacyVal > 60 && aIntimacyVal > 60 && Math.random() < 0.3);
+
+            let jealousyRuleText = '';
+            if (isJealousyTriggered) {
+              jealousyRuleText = `1. ⚠️【吃醋与情敌竞争法则】：因为你对用户 {{user}} 的好感度/恋爱值非常高（处于暧昧/恋人阶段），且被评论者 ${targetAuthorDisplayName} 对用户的上述好感度也极高（是你的竞争情敌），如果对方发布了性感、挑逗、性暗示的内容或试图讨好用户：
+   - 请根据你的性格做出多元化的【吃醋/发酸】反应：
+     * 傲娇/冷酷角色：口是心非地表达不屑，实则暗自攀比；
+     * 温柔/依恋角色：以幽默可爱的撒娇、轻微的小委屈（如“哼，{{user}} 都没对我这么好过”）表达，不带敌意；
+     * 占有欲强/暴躁角色：才会以微带酸意、争风吃醋或带刺的幽默宣示主权。
+   - 严禁清一色地使用恶毒、带刺阴阳怪气等影响人际关系的敌对语气，多以可爱、撒娇或有趣的互动展示出角色特有醋意。`;
+            } else {
+              jealousyRuleText = `1. ⚠️【普通大度社交/吃瓜法则】：如果与发布者的关系正常，或者你今天大度豁达：
+   - 请保持中立、大度、有趣且符合人设的语气对该内容发表正常的评价、开玩笑调侃或友情吹捧。禁止无理取闹或无端吃醋阴阳怪气。`;
+            }
 
             intimacyGuidance = `
 ## DYNAMIC MULTI-CHARACTER RELATIONSHIPS (多维角色关系与社交吃醋提示)
@@ -993,12 +1100,15 @@ ${bState.metricsText}
 - 💙 发布人 (${targetAuthorDisplayName}) 对用户 {{user}} 的好感度状态指标：
 ${aFormattedStateText}
 
+【跨世界观人设与立场约束】：
+- 📢 被评论人 (${targetAuthorDisplayName}) 的世界设定背景: [${aWorldSummary}]
+- 👤 你的世界设定背景: [${bWorldSummary}]
+- ⚠️【禁止强行套用】：你与对方可能身处完全不同的世界观背景（如仙侠 vs 现代学校、科幻 vs 魔法）。你绝对禁止将你自己世界观独有的现代设施、专有名词或体制概念（如“教务处”、“考勤机”、“手机”、“WiFi”、“写检查/处分”）套用在不相干背景的角色身上。
+- ⚠️【跨次元趣味调侃】：你应以你自己的角色人设立场出发，同时合理认知对方背景。允许进行趣味吐槽（例如调侃修仙者：“你犯这错，搁我们学校得被教务处开除，不知道你们门派是不是要罚你去面壁思过个几百年？”等），但绝不能把现代体制常识硬塞给古代修仙者。
+
 【社交吃醋与多人剧情法则】：
-1. ⚠️【吃醋与情敌法则】：如果你对用户 {{user}} 的好感度/恋爱值（或 intimacy）非常高（处于暧昧/恋人阶段，例如 > 60），且被评论者 ${targetAuthorDisplayName} 对用户的上述好感度/恋爱值也同样非常高（也是你的竞争对手）：
-   - 这代表 ${targetAuthorDisplayName} 是你争夺用户 {{user}} 的【头号情敌】！
-   - 如果 ${targetAuthorDisplayName} 发布了极其性感、诱惑、暴露或带有性暗示（NSFW）的动态，你绝对会产生极大的【酸意、吃醋、傲娇嫉妒或宣示主权式的挑衅】！你必须用阴阳怪气、争风吃醋或带刺的幽默语气发表回复。
-2. ⚠️【普通社交吃瓜法则】：如果你或 A 与用户的关系都很普通（好感度/恋爱值较低），或者你不喜欢用户，则你与 A 只是普通的群友或朋友。你应当以极其客观、符合人设的第三人称旁观者身份正常评论，禁止产生莫名其妙的吃醋发酸行为。
-3. ⚠️【性向偏好防错乱法则】：
+${jealousyRuleText}
+2. ⚠️【性向偏好防错乱法则】：
    - 你只能对符合你自身【性别取向（性向）】的目标角色发情。即使你的人设或本能是一个“极易发情、轻浮”的角色，但如果你没有同性恋或双性恋性向，你也【绝对禁止】对同性角色发布的内容产生肉体上的‘发情’或挑逗性评论！
    - 除非：在【多人剧情突破特例】（见下）被触发时。`;
           }
@@ -1348,7 +1458,9 @@ ${bState.metricsText}
         let aCharFolder = '';
         let aFormattedStateText = '*暂无状态数据*';
         let aGenderSex = { gender: 'unknown', orientation: '未知', appearanceTags: '' };
+        let aWorldSummary = '未知世界观背景';
         const aName = comment.author_name;
+        let aStateIntimacy = 20;
 
         try {
           const aChar = db.getAllCharacters().find(c => c.id === comment.character_id);
@@ -1356,9 +1468,29 @@ ${bState.metricsText}
             aCharFolder = aChar.folder_name;
             const aState = this.getFormattedStateMetrics(aCharFolder);
             aFormattedStateText = aState.metricsText;
+            aStateIntimacy = aState.intimacyVal;
             aGenderSex = this.deduceGenderAndOrientation(aCharFolder);
+            aWorldSummary = this.getCharacterWorldSummary(aCharFolder);
           }
         } catch (_) {}
+
+        const bWorldSummary = this.getCharacterWorldSummary(char.folder_name);
+
+        // 🚀 双向好感度皆高于 60 且 30% 物理概率才会触发吃醋，避免吃醋频率过高影响用户观感
+        const isJealousyTriggered = (bState.intimacyVal > 60 && aStateIntimacy > 60 && Math.random() < 0.3);
+
+        let jealousyRuleText = '';
+        if (isJealousyTriggered) {
+          jealousyRuleText = `1. ⚠️【吃醋与情敌竞争法则】：因为你对用户 {{user}} 的好感度/恋爱值非常高（处于恋爱或高度亲密暧昧阶段），且被回复人 ${aName} 对用户的上述好感度也极高（是你的竞争情敌），若当前对方的言论带有性感挑逗或试图讨好用户的特征：
+   - 请根据你的性格做出多元化的【吃醋/发酸】反应：
+     * 傲娇/冷酷角色：口是心非地表达不屑，实则暗自攀比；
+     * 温柔/依恋角色：以幽默可爱的撒娇、轻微的小委屈（如“哼，我有点吃醋了”）表达，不带敌意；
+     * 占有欲强/暴躁角色：才会以微带酸意、争风吃醋或带刺的幽默宣示主权。
+   - 严禁清一色地使用恶毒、带刺阴阳怪气等影响人际关系的敌对语气，多以可爱、撒娇或有趣的互动展示出角色特有醋意。`;
+        } else {
+          jealousyRuleText = `1. ⚠️【普通大度社交/吃瓜法则】：如果与发布者的关系正常，或者你今天大度豁达：
+   - 请保持中立、大度、有趣且符合人设的语气对 A 正常回复。禁止无理取闹或无端吃醋阴阳怪气。`;
+        }
 
         intimacyGuidance = `
 ## DYNAMIC MULTI-CHARACTER RELATIONSHIPS (多维角色关系与社交吃醋提示)
@@ -1369,12 +1501,15 @@ ${bState.metricsText}
 - 💙 被评论/被回复人 (${aName}) 对用户 {{user}} 的好感度状态指标：
 ${aFormattedStateText}
 
+【跨世界观人设与立场约束】：
+- 📢 被评论/被回复人 (${aName}) 的世界设定背景: [${aWorldSummary}]
+- 👤 你的世界设定背景: [${bWorldSummary}]
+- ⚠️【禁止强行套用】：你与对方可能身处完全不同的世界观背景（如仙侠 vs 现代学校、科幻 vs 魔法）。你绝对禁止将你自己世界观独有的现代设施、专有名词或体制概念（如“考勤机”、“手机”、“WiFi”）套用在不相干背景的角色身上。
+- ⚠️【跨次元趣味调侃】：你应以你自己的角色人设立场出发，同时合理认知对方背景。允许进行趣味吐槽（例如调侃修仙者：“你犯这错，搁我们学校得被教务处开除，不知道你们门派是不是要罚你去面壁思过个几百年？”等），但绝不能把现代体制常识硬塞给古代修仙者。
+
 【社交吃醋与多人剧情法则】：
-1. ⚠️【吃醋与情敌法则】：如果你对用户 {{user}} 的好感度/恋爱值（或 intimacy）非常高（处于恋爱或高度亲密暧昧阶段，例如好感度/恋爱值 > 60），且被回复人 ${aName} 对用户的上述好感度/恋爱值也同样非常高：
-   - 这代表 ${aName} 是你争夺用户 {{user}} 的【头号情敌】！
-   - 如果 ${aName} 发表了或评论中带有性感、挑逗、性暗示的内容，或试图讨好用户，你绝对会产生极大的【酸意、吃醋、傲娇嫉妒或宣示主权式的挑衅】！你必须用阴阳怪气、争风吃醋、充满醋意或带刺的幽默语气发表回复。
-2. ⚠️【普通社交吃瓜法则】：如果你或 A 与用户的关系都很普通（好感度/恋爱值较低），或者你不喜欢用户，则你与 A 只是普通的群友或朋友。你应当以极其客观、符合人设的第三人称旁观者身份正常评论，切勿莫名发酸。
-3. ⚠️【性向偏好防错乱法则】：
+${jealousyRuleText}
+2. ⚠️【性向偏好防错乱法则】：
    - 你只能对符合你自身【性别取向（性向）】的目标角色发情。即使你的人设或本能是一个“极易发情、轻浮”的角色，但如果你没有同性恋或双性恋性向，你也【绝对禁止】对同性角色发表的内容或评论产生肉体上的‘发情’或挑逗性回复！
    - 除非：在【多人剧情突破特例】（见下）被触发时。`;
       }

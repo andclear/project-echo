@@ -4110,7 +4110,7 @@ ${soulContent}
         const forcePic = args.includes('pic')
         sendAdminTip(`ℹ️ 已触发朋友圈${forceNsfw ? '（NSFW）' : ''}${forcePic ? '（带图）' : ''}，请稍候...`)
         const socialService = new SocialMediaService()
-        socialService.generateMoment(char, adminModelAdapter, forcePic, forceNsfw).catch((e: any) => {
+        socialService.generateMoment(char, adminModelAdapter, forcePic, forceNsfw, true).catch((e: any) => {
           console.error('[Admin] 朋友圈触发失败:', e)
           sendAdminTip(`❌ 朋友圈触发失败: ${e.message || e}`)
         })
@@ -4120,7 +4120,7 @@ ${soulContent}
         const forcePic = args.includes('pic')
         sendAdminTip(`ℹ️ 已触发论坛发帖${forceNsfw ? '（NSFW）' : ''}${forcePic ? '（带图）' : ''}，请稍候...`)
         const socialService = new SocialMediaService()
-        socialService.generateForumPost(char, adminModelAdapter, forcePic, forceNsfw).catch((e: any) => {
+        socialService.generateForumPost(char, adminModelAdapter, forcePic, forceNsfw, true).catch((e: any) => {
           console.error('[Admin] 论坛发帖触发失败:', e)
           sendAdminTip(`❌ 论坛发帖触发失败: ${e.message || e}`)
         })
