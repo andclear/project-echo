@@ -11092,7 +11092,7 @@ const updateErrorMsg = ref('')
 const isDockerUpdate = ref(false)
 const copiedDockerCmd = ref(false)
 
-const appVersion = ref('1.0.4')
+const appVersion = ref('1.0.5')
 const isElectron = typeof window !== 'undefined' && !!(window.electron && window.electron.ipcRenderer)
 
 function isNewerVersion(current: string, latest: string): boolean {
