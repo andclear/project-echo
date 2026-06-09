@@ -27,6 +27,62 @@ export interface CharacterUserProfile {
 export class UserProfileReaderWriter {
   private static getUserNameCallback?: (folderName: string) => string | null;
 
+  /**
+   * 物理扫描并获取 config/user_profiles/ 下所有人设卡中注册的用户真实姓名列表
+   */
+  public static getAllUserProfileNames(): string[] {
+    const names: string[] = [];
+    try {
+      const { app } = require('electron');
+      const userDataPath = app.getPath('userData');
+      const targetProfilesDir = path.join(userDataPath, 'config', 'user_profiles');
+      if (fs.existsSync(targetProfilesDir)) {
+        const files = fs.readdirSync(targetProfilesDir).filter(f => f.endsWith('.md'));
+        for (const file of files) {
+          const filePath = path.join(targetProfilesDir, file);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          
+          let userName = '';
+          // 1. 尝试解析 HTML 注释中的 JSON 块以获得姓名
+          const match = content.match(/<!--([\s\S]*?)-->/);
+          if (match && match[1]) {
+            try {
+              const parsed = JSON.parse(match[1].trim());
+              if (parsed && parsed.name) {
+                userName = String(parsed.name).trim();
+              }
+            } catch (_) {}
+          }
+          // 2. 备用容错：如果注释中无姓名，则从 Markdown 语法行正则捕获姓名
+          if (!userName) {
+            const nameMatch = content.match(/(?:^|\n)[-\s*]*(?:\*\*|)?姓名(?:\*\*|)?\s*[：:]\s*([^\n\r]*)/);
+            if (nameMatch && nameMatch[1]) {
+              userName = nameMatch[1].trim();
+            }
+          }
+          if (userName && !names.includes(userName)) {
+            names.push(userName);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[UserProfileReaderWriter] 获取所有人设卡姓名失败:', e);
+    }
+    return names;
+  }
+
+  /**
+   * 将传入文本中包含的指定用户名，正则收缩替换为 {{user}} 占位符
+   */
+  public static replaceUserNameToPlaceholder(content: string, userName: string | null): string {
+    if (!content || !userName || userName.trim() === '') return content;
+    const cleanName = userName.trim();
+    // 漏洞防护：限制名字必须大于等于 2 个字，防范极短的常用单字（如“我”、“李”）在文中发生大面积误杀
+    if (cleanName.length < 2) return content;
+    const userNameRegex = new RegExp(cleanName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+    return content.replace(userNameRegex, '{{user}}');
+  }
+
   public static setGetUserNameCallback(cb: (folderName: string) => string | null): void {
     this.getUserNameCallback = cb;
   }

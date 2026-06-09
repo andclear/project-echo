@@ -2254,7 +2254,23 @@ ${soulContent}
       const { groupId, fileName } = payload
       const filePath = join(app.getPath('userData'), 'groups', groupId, fileName)
       if (fs.existsSync(filePath)) {
-        const content = fs.readFileSync(filePath, 'utf8')
+        let content = fs.readFileSync(filePath, 'utf8')
+        
+        // 读取当前激活的全局用户真实姓名并还原占位符
+        const db = getDatabaseService()
+        const profileStr = db.getSetting('echo_user_profile')
+        if (profileStr) {
+          try {
+            const parsed = JSON.parse(profileStr)
+            if (parsed && parsed.name) {
+              const userName = String(parsed.name).trim()
+              if (userName) {
+                content = content.replace(/{{user}}/g, userName)
+              }
+            }
+          } catch (_) {}
+        }
+        
         return { success: true, content }
       }
       return { success: true, content: '' }
@@ -2368,15 +2384,13 @@ ${soulContent}
       const userName = db.getUserNameByFolderName(payload.folderName)
 
       let processedSoul = payload.soul
-      if (processedSoul !== undefined && userName) {
-        const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
-        processedSoul = processedSoul.replace(userNameRegex, '{{user}}')
+      if (processedSoul !== undefined) {
+        processedSoul = UserProfileReaderWriter.replaceUserNameToPlaceholder(processedSoul, userName)
       }
 
       let processedWorld = payload.world
-      if (processedWorld !== undefined && userName) {
-        const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
-        processedWorld = processedWorld.replace(userNameRegex, '{{user}}')
+      if (processedWorld !== undefined) {
+        processedWorld = UserProfileReaderWriter.replaceUserNameToPlaceholder(processedWorld, userName)
       }
 
       if (processedSoul !== undefined) {
@@ -2450,7 +2464,11 @@ ${soulContent}
 
       const db = getDatabaseService()
       const userName = db.getUserNameByFolderName(payload.folderName)
-      if (userName && ['Soul.md', 'World.md', 'USER.md'].includes(payload.fileName)) {
+      const targetFiles = [
+        'Soul.md', 'World.md', 'Memory.md', 'USER.md', 'Diary.md',
+        'DREAM.md', 'Goals.md', 'Schedule.md', 'State.md', 'Summary.md', 'SUMMARY.md'
+      ]
+      if (userName && targetFiles.includes(payload.fileName)) {
         content = content.replace(/{{user}}/g, userName)
       }
 
@@ -4405,13 +4423,8 @@ ${soulContent}
 
           // 获取绑定的用户人设真实姓名，执行存盘前收缩替换为 {{user}}
           const userName = db.getUserNameByCharacterId(null)
-          let processedSoul = session.soulContent || '# 暂无提炼人设'
-          let processedWorld = session.worldContent || '# 暂无提炼世界观'
-          if (userName) {
-            const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
-            processedSoul = processedSoul.replace(userNameRegex, '{{user}}')
-            processedWorld = processedWorld.replace(userNameRegex, '{{user}}')
-          }
+          const processedSoul = UserProfileReaderWriter.replaceUserNameToPlaceholder(session.soulContent || '# 暂无提炼人设', userName)
+          const processedWorld = UserProfileReaderWriter.replaceUserNameToPlaceholder(session.worldContent || '# 暂无提炼世界观', userName)
 
           // 物理写盘（五大核心文件）
           const writeResult = storageManager.saveCharacter(
@@ -5941,6 +5954,10 @@ ${memoryContent}
         fs.mkdirSync(path.dirname(globalUserPath), { recursive: true })
       }
 
+      // 读取修改前的旧人设卡名字
+      const oldProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+      const oldName = (oldProfile.name || '').trim()
+
       if (payload.source === 'profile' && payload.nickname !== undefined) {
         // 说明是基础资料表单修改了姓名并保存
         let profile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
@@ -5956,7 +5973,56 @@ ${memoryContent}
 
       const finalContent = fs.readFileSync(globalUserPath, 'utf-8')
       const finalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+      const newName = (finalProfile.name || '').trim()
       console.log(`[IPC save-global-user-md] 写盘后校验: 文件字节=${Buffer.byteLength(finalContent, 'utf8')}, nickname=${finalProfile.name}`)
+
+      // 🚀 名字自愈性物理大清洗：若人设修改了姓名，自动提取绑定该人设卡的所有角色的 11 类历史文件执行旧姓名的一键收缩
+      if (oldName && oldName !== newName) {
+        try {
+          const db = getDatabaseService()
+          const profileId = path.basename(globalUserPath, '.md') // user_1
+          const affectedBindings = db.db.prepare('SELECT target_id FROM ProfileBindings WHERE profile_id = ?').all(profileId) as { target_id: string }[]
+          
+          if (affectedBindings.length > 0) {
+            console.log(`[IPC save-global-user-md] 检测到用户名由 "${oldName}" 修改为 "${newName}"，触发绑定该人设的 ${affectedBindings.length} 个角色的物理历史姓名清洗自愈...`)
+            const storageManager = new CharacterStorageManager()
+            const baseDir = storageManager.getBaseDir()
+            const filesToProcess = [
+              'Soul.md', 'World.md', 'Memory.md', 'USER.md', 'Diary.md',
+              'DREAM.md', 'Goals.md', 'Schedule.md', 'State.md', 'Summary.md', 'SUMMARY.md'
+            ]
+            
+            const oldNameRegex = new RegExp(oldName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
+            
+            for (const row of affectedBindings) {
+              const char = db.getAllCharacters().find(c => c.id === row.target_id)
+              const folderName = char?.folder_name || row.target_id
+              if (!folderName) continue
+              
+              const charDir = join(baseDir, folderName)
+              if (!fs.existsSync(charDir)) continue
+              
+              for (const fileName of filesToProcess) {
+                const filePath = join(charDir, fileName)
+                if (fs.existsSync(filePath)) {
+                  try {
+                    let content = fs.readFileSync(filePath, 'utf-8')
+                    if (content.includes(oldName)) {
+                      content = content.replace(oldNameRegex, '{{user}}')
+                      fs.writeFileSync(filePath, content, 'utf-8')
+                      console.log(`[IPC save-global-user-md] ➜ 成功将角色 ${folderName} 下 ${fileName} 中的旧名字 "${oldName}" 物理清洗为 "{{user}}"`)
+                    }
+                  } catch (fileErr) {
+                    console.error(`[IPC save-global-user-md] 物理清洗 ${folderName}/${fileName} 发生异常:`, fileErr)
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[IPC save-global-user-md] 清洗老姓名发生异常:', e)
+        }
+      }
 
       return { success: true, updatedContent: finalContent, nickname: finalProfile.name }
     } catch (e: any) {
@@ -6274,7 +6340,11 @@ ${memoryContent}
       const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`
       const fullFileContent = `${jsonComment}\n\n${payload.content.trim()}`
 
-      storageManager.writeCharacterFile(payload.folderName, 'Memory.md', fullFileContent)
+      const db = getDatabaseService()
+      const userName = db.getUserNameByFolderName(payload.folderName)
+      const processedContent = UserProfileReaderWriter.replaceUserNameToPlaceholder(fullFileContent, userName)
+
+      storageManager.writeCharacterFile(payload.folderName, 'Memory.md', processedContent)
       console.log(`[IPC] Memory.md 手动保存成功并自动同步元数据 JSON: ${payload.folderName}`)
 
       // 🚀 广播通知其他局域网客户端与电脑端记忆文件已更新，触发秒级同步
@@ -6304,7 +6374,11 @@ ${memoryContent}
       const jsonComment = `<!--\n${JSON.stringify(jsonData, null, 2)}\n-->`
       const fullFileContent = `${jsonComment}\n\n${payload.content.trim()}`
 
-      storageManager.writeCharacterFile(payload.folderName, 'USER.md', fullFileContent)
+      const db = getDatabaseService()
+      const userName = db.getUserNameByFolderName(payload.folderName)
+      const processedContent = UserProfileReaderWriter.replaceUserNameToPlaceholder(fullFileContent, userName)
+
+      storageManager.writeCharacterFile(payload.folderName, 'USER.md', processedContent)
       console.log(`[IPC] 角色专属 USER.md 手动保存成功并自动同步元数据 JSON: ${payload.folderName}`)
       return { success: true }
     } catch (e: any) {
@@ -8943,12 +9017,8 @@ export function stopIpcBridgeServer() {
 }
 
 /**
- * 🚀 静默数据迁移：升级老用户数据，将角色相关文件中的绑定真实姓名一键物理收缩替换为 {{user}}
- * 本替换在后台静默进行，且在生命周期中一生仅执行一次 (基于 Settings 表中的 user_placeholder_migration_done 标记)
- */
-/**
  * 🚀 静默数据迁移：升级老用户数据，将角色相关文件中的所有用户人设姓名一键物理收缩替换为 {{user}}
- * 本替换在后台静默进行，且在生命周期中一生仅执行一次 (基于 Settings 表中的 user_placeholder_migration_done_v2 标记)
+ * 本替换在后台静默进行，且在生命周期中一生仅执行一次 (基于 Settings 表中的 user_placeholder_migration_done_v3 标记)
  */
 function getAllUserProfileNames(): string[] {
   const names: string[] = []
@@ -8993,13 +9063,13 @@ function getAllUserProfileNames(): string[] {
 async function performUserPlaceholderMigration() {
   try {
     const db = getDatabaseService()
-    const done = db.getSetting('user_placeholder_migration_done_v2')
+    const done = db.getSetting('user_placeholder_migration_done_v3')
     if (done === '1') {
-      console.log('[Migration] 用户人设占位符收缩迁移 V2 已在之前完成，静默跳过。')
+      console.log('[Migration] 用户人设占位符收缩迁移 V3 已在之前完成，静默跳过。')
       return
     }
 
-    console.log('[Migration] 🚀 开始执行一次性的老用户数据人设占位符 {{user}} 收缩物理迁移 V2 (全量自愈)...')
+    console.log('[Migration] 🚀 开始执行一次性的老用户数据人设占位符 {{user}} 收缩物理迁移 V3 (11类衍生文件全量自愈)...')
     const characters = db.getAllCharacters()
     const storageManager = new CharacterStorageManager()
     const baseDir = storageManager.getBaseDir() // /userData/characters
@@ -9008,8 +9078,7 @@ async function performUserPlaceholderMigration() {
     const allNames = getAllUserProfileNames()
     if (allNames.length === 0) {
       console.log('[Migration] 未发现任何人设卡，跳过收缩自愈。')
-      db.setSetting('user_placeholder_migration_done', '1')
-      db.setSetting('user_placeholder_migration_done_v2', '1')
+      db.setSetting('user_placeholder_migration_done_v3', '1')
       return
     }
 
@@ -9024,7 +9093,10 @@ async function performUserPlaceholderMigration() {
       if (!fs.existsSync(charDir)) continue
 
       // 需要处理并扫除收缩的文件列表
-      const filesToProcess = ['Soul.md', 'World.md', 'Memory.md', 'USER.md', 'Diary.md']
+      const filesToProcess = [
+        'Soul.md', 'World.md', 'Memory.md', 'USER.md', 'Diary.md',
+        'DREAM.md', 'Goals.md', 'Schedule.md', 'State.md', 'Summary.md', 'SUMMARY.md'
+      ]
       for (const fileName of filesToProcess) {
         const filePath = join(charDir, fileName)
         if (fs.existsSync(filePath)) {
@@ -9052,11 +9124,10 @@ async function performUserPlaceholderMigration() {
     }
 
     // 写入迁移成功标记，确保往后完全不再执行
-    db.setSetting('user_placeholder_migration_done', '1')
-    db.setSetting('user_placeholder_migration_done_v2', '1')
-    console.log('[Migration] ✨ 用户人设占位符收缩物理迁移 V2 全部顺利完成！')
+    db.setSetting('user_placeholder_migration_done_v3', '1')
+    console.log('[Migration] ✨ 用户人设占位符收缩物理迁移 V3 全部顺利完成！')
   } catch (err) {
-    console.error('[Migration] ✘ 执行人设占位符迁移 V2 过程中发生异常:', err)
+    console.error('[Migration] ✘ 执行人设占位符迁移 V3 过程中发生异常:', err)
   }
 }
 

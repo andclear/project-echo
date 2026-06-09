@@ -3,6 +3,7 @@ import * as path from 'path';
 import { ModelAdapter, ModelConfig, ChatMessage } from '../models/ModelAdapter';
 import { getDatabaseService } from '../db/database';
 import { CharacterStorageManager } from './CharacterStorageManager';
+import { UserProfileReaderWriter } from './UserProfileReaderWriter';
 
 /**
  * CharacterSummaryService
@@ -96,8 +97,9 @@ ${worldContent || '（无世界观背景设定）'}`;
       if (!fs.existsSync(speakerDir)) {
         fs.mkdirSync(speakerDir, { recursive: true });
       }
-      fs.writeFileSync(summaryPath, finalSummary, 'utf-8');
-      console.log(`[SummaryService] 角色 ${characterId} 核心总结提炼存盘成功！内容: "${finalSummary}"`);
+      const processedSummary = UserProfileReaderWriter.replaceUserNamesToPlaceholder(finalSummary);
+      fs.writeFileSync(summaryPath, processedSummary, 'utf-8');
+      console.log(`[SummaryService] 角色 ${characterId} 核心总结提炼存盘成功！内容: "${processedSummary}"`);
 
       return finalSummary;
     } catch (error: any) {

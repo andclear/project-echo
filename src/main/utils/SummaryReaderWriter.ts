@@ -138,7 +138,13 @@ export class SummaryReaderWriter {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    const markdownContent = this.generateSummaryMarkdown(summary);
+    let processedSummary = summary;
+    try {
+      const { UserProfileReaderWriter } = require('./UserProfileReaderWriter');
+      processedSummary = UserProfileReaderWriter.replaceUserNamesToPlaceholder(summary);
+    } catch (_) {}
+
+    const markdownContent = this.generateSummaryMarkdown(processedSummary);
 
     // 原子化安全写盘
     fs.writeFileSync(filePath, markdownContent, 'utf-8');

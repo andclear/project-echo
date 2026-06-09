@@ -955,13 +955,8 @@ export class AgentLifeEngine {
         return;
       }
 
-      // 获取绑定的用户人设真实姓名，执行存盘前收缩替换为 {{user}}
-      const userName = db.getUserNameByCharacterId(charId);
-      let processedDiaryText = diaryText;
-      if (userName) {
-        const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-        processedDiaryText = diaryText.replace(userNameRegex, '{{user}}');
-      }
+      // 全量物理去名化收缩：将所有已注册用户名替换为 {{user}} 占位符
+      const processedDiaryText = UserProfileReaderWriter.replaceUserNamesToPlaceholder(diaryText);
 
       // 物理写入 Diary.md
       const diaryPath = path.join(baseDir, folderName, 'Diary.md');
@@ -1161,6 +1156,7 @@ ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
 4. **日程的真实与拟真性**：
    - 不要写死板的“去工作”、“睡觉”，必须根据你的性格写得极其生动逼真，贴近你的记忆、聊天进展与人设心境。
    - 保持日程完全使用【简体中文】。
+   - 必须强制且统一使用 {{user}} 占位符来代指用户，绝对禁止在日程里写出任何真实的用户人名！
    - 仅输出 Markdown 的日程列表内容，不要有任何前言或解释说明。
 
 请规划并直接输出你的最新近 7 天日程。格式示例如下：
@@ -1174,7 +1170,8 @@ ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
 
       const newSchedule = scheduleResponse.content.trim();
       if (newSchedule && !newSchedule.includes('Error')) {
-        fs.writeFileSync(schedulePath, newSchedule, 'utf8');
+        const processedSchedule = UserProfileReaderWriter.replaceUserNamesToPlaceholder(newSchedule);
+        fs.writeFileSync(schedulePath, processedSchedule, 'utf8');
         console.log(`[AgentLifeEngine] 物理写入 Schedule.md 成功: ${char.name}`);
       }
     } catch (err) {
@@ -1212,7 +1209,8 @@ ${charUserContent}
 3. **冲突推翻与目标修正法则**：当前已有的老长期目标仅作为演进起点，**它的权重较低**。如果根据最新的聊天上下文、记忆或大事记摘要，发现你与用户的关系或你自身的处境发生了变化（例如：两个人关系从泛泛之交/陌生人变成了亲密恋人，或者世界线设定发生漂移），那么你**必须推翻、更改或彻底丢弃**之前那些与之违背的长期规划（例如单身阶段的避嫌长期规划现在必须换成相恋后的长相厮守计划）。如果没有发生明显变化，则只需在此基础上做自然的增量推进。
 4. **进度演进与百分比标记**：对各项长期目标规划进行深度演进。使用百分比指标（如从“当前进度：30%”推移至“当前进度：35%”）来记录你的数字生命成长。
 5. **保持拟真性与中文**：每一项目标的“目前已完成事实”与“接下来关键规划”，其字句必须要生动逼真，完全符合你当前人设口吻。保持完全使用【简体中文】。
-6. **纯粹 Markdown 结构**：仅输出 Markdown 的长期目标文档内容，不要有任何前言、后记或任何多余 of 引言解释说明。
+6. **用户占位符红线指令**：在所有目标规划描述中，你必须强制且统一使用 {{user}} 代指用户本身，绝对禁止写出任何用户的真实姓名！
+7. **纯粹 Markdown 结构**：仅输出 Markdown 的长期目标文档内容，不要有任何前言、后记或任何多余 of 引言解释说明。
 
 请评估并输出你的最新长期目标与进化规划。格式示例如下：
 # 长期目标
@@ -1228,7 +1226,8 @@ ${charUserContent}
 
       const newGoals = goalsResponse.content.trim();
       if (newGoals && !newGoals.includes('Error')) {
-        fs.writeFileSync(goalsPath, newGoals, 'utf8');
+        const processedGoals = UserProfileReaderWriter.replaceUserNamesToPlaceholder(newGoals);
+        fs.writeFileSync(goalsPath, processedGoals, 'utf8');
         console.log(`[AgentLifeEngine] 物理更新 Goals.md 成功: ${char.name}`);
       }
     } catch (err) {

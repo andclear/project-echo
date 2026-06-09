@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import { getDatabaseService } from '../db/database';
 import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
+import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 import { BrowserWindow } from 'electron';
 import { mergeChatHistory } from '../utils/ChatHistoryMerger';
 import { SseManager } from './SseManager';
@@ -183,12 +184,8 @@ Target JSON format:
       }
 
       if (applied) {
-        // 获取绑定的用户人设真实姓名，执行存盘前收缩替换为 {{user}}
-        const userName = db.getUserNameByCharacterId(characterId);
-        if (userName) {
-          const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-          soulContent = soulContent.replace(userNameRegex, '{{user}}');
-        }
+        // 全量物理去名化收缩：将所有已注册用户名替换为 {{user}} 占位符
+        soulContent = UserProfileReaderWriter.replaceUserNamesToPlaceholder(soulContent);
         fs.writeFileSync(soulPath, soulContent, 'utf8');
         db.setSetting(`soul_last_changed_${characterId}`, Date.now().toString());
         db.setSetting(`soul_draft_${characterId}`, ''); // 清空草案

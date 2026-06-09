@@ -2,6 +2,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ModelAdapter, ChatMessage } from '../models/ModelAdapter';
 import { CharacterStorageManager } from '../utils/CharacterStorageManager';
+import { UserProfileReaderWriter } from '../utils/UserProfileReaderWriter';
 
 /**
  * BackgroundReviewService
@@ -70,7 +71,9 @@ Compare any potential new patches with the EXISTING DREAM.MD GUIDELINES above. I
 
 1. "behavior_patches": Behavioral pitfall guidelines. Generate a precise pitfall guideline patch based on user frustration (e.g. "避坑：不要使用过于生硬的书面语").
 
-CRITICAL LANGUAGE RULE: The generated 'patch_content' MUST be written in Simplified Chinese (简体中文) to ensure the AI's internal memory alignment remains high.
+CRITICAL LANGUAGE & USER PLACEHOLDER RULE:
+1. The generated 'patch_content' MUST be written in Simplified Chinese (简体中文) to ensure the AI's internal memory alignment remains high.
+2. You MUST strictly and uniformly use the placeholder \`{{user}}\` to refer to the user. DO NOT write the user's real name under any circumstances!
 
 You MUST reply with a single JSON object matching this structure EXACTLY. If no frustration signals are found, return empty fields or null. Do not write anything outside the JSON.
 
@@ -134,6 +137,7 @@ Target JSON format:
         }
         
         if (hasNewPatch) {
+          dreamContent = UserProfileReaderWriter.replaceUserNamesToPlaceholder(dreamContent);
           fs.writeFileSync(dreamMdPath, dreamContent, 'utf8');
         }
       }

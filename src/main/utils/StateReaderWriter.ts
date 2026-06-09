@@ -179,7 +179,12 @@ ${state.items.map(item => {
 }).join('\n')}
 
 *最后更新时间：${state.last_updated}*`;
-    fs.writeFileSync(filePath, mdContent, 'utf8');
+    let processedContent = mdContent;
+    try {
+      const { UserProfileReaderWriter } = require('./UserProfileReaderWriter');
+      processedContent = UserProfileReaderWriter.replaceUserNamesToPlaceholder(mdContent);
+    } catch (_) {}
+    fs.writeFileSync(filePath, processedContent, 'utf8');
   }
 
   /**

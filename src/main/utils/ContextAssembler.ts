@@ -271,7 +271,11 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     // ==========================================
     // 4. 全局装配串联
     // ==========================================
-    return `${stableTier.trim()}\n\n---\n\n${contextTier.trim()}\n\n---\n\n${volatileTier.trim()}`;
+    let finalPrompt = `${stableTier.trim()}\n\n---\n\n${contextTier.trim()}\n\n---\n\n${volatileTier.trim()}`;
+    if (realUserName) {
+      finalPrompt = finalPrompt.replace(/{{user}}/g, realUserName);
+    }
+    return finalPrompt;
   }
 
   /**
@@ -604,7 +608,13 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
       } catch (_) {}
     }
 
-    return dynamicContext.trim();
+    let finalDynamic = dynamicContext.trim();
+    const globalProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath);
+    const realUserName = (globalProfile.name || '').trim();
+    if (realUserName) {
+      finalDynamic = finalDynamic.replace(/{{user}}/g, realUserName);
+    }
+    return finalDynamic;
   }
 
   /**
@@ -803,6 +813,10 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
 请严记：你【发送红包的对象必须且只能是用户】（即 ${userRef}），【绝对禁止给群里其他 AI 角色发红包或转账】！
 如果在本轮回复中给用户发送红包，【必须且只能】在最开头输出一行控制符：\`[SEND_RED_PACKET: 金额, 附言]\`。没钱或不想给钱就必须性格化傲娇拒绝，绝对不能口头承诺发钱！\n`;
 
-    return `${stableTier.trim()}\n\n---\n\n${contextTier.trim()}\n\n---\n\n${volatileTier.trim()}`;
+    let finalGroupPrompt = `${stableTier.trim()}\n\n---\n\n${contextTier.trim()}\n\n---\n\n${volatileTier.trim()}`;
+    if (realUserName) {
+      finalGroupPrompt = finalGroupPrompt.replace(/{{user}}/g, realUserName);
+    }
+    return finalGroupPrompt;
   }
 }
