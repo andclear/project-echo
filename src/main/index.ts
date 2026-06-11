@@ -1339,7 +1339,7 @@ function registerIpcHandlers(): void {
 
       const url = `${baseUrl.replace(/\/$/, '')}/models`
        const headers: Record<string, string> = {
-        'User-Agent': 'EchoPlatform/1.0.5 (Desktop AI Roleplay Platform)'
+        'User-Agent': 'EchoPlatform/1.0.6 (Desktop AI Roleplay Platform)'
       }
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`
@@ -7306,7 +7306,7 @@ Please output in exactly this XML format:
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          'User-Agent': 'EchoPlatform/1.0.5 (Desktop AI Roleplay Platform)'
+          'User-Agent': 'EchoPlatform/1.0.6 (Desktop AI Roleplay Platform)'
         }
       })
 

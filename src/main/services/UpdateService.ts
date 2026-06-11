@@ -452,5 +452,5 @@ export function getRealAppVersion(): string {
       console.warn('[VersionService] 读取 package.json 版本号失败:', err)
     }
   }
-  return version || '1.0.5'
+  return version || '1.0.6'
 }
