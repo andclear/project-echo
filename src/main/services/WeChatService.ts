@@ -767,18 +767,43 @@ export class WeChatService {
         ? `${appearancePrompt}, ${extractedPrompt}`
         : extractedPrompt;
 
-      // 仅在固定模式下预拼画师串，随机模式由 NovelAiService.generateImage 内部统一随机拼接
-      if (!config.randomArtist && config.artistString?.trim()) {
-        finalPrompt = `${config.artistString.trim()}, ${finalPrompt}`;
+      // 在外部进行随机或固定画师串挑选，保证真正送往 NAI 并且写盘元数据的 finalPrompt 包含画师
+      let activeArtist = ''
+      if (config.randomArtist && Array.isArray(config.artistStringList) && config.artistStringList.length > 0) {
+        const validList = [...new Set(
+          config.artistStringList.map((item: any) => {
+            if (typeof item === 'string') return item.trim()
+            return (item.value || '').trim()
+          }).filter((val: string) => val.length > 0)
+        )]
+        if (validList.length > 0) {
+          const randomIndex = Math.floor(Math.random() * validList.length)
+          activeArtist = validList[randomIndex] as string
+          console.log(`[WeChatService] 微信绘图随机画师分流选中: "${activeArtist}"`)
+        }
+      }
+      if (!activeArtist && config.artistString?.trim()) {
+        activeArtist = config.artistString.trim()
+      }
+
+      if (activeArtist) {
+        finalPrompt = `${activeArtist}, ${finalPrompt}`
       }
       if (config.qualityPrompt?.trim()) {
-        finalPrompt = `${finalPrompt}, ${config.qualityPrompt.trim()}`;
+        finalPrompt = `${finalPrompt}, ${config.qualityPrompt.trim()}`
+      }
+
+      // 强行将 config 中的画师属性清空，防止 NovelAiService 内部进行二次重叠拼接
+      const finalConfig = {
+        ...config,
+        artistString: '',
+        randomArtist: false
       }
 
       const dims = config.defaultDimensions || 'portrait';
 
       // 8. 调用 NovelAiService 绘图生成二进制 Buffer
-      const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, dims);
+      const imageBuffer = await NovelAiService.generateImage(finalConfig, finalPrompt, dims);
 
       // 9. 物理同步至 media 目录
       const mediaDir = join(storageManager.getBaseDir(), folderName, 'media');

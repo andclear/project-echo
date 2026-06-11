@@ -1790,17 +1790,41 @@ function registerIpcHandlers(): void {
         ? `${appearancePrompt}, ${payload.prompt}`
         : payload.prompt
 
-      // 仅在固定模式下由调用方预拼画师串；随机模式下由 NovelAiService.generateImage 内部统一随机选取并拼接
-      // 避免随机模式下 cleaning 逻辑失配导致固定画师串残留，造成该画师出现频率虚高
-      if (!naiConfig.randomArtist && naiConfig.artistString?.trim()) {
-        finalPrompt = `${naiConfig.artistString.trim()}, ${finalPrompt}`
+      // 在外部进行随机或固定画师串挑选，保证真正送往 NAI 并且写盘元数据的 finalPrompt 包含画师
+      let activeArtist = ''
+      if (naiConfig.randomArtist && Array.isArray(naiConfig.artistStringList) && naiConfig.artistStringList.length > 0) {
+        const validList = [...new Set(
+          naiConfig.artistStringList.map((item: any) => {
+            if (typeof item === 'string') return item.trim()
+            return (item.value || '').trim()
+          }).filter((val: string) => val.length > 0)
+        )]
+        if (validList.length > 0) {
+          const randomIndex = Math.floor(Math.random() * validList.length)
+          activeArtist = validList[randomIndex] as string
+          console.log(`[IPC] AI 绘图随机画师分流选中: "${activeArtist}"`)
+        }
+      }
+      if (!activeArtist && naiConfig.artistString?.trim()) {
+        activeArtist = naiConfig.artistString.trim()
+      }
+
+      if (activeArtist) {
+        finalPrompt = `${activeArtist}, ${finalPrompt}`
       }
       if (naiConfig.qualityPrompt?.trim()) {
         finalPrompt = `${finalPrompt}, ${naiConfig.qualityPrompt.trim()}`
       }
 
+      // 强行将 config 中的画师属性清空，防止 NovelAiService 内部进行二次重叠拼接
+      const finalNaiConfig = {
+        ...naiConfig,
+        artistString: '',
+        randomArtist: false
+      }
+
       // 调用 NovelAI 绘图
-      const imageBuffer = await NovelAiService.generateImage(naiConfig, finalPrompt, payload.dimensions)
+      const imageBuffer = await NovelAiService.generateImage(finalNaiConfig, finalPrompt, payload.dimensions)
 
       // 确保 media 文件夹存在
       const mediaDir = join(charDir, 'media')
@@ -1837,6 +1861,103 @@ function registerIpcHandlers(): void {
       }
     } catch (error: any) {
       console.error('[IPC] NovelAI 绘图发生异常:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 4.8 重新绘制会话中的 NovelAI 图片并作为新消息发送 IPC 通道
+  ipcMain.handle('regenerate-novelai-image', async (_, payload: {
+    characterId: string
+    folderName: string
+    prompt: string
+    negativePrompt: string
+    dimensions: 'portrait' | 'landscape' | 'square' | { width: number; height: number }
+    filename: string
+    prefixType?: 'chat' | 'social' | 'proactive'
+    parentRoundId?: string
+  }) => {
+    try {
+      const db = getDatabaseService()
+      const naiConfigStr = db.getSetting('novelai_config')
+      if (!naiConfigStr) {
+        return { success: false, error: '未配置 NovelAI 参数，请前往设置页面进行配置。' }
+      }
+      const naiConfig = JSON.parse(naiConfigStr)
+
+      const storageManager = new CharacterStorageManager()
+      const charDir = join(storageManager.getBaseDir(), payload.folderName)
+
+      // 重新生图：完全不进行任何外貌、画师串和质量词拼接，直接传入
+      const finalPrompt = payload.prompt
+      
+      // 覆盖负面提示词，并强行将 artistString 设为空，randomArtist 设为 false，彻底规避任何自动拼接画师串行为
+      const activeNaiConfig = {
+        ...naiConfig,
+        negativePrompt: payload.negativePrompt,
+        artistString: '',
+        randomArtist: false
+      }
+
+      // 调用 NovelAI 绘图
+      const imageBuffer = await NovelAiService.generateImage(activeNaiConfig, finalPrompt, payload.dimensions)
+
+      // 确保 media 文件夹存在
+      const mediaDir = join(charDir, 'media')
+      if (!fs.existsSync(mediaDir)) {
+        fs.mkdirSync(mediaDir, { recursive: true })
+      }
+
+      // 重新生图：生成全新文件名落盘（不覆盖旧图，保留之前的图片）
+      const prefix = payload.prefixType || 'drawing'
+      const timestamp = Date.now()
+      const filename = `${prefix}_${timestamp}_${Math.random().toString(36).substr(2, 5)}.png`
+      const fullPath = join(mediaDir, filename)
+      fs.writeFileSync(fullPath, imageBuffer)
+
+      // 保存同名元数据 .json 文件
+      const metaFilename = filename.replace('.png', '.json')
+      const metaFullPath = join(mediaDir, metaFilename)
+      const metadata = {
+        prompt: finalPrompt,
+        negativePrompt: payload.negativePrompt,
+        dimensions: payload.dimensions,
+        timestamp,
+        prefixType: prefix
+      }
+      fs.writeFileSync(metaFullPath, JSON.stringify(metadata, null, 2))
+
+      const relativePath = `media/${filename}`
+      const base64 = `data:image/png;base64,${imageBuffer.toString('base64')}`
+
+      // 构造一条全新的消息对象插入数据库，并调用 MessageBusService 进行多端广播
+      const newMsgId = crypto.randomUUID()
+      const dbContent = `[wechat_image_media]:${relativePath}`
+      
+      // 批量发布新图片消息
+      MessageBusService.getInstance().publish({
+        id: newMsgId,
+        round_id: payload.parentRoundId || crypto.randomUUID(),
+        seq: 99, // 让新消息时序排在本轮消息的后面
+        character_id: payload.characterId,
+        role: 'assistant',
+        msg_type: 'image',
+        content: dbContent,
+        timestamp: timestamp,
+        token_usage: 0
+      }, {
+        skipElectronPush: false,  // 必须发回 Electron 本机以同步到 UI
+        skipSsePush: false,       // 广播给 SSE 以便手机端同步
+        skipUnreadUpdate: true    // 重新生图不增加未读气泡数
+      })
+
+      return {
+        success: true,
+        relativePath,
+        base64,
+        imageMeta: metadata
+      }
+    } catch (error: any) {
+      console.error('[IPC] regenerate-novelai-image 发生异常:', error)
       return { success: false, error: error.message || error }
     }
   })

@@ -462,13 +462,46 @@ Instructions:
               }
 
               // 组合最终生图提示词
-              const finalPrompt = appearancePrompt 
+              let finalPrompt = appearancePrompt 
                 ? `${appearancePrompt}, ${imagePrompt}`
                 : imagePrompt;
 
+              // 在外部进行随机或固定画师串挑选，保证真正送往 NAI 并且写盘元数据的 finalPrompt 包含画师
+              let activeArtist = ''
+              if (config.randomArtist && Array.isArray(config.artistStringList) && config.artistStringList.length > 0) {
+                const validList = [...new Set(
+                  config.artistStringList.map((item: any) => {
+                    if (typeof item === 'string') return item.trim()
+                    return (item.value || '').trim()
+                  }).filter((val: string) => val.length > 0)
+                )]
+                if (validList.length > 0) {
+                  const randomIndex = Math.floor(Math.random() * validList.length)
+                  activeArtist = validList[randomIndex] as string
+                  console.log(`[SocialMediaService] 朋友圈生图随机画师分流选中: "${activeArtist}"`)
+                }
+              }
+              if (!activeArtist && config.artistString?.trim()) {
+                activeArtist = config.artistString.trim()
+              }
+
+              if (activeArtist) {
+                finalPrompt = `${activeArtist}, ${finalPrompt}`
+              }
+              if (config.qualityPrompt?.trim()) {
+                finalPrompt = `${finalPrompt}, ${config.qualityPrompt.trim()}`
+              }
+
+              // 强行将 config 中的画师属性清空，防止 NovelAiService 内部进行二次重叠拼接
+              const finalConfig = {
+                ...config,
+                artistString: '',
+                randomArtist: false
+              }
+
               const dims = config.defaultDimensions || 'portrait';
               // 生成社交大图 (完全遵照全局配置的默认生图尺寸)
-              const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, dims);
+              const imageBuffer = await NovelAiService.generateImage(finalConfig, finalPrompt, dims);
 
               const charDir = path.join(baseDir, folderName);
               const mediaDir = path.join(charDir, 'media');
@@ -867,13 +900,46 @@ Body: [Your post rich text content]
               }
 
               // 组合最终生图提示词
-              const finalPrompt = appearancePrompt 
+              let finalPrompt = appearancePrompt 
                 ? `${appearancePrompt}, ${imagePrompt}`
                 : imagePrompt;
 
+              // 在外部进行随机或固定画师串挑选，保证真正送往 NAI 并且写盘元数据的 finalPrompt 包含画师
+              let activeArtist = ''
+              if (config.randomArtist && Array.isArray(config.artistStringList) && config.artistStringList.length > 0) {
+                const validList = [...new Set(
+                  config.artistStringList.map((item: any) => {
+                    if (typeof item === 'string') return item.trim()
+                    return (item.value || '').trim()
+                  }).filter((val: string) => val.length > 0)
+                )]
+                if (validList.length > 0) {
+                  const randomIndex = Math.floor(Math.random() * validList.length)
+                  activeArtist = validList[randomIndex] as string
+                  console.log(`[SocialMediaService] 论坛生图随机画师分流选中: "${activeArtist}"`)
+                }
+              }
+              if (!activeArtist && config.artistString?.trim()) {
+                activeArtist = config.artistString.trim()
+              }
+
+              if (activeArtist) {
+                finalPrompt = `${activeArtist}, ${finalPrompt}`
+              }
+              if (config.qualityPrompt?.trim()) {
+                finalPrompt = `${finalPrompt}, ${config.qualityPrompt.trim()}`
+              }
+
+              // 强行将 config 中的画师属性清空，防止 NovelAiService 内部进行二次重叠拼接
+              const finalConfig = {
+                ...config,
+                artistString: '',
+                randomArtist: false
+              }
+
               const dims = config.defaultDimensions || 'portrait';
               // 生成社交大图 (完全遵照全局配置的默认生图尺寸)
-              const imageBuffer = await NovelAiService.generateImage(config, finalPrompt, dims);
+              const imageBuffer = await NovelAiService.generateImage(finalConfig, finalPrompt, dims);
 
               const charDir = path.join(baseDir, folderName);
               const mediaDir = path.join(charDir, 'media');

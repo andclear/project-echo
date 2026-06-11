@@ -4333,7 +4333,7 @@
                       <div 
                         v-for="img in contactGalleryImages" 
                         :key="img.filename" 
-                        @click="openImagePreview(img)"
+                        @click="openImagePreview(img, true)"
                         class="group relative aspect-[3/4] rounded-xl border border-outline-variant/30 overflow-hidden bg-surface-high cursor-pointer shadow-sm hover:shadow-md transition-all duration-300 transform hover:-translate-y-0.5 select-none"
                       >
                         <!-- 图片容器 -->
@@ -6316,6 +6316,8 @@
                     class="mb-1 w-fit rounded-xl overflow-hidden border border-primary/20 shadow-sm transition-opacity"
                     :class="isMultiSelectMode ? 'cursor-pointer' : 'cursor-pointer hover:opacity-95'"
                     @click.stop="isMultiSelectMode && msg.id ? toggleMessageSelect(msg.id) : openImagePreview({
+                      id: msg.id,
+                      round_id: msg.round_id,
                       base64: msg.imageBase64,
                       filename: msg.imageMeta?.filename || 'user_drawing.png',
                       relativePath: msg.imageMeta?.relativePath || '',
@@ -6324,7 +6326,7 @@
                       createdAt: msg.imageMeta?.createdAt || msg.timestamp || Date.now(),
                       dimensions: msg.imageMeta?.dimensions || 'portrait',
                       prefixType: msg.imageMeta?.prefixType || 'chat',
-                      characterId: selectedCharacterId
+                      characterId: selectedCharacterId || ''
                     })"
                     @contextmenu.prevent="openMessageContextMenu($event, msg)"
                     @touchstart="onLongPressStart($event, msg, 'message')"
@@ -6506,6 +6508,8 @@
                     class="mb-1 w-fit rounded-xl overflow-hidden border border-primary/20 shadow-sm transition-opacity"
                     :class="isMultiSelectMode ? 'cursor-pointer' : 'cursor-pointer hover:opacity-95'"
                     @click.stop="isMultiSelectMode && msg.id ? toggleMessageSelect(msg.id) : openImagePreview({
+                      id: msg.id,
+                      round_id: msg.round_id,
                       base64: msg.imageBase64,
                       filename: msg.imageMeta?.filename || 'ai_drawing.png',
                       relativePath: msg.imageMeta?.relativePath || '',
@@ -6514,7 +6518,7 @@
                       createdAt: msg.imageMeta?.createdAt || msg.timestamp || Date.now(),
                       dimensions: msg.imageMeta?.dimensions || 'portrait',
                       prefixType: msg.imageMeta?.prefixType || 'chat',
-                      characterId: selectedCharacterId
+                      characterId: selectedCharacterId || ''
                     })"
                     @contextmenu.prevent="openMessageContextMenu($event, msg)"
                     @touchstart="onLongPressStart($event, msg, 'message')"
@@ -8653,7 +8657,7 @@
     </div>
 
     <!-- ========================= 全局自定义高保真 Dialog 对话框 ========================= -->
-    <div v-if="customDialog.visible" class="modal-overlay" @click.self="customDialog.visible = false">
+    <div v-if="customDialog.visible" class="modal-overlay !z-[99999]" @click.self="customDialog.visible = false">
       <!-- 1. 普通模式：确认/警告/提示弹窗 -->
       <div v-if="customDialog.type !== 'clean-choice'" class="modal-panel max-w-sm w-full p-6 space-y-4 animate-fade-in shadow-2xl rounded-2xl border bg-surface select-none">
         <div class="flex items-start space-x-3.5">
@@ -10427,7 +10431,59 @@
     class="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 select-none"
     @click.self="showBigImageModal = false"
   >
-    <div class="relative max-w-4xl w-full bg-surface-low border border-outline-variant/20 rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[85vh] animate-in zoom-in-95 duration-200 text-on-surface">
+    <!-- 会话内生图预览：只显示干净图片，底部显示控制条 -->
+    <div v-if="(bigImageInfo?.prefixType === 'chat' || bigImageInfo?.prefixType === 'proactive' || bigImageInfo?.prefixType === 'drawing') && !bigImageInfo?.fromGallery" class="flex flex-col items-center max-w-4xl w-full max-h-[85vh] animate-in zoom-in-95 duration-200">
+      <!-- 关闭按钮 -->
+      <button 
+        @click="showBigImageModal = false" 
+        class="absolute right-4 top-4 z-10 p-2 rounded-full bg-black/40 hover:bg-black/60 text-white transition-all cursor-pointer border border-white/10"
+      >
+        <XIcon class="w-4 h-4" />
+      </button>
+
+      <!-- 图片展示区（纯净，无框，无底色） -->
+      <div class="flex items-center justify-center overflow-hidden mb-6">
+        <img 
+          :src="bigImageUrl" 
+          class="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl" 
+        />
+      </div>
+
+      <!-- 底部居中控制条 -->
+      <div class="flex items-center space-x-4 bg-black/60 backdrop-blur-md px-6 py-3 rounded-full border border-white/10 shadow-lg select-none">
+        <!-- 调整提示词 -->
+        <button 
+          @click="openAdjustPromptModal" 
+          class="flex items-center space-x-2 text-white/90 hover:text-white hover:scale-105 transition-all text-xs font-medium cursor-pointer bg-transparent border-none"
+        >
+          <SparklesIcon class="w-4 h-4 text-primary" />
+          <span>调整提示词</span>
+        </button>
+        <!-- 分割线 -->
+        <div class="w-[1px] h-4 bg-white/20"></div>
+        <!-- 保存图片 -->
+        <button 
+          @click="downloadImage(bigImageUrl, bigImageInfo?.filename)" 
+          class="flex items-center space-x-2 text-white/90 hover:text-white hover:scale-105 transition-all text-xs font-medium cursor-pointer bg-transparent border-none"
+        >
+          <DownloadIcon class="w-4 h-4 text-white/80" />
+          <span>保存图片</span>
+        </button>
+        <!-- 分割线 -->
+        <div class="w-[1px] h-4 bg-white/20"></div>
+        <!-- 删除 -->
+        <button 
+          @click="triggerDeleteGalleryImage(bigImageInfo, true)" 
+          class="flex items-center space-x-2 text-red-400 hover:text-red-300 hover:scale-105 transition-all text-xs font-medium cursor-pointer bg-transparent border-none"
+        >
+          <TrashIcon class="w-4 h-4" />
+          <span>删除</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 社媒及其他大图预览：保留影像侧边栏 -->
+    <div v-else class="relative max-w-4xl w-full bg-surface-low border border-outline-variant/20 rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[85vh] animate-in zoom-in-95 duration-200 text-on-surface">
       <!-- 关闭按钮 -->
       <button 
         @click="showBigImageModal = false" 
@@ -10510,6 +10566,143 @@
             <TrashIcon class="w-4 h-4" />
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D. 调整提示词微调弹窗 -->
+  <div v-if="showAdjustPromptModal" class="first-chat-overlay" @click.self="showAdjustPromptModal = false">
+    <div class="first-chat-panel animate-in zoom-in-95 duration-200 select-none">
+      <!-- 头部 -->
+      <div class="first-chat-header">
+        <div class="first-chat-header-title">
+          <span class="first-chat-title-tag"></span>
+          <span class="first-chat-title-text">微调 AI 绘图提示词</span>
+        </div>
+        <button @click="showAdjustPromptModal = false" class="first-chat-close-btn">
+          <XIcon style="width: 14px !important; height: 14px !important;" />
+        </button>
+      </div>
+
+      <!-- 副标题 -->
+      <div class="first-chat-subtitle">编辑正向与负向提示词，选择合适尺寸，即可触发 NovelAI 重新绘制全新的图片并追加在会话最后。</div>
+
+      <!-- 正文 -->
+      <div class="first-chat-body">
+        <!-- 正向提示词 -->
+        <div class="first-chat-field">
+          <label class="first-chat-label">正向提示词 (Prompt)</label>
+          <textarea
+            v-model="adjustPromptData.prompt"
+            class="w-full h-24 bg-surface-variant/30 border border-outline-variant/50 rounded-lg p-3 text-xs text-on-surface focus:outline-none focus:border-primary transition-all resize-none"
+            placeholder="请输入想要微调的正向提示词 (English Tags)..."
+            :disabled="adjustPromptData.isRegenerating"
+          ></textarea>
+        </div>
+
+        <!-- 负面提示词 -->
+        <div class="first-chat-field">
+          <label class="first-chat-label">负面提示词 (Negative Prompt)</label>
+          <textarea
+            v-model="adjustPromptData.negativePrompt"
+            class="w-full h-20 bg-surface-variant/30 border border-outline-variant/50 rounded-lg p-3 text-xs text-on-surface focus:outline-none focus:border-primary transition-all resize-none"
+            placeholder="请输入想要微调的负面提示词..."
+            :disabled="adjustPromptData.isRegenerating"
+          ></textarea>
+        </div>
+
+        <!-- 分辨率尺寸 -->
+        <div class="first-chat-field">
+          <label class="first-chat-label">生成尺寸</label>
+          <div class="first-chat-segment flex flex-wrap h-auto p-1 bg-surface-variant/40 rounded-xl border border-outline-variant/10">
+            <button
+              @click="adjustPromptData.dimensions = 'portrait'"
+              class="first-chat-segment-btn py-1.5 px-3 rounded-lg text-xs font-semibold bg-transparent border-none"
+              :class="{ 'first-chat-segment-btn-active': adjustPromptData.dimensions === 'portrait' }"
+              :disabled="adjustPromptData.isRegenerating"
+            >
+              竖屏
+            </button>
+            <button
+              @click="adjustPromptData.dimensions = 'landscape'"
+              class="first-chat-segment-btn py-1.5 px-3 rounded-lg text-xs font-semibold bg-transparent border-none"
+              :class="{ 'first-chat-segment-btn-active': adjustPromptData.dimensions === 'landscape' }"
+              :disabled="adjustPromptData.isRegenerating"
+            >
+              横屏
+            </button>
+            <button
+              @click="adjustPromptData.dimensions = 'square'"
+              class="first-chat-segment-btn py-1.5 px-3 rounded-lg text-xs font-semibold bg-transparent border-none"
+              :class="{ 'first-chat-segment-btn-active': adjustPromptData.dimensions === 'square' }"
+              :disabled="adjustPromptData.isRegenerating"
+            >
+              方图
+            </button>
+            <button
+              @click="adjustPromptData.dimensions = 'custom'"
+              class="first-chat-segment-btn py-1.5 px-3 rounded-lg text-xs font-semibold bg-transparent border-none"
+              :class="{ 'first-chat-segment-btn-active': adjustPromptData.dimensions === 'custom' }"
+              :disabled="adjustPromptData.isRegenerating"
+            >
+              自定义
+            </button>
+          </div>
+        </div>
+
+        <!-- 自定义分辨率输入框 -->
+        <transition name="fade-slide">
+          <div v-if="adjustPromptData.dimensions === 'custom'" class="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div class="first-chat-field">
+              <label class="first-chat-label">宽度 (px)</label>
+              <input
+                type="number"
+                v-model.number="adjustPromptData.customWidth"
+                step="64"
+                min="256"
+                max="2560"
+                class="w-full h-10 px-3 bg-surface-variant/30 border border-outline-variant/50 rounded-xl text-xs text-on-surface focus:outline-none focus:border-primary transition-all"
+                :disabled="adjustPromptData.isRegenerating"
+                @blur="adjustPromptData.customWidth = Math.max(256, Math.min(2560, Math.round((adjustPromptData.customWidth || 1024) / 64) * 64))"
+              />
+              <span class="text-[9px] text-on-surface-variant/60 mt-0.5">须为 64 的倍数 (256-2560)</span>
+            </div>
+            <div class="first-chat-field">
+              <label class="first-chat-label">高度 (px)</label>
+              <input
+                type="number"
+                v-model.number="adjustPromptData.customHeight"
+                step="64"
+                min="256"
+                max="2560"
+                class="w-full h-10 px-3 bg-surface-variant/30 border border-outline-variant/50 rounded-xl text-xs text-on-surface focus:outline-none focus:border-primary transition-all"
+                :disabled="adjustPromptData.isRegenerating"
+                @blur="adjustPromptData.customHeight = Math.max(256, Math.min(2560, Math.round((adjustPromptData.customHeight || 1024) / 64) * 64))"
+              />
+              <span class="text-[9px] text-on-surface-variant/60 mt-0.5">须为 64 的倍数 (256-2560)</span>
+            </div>
+          </div>
+        </transition>
+      </div>
+
+      <!-- 页脚 -->
+      <div class="first-chat-footer">
+        <button
+          @click="showAdjustPromptModal = false"
+          class="first-chat-footer-btn-cancel bg-transparent"
+          :disabled="adjustPromptData.isRegenerating"
+        >
+          取消
+        </button>
+        <button
+          @click="startRegeneratingImage"
+          class="first-chat-footer-btn-confirm flex items-center justify-center space-x-1.5"
+          :disabled="adjustPromptData.isRegenerating"
+        >
+          <Loader2Icon v-if="adjustPromptData.isRegenerating" class="w-3.5 h-3.5 animate-spin" />
+          <SparklesIcon v-else class="w-3.5 h-3.5" />
+          <span>{{ adjustPromptData.isRegenerating ? '正在重新生图...' : '重新生图' }}</span>
+        </button>
       </div>
     </div>
   </div>
@@ -14299,6 +14492,21 @@ const isExtractingAppearance = ref(false)
 const showBigImageModal = ref(false)
 const bigImageUrl = ref('')
 const bigImageInfo = ref<any>(null)
+
+const showAdjustPromptModal = ref(false)
+const adjustPromptData = ref({
+  characterId: '',
+  folderName: '',
+  prompt: '',
+  negativePrompt: '',
+  dimensions: 'portrait' as 'portrait' | 'landscape' | 'square' | 'custom',
+  customWidth: 1024,
+  customHeight: 1024,
+  filename: '',
+  prefixType: 'chat',
+  parentRoundId: '',
+  isRegenerating: false
+})
 
 const isEditingContactName = ref(false)
 const editingContactName = ref('')
@@ -18534,9 +18742,9 @@ async function saveAppearanceFile() {
   }
 }
 
-function openImagePreview(img: any) {
+function openImagePreview(img: any, fromGallery = false) {
   bigImageUrl.value = img.base64
-  bigImageInfo.value = img
+  bigImageInfo.value = { ...img, fromGallery }
   showBigImageModal.value = true
 }
 
@@ -18580,6 +18788,131 @@ function downloadImage(base64Data: string, filename: string) {
   link.click()
   document.body.removeChild(link)
   showToast('图片下载已触发 🌊')
+}
+
+function openAdjustPromptModal() {
+  if (!bigImageInfo.value) return
+  
+  // 提取原始字符 ID 并进行 Ref 解包处理
+  let targetCharId = bigImageInfo.value.characterId
+  if (targetCharId && typeof targetCharId === 'object' && 'value' in targetCharId) {
+    targetCharId = (targetCharId as any).value
+  }
+  if (!targetCharId) {
+    targetCharId = selectedCharacterId.value || ''
+  }
+
+  // 增加防重复绘图限制
+  if (targetCharId && isDrawingImageMap[targetCharId]) {
+    showToast('该角色正在绘图中，请稍候... 🎨')
+    return
+  }
+
+  showBigImageModal.value = false
+  
+  // 提取轮次 ID 并进行 Ref 解包处理
+  let targetRoundId = bigImageInfo.value.round_id
+  if (targetRoundId && typeof targetRoundId === 'object' && 'value' in targetRoundId) {
+    targetRoundId = (targetRoundId as any).value
+  }
+  if (!targetRoundId) {
+    targetRoundId = ''
+  }
+  
+  adjustPromptData.value = {
+    characterId: targetCharId,
+    folderName: '',
+    prompt: bigImageInfo.value.prompt || '',
+    negativePrompt: bigImageInfo.value.negativePrompt || '',
+    dimensions: 'portrait',
+    customWidth: 1024,
+    customHeight: 1024,
+    filename: bigImageInfo.value.filename || '',
+    prefixType: bigImageInfo.value.prefixType || 'chat',
+    parentRoundId: targetRoundId,
+    isRegenerating: false
+  }
+  
+  const dims = bigImageInfo.value.dimensions
+  if (typeof dims === 'object' && dims) {
+    adjustPromptData.value.dimensions = 'custom'
+    adjustPromptData.value.customWidth = dims.width || 1024
+    adjustPromptData.value.customHeight = dims.height || 1024
+  } else if (dims === 'landscape') {
+    adjustPromptData.value.dimensions = 'landscape'
+  } else if (dims === 'square') {
+    adjustPromptData.value.dimensions = 'square'
+  } else {
+    adjustPromptData.value.dimensions = 'portrait'
+  }
+
+  const char = characterList.value.find(c => c.id === adjustPromptData.value.characterId)
+  if (char) {
+    adjustPromptData.value.folderName = char.folder_name
+  }
+  
+  showAdjustPromptModal.value = true
+}
+
+async function startRegeneratingImage() {
+  if (adjustPromptData.value.isRegenerating) return
+
+  let finalDimensions: any = adjustPromptData.value.dimensions
+  if (adjustPromptData.value.dimensions === 'custom') {
+    let w = Number(adjustPromptData.value.customWidth)
+    let h = Number(adjustPromptData.value.customHeight)
+    
+    if (isNaN(w) || w < 256 || w > 2560 || isNaN(h) || h < 256 || h > 2560) {
+      showToast('尺寸范围必须在 256 ~ 2560 像素之间')
+      return
+    }
+    
+    w = Math.round(w / 64) * 64
+    h = Math.round(h / 64) * 64
+    
+    w = Math.max(256, Math.min(2560, w))
+    h = Math.max(256, Math.min(2560, h))
+    
+    finalDimensions = { width: w, height: h }
+  }
+
+  const charId = adjustPromptData.value.characterId
+
+  // 1. 立刻关闭微调提示词弹窗，交还聊天界面焦点
+  showAdjustPromptModal.value = false
+  
+  // 2. 立即将对应角色的“AI绘图”按钮激活为 loading 状态
+  if (charId) {
+    isDrawingImageMap[charId] = true
+  }
+
+  adjustPromptData.value.isRegenerating = true
+  try {
+    const res = await window.api.invoke('regenerate-novelai-image', {
+      characterId: adjustPromptData.value.characterId,
+      folderName: adjustPromptData.value.folderName,
+      prompt: adjustPromptData.value.prompt,
+      negativePrompt: adjustPromptData.value.negativePrompt,
+      dimensions: finalDimensions,
+      filename: adjustPromptData.value.filename,
+      prefixType: adjustPromptData.value.prefixType,
+      parentRoundId: adjustPromptData.value.parentRoundId
+    })
+
+    if (res.success) {
+      showToast('生图成功，新照片已推送到会话最下方 ✨')
+    } else {
+      showCustomAlert('重新绘制失败', `异常错误: ${res.error}`, 'error')
+    }
+  } catch (error: any) {
+    showCustomAlert('重新绘制异常', `${error.message || error}`, 'error')
+  } finally {
+    adjustPromptData.value.isRegenerating = false
+    // 3. 生图过程结束（成功或失败），将该角色的绘图 loading 状态设为 false 恢复原状
+    if (charId) {
+      isDrawingImageMap[charId] = false
+    }
+  }
 }
 
 async function triggerDeleteGalleryImage(img: any, fromModal: boolean = false) {
