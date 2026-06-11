@@ -2078,12 +2078,12 @@ function registerIpcHandlers(): void {
       
       let processedSoul = soul
       let processedWorld = world
-      let processedAppearance = appearance
+      let processedAppearance = appearance || ''
       if (userName) {
         const userNameRegex = new RegExp(userName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g')
         processedSoul = soul.replace(userNameRegex, '{{user}}')
         processedWorld = world.replace(userNameRegex, '{{user}}')
-        processedAppearance = appearance.replace(userNameRegex, '{{user}}')
+        processedAppearance = processedAppearance.replace(userNameRegex, '{{user}}')
       }
 
       const writeResult = storageManager.saveCharacter(confirmedFolderName, buffer, processedSoul, processedWorld)
