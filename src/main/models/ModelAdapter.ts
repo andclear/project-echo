@@ -157,18 +157,27 @@ export class OpenAIProvider implements IModelProvider {
       payload.temperature = config.temperature
     }
 
+    const controller = new AbortController()
+    let timeoutId = setTimeout(() => {
+      console.warn(`[OpenAI API] 60秒无任何字符响应，正在物理中断请求。`)
+      controller.abort()
+    }, 60 * 1000)
+
     const response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     })
 
     if (!response.ok) {
+      clearTimeout(timeoutId)
       const errText = await response.text()
       throw new Error(`OpenAI Stream 响应错误 (${response.status}): ${errText}`)
     }
 
     if (!response.body) {
+      clearTimeout(timeoutId)
       throw new Error('未获取到响应流数据')
     }
 
@@ -180,6 +189,12 @@ export class OpenAIProvider implements IModelProvider {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+
+        clearTimeout(timeoutId)
+        timeoutId = setTimeout(() => {
+          console.warn(`[OpenAI API] 流式输出过程中卡死60秒，正在物理中断请求。`)
+          controller.abort()
+        }, 60 * 1000)
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -235,7 +250,13 @@ export class OpenAIProvider implements IModelProvider {
           } catch (_) {}
         }
       }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error('大模型流式响应超时：超过60秒无任何字符吐出，已物理中断连接。🐾')
+      }
+      throw err
     } finally {
+      clearTimeout(timeoutId)
       reader.releaseLock()
     }
   }
@@ -314,18 +335,27 @@ export class AnthropicProvider implements IModelProvider {
 
     const payload = this.preparePayload(config, messages, true)
 
+    const controller = new AbortController()
+    let timeoutId = setTimeout(() => {
+      console.warn(`[Anthropic API] 60秒无任何字符响应，正在物理中断请求。`)
+      controller.abort()
+    }, 60 * 1000)
+
     const response = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     })
 
     if (!response.ok) {
+      clearTimeout(timeoutId)
       const errText = await response.text()
       throw new Error(`Anthropic Stream 响应错误 (${response.status}): ${errText}`)
     }
 
     if (!response.body) {
+      clearTimeout(timeoutId)
       throw new Error('未获取到响应流数据')
     }
 
@@ -337,6 +367,12 @@ export class AnthropicProvider implements IModelProvider {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+
+        clearTimeout(timeoutId)
+        timeoutId = setTimeout(() => {
+          console.warn(`[Anthropic API] 流式输出过程中卡死60秒，正在物理中断请求。`)
+          controller.abort()
+        }, 60 * 1000)
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -373,7 +409,13 @@ export class AnthropicProvider implements IModelProvider {
           }
         } catch (_) {}
       }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error('大模型流式响应超时：超过60秒无任何字符吐出，已物理中断连接。🐾')
+      }
+      throw err
     } finally {
+      clearTimeout(timeoutId)
       reader.releaseLock()
     }
   }
@@ -493,21 +535,30 @@ export class OllamaProvider implements IModelProvider {
       }
     }
 
+    const controller = new AbortController()
+    let timeoutId = setTimeout(() => {
+      console.warn(`[Ollama API] 60秒无任何字符响应，正在物理中断请求。`)
+      controller.abort()
+    }, 60 * 1000)
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...COMMON_HEADERS
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     })
 
     if (!response.ok) {
+      clearTimeout(timeoutId)
       const errText = await response.text()
       throw new Error(`Ollama Stream 响应错误 (${response.status}): ${errText}`)
     }
 
     if (!response.body) {
+      clearTimeout(timeoutId)
       throw new Error('未获取到响应流数据')
     }
 
@@ -519,6 +570,12 @@ export class OllamaProvider implements IModelProvider {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+
+        clearTimeout(timeoutId)
+        timeoutId = setTimeout(() => {
+          console.warn(`[Ollama API] 流式输出过程中卡死60秒，正在物理中断请求。`)
+          controller.abort()
+        }, 60 * 1000)
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
