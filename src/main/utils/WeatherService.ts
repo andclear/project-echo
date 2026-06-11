@@ -8,7 +8,7 @@ interface WeatherCache {
 
 export class WeatherService {
   private static cache: Map<string, WeatherCache> = new Map();
-  private static readonly CACHE_DURATION = 60 * 60 * 1000; // 1小时缓存时间限制
+  private static readonly CACHE_DURATION = 2 * 60 * 60 * 1000; // 2小时缓存时间限制
 
   private static readonly weatherConditionMap: Record<string, string> = {
     'sunny': '晴',

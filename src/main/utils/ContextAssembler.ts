@@ -257,6 +257,28 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     let contextTier = `# DYNAMIC CONTEXT & MEMORY (Context Tier)\n\n`;
     contextTier += `## User Profiles\n${userProfilesXml}\n`;
 
+    // 🚀 静态天气环境参考：此处将所在地天气移入 System Prompt 中，作为低频变动的静态环境参考，保障高缓存命中率
+    let weatherSection = '';
+    try {
+      const db = getDatabaseService();
+      const profileStr = db.getSetting('echo_user_profile');
+      if (profileStr) {
+        const parsed = JSON.parse(profileStr);
+        if (parsed.location) {
+          const location = parsed.location.trim();
+          if (location) {
+            const weatherText = WeatherService.getWeatherSync(location);
+            if (weatherText) {
+              weatherSection = `\n## Live Weather & Environment (实时天气与外部环境)\n- 所在地实时天气：${weatherText}\n- 环境与温度感知：外面是 ${weatherText}。（可选）若恰当，可将外部环境作为神态背景，请勿在每一轮频繁提及天气与气温，避免复读。\n`;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    if (weatherSection) {
+      contextTier += weatherSection;
+    }
+
     // 🚀 实时财务警告已移入最新 user 消息，此处保持静止。
     let volatileTier = '';
 
@@ -659,24 +681,7 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     const dateStrEN = `${dayNameEN}, ${monthName} ${day}, ${year} ${hours}:00 (Hour-level accuracy)`;
     const dateStrCN = `${year}年${date.getMonth() + 1}月${day}日 ${dayNameCN} 【时段：${timeOfDay}】 ${hours}时`;
 
-    let weatherSection = '';
-    try {
-      const db = getDatabaseService();
-      const profileStr = db.getSetting('echo_user_profile');
-      if (profileStr) {
-        const parsed = JSON.parse(profileStr);
-        if (parsed.location) {
-          const location = parsed.location.trim();
-          if (location) {
-            const weatherText = WeatherService.getWeatherSync(location);
-            // 只注入天气，不注入城市名
-            weatherSection = weatherText ? `\n- 所在地实时天气：${weatherText}\n- 环境与温度感知：现在是${timeOfDay}，外面是 ${weatherText}。请在合适的时候将这些外部环境（时间、气温、阴晴雨雪）自然地融入进你的神态细节、动作描写与日常聊天对话中，让交流共振。` : '';
-          }
-        }
-      }
-    } catch (_) {}
-
-    return `## Live Environment Info\n- Current real-world time: ${dateStrEN}\n- 当前现实世界时间：${dateStrCN}\n- 时段感知：现在是${timeOfDay}，请根据实际时段调整你的状态和回复语气。${weatherSection}`;
+    return `## Live Environment Info\n- Current real-world time: ${dateStrEN}\n- 当前现实世界时间：${dateStrCN}\n- 时段感知：现在是${timeOfDay}，请根据实际时段调整你的状态和回复语气。`;
   }
 
   /**
@@ -812,6 +817,28 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     contextTier += `${ContextAssembler.assembleLiveEnvInfo()}\n\n`;
     if (realUserName) {
       contextTier += `## 当前正在对话的用户身份设定\n- 姓名：${realUserName}\n- 性别：${gender}\n- 年龄：${age}\n\n`;
+    }
+
+    // 🚀 静态天气环境参考：此处将所在地天气移入 System Prompt 中，作为低频变动的静态环境参考，保障高缓存命中率
+    let weatherSection = '';
+    try {
+      const db = getDatabaseService();
+      const profileStr = db.getSetting('echo_user_profile');
+      if (profileStr) {
+        const parsed = JSON.parse(profileStr);
+        if (parsed.location) {
+          const location = parsed.location.trim();
+          if (location) {
+            const weatherText = WeatherService.getWeatherSync(location);
+            if (weatherText) {
+              weatherSection = `## Live Weather & Environment (实时天气与外部环境)\n- 所在地实时天气：${weatherText}\n- 环境与温度感知：外面是 ${weatherText}。（可选）若恰当，可将外部环境作为神态背景，请勿在每一轮频繁提及天气与气温，避免复读。\n\n`;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    if (weatherSection) {
+      contextTier += weatherSection;
     }
 
     // DYNAMIC TRANSACTION & TIME (Volatile Tier)
