@@ -16253,6 +16253,8 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
   const pendingQueue = pendingUserMessagesMap[charId] || []
   if (!overrideText && pendingQueue.length === 0) return
 
+  const currentRoundId = `round_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+
   // 1. 合并 3 秒内的所有用户短消息（换行符拼接）
   // 特殊：如果是发红包消息，要把文字和红包做微信级合流拼接
   const rpPayload = pendingQueue.find(m => m.redPacketPayload)?.redPacketPayload
@@ -16288,7 +16290,8 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
         role: 'user',
         content: m.content,
         timestamp: m.timestamp || Date.now(),
-        msg_type: 'text'
+        msg_type: 'text',
+        round_id: currentRoundId
       }).catch((e: any) => console.warn('[MultiMsg] 独立存盘失败:', e)))
     // await 确保 DB 写入完成，再让 chat-stream 读取 getChatHistory
     await Promise.all(savePromises)
@@ -16388,6 +16391,7 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
       imageBase64: lastImage || undefined,
       userMsgId: finalUserMsgId,
       dbMessage: finalDbMessage,
+      roundId: !isRegenerate ? currentRoundId : undefined,
       isGroup: isGroup,
       isRegenerate: isRegenerate // 🚀 传入重新回复标识，避开用户消息的二次重复保存
     })

@@ -86,9 +86,9 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 // 🚀 极致缓存前缀保温还原全局内存字典：以角色ID为键值，缓存最近一次大模型吐出的 100% 原始未清洗的 assistant 消息内容
-export const LastAssistantRawResponse: Record<string, string> = {}
+export const LastAssistantRawResponse: Record<string, { id: string; content: string }> = {}
 // 🚀 极致缓存前缀保温还原全局内存字典：以角色ID为键值，缓存最近一次向大模型发送的 100% 原始拼装好的 user 消息内容 (含 annotations)
-export const LastUserRawResponse: Record<string, string> = {}
+export const LastUserRawResponse: Record<string, { id: string; content: string }> = {}
 // 🚀 全量长对话缓存前缀保温还原全局内存字典：以消息ID为键值，缓存会话生命周期内的 100% 原始拼装 user 消息内容 (含 annotations) 与 assistant 消息
 export const UserRawResponseMap: Map<string, string> = new Map()
 export const AssistantRawResponseMap: Map<string, string> = new Map()
@@ -3466,6 +3466,7 @@ ${soulContent}
     dbMessage?: string
     isGroup?: boolean
     isRegenerate?: boolean // 🚀 是否是重新回复触发
+    roundId?: string
   }) => {
     const { characterId, folderName, userMessage } = payload
     const isGroup = !!payload.isGroup
@@ -4680,6 +4681,10 @@ ${soulContent}
       : preUserMsgs[preUserMsgs.length - 1] // 正常发送时，取数据库里最近的一条
     const lastMsgTimestamp = lastUserMsg ? lastUserMsg.timestamp : 0
 
+    let userMessageFinalMerged = userMessage
+    let targetRoundId: string | undefined = undefined
+    let originalUserMsgId: string | undefined = undefined
+
     if (payload.isRegenerate) {
       // 重新生成时，最近的那条用户消息已入库，需要从历史中剔除，
       // 因为它将在 messages 末尾以包含 Annotations 的 finalUserContent 形式统一传入！
@@ -4687,8 +4692,39 @@ ${soulContent}
       const lastUserIdx = [...rawHistory].reverse().findIndex((m: any) => m.role === 'user')
       if (lastUserIdx !== -1) {
         const actualIdx = rawHistory.length - 1 - lastUserIdx
-        // 🔒 核心自愈：不仅剔除最近一条用户消息，还要将其之后的所有消息（如果有需要被重新生成的助理回复残体）一同擦除
-        rawHistory.splice(actualIdx)
+        const lastUserMsgObj = rawHistory[actualIdx]
+        targetRoundId = lastUserMsgObj.round_id
+        originalUserMsgId = lastUserMsgObj.id
+        
+        if (targetRoundId) {
+          // 找出上一轮所有被提前存盘的同轮 user 消息
+          const roundUserMsgs = rawHistory.filter((m: any) => m.role === 'user' && m.round_id === targetRoundId)
+          if (roundUserMsgs.length > 0) {
+            // rawHistory 本身已是从旧到新的时间升序排列，无需 reverse
+            userMessageFinalMerged = roundUserMsgs.map((m: any) => m.content).join('\n')
+          }
+          
+          // 物理剔除这批 user 消息中最旧一条及其之后的所有消息 (残留助理回复和同轮多气泡)
+          let minIdx = actualIdx
+          for (let i = 0; i < rawHistory.length; i++) {
+            if (rawHistory[i].role === 'user' && rawHistory[i].round_id === targetRoundId) {
+              if (i < minIdx) minIdx = i
+            }
+          }
+          rawHistory.splice(minIdx)
+        } else {
+          // 🔒 核心自愈：不仅剔除最近一条用户消息，还要将其之后的所有消息（如果有需要被重新生成的助理回复残体）一同擦除
+          rawHistory.splice(actualIdx)
+        }
+      }
+    } else if (payload.roundId) {
+      // 正常发送时，如果存在前端打包好的 roundId，合并同轮前置发言并从上下文中过滤
+      const roundUserMsgs = rawHistory.filter((m: any) => m.role === 'user' && m.round_id === payload.roundId)
+      if (roundUserMsgs.length > 0) {
+        // rawHistory 本身已是从旧到新的时间升序排列，无需 reverse
+        const mergedContents = roundUserMsgs.map((m: any) => m.content).join('\n')
+        userMessageFinalMerged = mergedContents + '\n' + userMessage
+        rawHistory = rawHistory.filter((m: any) => !(m.role === 'user' && m.round_id === payload.roundId))
       }
     }
 
@@ -4716,19 +4752,19 @@ ${soulContent}
       const lastAssistantIndex = [...history].reverse().findIndex(m => m.role === 'assistant')
       if (lastAssistantIndex !== -1) {
         const idx = history.length - 1 - lastAssistantIndex
-        const rawContent = LastAssistantRawResponse[characterId]
-        if (rawContent && rawContent.trim() && history[idx].content !== rawContent) {
-          console.log(`[Cache Heat] 成功将上一轮清洗后的助理消息内容通过 LastAssistantRawResponse 降级还原: "${rawContent.substring(0, 40).replace(/\n/g, ' ')}..."`)
-          history[idx].content = rawContent
+        const rawData = LastAssistantRawResponse[characterId]
+        if (rawData && rawData.id === history[idx].id && rawData.content && rawData.content.trim() && history[idx].content !== rawData.content) {
+          console.log(`[Cache Heat] 成功将上一轮清洗后的助理消息内容通过 LastAssistantRawResponse 降级还原: "${rawData.content.substring(0, 40).replace(/\n/g, ' ')}..."`)
+          history[idx].content = rawData.content
         }
       }
       const lastUserIndex = [...history].reverse().findIndex(m => m.role === 'user')
       if (lastUserIndex !== -1) {
         const idx = history.length - 1 - lastUserIndex
-        const rawUserContent = LastUserRawResponse[characterId]
-        if (rawUserContent && rawUserContent.trim() && history[idx].content !== rawUserContent) {
-          console.log(`[Cache Heat] 成功将上一轮带有 Annotations 的用户消息通过 LastUserRawResponse 降级还原: "${rawUserContent.substring(0, 40).replace(/\n/g, ' ')}..."`)
-          history[idx].content = rawUserContent
+        const rawData = LastUserRawResponse[characterId]
+        if (rawData && rawData.id === history[idx].id && rawData.content && rawData.content.trim() && history[idx].content !== rawData.content) {
+          console.log(`[Cache Heat] 成功将上一轮带有 Annotations 的用户消息通过 LastUserRawResponse 降级还原: "${rawData.content.substring(0, 40).replace(/\n/g, ' ')}..."`)
+          history[idx].content = rawData.content
         }
       }
     }
@@ -4875,8 +4911,8 @@ ${memoryContent}
 
       // 如果有粘贴图片，在用户消息中顺带注入 AI 刚理解出的多模态图片描述
       const userMessageFinal = payload.imageBase64
-        ? `${formatMessageContentForLLM(userMessage, 'user')}\n\n（${userName}发来了一张图片${imageDescription ? `，画面里是：${imageDescription}` : ''}）\n\n[请结合当前对话语境和${userName}发来的这张图片的内容，做出非常自然、人设化的回应。]`
-        : `${formatMessageContentForLLM(userMessage, 'user')}`
+        ? `${formatMessageContentForLLM(userMessageFinalMerged, 'user')}\n\n（${userName}发来了一张图片${imageDescription ? `，画面里是：${imageDescription}` : ''}）\n\n[请结合当前对话语境和${userName}发来的这张图片的内容，做出非常自然、人设化的回应。]`
+        : `${formatMessageContentForLLM(userMessageFinalMerged, 'user')}`
 
       // 查找最近一个等待处理的用户红包，动态为当前发言人注入领取/退回红包的操作提示
       let rpInstruction = ''
@@ -4971,7 +5007,7 @@ ${memoryContent}
       // skipElectronPush：仅当来自 Electron 本机时跳过推回（前端 UI 已显示）；
       //                   手机端（IPC bridge）调用时必须推给 Electron 主窗口以实现桌面同步！
       const isFromIpcBridge = !!(event as any)?.sender?.isIpcBridge
-      const roundId = crypto.randomUUID()
+      const roundId = payload.roundId || crypto.randomUUID()
         ; (payload as any)._roundId = roundId  // 将 roundId 共享给后续 AI 回复消息使用
       const userMsgType = dbContent.startsWith('[wechat_image_media]:') ? 'image' : 'text'
       MessageBusService.getInstance().publish({
@@ -4991,8 +5027,8 @@ ${memoryContent}
       })
     }
 
-    // 从 payload 中取出 roundId，若没有（重新回复情形）则新生成一个
-    const _roundId: string = (payload as any)._roundId || crypto.randomUUID()
+    // 从 payload 中取出 roundId，若没有（重新回复情形）则继承 targetRoundId，若仍没有则新生成一个
+    const _roundId: string = (payload as any)._roundId || (payload.isRegenerate ? targetRoundId : null) || crypto.randomUUID()
 
     let accumulatedResponse = ''
     const streamSplit = new StreamSplitController()
@@ -5528,8 +5564,8 @@ ${memoryContent}
     // 原因：accumulatedResponse 含有控制符（[SEND_RED_PACKET]、[RECEIVE_RED_PACKET] 等）和 <cot> 思考链，
     // 若还原进历史 assistant 消息，模型下一轮会把这些控制符当成正常输出示范（few-shot 污染），
     // 导致角色频繁发红包、角色混淆等问题。代价是前缀缓存命中率略降，但逻辑正确性更重要。
-    LastAssistantRawResponse[characterId] = finalResponse
-    LastUserRawResponse[characterId] = finalUserContent
+    LastAssistantRawResponse[characterId] = { id: assistantMsgId, content: finalResponse }
+    LastUserRawResponse[characterId] = { id: payload.isRegenerate ? (originalUserMsgId || userMsgId) : userMsgId, content: finalUserContent }
     if (!payload.isRegenerate) {
       UserRawResponseMap.set(userMsgId, finalUserContent)
     }
@@ -7829,6 +7865,10 @@ Please output in exactly this XML format:
         db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${payload.characterId}`)
         console.log(`[regenerate-reply] 清除角色 ${payload.characterId} 的记忆草稿。`)
       } catch (_) { }
+
+      // 物理清理内存降级缓存，保证与删除消息的一致性
+      delete LastAssistantRawResponse[payload.characterId]
+      delete LastUserRawResponse[payload.characterId]
 
       console.log(`[regenerate-reply] 成功擦除连续 ${deleteCount} 条旧回复气泡。`)
       return { success: true }
