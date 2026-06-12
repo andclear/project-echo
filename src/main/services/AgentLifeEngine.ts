@@ -962,6 +962,25 @@ export class AgentLifeEngine {
         }).join('\n')
       : '*先前没有发生与用户的互动对话。*';
 
+    let hoursSinceLastChat = 999;
+    if (cleanHistory.length > 0) {
+      const lastMsg = cleanHistory[cleanHistory.length - 1];
+      if (lastMsg.timestamp) {
+        hoursSinceLastChat = (now.getTime() - lastMsg.timestamp) / (1000 * 60 * 60);
+      }
+    }
+
+    let chatSilenceGuidance = '';
+    if (hoursSinceLastChat >= 24) {
+      const days = Math.round(hoursSinceLastChat / 24);
+      chatSilenceGuidance = 
+        `\n**⚠️ 【重点防重复与焦点转移指令】：**\n` +
+        `- 距离你们上一次交谈已经过去了大约 ${days} 天，期间没有任何新的互动交流。\n` +
+        `- **你绝对禁止在今天的日记中，继续大篇幅咀嚼或反思很久以前的历史聊天对话**（防止日记内容每日重复）。\n` +
+        `- 请把日记的核心焦点全面转移到你**今天的个人生活**上（你可以结合今天的日程表，丰富细致地想象你一个人是怎样度过一天的，做了些什么活动，有什么感受）。\n` +
+        `- 倾诉并记录你在被冷落的这几天里真实、细腻的心路历程（例如：一开始觉得清闲，到后来隐约感到有些被遗忘的落寞、无聊、甚至是猜想对方在忙些什么）。\n\n`;
+    }
+
     const userProfilesXml = UserProfileReaderWriter.assembleProfiles(globalUserPath, charUserPath);
 
     const hour = now.getHours();
@@ -1011,6 +1030,7 @@ export class AgentLifeEngine {
       `## 今天与用户的对话记录（用于反思）\n${historyContext}\n\n` +
       `---\n\n` +
       `## 日记写作指引\n` +
+      `${chatSilenceGuidance}` +
       `请你根据以上所有上下文，以第一人称写下今天的日记。写作时请遵循以下原则：\n\n` +
       `**内容要有具体依据，而非泛泛感悟：**\n` +
       `- 如果今天和用户聊了具体的事情，请在日记里提及你对那些对话的真实感受和想法\n` +
