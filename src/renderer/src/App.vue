@@ -3388,6 +3388,33 @@
                         每个角色在论坛模块中每周最多发表的主题帖总数。设为 0 将完全不在论坛发帖。
                       </p>
                     </div>
+
+                    <!-- 最短论坛发帖间隔 -->
+                    <div class="p-3.5 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface">最短论坛发帖间隔</span>
+                        <span class="text-xs font-mono text-primary font-bold bg-primary/10 px-2.5 py-0.5 rounded-lg shrink-0">
+                          {{ socialForumMinIntervalHours }} 小时
+                        </span>
+                      </div>
+                      <div class="flex items-center space-x-3 pt-0.5">
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">12</span>
+                        <div class="flex-1 flex items-center">
+                          <input 
+                            v-model.number="socialForumMinIntervalHours" 
+                            type="range" 
+                            min="12" 
+                            max="168" 
+                            step="12"
+                            class="proactive-range-input" 
+                          />
+                        </div>
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">168</span>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
+                        角色两次发论坛主题帖之间的最低时间间隔，防止在第一天就把本周的额度发完，让发帖频率更加自然。
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -12086,6 +12113,7 @@ const proactiveReserveHours = ref(36)
 const socialMaxMomentPerDay = ref(1)
 const socialMomentMinIntervalHours = ref(24)
 const socialMaxForumPerWeek = ref(2)
+const socialForumMinIntervalHours = ref(48)
 
 // 状态与计算属性：当前主动引擎生效角色（未设置消息免打扰的角色）
 const showActiveCharsList = ref(false)
@@ -12125,6 +12153,7 @@ const loadProactiveConfig = async () => {
       socialMaxMomentPerDay.value = parseInt(res.config.social_max_moment_per_day, 10)
       socialMomentMinIntervalHours.value = parseFloat(res.config.social_moment_min_interval_hours)
       socialMaxForumPerWeek.value = parseInt(res.config.social_max_forum_per_week, 10)
+      socialForumMinIntervalHours.value = parseFloat(res.config.social_forum_min_interval_hours || '48')
     }
   } catch (err) {
     console.error('加载自主生命设置异常:', err)
@@ -12140,7 +12169,8 @@ const saveProactiveSettings = async () => {
       proactive_reserve_hours: proactiveReserveHours.value.toString(),
       social_max_moment_per_day: socialMaxMomentPerDay.value.toString(),
       social_moment_min_interval_hours: socialMomentMinIntervalHours.value.toString(),
-      social_max_forum_per_week: socialMaxForumPerWeek.value.toString()
+      social_max_forum_per_week: socialMaxForumPerWeek.value.toString(),
+      social_forum_min_interval_hours: socialForumMinIntervalHours.value.toString()
     })
     if (res && res.success) {
       showCustomAlert('保存成功', '主动引擎配置已成功写入本地数据库，并已实时生效！', 'success')

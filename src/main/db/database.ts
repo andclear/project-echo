@@ -725,6 +725,7 @@ export class DatabaseService {
           insertSetting.run('social_max_moment_per_day', '1')
           insertSetting.run('social_moment_min_interval_hours', '24')
           insertSetting.run('social_max_forum_per_week', '2')
+          insertSetting.run('social_forum_min_interval_hours', '48')
         }
       }
     ]

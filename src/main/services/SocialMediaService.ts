@@ -167,6 +167,7 @@ export class SocialMediaService {
     const socialMaxMomentPerDay = parseInt(db.getSetting('social_max_moment_per_day') || '1', 10);
     const socialMomentMinIntervalHours = parseFloat(db.getSetting('social_moment_min_interval_hours') || '24');
     const socialMaxForumPerWeek = parseInt(db.getSetting('social_max_forum_per_week') || '2', 10);
+    const socialForumMinIntervalHours = parseFloat(db.getSetting('social_forum_min_interval_hours') || '48');
 
     // ── 朋友圈：每次 tick 只随机选取 1 个满足过去 24 小时条数限制且超过最低间隔的角色 ──
     const momentCandidates = activeChars.filter(c => {
@@ -210,12 +211,22 @@ export class SocialMediaService {
       }
     }
 
-    // ── 论坛：每次 tick 只随机选取 1 个本周未满 socialMaxForumPerWeek 篇的角色 ──
+    // ── 论坛：每次 tick 只随机选取 1 个本周未满 socialMaxForumPerWeek 篇且满足发帖时间间隔的角色 ──
     const forumCandidates = activeChars.filter(c => {
+      if (socialMaxForumPerWeek <= 0) return false;
+
+      // 1. 周上限额度过滤
       const lastForumWeek = db.getSetting(`last_forum_week_${c.id}`);
       const forumCountStr = db.getSetting(`last_forum_count_${c.id}`) || '0';
       const forumCount = lastForumWeek !== thisWeekStr ? 0 : parseInt(forumCountStr, 10);
-      return forumCount < socialMaxForumPerWeek;
+      if (forumCount >= socialMaxForumPerWeek) return false;
+
+      // 2. 最短发帖时间间隔校验
+      const lastForumTs = parseInt(db.getSetting(`last_forum_timestamp_${c.id}`) || '0', 10);
+      const hoursPassed = (Date.now() - lastForumTs) / (1000 * 60 * 60);
+      if (hoursPassed < socialForumMinIntervalHours) return false;
+
+      return true;
     });
 
     if (forumCandidates.length > 0) {
@@ -228,6 +239,7 @@ export class SocialMediaService {
         await this.generateForumPost(char, modelAdapter);
         db.setSetting(`last_forum_week_${char.id}`, thisWeekStr);
         db.setSetting(`last_forum_count_${char.id}`, String(forumCount + 1));
+        db.setSetting(`last_forum_timestamp_${char.id}`, Date.now().toString());
       } catch (err) {
         console.error(`[SocialMediaService] 角色 ${char.name} 论坛帖子生成失败:`, err);
       }

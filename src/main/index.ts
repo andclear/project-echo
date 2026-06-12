@@ -1625,7 +1625,8 @@ function registerIpcHandlers(): void {
           proactive_reserve_hours: db.getSetting('proactive_reserve_hours') || '36',
           social_max_moment_per_day: db.getSetting('social_max_moment_per_day') || '1',
           social_moment_min_interval_hours: db.getSetting('social_moment_min_interval_hours') || '24',
-          social_max_forum_per_week: db.getSetting('social_max_forum_per_week') || '2'
+          social_max_forum_per_week: db.getSetting('social_max_forum_per_week') || '2',
+          social_forum_min_interval_hours: db.getSetting('social_forum_min_interval_hours') || '48'
         }
       }
     } catch (error: any) {
@@ -1642,6 +1643,7 @@ function registerIpcHandlers(): void {
     social_max_moment_per_day: string
     social_moment_min_interval_hours: string
     social_max_forum_per_week: string
+    social_forum_min_interval_hours: string
   }) => {
     try {
       const db = getDatabaseService()
@@ -1651,6 +1653,7 @@ function registerIpcHandlers(): void {
       db.setSetting('social_max_moment_per_day', payload.social_max_moment_per_day)
       db.setSetting('social_moment_min_interval_hours', payload.social_moment_min_interval_hours)
       db.setSetting('social_max_forum_per_week', payload.social_max_forum_per_week)
+      db.setSetting('social_forum_min_interval_hours', payload.social_forum_min_interval_hours)
       return { success: true }
     } catch (error: any) {
       console.error('[IPC] 保存自主生命配置失败:', error)
