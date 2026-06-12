@@ -6969,11 +6969,8 @@ ${memoryContent}
   ipcMain.handle('get-conversation-meta', async (_, payload: { characterId: string }) => {
     try {
       const db = getDatabaseService()
-      const val = db.getSetting(`meta_${payload.characterId}`)
-      if (val) {
-        return { success: true, meta: JSON.parse(val) }
-      }
-      return { success: true, meta: null }
+      const meta = db.getConversationMeta(payload.characterId)
+      return { success: true, meta }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
