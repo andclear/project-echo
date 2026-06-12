@@ -1613,6 +1613,51 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // 获取自主生命相关配置
+  ipcMain.handle('get-proactive-config', async () => {
+    try {
+      const db = getDatabaseService()
+      return {
+        success: true,
+        config: {
+          proactive_max_dialog_per_day: db.getSetting('proactive_max_dialog_per_day') || '2',
+          proactive_cooldown_hours: db.getSetting('proactive_cooldown_hours') || '3',
+          proactive_reserve_hours: db.getSetting('proactive_reserve_hours') || '36',
+          social_max_moment_per_day: db.getSetting('social_max_moment_per_day') || '1',
+          social_moment_min_interval_hours: db.getSetting('social_moment_min_interval_hours') || '24',
+          social_max_forum_per_week: db.getSetting('social_max_forum_per_week') || '2'
+        }
+      }
+    } catch (error: any) {
+      console.error('[IPC] 读取自主生命配置失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
+  // 保存自主生命相关配置
+  ipcMain.handle('save-proactive-config', async (_, payload: {
+    proactive_max_dialog_per_day: string
+    proactive_cooldown_hours: string
+    proactive_reserve_hours: string
+    social_max_moment_per_day: string
+    social_moment_min_interval_hours: string
+    social_max_forum_per_week: string
+  }) => {
+    try {
+      const db = getDatabaseService()
+      db.setSetting('proactive_max_dialog_per_day', payload.proactive_max_dialog_per_day)
+      db.setSetting('proactive_cooldown_hours', payload.proactive_cooldown_hours)
+      db.setSetting('proactive_reserve_hours', payload.proactive_reserve_hours)
+      db.setSetting('social_max_moment_per_day', payload.social_max_moment_per_day)
+      db.setSetting('social_moment_min_interval_hours', payload.social_moment_min_interval_hours)
+      db.setSetting('social_max_forum_per_week', payload.social_max_forum_per_week)
+      return { success: true }
+    } catch (error: any) {
+      console.error('[IPC] 保存自主生命配置失败:', error)
+      return { success: false, error: error.message || error }
+    }
+  })
+
   // 4.1 获取 NovelAI 配置 IPC 通道
   // 通用设置读取接口（供前端查询任意 DB 设置项）
   ipcMain.handle('get-setting', async (_, payload: { key: string }) => {

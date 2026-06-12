@@ -711,6 +711,21 @@ export class DatabaseService {
             console.error('[Migration v9] 物理迁移老小说数据失败:', err)
           }
         }
+      },
+      {
+        version: 10,
+        up: (db: Database.Database) => {
+          const insertSetting = db.prepare(`
+            INSERT OR IGNORE INTO Settings (key, value)
+            VALUES (?, ?)
+          `)
+          insertSetting.run('proactive_max_dialog_per_day', '2')
+          insertSetting.run('proactive_cooldown_hours', '3')
+          insertSetting.run('proactive_reserve_hours', '36')
+          insertSetting.run('social_max_moment_per_day', '1')
+          insertSetting.run('social_moment_min_interval_hours', '24')
+          insertSetting.run('social_max_forum_per_week', '2')
+        }
       }
     ]
 

@@ -163,27 +163,59 @@ export class SocialMediaService {
     });
     if (activeChars.length === 0) return;
 
-    // ── 朋友圈：每次 tick 只随机选取 1 个今天尚未发过动态的角色 ──
-    const momentCandidates = activeChars.filter(c => db.getSetting(`last_moment_date_${c.id}`) !== todayStr);
+    // 读取数据库自定义社交参数
+    const socialMaxMomentPerDay = parseInt(db.getSetting('social_max_moment_per_day') || '1', 10);
+    const socialMomentMinIntervalHours = parseFloat(db.getSetting('social_moment_min_interval_hours') || '24');
+    const socialMaxForumPerWeek = parseInt(db.getSetting('social_max_forum_per_week') || '2', 10);
+
+    // ── 朋友圈：每次 tick 只随机选取 1 个满足过去 24 小时条数限制且超过最低间隔的角色 ──
+    const momentCandidates = activeChars.filter(c => {
+      if (socialMaxMomentPerDay <= 0) return false;
+
+      // 1. 24小时滑动窗口条数限制统计
+      let last24hCount = 0;
+      try {
+        const row = db.db.prepare('SELECT COUNT(*) as count FROM Moments WHERE character_id = ? AND timestamp >= ?').get(
+          c.id,
+          Date.now() - 24 * 60 * 60 * 1000
+        ) as { count: number } | undefined;
+        if (row) last24hCount = row.count;
+      } catch (e) {
+        console.error(`[SocialMediaService] 查询角色 ${c.name} 24小时滑动朋友圈失败:`, e);
+      }
+
+      if (last24hCount >= socialMaxMomentPerDay) return false;
+
+      // 2. 两次朋友圈最低间隔限制校验
+      const lastMomentTs = parseInt(db.getSetting(`last_moment_timestamp_${c.id}`) || '0', 10);
+      const hoursPassed = (Date.now() - lastMomentTs) / (1000 * 60 * 60);
+      if (hoursPassed < socialMomentMinIntervalHours) return false;
+
+      return true;
+    });
+
     if (momentCandidates.length > 0) {
       // 随机打乱后取第1个
       momentCandidates.sort(() => Math.random() - 0.5);
       const char = momentCandidates[0];
       try {
         console.log(`[SocialMediaService] 触发角色 ${char.name} 后台朋友圈静默生成...`);
-        await this.generateMoment(char, modelAdapter);
-        db.setSetting(`last_moment_date_${char.id}`, todayStr);
+        const result = await this.generateMoment(char, modelAdapter);
+        if (result) {
+          db.setSetting(`last_moment_date_${char.id}`, todayStr);
+          db.setSetting(`last_moment_timestamp_${char.id}`, Date.now().toString());
+        }
       } catch (err) {
         console.error(`[SocialMediaService] 角色 ${char.name} 朋友圈生成失败:`, err);
       }
     }
 
-    // ── 论坛：每次 tick 只随机选取 1 个本周未满 2 篇的角色 ──
+    // ── 论坛：每次 tick 只随机选取 1 个本周未满 socialMaxForumPerWeek 篇的角色 ──
     const forumCandidates = activeChars.filter(c => {
       const lastForumWeek = db.getSetting(`last_forum_week_${c.id}`);
       const forumCountStr = db.getSetting(`last_forum_count_${c.id}`) || '0';
-      const forumCount = lastForumWeek !== thisWeekStr ? 0 : parseInt(forumCountStr);
-      return forumCount < 2;
+      const forumCount = lastForumWeek !== thisWeekStr ? 0 : parseInt(forumCountStr, 10);
+      return forumCount < socialMaxForumPerWeek;
     });
 
     if (forumCandidates.length > 0) {

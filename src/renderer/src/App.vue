@@ -3197,6 +3197,165 @@
                 </div>
               </div>
 
+              <!-- F. 自主生命设置 (Tab: proactive) -->
+              <div v-else-if="activeSettingsTab === 'proactive'" class="space-y-6 animate-in fade-in duration-200">
+                <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-5 space-y-6">
+                  <div class="flex items-center space-x-2.5 border-b border-outline-variant/20 pb-4">
+                    <div class="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                      <SparklesIcon class="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 class="text-xs font-bold text-on-surface">自主生命引擎设置</h3>
+                      <p class="text-[10px] text-on-surface-variant mt-0.5">精细化配置 AI 角色的主动搭讪、日记自省及朋友圈/论坛发布频率，实现更自然的数字生命陪伴</p>
+                    </div>
+                  </div>
+
+                  <!-- 1. 搭讪频率控制 -->
+                  <div class="space-y-4">
+                    <h4 class="text-xs font-bold text-primary flex items-center space-x-1.5 pb-1 border-b border-outline-variant/10">
+                      <span>💬 主动搭讪配置</span>
+                    </h4>
+                    
+                    <div class="space-y-4">
+                      <!-- 每日搭讪上限 -->
+                      <div class="form-group">
+                        <div class="flex justify-between items-center mb-1">
+                          <label class="form-label font-bold text-xs mb-0">每日搭讪上限</label>
+                          <span class="text-xs font-mono text-primary font-bold">{{ proactiveMaxDialogPerDay }} 次/天</span>
+                        </div>
+                        <input 
+                          v-model.number="proactiveMaxDialogPerDay" 
+                          type="range" 
+                          min="0" 
+                          max="10" 
+                          step="1"
+                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
+                        />
+                        <p class="text-[9px] text-on-surface-variant/80 mt-1">每个角色每天在满足触发事件（日程/纪念日/久未联系/早安）时，最多发起搭讪的频次。设为 0 将完全禁用主动搭讪。</p>
+                      </div>
+
+                      <!-- 最短搭讪间隔 -->
+                      <div class="form-group">
+                        <div class="flex justify-between items-center mb-1">
+                          <label class="form-label font-bold text-xs mb-0">最短搭讪间隔</label>
+                          <span class="text-xs font-mono text-primary font-bold">{{ proactiveCooldownHours }} 小时</span>
+                        </div>
+                        <input 
+                          v-model.number="proactiveCooldownHours" 
+                          type="range" 
+                          min="0.5" 
+                          max="24" 
+                          step="0.5"
+                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
+                        />
+                        <p class="text-[9px] text-on-surface-variant/80 mt-1">相邻两次主动搭讪之间的物理冷却时间，防止短时间内对您造成消息轰炸。</p>
+                      </div>
+
+                      <!-- 矜持期保护 -->
+                      <div class="form-group">
+                        <div class="flex justify-between items-center mb-1">
+                          <label class="form-label font-bold text-xs mb-0">矜持期保护时长</label>
+                          <span class="text-xs font-mono text-primary font-bold">{{ proactiveReserveHours }} 小时</span>
+                        </div>
+                        <input 
+                          v-model.number="proactiveReserveHours" 
+                          type="range" 
+                          min="1" 
+                          max="72" 
+                          step="1"
+                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
+                        />
+                        <p class="text-[9px] text-on-surface-variant/80 mt-1">若最近一条对话消息是角色自己发送的（且非手账日记卡片），且您未回复，则角色在 X 小时内绝不连续发送第二条主动搭讪消息。</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 2. 社交圈频率控制 -->
+                  <div class="space-y-4 pt-2">
+                    <h4 class="text-xs font-bold text-primary flex items-center space-x-1.5 pb-1 border-b border-outline-variant/10">
+                      <span>🌐 社交圈行为配置</span>
+                    </h4>
+                    
+                    <div class="space-y-4">
+                      <!-- 每日朋友圈上限 -->
+                      <div class="form-group">
+                        <div class="flex justify-between items-center mb-1">
+                          <label class="form-label font-bold text-xs mb-0">每日朋友圈上限</label>
+                          <span class="text-xs font-mono text-primary font-bold">{{ socialMaxMomentPerDay }} 条/天</span>
+                        </div>
+                        <input 
+                          v-model.number="socialMaxMomentPerDay" 
+                          type="range" 
+                          min="0" 
+                          max="5" 
+                          step="1"
+                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
+                        />
+                        <p class="text-[9px] text-on-surface-variant/80 mt-1">每个角色每天最多发表的朋友圈动态条数。设为 0 将完全不发朋友圈。</p>
+                      </div>
+
+                      <!-- 朋友圈最低间隔 -->
+                      <div class="form-group">
+                        <div class="flex justify-between items-center mb-1">
+                          <label class="form-label font-bold text-xs mb-0">朋友圈发表最低间隔</label>
+                          <span class="text-xs font-mono text-primary font-bold">{{ socialMomentMinIntervalHours }} 小时</span>
+                        </div>
+                        <input 
+                          v-model.number="socialMomentMinIntervalHours" 
+                          type="range" 
+                          min="1" 
+                          max="48" 
+                          step="1"
+                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
+                        />
+                        <p class="text-[9px] text-on-surface-variant/80 mt-1">该角色两次发朋友圈动态之间的最低时间间隔，确保发帖节奏更加自然拟真。</p>
+                      </div>
+
+                      <!-- 每周论坛发帖上限 -->
+                      <div class="form-group">
+                        <div class="flex justify-between items-center mb-1">
+                          <label class="form-label font-bold text-xs mb-0">每周论坛发帖上限</label>
+                          <span class="text-xs font-mono text-primary font-bold">{{ socialMaxForumPerWeek }} 篇/周</span>
+                        </div>
+                        <input 
+                          v-model.number="socialMaxForumPerWeek" 
+                          type="range" 
+                          min="0" 
+                          max="10" 
+                          step="1"
+                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
+                        />
+                        <p class="text-[9px] text-on-surface-variant/80 mt-1">每个角色在贴吧论坛模块中每周最多发表的主题帖总数。设为 0 将完全不在论坛发帖。</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 3. API 消费估算与提示 -->
+                  <div class="border border-outline-variant/30 bg-primary/5 p-4 rounded-xl space-y-2">
+                    <div class="flex items-center space-x-2 text-primary">
+                      <LightbulbIcon class="w-4 h-4 flex-shrink-0" />
+                      <span class="text-xs font-bold">API 消费预估统计</span>
+                    </div>
+                    <p class="text-[10px] text-on-surface-variant leading-relaxed">
+                      在当前配置下，每个活跃角色每天在后台静默运行中，预计**最多会触发约 <span class="text-primary font-black text-xs font-mono">{{ maxProactiveCallsPerDay }} 次</span>**大模型 API 调用（不含您手动和角色聊天发起的部分）。请根据您的 API 额度合理配置。
+                    </p>
+                    <p class="text-[9px] text-on-surface-variant/70 leading-normal">
+                      * 包含：固定自省写日记(1次) + 触发搭讪(最大值) + 朋友圈(最大值 × 1.5) + 论坛(每周数/7)。朋友圈系数包含其他角色点赞与回复评论估算。
+                    </p>
+                  </div>
+
+                  <!-- 保存按钮 -->
+                  <div class="flex justify-end pt-2">
+                    <button 
+                      @click="saveProactiveSettings" 
+                      class="px-4 py-2 rounded-xl bg-primary text-on-primary font-bold text-xs hover:bg-primary/95 transition-all active:scale-95 shadow-sm cursor-pointer"
+                    >
+                      保存自主生命配置
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <!-- AI 小说设置 (Tab: novel) -->
               <div v-else-if="activeSettingsTab === 'novel'" class="space-y-6 animate-in fade-in duration-200">
                 <!-- 子标签页切换 -->
@@ -11746,6 +11905,61 @@ const generalConfig = ref({
   director_min_words: 800
 })
 
+// 自主生命相关配置参数
+const proactiveMaxDialogPerDay = ref(2)
+const proactiveCooldownHours = ref(3)
+const proactiveReserveHours = ref(36)
+const socialMaxMomentPerDay = ref(1)
+const socialMomentMinIntervalHours = ref(24)
+const socialMaxForumPerWeek = ref(2)
+
+// API 成本计算器
+const maxProactiveCallsPerDay = computed(() => {
+  const diary = 1
+  const dialog = Number(proactiveMaxDialogPerDay.value) || 0
+  const moment = (Number(socialMaxMomentPerDay.value) || 0) * 1.5
+  const forum = (Number(socialMaxForumPerWeek.value) || 0) / 7
+  return (diary + dialog + moment + forum).toFixed(1)
+})
+
+// 加载自主生命配置
+const loadProactiveConfig = async () => {
+  try {
+    const res = await window.api.invoke('get-proactive-config')
+    if (res && res.success && res.config) {
+      proactiveMaxDialogPerDay.value = parseInt(res.config.proactive_max_dialog_per_day, 10)
+      proactiveCooldownHours.value = parseFloat(res.config.proactive_cooldown_hours)
+      proactiveReserveHours.value = parseFloat(res.config.proactive_reserve_hours)
+      socialMaxMomentPerDay.value = parseInt(res.config.social_max_moment_per_day, 10)
+      socialMomentMinIntervalHours.value = parseFloat(res.config.social_moment_min_interval_hours)
+      socialMaxForumPerWeek.value = parseInt(res.config.social_max_forum_per_week, 10)
+    }
+  } catch (err) {
+    console.error('加载自主生命设置异常:', err)
+  }
+}
+
+// 保存自主生命配置
+const saveProactiveSettings = async () => {
+  try {
+    const res = await window.api.invoke('save-proactive-config', {
+      proactive_max_dialog_per_day: proactiveMaxDialogPerDay.value.toString(),
+      proactive_cooldown_hours: proactiveCooldownHours.value.toString(),
+      proactive_reserve_hours: proactiveReserveHours.value.toString(),
+      social_max_moment_per_day: socialMaxMomentPerDay.value.toString(),
+      social_moment_min_interval_hours: socialMomentMinIntervalHours.value.toString(),
+      social_max_forum_per_week: socialMaxForumPerWeek.value.toString()
+    })
+    if (res && res.success) {
+      showCustomAlert('保存成功', '自主生命引擎配置已成功写入本地数据库，并已实时生效！', 'success')
+    } else {
+      showCustomAlert('保存失败', res.error || '未知错误', 'error')
+    }
+  } catch (err: any) {
+    showCustomAlert('保存失败', err.message || '网络或系统错误', 'error')
+  }
+}
+
 // 监听音乐功能的开启/关闭联动
 watch(() => generalConfig.value.enable_music, (newVal) => {
   if (!newVal) {
@@ -12870,15 +13084,16 @@ const showChatModeModal = ref(false) // 角色专属聊天模式切换弹窗
 // 每个角色各自的聊天模式（key=characterId），reactive 保证模板响应式更新
 // 启动时在 loadCharacters 中从 DB 全量预加载；setChatMode/selectCharacter/广播 时实时同步
 const characterChatModeCache = reactive<Record<string, 'descriptive' | 'dialogue' | 'director'>>({})
-const activeSettingsTab = ref<'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback' | 'novel'>('general')
+const activeSettingsTab = ref<'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback' | 'novel' | 'proactive'>('general')
 const globalPrompt = ref('')
-const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback' | 'novel'; label: string; icon: any }[] = [
+const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback' | 'novel' | 'proactive'; label: string; icon: any }[] = [
   { id: 'general', label: '常规设置', icon: SettingsIcon },
   { id: 'profile', label: '个人中心', icon: UserIcon },
   { id: 'states', label: '状态栏设置', icon: HeartIcon },
   { id: 'primary', label: '主大模型', icon: CpuIcon },
   { id: 'secondary', label: '辅助大模型', icon: CpuIcon },
   { id: 'drawing', label: 'AI 绘图', icon: ImageIcon },
+  { id: 'proactive', label: '自主生命', icon: SparklesIcon },
   { id: 'novel', label: 'AI 写手', icon: BookOpenIcon },
   { id: 'wechat', label: '微信接入', icon: MessageCircleIcon },
   { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
@@ -19793,6 +20008,9 @@ async function initializeCoreApp() {
   } catch (e) {
     console.error('加载 NovelAI 配置异常:', e)
   }
+
+  // 加载自主生命配置
+  await loadProactiveConfig()
 }
 
 // 🚀 用户协议 15 秒倒计时启动器

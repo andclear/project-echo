@@ -95,38 +95,94 @@ export class AgentLifeEngine {
         setTimeout(async () => {
           try {
             const charId = char.id;
+            const planTimestampStr = db.getSetting(`active_plan_timestamp_${charId}`);
 
-            // 1. Wake Gate 0-Token 本地唤醒门控预检
-            const wakeResult = this.checkWakeGate(charId);
+            if (!planTimestampStr) {
+              // A. 尚未建立计划搭讪时间戳，进行首次门控预检并决定是否生成计划时间戳
+              const wakeResult = this.checkWakeGate(charId);
+              if (!wakeResult.wakeAgent) {
+                console.log(`[AgentLifeEngine] 0-Token 唤醒门控关闭 [wakeAgent=false]。角色 ${char.name} 保持静默，费用为 0。原因: ${wakeResult.reason}`);
+                resolve();
+                return;
+              }
 
-            if (!wakeResult.wakeAgent) {
-              console.log(`[AgentLifeEngine] 0-Token 唤醒门控关闭 [wakeAgent=false]。角色 ${char.name} 保持静默，费用为 0。原因: ${wakeResult.reason}`);
-              resolve();
-              return;
-            }
+              // 命中触发，生成未来计划搭讪时间戳 (早安延迟0-60分钟，其它延迟0-120分钟)
+              const eventType = wakeResult.triggerEvent?.type || 'random_drift';
+              const isMorning = eventType === 'good_morning';
+              const randomDelay = Math.floor(Math.random() * (isMorning ? 60 : 120) * 60 * 1000);
+              const planTimestamp = Date.now() + randomDelay;
 
-            console.log(`[AgentLifeEngine] 门控开启！[wakeAgent=true]。角色 ${char.name} 唤醒。强度: ${wakeResult.triggerStrength}，原因: ${wakeResult.reason}`);
+              db.setSetting(`active_plan_timestamp_${charId}`, planTimestamp.toString());
+              db.setSetting(`active_plan_reason_${charId}`, wakeResult.reason);
+              db.setSetting(`active_plan_event_${charId}`, JSON.stringify(wakeResult.triggerEvent || {}));
+              db.setSetting(`active_plan_strength_${charId}`, wakeResult.triggerStrength);
 
-            // 2. 获取大模型配置
-            const settingsStr = db.getSetting('model_config');
-            if (!settingsStr) {
-              console.warn('[AgentLifeEngine] 未配置全局大模型参数，门控强行关闭。');
-              resolve();
-              return;
-            }
+              console.log(`[AgentLifeEngine] 角色 ${char.name} 命中搭讪条件。已安排在 ${new Date(planTimestamp).toLocaleString()} 发起搭讪，随机错峰延迟 ${(randomDelay / 1000 / 60).toFixed(1)} 分钟。原因: ${wakeResult.reason}`);
+            } else {
+              // B. 已经存在计划搭讪时间戳，二次核验门控与判定是否已达时间触发点
+              const planTimestamp = parseInt(planTimestampStr, 10);
+              const wakeResult = this.checkWakeGate(charId);
 
-            const modelConfig = JSON.parse(settingsStr);
-            const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary);
+              if (!wakeResult.wakeAgent) {
+                // 如果在等待搭讪期间，用户主动发了消息或门控因其它原因关闭了，则取消该计划搭讪
+                db.setSetting(`active_plan_timestamp_${charId}`, '');
+                db.setSetting(`active_plan_reason_${charId}`, '');
+                db.setSetting(`active_plan_event_${charId}`, '');
+                db.setSetting(`active_plan_strength_${charId}`, '');
+                console.log(`[AgentLifeEngine] 角色 ${char.name} 存在搭讪计划，但检测到门控已关闭（原因: ${wakeResult.reason}），已物理取消该计划搭讪时间戳。🐾`);
+                resolve();
+                return;
+              }
 
-            // 3. 执行思考与可能的主动对话生成
-            await this.generateActiveBehavior(char, modelAdapter, wakeResult);
+              if (Date.now() < planTimestamp) {
+                console.log(`[AgentLifeEngine] 角色 ${char.name} 存在搭讪计划，预设时间为 ${new Date(planTimestamp).toLocaleString()}，目前时间未到，跳过。`);
+                resolve();
+                return;
+              }
 
-            // 4. 后台静默触发小说章节生成检查
-            try {
-              const novelService = new NovelWriterService(modelAdapter);
-              await novelService.checkAndGenerateChapter(charId);
-            } catch (novelErr) {
-              console.error(`[AgentLifeEngine] 角色 ${char.name} 后台小说检查异常:`, novelErr);
+              // 时间已到，真正触发 AI 呼叫与主动消息发送
+              console.log(`[AgentLifeEngine] 计划时间已到！角色 ${char.name} 唤醒。计划原因: ${wakeResult.reason}`);
+
+              // 获取大模型配置
+              const settingsStr = db.getSetting('model_config');
+              if (!settingsStr) {
+                console.warn('[AgentLifeEngine] 未配置全局大模型参数，物理终止。');
+                resolve();
+                return;
+              }
+
+              const modelConfig = JSON.parse(settingsStr);
+              const modelAdapter = new ModelAdapter(modelConfig.primary, modelConfig.secondary);
+
+              // 还原暂存的上下文原因进行 AI 呼叫
+              const planReason = db.getSetting(`active_plan_reason_${charId}`) || wakeResult.reason;
+              const planEventStr = db.getSetting(`active_plan_event_${charId}`);
+              const planStrength = (db.getSetting(`active_plan_strength_${charId}`) || wakeResult.triggerStrength) as 'strong' | 'weak';
+              const planEvent = planEventStr ? JSON.parse(planEventStr) : wakeResult.triggerEvent;
+
+              const customWakeResult = {
+                wakeAgent: true,
+                reason: planReason,
+                triggerStrength: planStrength,
+                triggerEvent: planEvent
+              };
+
+              // 执行思考与主动会话生成
+              await this.generateActiveBehavior(char, modelAdapter, customWakeResult);
+
+              // 清理计划时间戳以备下次循环
+              db.setSetting(`active_plan_timestamp_${charId}`, '');
+              db.setSetting(`active_plan_reason_${charId}`, '');
+              db.setSetting(`active_plan_event_${charId}`, '');
+              db.setSetting(`active_plan_strength_${charId}`, '');
+
+              // 后台静默触发小说章节生成检查
+              try {
+                const novelService = new NovelWriterService(modelAdapter);
+                await novelService.checkAndGenerateChapter(charId);
+              } catch (novelErr) {
+                console.error(`[AgentLifeEngine] 角色 ${char.name} 后台小说检查异常:`, novelErr);
+              }
             }
           } catch (err) {
             console.error(`[AgentLifeEngine] 驱动角色 ${char.name} 思考循环时发生异常:`, err);
@@ -216,10 +272,6 @@ export class AgentLifeEngine {
     }, socialDelay);
   }
 
-  /**
-   * 0-Token 本地快速唤醒门控预检
-   * @param characterId 角色唯一 ID
-   */
   public checkWakeGate(characterId: string, testNowDate?: Date): WakeContext {
     const db = getDatabaseService();
     const now = testNowDate || new Date();
@@ -248,6 +300,11 @@ export class AgentLifeEngine {
       return { wakeAgent: false, reason: '该角色从未与用户发生过聊天互动，保持完全静默。🐾', triggerStrength: 'weak' };
     }
 
+    // 读取数据库自定义参数
+    const activeCountMax = parseInt(db.getSetting('proactive_max_dialog_per_day') || '2', 10);
+    const cooldownHours = parseFloat(db.getSetting('proactive_cooldown_hours') || '3');
+    const reserveHours = parseFloat(db.getSetting('proactive_reserve_hours') || '36');
+
     // 2.1 对话与搭讪冷却状态检测 (防止在最前置一刀切 return 误伤 17 点自省写日记)
     const lastMsgTime = history[0].timestamp;
     const msPassedSinceLastMsg = now.getTime() - lastMsgTime;
@@ -256,12 +313,12 @@ export class AgentLifeEngine {
     const isDialogueCooldown = msPassedSinceLastMsg < 30 * 60 * 1000;
 
     // 2.2 上次搭讪未回复保护：若最近一条消息是角色自己发送的（且非手账日记卡片），说明用户尚未回复。
-    // 在 36 小时之内，我们坚守“矜持与静默”边界，绝对不连续发送第二条主动消息。
+    // 在 reserveHours 小时之内，我们坚守“矜持与静默”边界，绝对不连续发送第二条主动消息。
     let isProactiveRestricted = false;
     if (history[0].role === 'assistant') {
       const contentStr = (history[0].content || '').trim();
       const isDiary = contentStr.startsWith('[character_diary]:');
-      if (!isDiary && msPassedSinceLastMsg < 36 * 60 * 60 * 1000) {
+      if (!isDiary && msPassedSinceLastMsg < reserveHours * 60 * 60 * 1000) {
         isProactiveRestricted = true;
       }
     }
@@ -272,7 +329,7 @@ export class AgentLifeEngine {
     }
     const folderName = char.folder_name;
 
-    // 2.5 全局主动搭讪频率控制：每天最多可以触发 2 次，每轮搭讪触发后必须相隔 3 小时才允许下一次搭讪
+    // 2.5 全局主动搭讪频率控制：每天最多可以触发 activeCountMax 次，每轮搭讪触发后必须相隔 cooldownHours 小时才允许下一次搭讪
     const todayStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
     const activeTodayDate = db.getSetting(`active_today_date_${characterId}`);
     let activeCountToday = 0;
@@ -281,23 +338,25 @@ export class AgentLifeEngine {
       db.setSetting(`active_count_today_${characterId}`, '0');
     } else {
       const activeCountStr = db.getSetting(`active_count_today_${characterId}`);
-      activeCountToday = activeCountStr ? parseInt(activeCountStr) : 0;
+      activeCountToday = activeCountStr ? parseInt(activeCountStr, 10) : 0;
     }
 
     const lastActiveTsStr = db.getSetting(`active_last_timestamp_${characterId}`);
     const lastActiveTs = lastActiveTsStr ? parseInt(lastActiveTsStr) : 0;
     const msPassedSinceLastActive = now.getTime() - lastActiveTs;
-    const isCooldown = msPassedSinceLastActive < 3 * 60 * 60 * 1000;
+    const isCooldown = msPassedSinceLastActive < cooldownHours * 60 * 60 * 1000;
 
-    // 【门控升级】：将 30分钟静静 与 36小时矜持 共同作为主动搭讪对话的与门条件，彻底解绑下午 17 点日记的生成！
-    const allowActiveDialog = (activeCountToday < 2) && !isCooldown && !isDialogueCooldown && !isProactiveRestricted;
+    // 【门控升级】：将 30分钟静静 与 reserveHours小时矜持 共同作为主动搭讪对话的与门条件，彻底解绑下午 17 点日记的生成！
+    const allowActiveDialog = (activeCountToday < activeCountMax) && !isCooldown && !isDialogueCooldown && !isProactiveRestricted;
 
-    // 3. 检查强触发事件之：久未联系 (>= 72 小时)
+    // 3. 按照优先级链条检测事件
     const hoursPassed = (now.getTime() - lastMsgTime) / (1000 * 60 * 60);
+
+    // (1) 检查久未联系 (missed_user) —— 优先级1
     if (hoursPassed >= 72 && allowActiveDialog) {
       return {
         wakeAgent: true,
-        reason: `用户已离线 ${hoursPassed.toFixed(1)} 小时 (达到强触发阈值 72 小时，今日第 ${activeCountToday + 1} 次)。`,
+        reason: `用户已离线 ${hoursPassed.toFixed(1)} 小时 (达到阈值 72 小时，今日第 ${activeCountToday + 1} 次)。`,
         triggerStrength: 'strong',
         triggerEvent: {
           type: 'missed_user',
@@ -306,12 +365,12 @@ export class AgentLifeEngine {
       };
     }
 
-    // 4. 检查强触发事件之：今日日程事件
+    // (2) 检查今日日程事件 (schedule_event) —— 优先级2
     const scheduleEvent = this.getTodayScheduleEvent(folderName, now);
     if (scheduleEvent && allowActiveDialog) {
       return {
         wakeAgent: true,
-        reason: `今日有重要日程：${scheduleEvent} (达到强触发阈值，今日第 ${activeCountToday + 1} 次)。`,
+        reason: `今日有重要日程：${scheduleEvent} (触发日程，今日第 ${activeCountToday + 1} 次)。`,
         triggerStrength: 'strong',
         triggerEvent: {
           type: 'schedule_event',
@@ -320,12 +379,12 @@ export class AgentLifeEngine {
       };
     }
 
-    // 5. 检查弱触发事件之：纪念日/特殊日期
+    // (3) 检查特殊纪念日 (anniversary) —— 优先级3
     const anniversary = this.getAnniversaryEvent(folderName, now);
     if (anniversary && allowActiveDialog) {
       return {
         wakeAgent: true,
-        reason: `今天是特殊纪念日：${anniversary} (弱触发，今日第 ${activeCountToday + 1} 次)。`,
+        reason: `今天是特殊纪念日：${anniversary} (触发纪念日，今日第 ${activeCountToday + 1} 次)。`,
         triggerStrength: 'weak',
         triggerEvent: {
           type: 'anniversary',
@@ -334,13 +393,13 @@ export class AgentLifeEngine {
       };
     }
 
-    // 6. 检查弱触发事件之：早晨问候
+    // (4) 检查清晨问候 (good_morning) —— 优先级4
     const hour = now.getHours();
     const isMorning = hour >= 7 && hour < 8;
     if (isMorning && hoursPassed <= 36 && allowActiveDialog) {
       return {
         wakeAgent: true,
-        reason: `清晨问候时段 (07:00-08:00，弱触发，今日第 ${activeCountToday + 1} 次)。`,
+        reason: `清晨问候时段 (07:00-08:00，今日第 ${activeCountToday + 1} 次)。`,
         triggerStrength: 'weak',
         triggerEvent: {
           type: 'good_morning',
@@ -349,30 +408,15 @@ export class AgentLifeEngine {
       };
     }
 
-    // 7. 检查弱触发事件之：随机漂移 (20% 概率)
-    if (Math.random() < 0.2 && allowActiveDialog) {
-      return {
-        wakeAgent: true,
-        reason: `触发 20% 随机漂移 (弱触发，今日第 ${activeCountToday + 1} 次)。`,
-        triggerStrength: 'weak',
-        triggerEvent: {
-          type: 'random_drift',
-          detail: `触发原因：你在做数字生命的随机漫游，突然闪过一些奇怪的念头，想要分享给用户。`
-        }
-      };
-    }
-
-    // 日记触发已迁移到 tick() 的独立日记队列处理，此处不再判断
-
     return {
       wakeAgent: false,
       reason: isDialogueCooldown
         ? '30 分钟内与该角色有过对话交流，保持静默防打扰。🐾'
         : (isCooldown
-          ? `今日搭讪已触发 ${activeCountToday} 次，目前处于 3 小时搭讪冷却期内（已过去 ${(msPassedSinceLastActive / (1000 * 60)).toFixed(0)} 分钟）。`
-          : (activeCountToday >= 2
-            ? '今日主动搭讪已达 2 次上限，保持静默。'
-            : '未满足任何主动唤醒事件且今日已写过日记，保持静默。')),
+          ? `今日搭讪已触发 ${activeCountToday} 次，目前处于 ${cooldownHours} 小时搭讪冷却期内（已过去 ${(msPassedSinceLastActive / (1000 * 60)).toFixed(0)} 分钟）。`
+          : (activeCountToday >= activeCountMax
+            ? `今日主动搭讪已达 ${activeCountMax} 次上限，保持静默。`
+            : '未满足任何主动唤醒事件，保持静默。')),
       triggerStrength: 'weak'
     };
   }
@@ -616,22 +660,17 @@ export class AgentLifeEngine {
     const proactiveTriggerContent =
       `[System Dynamic Context Update]\n${dynamicContext}\n---\n\n` +
       `[PROACTIVE_TRIGGER]这是一条系统指令，不会显示在聊天界面中。\n` +
-      `角色现在独自思考着，决定是否要主动给用户发送一条消息。\n` +
+      `角色现在独自思考着，并决定主动给用户发送一条消息。\n` +
       `- 当前触发原因: ${wakeResult.reason}\n` +
       (triggerEvent ? `- 触发事件: ${triggerEvent.detail}\n` : '') +
       `- 离上次联系: ${timeGapDesc}\n` +
       `- 触发强度: ${wakeResult.triggerStrength}\n\n` +
-      (isAdminForced
-        ? `⚠️ 本次为调试强制触发（$admin 搭讪），你**必须**立刻主动发送一条消息，严禁输出 [SILENT]。\n\n`
-        : `请你根据以上信息和上面的对话历史，自然地决定是否要主动发起搭讪。如果决定发送消息，就在 <message> 标签中写下这条消息；如果决定不打扰用户，就在 <message> 标签中输出 [SILENT]。\n\n`) +
+      `请你根据以上信息和上面的对话历史，主动发起搭讪（或清晨早安问候）。你**必须**发送一条消息，严禁输出任何静默或空闲标记，并且必须在 <message> 标签中写下这条消息。\n\n` +
       `消息必须符合以下要求：\n` +
       `${topicInstruction}\n` +
       `- 语气必须与你的人设完全一致，不要说空洞客套的问候语\n` +
       `- 消息长度必须符合当前聊天模式（${chatMode === 'dialogue' ? '纯对话模式：5-30字的简短消息' : '描写模式：可以包含动作心理描写'}）\n` +
-      (isAdminForced
-        ? `- 严禁输出 [SILENT]，必须发送一条真实消息\n`
-        : `- 如果触发强度为 strong，必须发送消息；如果为 weak，可以选择输出 [SILENT]\n`) +
-      `\n请用以下 XML 格式输出：\n<message>你要发送的搭讪消息${isAdminForced ? '' : '，或 [SILENT]'}</message>`;
+      `\n请用以下 XML 格式输出：\n<message>你要发送的搭讪消息</message>`;
     // 维持 messages 数组严格的角色交替结构（和正常对话一致）
     const messages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },

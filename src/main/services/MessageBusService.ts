@@ -163,6 +163,17 @@ export class MessageBusService {
     } else if (msg.role === 'user') {
       // 用户消息也更新 last_msg_ts，但不增加 unread
       this.updateLastMsgTs(msg.character_id, msg.timestamp)
+
+      // 用户主动聊天时，物理取消该角色的待执行搭讪计划
+      try {
+        const dbLocal = getDatabaseService()
+        dbLocal.setSetting(`active_plan_timestamp_${msg.character_id}`, '')
+        dbLocal.setSetting(`active_plan_reason_${msg.character_id}`, '')
+        dbLocal.setSetting(`active_plan_event_${msg.character_id}`, '')
+        dbLocal.setSetting(`active_plan_strength_${msg.character_id}`, '')
+      } catch (err) {
+        console.error(`[MessageBus] 取消待执行搭讪计划异常:`, err)
+      }
     }
 
     // 3. 多端推送
@@ -202,6 +213,20 @@ export class MessageBusService {
       this.updateConversationMeta(msgs[0].character_id, lastTs)
     } else {
       this.updateLastMsgTs(msgs[0].character_id, lastTs)
+    }
+
+    // 用户主动聊天时，物理取消该角色的待执行搭讪计划
+    const hasUserMsg = msgs.some(m => m.role === 'user')
+    if (hasUserMsg) {
+      try {
+        const charId = msgs[0].character_id
+        db.setSetting(`active_plan_timestamp_${charId}`, '')
+        db.setSetting(`active_plan_reason_${charId}`, '')
+        db.setSetting(`active_plan_event_${charId}`, '')
+        db.setSetting(`active_plan_strength_${charId}`, '')
+      } catch (err) {
+        console.error(`[MessageBus] 批量取消待执行搭讪计划异常:`, err)
+      }
     }
 
     // 按 seq 顺序有序推送（interval 50ms 防止 TCP 粘包，保证前端收到顺序正确）
