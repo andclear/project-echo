@@ -503,13 +503,13 @@
             <div
               v-for="menu in settingsMenus"
               :key="menu.id"
-              class="px-4 py-3 hover:bg-surface-high/60 cursor-pointer transition-colors flex items-center space-x-3 group"
-              :class="{ 'bg-surface-high/80 text-primary font-bold': activeSettingsTab === menu.id }"
+              class="mx-2 px-3.5 py-2.5 rounded-xl hover:bg-surface-high/50 cursor-pointer transition-all flex items-center space-x-3 group"
+              :style="activeSettingsTab === menu.id ? 'background-color: rgba(59, 130, 246, 0.12)' : ''"
               @click="activeSettingsTab = menu.id; isMobileSettingsActive = true"
             >
-              <component :is="menu.icon" class="w-4 h-4 text-on-surface-variant flex-shrink-0 transition-all group-hover:scale-110" :class="{ '!text-primary': activeSettingsTab === menu.id }" stroke-width="1.5" />
+              <component :is="menu.icon" class="w-4 h-4 text-on-surface-variant flex-shrink-0 transition-all group-hover:scale-110" stroke-width="1.5" />
               <div class="flex-1 min-w-0 flex items-center justify-between">
-                <div class="text-xs font-semibold text-on-surface truncate">{{ menu.label }}</div>
+                <div class="text-xs font-semibold text-on-surface truncate" :class="{ 'font-bold': activeSettingsTab === menu.id }">{{ menu.label }}</div>
                 <span v-if="menu.id === 'about' && hasNewVersion" class="w-2 h-2 bg-red-500 rounded-full shadow-sm scale-95 animate-pulse mr-1.5 shrink-0"></span>
               </div>
             </div>
@@ -2244,11 +2244,11 @@
                   </div>
                 </div>
 
-                <!-- 2. 自主生命引擎与全局约束 -->
+                <!-- 2. 主动引擎与全局约束 -->
                 <div class="space-y-4 pb-6 border-b border-outline-variant/10">
                   <div class="flex items-center space-x-2 text-primary font-bold text-xs select-none">
                     <CpuIcon class="w-4 h-4 text-primary" />
-                    <span>自主引擎与全局约束</span>
+                    <span>主动引擎与全局约束</span>
                   </div>
 
                   <!-- 扫档频率 -->
@@ -3197,161 +3197,284 @@
                 </div>
               </div>
 
-              <!-- F. 自主生命设置 (Tab: proactive) -->
-              <div v-else-if="activeSettingsTab === 'proactive'" class="space-y-6 animate-in fade-in duration-200">
-                <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-5 space-y-6">
-                  <div class="flex items-center space-x-2.5 border-b border-outline-variant/20 pb-4">
-                    <div class="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                      <SparklesIcon class="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h3 class="text-xs font-bold text-on-surface">自主生命引擎设置</h3>
-                      <p class="text-[10px] text-on-surface-variant mt-0.5">精细化配置 AI 角色的主动搭讪、日记自省及朋友圈/论坛发布频率，实现更自然的数字生命陪伴</p>
-                    </div>
+              <!-- F. 主动引擎设置 (Tab: proactive) -->
+              <div v-else-if="activeSettingsTab === 'proactive'" class="space-y-5 animate-in fade-in duration-200">
+                <!-- 顶部红色警告提示 -->
+                <div class="flex items-start space-x-3 px-4 py-3 bg-red-500/5 border border-red-500/15 rounded-2xl text-red-600 dark:text-red-400 select-none">
+                  <AlertTriangleIcon class="w-4 h-4 flex-shrink-0 text-red-500 mt-0.5" />
+                  <span class="text-xs font-bold leading-normal">
+                    为节省Token，请将暂不联系的角色设置为<span class="text-red-600 dark:text-red-400 font-extrabold underline decoration-red-400/60 decoration-2 underline-offset-2">【消息免打扰】</span>。
+                  </span>
+                </div>
+
+                <!-- 1. 搭讪频率控制组 -->
+                <div class="space-y-3">
+                  <div class="flex items-center space-x-2 px-1 select-none">
+                    <div class="w-1.5 h-3.5 bg-primary rounded-full"></div>
+                    <h3 class="text-xs font-bold text-on-surface">💬 主动搭讪配置</h3>
                   </div>
 
-                  <!-- 1. 搭讪频率控制 -->
-                  <div class="space-y-4">
-                    <h4 class="text-xs font-bold text-primary flex items-center space-x-1.5 pb-1 border-b border-outline-variant/10">
-                      <span>💬 主动搭讪配置</span>
-                    </h4>
-                    
-                    <div class="space-y-4">
-                      <!-- 每日搭讪上限 -->
-                      <div class="form-group">
-                        <div class="flex justify-between items-center mb-1">
-                          <label class="form-label font-bold text-xs mb-0">每日搭讪上限</label>
-                          <span class="text-xs font-mono text-primary font-bold">{{ proactiveMaxDialogPerDay }} 次/天</span>
-                        </div>
-                        <input 
-                          v-model.number="proactiveMaxDialogPerDay" 
-                          type="range" 
-                          min="0" 
-                          max="10" 
-                          step="1"
-                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
-                        />
-                        <p class="text-[9px] text-on-surface-variant/80 mt-1">每个角色每天在满足触发事件（日程/纪念日/久未联系/早安）时，最多发起搭讪的频次。设为 0 将完全禁用主动搭讪。</p>
+                  <!-- 大卡片容器 -->
+                  <div class="bg-white border border-outline-variant/15 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden divide-y divide-outline-variant/10">
+                    <!-- 每日搭讪上限 -->
+                    <div class="p-3.5 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface">每日搭讪上限</span>
+                        <span class="text-xs font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 rounded-lg shrink-0">
+                          {{ proactiveMaxDialogPerDay }} 次/天
+                        </span>
                       </div>
+                      <div class="flex items-center space-x-3 pt-0.5">
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">0</span>
+                        <div class="flex-1 flex items-center">
+                          <input 
+                            v-model.number="proactiveMaxDialogPerDay" 
+                            type="range" 
+                            min="0" 
+                            max="10" 
+                            step="1"
+                            class="proactive-range-input" 
+                          />
+                        </div>
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">10</span>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
+                        每个角色每天在满足触发事件（日程/纪念日/久未联系/早安）时最大发起的搭讪频次。设为 0 将完全禁用主动搭讪。
+                      </p>
+                    </div>
 
-                      <!-- 最短搭讪间隔 -->
-                      <div class="form-group">
-                        <div class="flex justify-between items-center mb-1">
-                          <label class="form-label font-bold text-xs mb-0">最短搭讪间隔</label>
-                          <span class="text-xs font-mono text-primary font-bold">{{ proactiveCooldownHours }} 小时</span>
-                        </div>
-                        <input 
-                          v-model.number="proactiveCooldownHours" 
-                          type="range" 
-                          min="0.5" 
-                          max="24" 
-                          step="0.5"
-                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
-                        />
-                        <p class="text-[9px] text-on-surface-variant/80 mt-1">相邻两次主动搭讪之间的物理冷却时间，防止短时间内对您造成消息轰炸。</p>
+                    <!-- 最短搭讪间隔 -->
+                    <div class="p-3.5 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface">最短搭讪间隔</span>
+                        <span class="text-xs font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 rounded-lg shrink-0">
+                          {{ proactiveCooldownHours }} 小时
+                        </span>
                       </div>
+                      <div class="flex items-center space-x-3 pt-0.5">
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">0.5</span>
+                        <div class="flex-1 flex items-center">
+                          <input 
+                            v-model.number="proactiveCooldownHours" 
+                            type="range" 
+                            min="0.5" 
+                            max="24" 
+                            step="0.5"
+                            class="proactive-range-input" 
+                          />
+                        </div>
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">24</span>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
+                        相邻两次主动搭讪之间的物理冷却时间，防止短时间内对您造成消息轰炸。
+                      </p>
+                    </div>
 
-                      <!-- 矜持期保护 -->
-                      <div class="form-group">
-                        <div class="flex justify-between items-center mb-1">
-                          <label class="form-label font-bold text-xs mb-0">矜持期保护时长</label>
-                          <span class="text-xs font-mono text-primary font-bold">{{ proactiveReserveHours }} 小时</span>
-                        </div>
-                        <input 
-                          v-model.number="proactiveReserveHours" 
-                          type="range" 
-                          min="1" 
-                          max="72" 
-                          step="1"
-                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
-                        />
-                        <p class="text-[9px] text-on-surface-variant/80 mt-1">若最近一条对话消息是角色自己发送的（且非手账日记卡片），且您未回复，则角色在 X 小时内绝不连续发送第二条主动搭讪消息。</p>
+                    <!-- 矜持期保护 -->
+                    <div class="p-3.5 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface">矜持期保护时长</span>
+                        <span class="text-xs font-mono text-primary font-bold bg-primary/10 px-2 py-0.5 rounded-lg shrink-0">
+                          {{ proactiveReserveHours }} 小时
+                        </span>
                       </div>
+                      <div class="flex items-center space-x-3 pt-0.5">
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">1</span>
+                        <div class="flex-1 flex items-center">
+                          <input 
+                            v-model.number="proactiveReserveHours" 
+                            type="range" 
+                            min="1" 
+                            max="72" 
+                            step="1"
+                            class="proactive-range-input" 
+                          />
+                        </div>
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">72</span>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
+                        若最近一条对话消息是角色自己发送的（且非手账日记），且您未回复，则角色在 X 小时内绝不连续搭讪。
+                      </p>
                     </div>
                   </div>
+                </div>
 
-                  <!-- 2. 社交圈频率控制 -->
-                  <div class="space-y-4 pt-2">
-                    <h4 class="text-xs font-bold text-primary flex items-center space-x-1.5 pb-1 border-b border-outline-variant/10">
-                      <span>🌐 社交圈行为配置</span>
-                    </h4>
-                    
-                    <div class="space-y-4">
-                      <!-- 每日朋友圈上限 -->
-                      <div class="form-group">
-                        <div class="flex justify-between items-center mb-1">
-                          <label class="form-label font-bold text-xs mb-0">每日朋友圈上限</label>
-                          <span class="text-xs font-mono text-primary font-bold">{{ socialMaxMomentPerDay }} 条/天</span>
-                        </div>
-                        <input 
-                          v-model.number="socialMaxMomentPerDay" 
-                          type="range" 
-                          min="0" 
-                          max="5" 
-                          step="1"
-                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
-                        />
-                        <p class="text-[9px] text-on-surface-variant/80 mt-1">每个角色每天最多发表的朋友圈动态条数。设为 0 将完全不发朋友圈。</p>
-                      </div>
-
-                      <!-- 朋友圈最低间隔 -->
-                      <div class="form-group">
-                        <div class="flex justify-between items-center mb-1">
-                          <label class="form-label font-bold text-xs mb-0">朋友圈发表最低间隔</label>
-                          <span class="text-xs font-mono text-primary font-bold">{{ socialMomentMinIntervalHours }} 小时</span>
-                        </div>
-                        <input 
-                          v-model.number="socialMomentMinIntervalHours" 
-                          type="range" 
-                          min="1" 
-                          max="48" 
-                          step="1"
-                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
-                        />
-                        <p class="text-[9px] text-on-surface-variant/80 mt-1">该角色两次发朋友圈动态之间的最低时间间隔，确保发帖节奏更加自然拟真。</p>
-                      </div>
-
-                      <!-- 每周论坛发帖上限 -->
-                      <div class="form-group">
-                        <div class="flex justify-between items-center mb-1">
-                          <label class="form-label font-bold text-xs mb-0">每周论坛发帖上限</label>
-                          <span class="text-xs font-mono text-primary font-bold">{{ socialMaxForumPerWeek }} 篇/周</span>
-                        </div>
-                        <input 
-                          v-model.number="socialMaxForumPerWeek" 
-                          type="range" 
-                          min="0" 
-                          max="10" 
-                          step="1"
-                          class="w-full h-1.5 bg-outline-variant/30 rounded-lg appearance-none cursor-pointer accent-primary" 
-                        />
-                        <p class="text-[9px] text-on-surface-variant/80 mt-1">每个角色在贴吧论坛模块中每周最多发表的主题帖总数。设为 0 将完全不在论坛发帖。</p>
-                      </div>
-                    </div>
+                <!-- 2. 社交圈行为配置 -->
+                <div class="space-y-3 pt-1">
+                  <div class="flex items-center space-x-2 px-1 select-none">
+                    <div class="w-1.5 h-3.5 bg-primary rounded-full"></div>
+                    <h3 class="text-xs font-bold text-on-surface">🌐 社交圈行为配置</h3>
                   </div>
 
-                  <!-- 3. API 消费估算与提示 -->
-                  <div class="border border-outline-variant/30 bg-primary/5 p-4 rounded-xl space-y-2">
-                    <div class="flex items-center space-x-2 text-primary">
-                      <LightbulbIcon class="w-4 h-4 flex-shrink-0" />
-                      <span class="text-xs font-bold">API 消费预估统计</span>
+                  <!-- 大卡片容器 -->
+                  <div class="bg-white border border-outline-variant/15 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden divide-y divide-outline-variant/10">
+                    <!-- 每日朋友圈上限 -->
+                    <div class="p-3.5 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface">每日朋友圈上限</span>
+                        <span class="text-xs font-mono text-primary font-bold bg-primary/10 px-2.5 py-0.5 rounded-lg shrink-0">
+                          {{ socialMaxMomentPerDay }} 条/天
+                        </span>
+                      </div>
+                      <div class="flex items-center space-x-3 pt-0.5">
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">0</span>
+                        <div class="flex-1 flex items-center">
+                          <input 
+                            v-model.number="socialMaxMomentPerDay" 
+                            type="range" 
+                            min="0" 
+                            max="5" 
+                            step="1"
+                            class="proactive-range-input" 
+                          />
+                        </div>
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">5</span>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
+                        每个角色每天最多发表的朋友圈动态条数。设为 0 将完全不发朋友圈。
+                      </p>
                     </div>
-                    <p class="text-[10px] text-on-surface-variant leading-relaxed">
-                      在当前配置下，每个活跃角色每天在后台静默运行中，预计**最多会触发约 <span class="text-primary font-black text-xs font-mono">{{ maxProactiveCallsPerDay }} 次</span>**大模型 API 调用（不含您手动和角色聊天发起的部分）。请根据您的 API 额度合理配置。
-                    </p>
-                    <p class="text-[9px] text-on-surface-variant/70 leading-normal">
-                      * 包含：固定自省写日记(1次) + 触发搭讪(最大值) + 朋友圈(最大值 × 1.5) + 论坛(每周数/7)。朋友圈系数包含其他角色点赞与回复评论估算。
-                    </p>
+
+                    <!-- 朋友圈最低间隔 -->
+                    <div class="p-3.5 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface">朋友圈发表最低间隔</span>
+                        <span class="text-xs font-mono text-primary font-bold bg-primary/10 px-2.5 py-0.5 rounded-lg shrink-0">
+                          {{ socialMomentMinIntervalHours }} 小时
+                        </span>
+                      </div>
+                      <div class="flex items-center space-x-3 pt-0.5">
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">1</span>
+                        <div class="flex-1 flex items-center">
+                          <input 
+                            v-model.number="socialMomentMinIntervalHours" 
+                            type="range" 
+                            min="1" 
+                            max="48" 
+                            step="1"
+                            class="proactive-range-input" 
+                          />
+                        </div>
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">48</span>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
+                        该角色两次发朋友圈动态之间的最低时间间隔，确保发帖节奏更加自然拟真。
+                      </p>
+                    </div>
+
+                    <!-- 每周论坛发帖上限 -->
+                    <div class="p-3.5 space-y-2">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-on-surface">每周论坛发帖上限</span>
+                        <span class="text-xs font-mono text-primary font-bold bg-primary/10 px-2.5 py-0.5 rounded-lg shrink-0">
+                          {{ socialMaxForumPerWeek }} 篇/周
+                        </span>
+                      </div>
+                      <div class="flex items-center space-x-3 pt-0.5">
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">0</span>
+                        <div class="flex-1 flex items-center">
+                          <input 
+                            v-model.number="socialMaxForumPerWeek" 
+                            type="range" 
+                            min="0" 
+                            max="10" 
+                            step="1"
+                            class="proactive-range-input" 
+                          />
+                        </div>
+                        <span class="text-[10px] text-on-surface-variant/40 font-mono">10</span>
+                      </div>
+                      <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
+                        每个角色在贴吧论坛模块中每周最多发表的主题帖总数。设为 0 将完全不在论坛发帖。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 3. API 消费估算与提示 -->
+                <div class="bg-white border border-outline-variant/20 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden space-y-0">
+                  <!-- 顶部标题栏 -->
+                  <div class="flex items-center space-x-2 border-b border-outline-variant/15 p-4 bg-slate-50/50 dark:bg-slate-900/10 select-none">
+                    <div class="w-1.5 h-3.5 bg-primary rounded-full"></div>
+                    <span class="text-xs font-bold text-on-surface">📊 API 消费预算明细（每个角色单独统计）</span>
                   </div>
 
-                  <!-- 保存按钮 -->
-                  <div class="flex justify-end pt-2">
-                    <button 
-                      @click="saveProactiveSettings" 
-                      class="px-4 py-2 rounded-xl bg-primary text-on-primary font-bold text-xs hover:bg-primary/95 transition-all active:scale-95 shadow-sm cursor-pointer"
-                    >
-                      保存自主生命配置
-                    </button>
+                  <!-- 精美表格 -->
+                  <div class="overflow-x-auto select-none">
+                    <table class="w-full text-left border-collapse">
+                      <thead>
+                        <tr class="bg-slate-50/50 dark:bg-slate-900/5 border-b border-outline-variant/15 text-[10px] font-bold text-on-surface-variant">
+                          <th class="py-2.5 px-4 w-1/4">行为项目</th>
+                          <th class="py-2.5 px-3">调用规则与公式算法</th>
+                          <th class="py-2.5 px-4 text-right w-24">预计调用数</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-outline-variant/10 text-[10px]">
+                        <!-- 1. 日记自省 -->
+                        <tr class="hover:bg-slate-50/20 transition-all">
+                          <td class="py-2.5 px-4 font-bold text-on-surface">
+                            <div class="flex items-center space-x-2">
+                              <BookOpenIcon class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <span>每日日记自省</span>
+                            </div>
+                          </td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">每日 17:00 后且有新对话时，固定触发 1 次自我内省写日记。</td>
+                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-emerald-600 dark:text-emerald-400">1.0 次/天</td>
+                        </tr>
+
+                        <!-- 2. 主动搭讪 -->
+                        <tr class="hover:bg-slate-50/20 transition-all">
+                          <td class="py-2.5 px-4 font-bold text-on-surface">
+                            <div class="flex items-center space-x-2">
+                              <MessageSquareIcon class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                              <span>主动搭讪沟通</span>
+                            </div>
+                          </td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">离线超限、日程或清晨问候等事件命中时触发。单日最大触发额度。</td>
+                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-blue-600 dark:text-blue-400">{{ proactiveMaxDialogPerDay }}.0 次/天</td>
+                        </tr>
+
+                        <!-- 3. 朋友圈 -->
+                        <tr class="hover:bg-slate-50/20 transition-all">
+                          <td class="py-2.5 px-4 font-bold text-on-surface">
+                            <div class="flex items-center space-x-2">
+                              <CameraIcon class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                              <span>朋友圈生成互动</span>
+                            </div>
+                          </td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">朋友圈上限 {{ socialMaxMomentPerDay }} 条 × (1.0次发布 + 0.5次回复评论等社交估算)。</td>
+                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-indigo-600 dark:text-indigo-400">{{ (socialMaxMomentPerDay * 1.5).toFixed(1) }} 次/天</td>
+                        </tr>
+
+                        <!-- 4. 贴吧论坛 -->
+                        <tr class="hover:bg-slate-50/20 transition-all">
+                          <td class="py-2.5 px-4 font-bold text-on-surface">
+                            <div class="flex items-center space-x-2">
+                              <GlobeIcon class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                              <span>贴吧论坛发帖</span>
+                            </div>
+                          </td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">每周论坛发帖上限 {{ socialMaxForumPerWeek }} 篇 ÷ 7天 (每次发帖消耗 1.0 次调用)。</td>
+                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-purple-600 dark:text-purple-400">{{ (socialMaxForumPerWeek / 7).toFixed(1) }} 次/天</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- 底部红色警告与大总计 -->
+                  <div class="border-t border-outline-variant/15 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-red-500/5 p-4 select-none">
+                    <div class="flex items-start space-x-2 text-on-surface">
+                      <AlertTriangleIcon class="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                      <div class="space-y-0.5">
+                        <span class="text-xs font-bold leading-normal text-on-surface">
+                          🚨 <strong class="text-red-600 dark:text-red-400 font-extrabold text-sm underline decoration-red-400/60 decoration-2 underline-offset-2">单个角色</strong> 每日预计最大大模型调用次数
+                        </span>
+                        <p class="text-[9px] text-on-surface-variant/70 leading-relaxed">注意：上述预估数值为单个角色的最高限制。若您启用了多个角色，总消耗将成倍增加。</p>
+                      </div>
+                    </div>
+                    <span class="text-sm font-extrabold text-primary font-mono bg-primary/10 px-3.5 py-1.5 rounded-xl shrink-0 self-end md:self-center shadow-sm">
+                      {{ maxProactiveCallsPerDay }} 次/天
+                    </span>
                   </div>
                 </div>
               </div>
@@ -4060,7 +4183,7 @@
                 </button>
 
                 <button 
-                  @click="activeSettingsTab === 'drawing' ? saveNovelAiConfig() : saveModelConfig()" 
+                  @click="activeSettingsTab === 'drawing' ? saveNovelAiConfig() : (activeSettingsTab === 'proactive' ? saveProactiveSettings() : saveModelConfig())" 
                   :disabled="saving" 
                   class="btn-primary flex items-center space-x-1.5 disabled:opacity-50 text-xs py-2 px-4 font-bold rounded-xl active:scale-95 transition-all"
                 >
@@ -11951,7 +12074,7 @@ const saveProactiveSettings = async () => {
       social_max_forum_per_week: socialMaxForumPerWeek.value.toString()
     })
     if (res && res.success) {
-      showCustomAlert('保存成功', '自主生命引擎配置已成功写入本地数据库，并已实时生效！', 'success')
+      showCustomAlert('保存成功', '主动引擎配置已成功写入本地数据库，并已实时生效！', 'success')
     } else {
       showCustomAlert('保存失败', res.error || '未知错误', 'error')
     }
@@ -13088,12 +13211,12 @@ const activeSettingsTab = ref<'general' | 'profile' | 'states' | 'primary' | 'se
 const globalPrompt = ref('')
 const settingsMenus: { id: 'general' | 'profile' | 'states' | 'primary' | 'secondary' | 'drawing' | 'wechat' | 'migration' | 'about' | 'feedback' | 'novel' | 'proactive'; label: string; icon: any }[] = [
   { id: 'general', label: '常规设置', icon: SettingsIcon },
+  { id: 'proactive', label: '主动引擎', icon: SparklesIcon },
   { id: 'profile', label: '个人中心', icon: UserIcon },
   { id: 'states', label: '状态栏设置', icon: HeartIcon },
   { id: 'primary', label: '主大模型', icon: CpuIcon },
   { id: 'secondary', label: '辅助大模型', icon: CpuIcon },
   { id: 'drawing', label: 'AI 绘图', icon: ImageIcon },
-  { id: 'proactive', label: '自主生命', icon: SparklesIcon },
   { id: 'novel', label: 'AI 写手', icon: BookOpenIcon },
   { id: 'wechat', label: '微信接入', icon: MessageCircleIcon },
   { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
@@ -22399,6 +22522,77 @@ onUnmounted(() => {
 </script>
 
 <style lang="postcss" scoped>
+/* ===== 高档滑块控件样式 (Proactive Range Slider) ===== */
+.proactive-range-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+  display: block;
+}
+
+/* 轨道 Webkit */
+.proactive-range-input::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(148, 163, 184, 0.25) !important; /* 浅石板灰，适配轻量/暗色主题 */
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+/* 轨道 Mozilla */
+.proactive-range-input::-moz-range-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(148, 163, 184, 0.25) !important;
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+/* 滑块头 Webkit */
+.proactive-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: #3b82f6 !important; /* 主题亮蓝色 */
+  border: 3px solid #ffffff !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  margin-top: -6px; /* (4px - 16px) / 2 */
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+.proactive-range-input::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  background: #2563eb !important;
+}
+.proactive-range-input::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+  background: #1d4ed8 !important;
+}
+
+/* 滑块头 Mozilla */
+.proactive-range-input::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: #3b82f6 !important;
+  border: 3px solid #ffffff !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: transform 0.1s ease, background-color 0.1s ease;
+  box-sizing: border-box;
+}
+.proactive-range-input::-moz-range-thumb:hover {
+  transform: scale(1.15);
+  background: #2563eb !important;
+}
+.proactive-range-input::-moz-range-thumb:active {
+  transform: scale(0.95);
+  background: #1d4ed8 !important;
+}
+
 /* 移动端视口优化：规避输入框获取焦点时 iOS 自动缩放与上推全局视口 */
 @media (max-width: 768px) {
   :global(html), :global(body) {

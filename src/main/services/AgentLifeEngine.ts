@@ -749,12 +749,15 @@ export class AgentLifeEngine {
           is_proactive: 1
         });
 
-        // 成功发送主动搭讪消息，更新今日统计数据与冷却时间戳
-        const activeCountStr = db.getSetting(`active_count_today_${charId}`);
-        const currentCount = activeCountStr ? parseInt(activeCountStr) : 0;
-        db.setSetting(`active_count_today_${charId}`, String(currentCount + 1));
-        db.setSetting(`active_last_timestamp_${charId}`, Date.now().toString());
-        db.setSetting(`active_today_date_${charId}`, todayStr);
+        // 成功发送主动搭讪消息，更新今日统计数据与冷却时间戳（由管理员命令强制触发时不计算次数，不占用今日常规限额与冷却）
+        const isAdmin = wakeResult.reason.includes('[Admin]');
+        if (!isAdmin) {
+          const activeCountStr = db.getSetting(`active_count_today_${charId}`);
+          const currentCount = activeCountStr ? parseInt(activeCountStr) : 0;
+          db.setSetting(`active_count_today_${charId}`, String(currentCount + 1));
+          db.setSetting(`active_last_timestamp_${charId}`, Date.now().toString());
+          db.setSetting(`active_today_date_${charId}`, todayStr);
+        }
         console.log(`[AgentLifeEngine] 角色 ${char.name} 主动搭讪文本落盘与推送成功`);
 
         // 异步触发后台记忆提取，让搭讪消息也被记忆系统处理
