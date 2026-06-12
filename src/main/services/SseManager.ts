@@ -62,6 +62,12 @@ export class SseManager {
    * 连接后立即发送欢迎帧和断线期间错过的消息（补偿）
    */
   addClient(res: http.ServerResponse, lastReceivedSeq: number = -1): void {
+    // 监听 socket 错误事件，防止异步写入出错导致 Node.js 进程未捕获异常而崩溃
+    res.on('error', (err) => {
+      console.warn('[SseManager] 客户端连接发生异常错误，自动清理:', err.message)
+      this.removeClient(res)
+    })
+
     // 设置 SSE 响应头
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',

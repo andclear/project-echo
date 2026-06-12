@@ -195,7 +195,7 @@ Target JSON 格式：
       } else {
         // ─── 单聊路径：构建 PendingMemoryDiff 草稿，解耦状态评估与记忆提炼 ───
 
-        // 1. 频次判定：获取单聊总 Round 数量 (排除红包、表情包、日记)
+        // 1. 频次判定：获取单聊总 Round 数量 (排除红包、表情包、日记、生图)
         let shouldExtractMemory = false;
         try {
           const db = getDatabaseService();
@@ -205,13 +205,15 @@ Target JSON 格式：
             WHERE character_id = ? 
               AND round_id IS NOT NULL 
               AND round_id != '' 
-              AND round_id IN (
-                SELECT round_id FROM Messages 
+              AND round_id NOT IN (
+                SELECT DISTINCT round_id FROM Messages 
                 WHERE character_id = ?
-                  AND role = 'user'
-                  AND content NOT LIKE '[character_diary]:%'
-                  AND content NOT LIKE '[wechat_red_packet]:%'
-                  AND content NOT LIKE '[wechat_custom_emoji]:%'
+                  AND (
+                    content LIKE '[character_diary]:%'
+                    OR content LIKE '[wechat_red_packet]:%'
+                    OR content LIKE '[wechat_custom_emoji]:%'
+                    OR content LIKE '[wechat_image_media]:%'
+                  )
               )
           `).get(charId, charId) as { count: number } | undefined;
           
@@ -248,7 +250,7 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
           })
           .join('\n');
 
-        // 2. 🚀 后端多轮对话上下文合并 (排除红包、表情包、日记)
+        // 2. 🚀 后端多轮对话上下文合并 (排除红包、表情包、日记、生图)
         let historyDialogueContext = '';
         try {
           const db = getDatabaseService();
@@ -259,13 +261,15 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
               AND timestamp < ? 
               AND round_id IS NOT NULL 
               AND round_id != '' 
-              AND round_id IN (
-                SELECT round_id FROM Messages 
+              AND round_id NOT IN (
+                SELECT DISTINCT round_id FROM Messages 
                 WHERE character_id = ?
-                  AND role = 'user'
-                  AND content NOT LIKE '[character_diary]:%'
-                  AND content NOT LIKE '[wechat_red_packet]:%'
-                  AND content NOT LIKE '[wechat_custom_emoji]:%'
+                  AND (
+                    content LIKE '[character_diary]:%'
+                    OR content LIKE '[wechat_red_packet]:%'
+                    OR content LIKE '[wechat_custom_emoji]:%'
+                    OR content LIKE '[wechat_image_media]:%'
+                  )
               )
             GROUP BY round_id 
             ORDER BY MAX(timestamp) DESC 
@@ -283,6 +287,7 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
                 AND content NOT LIKE '[character_diary]:%'
                 AND content NOT LIKE '[wechat_red_packet]:%'
                 AND content NOT LIKE '[wechat_custom_emoji]:%'
+                AND content NOT LIKE '[wechat_image_media]:%'
               ORDER BY timestamp ASC
             `).all(charId, ...roundIds) as { role: string; content: string; timestamp: number; round_id: string }[];
 
@@ -318,6 +323,7 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
 
         // 3. 状态评估提示词
         const stateSystemPrompt = `你是一个 Echo 平台的后台认知与心智状态评估智能体。你的任务是分析用户（User）与角色（Character）之间的最新对话（我们为你提供了最近3轮的对话上下文，请结合全盘语境分析），并评估该对话对角色当前内心状态（如亲密度、心情及各自定义状态）的影响。
+**【特别重要】：在评估状态栏变化时，请注意最新的一轮对话（[LATEST DIALOGUE TURN]）对于状态栏的影响和权重具有最高的优先级与决定性，历史对话（[HISTORICAL DIALOGUE ROUND x]）仅作为变化背景与语气连贯性参考。**
 
 【角色当前状态更新评估】
 请审查角色当前状态，它们的含义（"指标含义"）以及自定义更新规则（"AI更新规则"），并评估最新对话对这些状态的影响。你必须遵循以下两层评估法则：
