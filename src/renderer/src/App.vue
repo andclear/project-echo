@@ -20044,13 +20044,15 @@ function flattenMessages(historyMessages: any[], _charId: string): any[] {
 }
 
 function restoreMessageProps(m: any) {
+  const ts = m.timestamp !== undefined && m.timestamp !== null ? m.timestamp : (m.created_at ? new Date(m.created_at).getTime() : Date.now());
   const result: any = {
     id: m.id,
     role: m.role,
     content: m.content,
     character_id: m.character_id,
     isSystem: m.role === 'system',
-    timestamp: m.timestamp !== undefined && m.timestamp !== null ? m.timestamp : Date.now(),
+    timestamp: ts,
+    created_at: ts,
     prompt_tokens: m.prompt_tokens,
     completion_tokens: m.completion_tokens,
     cached_tokens: m.cached_tokens,
