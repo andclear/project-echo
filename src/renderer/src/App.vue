@@ -3211,11 +3211,11 @@
                 <div class="space-y-3">
                   <div class="flex items-center space-x-2 px-1 select-none">
                     <div class="w-1.5 h-3.5 bg-primary rounded-full"></div>
-                    <h3 class="text-xs font-bold text-on-surface">💬 主动搭讪配置</h3>
+                    <h3 class="text-xs font-bold text-on-surface">角色主动搭讪配置</h3>
                   </div>
 
                   <!-- 大卡片容器 -->
-                  <div class="bg-white border border-outline-variant/15 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden divide-y divide-outline-variant/10">
+                  <div class="bg-white dark:bg-surface-low border border-outline-variant/15 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden divide-y divide-outline-variant/10">
                     <!-- 每日搭讪上限 -->
                     <div class="p-3.5 space-y-2">
                       <div class="flex items-center justify-between">
@@ -3239,7 +3239,7 @@
                         <span class="text-[10px] text-on-surface-variant/40 font-mono">10</span>
                       </div>
                       <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
-                        每个角色每天在满足触发事件（日程/纪念日/久未联系/早安）时最大发起的搭讪频次。设为 0 将完全禁用主动搭讪。
+                        每个角色每天在满足触发事件时最大发起的搭讪频次。设为 0 将完全禁用主动搭讪。
                       </p>
                     </div>
 
@@ -3266,7 +3266,7 @@
                         <span class="text-[10px] text-on-surface-variant/40 font-mono">24</span>
                       </div>
                       <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
-                        相邻两次主动搭讪之间的物理冷却时间，防止短时间内对您造成消息轰炸。
+                        相邻两次主动搭讪之间的冷却时间，防止短时间内造成消息轰炸。
                       </p>
                     </div>
 
@@ -3293,7 +3293,7 @@
                         <span class="text-[10px] text-on-surface-variant/40 font-mono">72</span>
                       </div>
                       <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
-                        若最近一条对话消息是角色自己发送的（且非手账日记），且您未回复，则角色在 X 小时内绝不连续搭讪。
+                        若最近一条对话消息是角色自己发送的（且非日记），且用户未回复，则角色在 X 小时内绝不连续搭讪。
                       </p>
                     </div>
                   </div>
@@ -3303,11 +3303,11 @@
                 <div class="space-y-3 pt-1">
                   <div class="flex items-center space-x-2 px-1 select-none">
                     <div class="w-1.5 h-3.5 bg-primary rounded-full"></div>
-                    <h3 class="text-xs font-bold text-on-surface">🌐 社交圈行为配置</h3>
+                    <h3 class="text-xs font-bold text-on-surface">社交圈行为配置</h3>
                   </div>
 
                   <!-- 大卡片容器 -->
-                  <div class="bg-white border border-outline-variant/15 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden divide-y divide-outline-variant/10">
+                  <div class="bg-white dark:bg-surface-low border border-outline-variant/15 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden divide-y divide-outline-variant/10">
                     <!-- 每日朋友圈上限 -->
                     <div class="p-3.5 space-y-2">
                       <div class="flex items-center justify-between">
@@ -3358,7 +3358,7 @@
                         <span class="text-[10px] text-on-surface-variant/40 font-mono">48</span>
                       </div>
                       <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
-                        该角色两次发朋友圈动态之间的最低时间间隔，确保发帖节奏更加自然拟真。
+                        该角色两次发朋友圈动态之间的最低时间间隔。
                       </p>
                     </div>
 
@@ -3385,19 +3385,19 @@
                         <span class="text-[10px] text-on-surface-variant/40 font-mono">10</span>
                       </div>
                       <p class="text-[9px] text-on-surface-variant/60 leading-normal pl-0.5">
-                        每个角色在贴吧论坛模块中每周最多发表的主题帖总数。设为 0 将完全不在论坛发帖。
+                        每个角色在论坛模块中每周最多发表的主题帖总数。设为 0 将完全不在论坛发帖。
                       </p>
                     </div>
                   </div>
                 </div>
 
                 <!-- 3. API 消费估算与提示 -->
-                <div class="bg-white border border-outline-variant/20 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden space-y-0">
+                <div class="bg-white dark:bg-surface-low border border-outline-variant/20 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden space-y-0">
                   <!-- 顶部标题栏 -->
                   <div class="flex items-center justify-between border-b border-outline-variant/15 p-4 bg-slate-50/50 dark:bg-slate-900/10 select-none">
                     <div class="flex items-center space-x-2">
                       <div class="w-1.5 h-3.5 bg-primary rounded-full"></div>
-                      <span class="text-xs font-bold text-on-surface">📊 API 消费预算明细</span>
+                      <span class="text-xs font-bold text-on-surface">API 消费预算明细</span>
                     </div>
                   </div>
 
@@ -3437,7 +3437,7 @@
                           <th class="py-2.5 px-4 w-1/5">行为项目</th>
                           <th class="py-2.5 px-3">调用规则与公式算法 (基于 N={{ activeProactiveCharacters.length }} 个活跃角色)</th>
                           <th class="py-2.5 px-3 text-right w-24">单角色预计</th>
-                          <th class="py-2.5 px-4 text-right w-28">N角色最大总计</th>
+                          <th class="py-2.5 px-4 text-right w-28">总活跃角色预计</th>
                         </tr>
                       </thead>
                       <tbody class="divide-y divide-outline-variant/10 text-[10px]">
@@ -3446,10 +3446,10 @@
                           <td class="py-2.5 px-4 font-bold text-on-surface">
                             <div class="flex items-center space-x-2">
                               <BookOpenIcon class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                              <span>每日日记自省</span>
+                              <span>每日日记</span>
                             </div>
                           </td>
-                          <td class="py-2.5 px-3 text-on-surface-variant/80">每日 17:00 后且有新对话时，每人固定触发 1 次自我写日记。</td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">每日 17:00 后，有过聊天记录的角色固定触发 1 次自我写日记。</td>
                           <td class="py-2.5 px-3 text-right font-extrabold font-mono text-emerald-600 dark:text-emerald-400">1.0 次/天</td>
                           <td class="py-2.5 px-4 text-right font-extrabold font-mono text-emerald-700 dark:text-emerald-400">{{ (activeProactiveCharacters.length * 1.0).toFixed(1) }} 次/天</td>
                         </tr>
@@ -3475,7 +3475,7 @@
                               <span>发朋友圈/论坛</span>
                             </div>
                           </td>
-                          <td class="py-2.5 px-3 text-on-surface-variant/80">自身发圈及发论坛的调用数：朋友圈上限 {{ socialMaxMomentPerDay }} 条 + 论坛周上限 {{ socialMaxForumPerWeek }} 篇 ÷ 7天。</td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">自身发圈/论坛的调用数：朋友圈上限 {{ socialMaxMomentPerDay }} 条 + 论坛周上限 {{ socialMaxForumPerWeek }} 篇 ÷ 7天。</td>
                           <td class="py-2.5 px-3 text-right font-extrabold font-mono text-indigo-600 dark:text-indigo-400">
                             {{ (socialMaxMomentPerDay + socialMaxForumPerWeek / 7).toFixed(1) }} 次/天
                           </td>
@@ -3493,7 +3493,7 @@
                             </div>
                           </td>
                           <td class="py-2.5 px-3 text-on-surface-variant/80">
-                            对其他活跃角色所发动态的被动点赞、评论等回复交互（平均每人触发概率约 50%）：0.5 × (N - 1) × 每日动态发帖总和。
+                            对其他活跃角色动态的被动点赞、评论等回复交互（平均每人触发概率约 50%）：0.5 × (N - 1) × 每日动态发帖总和。
                           </td>
                           <td class="py-2.5 px-3 text-right font-extrabold font-mono text-purple-600 dark:text-purple-400">
                             {{ (activeProactiveCharacters.length > 1 ? 0.5 * (activeProactiveCharacters.length - 1) * (socialMaxMomentPerDay + socialMaxForumPerWeek / 7) : 0).toFixed(1) }} 次/天
