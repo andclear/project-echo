@@ -598,9 +598,14 @@ export class AgentLifeEngine {
     for (const m of cleanHistory) {
       const role = m.role === 'user' ? 'user' : 'assistant';
       // 用户图片消息用占位符替换，避免原始标记进入 LLM
-      const content = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
+      const body = (m.role === 'user' && (m.content || '').startsWith('[wechat_image_media]:')
         ? formatUserImageForLLM(m.content)
         : cleanContentForLLM(m.content || ''));
+      
+      const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleString() : '';
+      const timePrefix = (m.role === 'user' && timeStr) ? `[发送时间: ${timeStr}]\n` : '';
+      const content = `${timePrefix}${body}`;
+
       // 合并连续同角色的发言，但搭讪消息（is_proactive）保持独立不参与合并
       if (
         historyMessages.length > 0 &&
