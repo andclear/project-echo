@@ -3394,9 +3394,39 @@
                 <!-- 3. API 消费估算与提示 -->
                 <div class="bg-white border border-outline-variant/20 dark:border-outline-variant/10 rounded-2xl shadow-sm overflow-hidden space-y-0">
                   <!-- 顶部标题栏 -->
-                  <div class="flex items-center space-x-2 border-b border-outline-variant/15 p-4 bg-slate-50/50 dark:bg-slate-900/10 select-none">
-                    <div class="w-1.5 h-3.5 bg-primary rounded-full"></div>
-                    <span class="text-xs font-bold text-on-surface">📊 API 消费预算明细（每个角色单独统计）</span>
+                  <div class="flex items-center justify-between border-b border-outline-variant/15 p-4 bg-slate-50/50 dark:bg-slate-900/10 select-none">
+                    <div class="flex items-center space-x-2">
+                      <div class="w-1.5 h-3.5 bg-primary rounded-full"></div>
+                      <span class="text-xs font-bold text-on-surface">📊 API 消费预算明细</span>
+                    </div>
+                  </div>
+
+                  <!-- 活跃角色下拉展开折叠列表 -->
+                  <div class="px-4 py-3 bg-slate-50/40 dark:bg-slate-900/5 border-b border-outline-variant/10 text-[10px]">
+                    <div class="flex items-center justify-between cursor-pointer select-none" @click="showActiveCharsList = !showActiveCharsList">
+                      <span class="text-on-surface-variant font-medium">
+                        当前主动引擎生效角色数：<strong class="text-primary font-black">{{ activeProactiveCharacters.length }}</strong> 个（已排除了消息免打扰的角色）
+                      </span>
+                      <span class="text-primary hover:underline flex items-center space-x-1 font-bold">
+                        <span>{{ showActiveCharsList ? '收起列表' : '展开列表' }}</span>
+                        <ChevronDownIcon class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': showActiveCharsList }" />
+                      </span>
+                    </div>
+                    <div v-show="showActiveCharsList" class="mt-2 border-t border-outline-variant/10 pt-2 max-h-24 overflow-y-auto">
+                      <div v-if="activeProactiveCharacters.length === 0" class="text-on-surface-variant/50 text-center py-1 select-none font-medium">
+                        暂无生效中的角色（所有角色均已免打扰或无角色）
+                      </div>
+                      <div v-else class="flex flex-wrap gap-1.5">
+                        <span 
+                          v-for="c in activeProactiveCharacters" 
+                          :key="c.id"
+                          class="px-2 py-0.5 rounded-md bg-white border border-outline-variant/10 text-on-surface flex items-center space-x-1 shadow-sm"
+                        >
+                          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                          <span class="truncate max-w-[80px] font-medium">{{ c.name }}</span>
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   <!-- 精美表格 -->
@@ -3404,9 +3434,10 @@
                     <table class="w-full text-left border-collapse">
                       <thead>
                         <tr class="bg-slate-50/50 dark:bg-slate-900/5 border-b border-outline-variant/15 text-[10px] font-bold text-on-surface-variant">
-                          <th class="py-2.5 px-4 w-1/4">行为项目</th>
-                          <th class="py-2.5 px-3">调用规则与公式算法</th>
-                          <th class="py-2.5 px-4 text-right w-24">预计调用数</th>
+                          <th class="py-2.5 px-4 w-1/5">行为项目</th>
+                          <th class="py-2.5 px-3">调用规则与公式算法 (基于 N={{ activeProactiveCharacters.length }} 个活跃角色)</th>
+                          <th class="py-2.5 px-3 text-right w-24">单角色预计</th>
+                          <th class="py-2.5 px-4 text-right w-28">N角色最大总计</th>
                         </tr>
                       </thead>
                       <tbody class="divide-y divide-outline-variant/10 text-[10px]">
@@ -3414,48 +3445,62 @@
                         <tr class="hover:bg-slate-50/20 transition-all">
                           <td class="py-2.5 px-4 font-bold text-on-surface">
                             <div class="flex items-center space-x-2">
-                              <BookOpenIcon class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <BookOpenIcon class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                               <span>每日日记自省</span>
                             </div>
                           </td>
-                          <td class="py-2.5 px-3 text-on-surface-variant/80">每日 17:00 后且有新对话时，固定触发 1 次自我内省写日记。</td>
-                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-emerald-600 dark:text-emerald-400">1.0 次/天</td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">每日 17:00 后且有新对话时，每人固定触发 1 次自我写日记。</td>
+                          <td class="py-2.5 px-3 text-right font-extrabold font-mono text-emerald-600 dark:text-emerald-400">1.0 次/天</td>
+                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-emerald-700 dark:text-emerald-400">{{ (activeProactiveCharacters.length * 1.0).toFixed(1) }} 次/天</td>
                         </tr>
 
                         <!-- 2. 主动搭讪 -->
                         <tr class="hover:bg-slate-50/20 transition-all">
                           <td class="py-2.5 px-4 font-bold text-on-surface">
                             <div class="flex items-center space-x-2">
-                              <MessageSquareIcon class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                              <MessageSquareIcon class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
                               <span>主动搭讪沟通</span>
                             </div>
                           </td>
                           <td class="py-2.5 px-3 text-on-surface-variant/80">离线超限、日程或清晨问候等事件命中时触发。单日最大触发额度。</td>
-                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-blue-600 dark:text-blue-400">{{ proactiveMaxDialogPerDay }}.0 次/天</td>
+                          <td class="py-2.5 px-3 text-right font-extrabold font-mono text-blue-600 dark:text-blue-400">{{ proactiveMaxDialogPerDay }}.0 次/天</td>
+                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-blue-700 dark:text-blue-400">{{ (activeProactiveCharacters.length * proactiveMaxDialogPerDay).toFixed(1) }} 次/天</td>
                         </tr>
 
-                        <!-- 3. 朋友圈 -->
+                        <!-- 3. 发动态（朋友圈/论坛） -->
                         <tr class="hover:bg-slate-50/20 transition-all">
                           <td class="py-2.5 px-4 font-bold text-on-surface">
                             <div class="flex items-center space-x-2">
-                              <CameraIcon class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                              <span>朋友圈生成互动</span>
+                              <CameraIcon class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                              <span>发朋友圈/论坛</span>
                             </div>
                           </td>
-                          <td class="py-2.5 px-3 text-on-surface-variant/80">朋友圈上限 {{ socialMaxMomentPerDay }} 条 × (1.0次发布 + 0.5次回复评论等社交估算)。</td>
-                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-indigo-600 dark:text-indigo-400">{{ (socialMaxMomentPerDay * 1.5).toFixed(1) }} 次/天</td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">自身发圈及发论坛的调用数：朋友圈上限 {{ socialMaxMomentPerDay }} 条 + 论坛周上限 {{ socialMaxForumPerWeek }} 篇 ÷ 7天。</td>
+                          <td class="py-2.5 px-3 text-right font-extrabold font-mono text-indigo-600 dark:text-indigo-400">
+                            {{ (socialMaxMomentPerDay + socialMaxForumPerWeek / 7).toFixed(1) }} 次/天
+                          </td>
+                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-indigo-700 dark:text-indigo-400">
+                            {{ (activeProactiveCharacters.length * (socialMaxMomentPerDay + socialMaxForumPerWeek / 7)).toFixed(1) }} 次/天
+                          </td>
                         </tr>
 
-                        <!-- 4. 贴吧论坛 -->
+                        <!-- 4. 被动社交互动 -->
                         <tr class="hover:bg-slate-50/20 transition-all">
                           <td class="py-2.5 px-4 font-bold text-on-surface">
                             <div class="flex items-center space-x-2">
-                              <GlobeIcon class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-                              <span>贴吧论坛发帖</span>
+                              <GlobeIcon class="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                              <span>朋友圈/论坛互动</span>
                             </div>
                           </td>
-                          <td class="py-2.5 px-3 text-on-surface-variant/80">每周论坛发帖上限 {{ socialMaxForumPerWeek }} 篇 ÷ 7天 (每次发帖消耗 1.0 次调用)。</td>
-                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-purple-600 dark:text-purple-400">{{ (socialMaxForumPerWeek / 7).toFixed(1) }} 次/天</td>
+                          <td class="py-2.5 px-3 text-on-surface-variant/80">
+                            对其他活跃角色所发动态的被动点赞、评论等回复交互（平均每人触发概率约 50%）：0.5 × (N - 1) × 每日动态发帖总和。
+                          </td>
+                          <td class="py-2.5 px-3 text-right font-extrabold font-mono text-purple-600 dark:text-purple-400">
+                            {{ (activeProactiveCharacters.length > 1 ? 0.5 * (activeProactiveCharacters.length - 1) * (socialMaxMomentPerDay + socialMaxForumPerWeek / 7) : 0).toFixed(1) }} 次/天
+                          </td>
+                          <td class="py-2.5 px-4 text-right font-extrabold font-mono text-purple-700 dark:text-purple-400">
+                            {{ (activeProactiveCharacters.length * (activeProactiveCharacters.length > 1 ? 0.5 * (activeProactiveCharacters.length - 1) * (socialMaxMomentPerDay + socialMaxForumPerWeek / 7) : 0)).toFixed(1) }} 次/天
+                          </td>
                         </tr>
                       </tbody>
                     </table>
@@ -3463,18 +3508,24 @@
 
                   <!-- 底部红色警告与大总计 -->
                   <div class="border-t border-outline-variant/15 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-red-500/5 p-4 select-none">
-                    <div class="flex items-start space-x-2 text-on-surface">
-                      <AlertTriangleIcon class="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                      <div class="space-y-0.5">
+                    <div class="flex items-center space-x-2 text-on-surface">
+                      <AlertTriangleIcon class="w-4 h-4 text-red-500 shrink-0" />
+                      <div class="flex items-center space-x-1.5 flex-wrap">
                         <span class="text-xs font-bold leading-normal text-on-surface">
-                          🚨 <strong class="text-red-600 dark:text-red-400 font-extrabold text-sm underline decoration-red-400/60 decoration-2 underline-offset-2">单个角色</strong> 每日预计最大大模型调用次数
+                          🚨 <strong class="text-red-600 dark:text-red-400 font-extrabold text-sm underline decoration-red-400/60 decoration-2 underline-offset-2">单个角色</strong> 每日预计最大大模型调用次数：
                         </span>
-                        <p class="text-[9px] text-on-surface-variant/70 leading-relaxed">注意：上述预估数值为单个角色的最高限制。若您启用了多个角色，总消耗将成倍增加。</p>
+                        <span class="text-sm font-extrabold text-primary font-mono bg-primary/10 px-2 py-0.5 rounded-lg shrink-0">
+                          {{ singleCharProactiveCallsPerDay }} 次/天
+                        </span>
+                        <span class="text-xs text-on-surface-variant/60 font-semibold px-1">|</span>
+                        <span class="text-xs font-bold leading-normal text-on-surface">
+                          所有生效角色 (<strong class="text-primary">{{ activeProactiveCharacters.length }}</strong>个) 总预算：
+                        </span>
+                        <span class="text-sm font-extrabold text-primary font-mono bg-primary/15 px-2.5 py-0.5 rounded-lg shrink-0">
+                          {{ totalProactiveCallsPerDay }} 次/天
+                        </span>
                       </div>
                     </div>
-                    <span class="text-sm font-extrabold text-primary font-mono bg-primary/10 px-3.5 py-1.5 rounded-xl shrink-0 self-end md:self-center shadow-sm">
-                      {{ maxProactiveCallsPerDay }} 次/天
-                    </span>
                   </div>
                 </div>
               </div>
@@ -12036,13 +12087,31 @@ const socialMaxMomentPerDay = ref(1)
 const socialMomentMinIntervalHours = ref(24)
 const socialMaxForumPerWeek = ref(2)
 
-// API 成本计算器
-const maxProactiveCallsPerDay = computed(() => {
-  const diary = 1
+// 状态与计算属性：当前主动引擎生效角色（未设置消息免打扰的角色）
+const showActiveCharsList = ref(false)
+const activeProactiveCharacters = computed(() => {
+  return characterList.value.filter(c => c.id !== 'character_creator_bot' && !conversationMeta[c.id]?.muted)
+})
+
+// 单个角色每日最大调用预估 (日记 + 搭讪 + 自身发布 + 社交互动)
+const singleCharProactiveCallsPerDay = computed(() => {
+  const N = activeProactiveCharacters.value.length
+  const diary = 1.0
   const dialog = Number(proactiveMaxDialogPerDay.value) || 0
-  const moment = (Number(socialMaxMomentPerDay.value) || 0) * 1.5
+  const moment = Number(socialMaxMomentPerDay.value) || 0
   const forum = (Number(socialMaxForumPerWeek.value) || 0) / 7
-  return (diary + dialog + moment + forum).toFixed(1)
+  
+  // 被动互动消耗：本角色去评论别人发的朋友圈/论坛（按实际 50% 概率）
+  const passiveInteraction = N > 1 ? 0.5 * (N - 1) * (moment + forum) : 0
+  
+  return (diary + dialog + moment + forum + passiveInteraction).toFixed(1)
+})
+
+// 全系统所有生效角色每日大模型最大预计总消耗
+const totalProactiveCallsPerDay = computed(() => {
+  const N = activeProactiveCharacters.value.length
+  const single = parseFloat(singleCharProactiveCallsPerDay.value) || 0
+  return (N * single).toFixed(1)
 })
 
 // 加载自主生命配置
