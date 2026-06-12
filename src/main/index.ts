@@ -1462,10 +1462,15 @@ function registerIpcHandlers(): void {
         // 2. 广播给所有连入局域网的客户端 SSE 通道
         SseManager.getInstance().broadcast('message-deleted', { characterId: charId, messageId: payload.messageId })
 
-        // 3. 清除该角色的待确认记忆草稿（防止被删消息的记忆被延迟写入污染上下文）
+        // 3. 清除该角色的待确认记忆草稿并广播状态回滚，触发秒级渲染同步
         try {
           db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${charId}`)
           console.log(`[IPC] 删除消息时清除角色 ${charId} 的记忆草稿。`)
+          const stateBroadcast = { characterId: charId, updates: [] }
+          if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+            mainWindow.webContents.send('character-state-updated', stateBroadcast)
+          }
+          SseManager.getInstance().broadcast('character-state-updated', stateBroadcast)
         } catch (_) { }
 
         // 4. 清除进程内存级前缀缓存（防止删除最后一条 AI 消息后，旧原始内容被还原进下一轮 history 造成上下文污染）
@@ -4855,6 +4860,17 @@ ${soulContent}
     let originalUserMsgId: string | undefined = undefined
 
     if (payload.isRegenerate) {
+      // 🚀 重新生成回复时，立即废弃并物理删除当前角色的待确认记忆草稿，防范脏记忆写入，并向前端广播状态回滚
+      try {
+        db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${characterId}`)
+        console.log(`[Regenerate] 重新回复时清除角色 ${characterId} 的记忆草稿。`)
+        const stateBroadcast = { characterId, updates: [] }
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('character-state-updated', stateBroadcast)
+        }
+        SseManager.getInstance().broadcast('character-state-updated', stateBroadcast)
+      } catch (_) { }
+
       // 重新生成时，最近的那条用户消息已入库，需要从历史中剔除，
       // 因为它将在 messages 末尾以包含 Annotations 的 finalUserContent 形式统一传入！
       // 这样同时确保 lastUserMsg 能够正确拿到上一次（真正前一轮）的用户消息。
@@ -5754,9 +5770,15 @@ ${memoryContent}
       anchorTs  // 锚点时间戳
     ).then(async (pendingDiff) => {
       if (pendingDiff) {
-        // 将草稿序列化存入 Settings 表，等待用户下次发消息时提交落盘
         db.setSetting(`pending_memory_diff_${characterId}`, JSON.stringify(pendingDiff))
         console.log(`[MemoryService] 记忆草稿已暂存，anchorTs=${anchorTs}`)
+
+        // 🚀 草稿写入后即时广播更新通知，令前端渲染最新的内存合并状态
+        const stateBroadcast = { characterId, updates: pendingDiff.state_updates || [] }
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('character-state-updated', stateBroadcast)
+        }
+        SseManager.getInstance().broadcast('character-state-updated', stateBroadcast)
       }
       // 归并压缩仍立即运行（基于历史总条数触发，与单条消息无关）
       await memoryService.compressActiveHistoryAndConsolidate(characterId, memoryPath)
@@ -5896,6 +5918,16 @@ ${memoryContent}
       }
       SseManager.getInstance().broadcast('chat-window-cleared', { characterId })
 
+      // 🚀 清空该角色的待确认记忆草稿，防范后续对话被脏记忆串流并同步更新状态
+      try {
+        db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${characterId}`)
+        const stateBroadcast = { characterId, updates: [] }
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('character-state-updated', stateBroadcast)
+        }
+        SseManager.getInstance().broadcast('character-state-updated', stateBroadcast)
+      } catch (_) { }
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
@@ -5962,6 +5994,11 @@ ${memoryContent}
       //     若清空后立即对话，commitPendingMemory 仍持有旧草稿，会将被删的记忆重新落盘）
       try {
         db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${characterId}`)
+        const stateBroadcast = { characterId, updates: [] }
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('character-state-updated', stateBroadcast)
+        }
+        SseManager.getInstance().broadcast('character-state-updated', stateBroadcast)
       } catch (_) { }
 
       // G. 清空 Diary.md 日记文件（角色自省写下的日记，会被 ContextAssembler 读取并注入
@@ -8207,7 +8244,57 @@ ${soulContent}
       StateReaderWriter.writeState(statePath, state)
     }
 
-    return state.items
+    // 🚀 内存级临时草稿合并渲染 (In-Memory Draft Merging)
+    let mergedItems = filteredItems.map(item => ({ ...item }))
+    try {
+      const charRow = db.db.prepare('SELECT id FROM Characters WHERE folder_name = ?').get(folderName) as { id: string } | undefined
+      const charId = charRow ? charRow.id : folderName
+      const settingKey = `pending_memory_diff_${charId}`
+      const rawDraft = db.getSetting(settingKey)
+      if (rawDraft) {
+        const diff = JSON.parse(rawDraft)
+        if (diff && diff.state_updates && Array.isArray(diff.state_updates)) {
+          for (const update of diff.state_updates) {
+            const item = mergedItems.find(i => i.key === update.key)
+            if (item) {
+              if (item.type === 'text') {
+                const rawVal = update.value !== undefined ? update.value : update.delta
+                if (rawVal !== undefined && rawVal !== null) {
+                  item.value = String(rawVal).trim()
+                }
+              } else {
+                const minVal = item.min ?? 0
+                const maxVal = item.max ?? (item.key === 'balance' ? 9999999999999 : 100)
+                const currentVal = typeof item.value === 'number' ? item.value : (Number(item.value) || 0)
+                
+                let finalVal = currentVal
+                if (update.value !== undefined && update.value !== null && update.value !== '') {
+                  const targetVal = Number(update.value)
+                  if (!isNaN(targetVal)) {
+                    finalVal = Math.max(minVal, Math.min(maxVal, targetVal))
+                  }
+                } else if (update.delta !== undefined && update.delta !== null) {
+                  const deltaVal = Number(update.delta)
+                  if (!isNaN(deltaVal)) {
+                    finalVal = Math.max(minVal, Math.min(maxVal, currentVal + deltaVal))
+                  }
+                }
+                
+                if (item.key === 'balance') {
+                  item.value = Math.round(finalVal * 100) / 100
+                } else {
+                  item.value = finalVal
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[getProcessedCharacterStates] 内存合并状态草稿失败:', e)
+    }
+
+    return mergedItems
   }
 
   // 2.5 读取角色实时状态 State.md 结构化数组 (包含老角色补充亲密度及过滤孤独感功能)

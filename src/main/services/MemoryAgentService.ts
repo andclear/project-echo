@@ -79,8 +79,28 @@ export class MemoryAgentService {
       let currentCharFacts: string[] = [];
       let currentMemoryContext = '';
       let stateContext = '';
-      let systemPrompt = '';
       let statePath = '';
+
+      // 提取消息内容清洗辅助函数（排除红包与表情标记，转为人类可读文本）
+      const cleanMessageText = (text: string) => {
+        if (text.startsWith('[wechat_red_packet]:')) {
+          try {
+            const data = JSON.parse(text.replace('[wechat_red_packet]:', ''));
+            return `[红包] ${data.title || '发来红包'}`;
+          } catch {
+            return '[红包]';
+          }
+        }
+        if (text.startsWith('[wechat_custom_emoji]:')) {
+          try {
+            const data = JSON.parse(text.replace('[wechat_custom_emoji]:', ''));
+            return `[表情: ${data.meaning || '表情包'}]`;
+          } catch {
+            return '[表情]';
+          }
+        }
+        return text;
+      };
 
       if (isGroup) {
         // 群聊自省反思上下文 (过滤个人画像与个人内心状态)
@@ -92,7 +112,7 @@ ${currentStm.length === 0 ? '（暂无短期记忆）' : currentStm.map((f, i) =
 ${Object.keys(currentLtm).length === 0 ? '（暂无长期记忆）' : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n')}
 `;
 
-        systemPrompt = `你是一个 Echo 平台的群聊认知与群记忆提取智能体。你的任务是分析群聊中最新一轮对话，并结合【当前已有的群记忆】，评估是否需要增补、更新或合并/修剪群聊的长期记忆（LTM）和短期记忆（STM）。
+        const systemPrompt = `你是一个 Echo 平台的群聊认知与群记忆提取智能体。你的任务是分析群聊中最新一轮对话，并结合【当前已有的群记忆】，评估是否需要增补、更新或合并/修剪群聊的长期记忆（LTM）和短期记忆（STM）。
 
 【群记忆提取红线规则】
 1. 统一且强制使用 {{user}} 与各角色占位符：
@@ -126,124 +146,20 @@ Target JSON 格式：
     // 如果没有，必须返回空数组 []。
   ]
 }`;
-      } else {
-        // 单聊自省反思上下文 (包含个人画像与内心状态)
-        currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
 
-        currentMemoryContext = `
---- 当前已有的短期记忆 (STM) 队列 ---
-${currentStm.length === 0 ? '（暂无短期记忆）' : currentStm.map((f, i) => `[短期 #${i + 1}] ${f}`).join('\n')}
+        // 组装群聊内容快照
+        const userContent = `[LATEST DIALOGUE TURN]\nUser: ${cleanMessageText(userMessage)}\nCharacter: ${cleanMessageText(assistantMessage)}`;
+        const messages: ChatMessage[] = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent }
+        ];
 
---- 当前已有的长期记忆 (LTM) 键值对 ---
-${Object.keys(currentLtm).length === 0 ? '（暂无长期记忆）' : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n')}
-
---- 当前已有的专属画像事实 (Facts) 列表 ---
-${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentCharFacts.map((f, i) => `[画像 #${i + 1}] ${f}`).join('\n')}
-`;
-
-        statePath = path.join(path.dirname(memoryPath), 'State.md');
-        const currentState = StateReaderWriter.readState(statePath);
-        stateContext = currentState.items
-          .map(i => {
-            const meaningDesc = i.meaning ? ` (指标含义：${i.meaning})` : '';
-            const ruleDesc = i.rule ? ` (AI更新规则：${i.rule})` : '';
-            const minVal = i.min ?? 0;
-            const maxVal = i.key === 'balance' ? '无上限' : (i.max ?? 100);
-            return `- ${i.label} (${i.key}): 当前值 ${i.value}${meaningDesc}${ruleDesc} (取值范围 ${minVal}-${maxVal}) ${i.emoji}`;
-          })
-          .join('\n');
-
-        systemPrompt = `你是一个 Echo 平台的后台认知与记忆提取智能体。你的任务是分析用户（User）与角色（Character）之间的最新一轮对话，并结合【当前已有的记忆与画像】，评估是否需要增补、更新或合并/修剪长期记忆（LTM）和专属画像事实（char_user_facts），以及评估该轮对话对角色内心状态的影响。
-
-【至关重要：记忆画像提取核心红线规则】
-1. 严格仅基于用户（User）本人的输入提取偏好与画像：
-   - 对于关于用户（User）的任何偏好、行为习惯、身份背景或事实的提取，**必须严格且仅能基于用户（User）在对话历史中亲口输入、承认、表达或确认的内容**！
-   - **绝对禁止**将角色（Character）在回复中单方面口嗨、虚构、编造或提及的背景设定、回忆（例如角色提及："你上次说想吃盐烤鲑鱼"、"我记得你最讨厌咖啡了"等）直接当作用户的真实事实提取！角色单方面为了扮演沉浸而编造或引申的内容，在没有得到用户亲口明确认可之前，**绝对不能**算作用户的偏好！
-   - 只有用户（User）在本轮对话中亲口发出的消息，才是确认用户偏好与画像事实的唯一真理源！
-
-2. 统一且强制使用 {{user}} 与 {{char}} 占位符：
-   - 在所有提取或合并的长期记忆（LTM）、短期记忆（STM）以及专属画像事实（char_user_facts）中，**必须且仅能使用 \`{{user}}\` 来代指用户本身，使用 \`{{char}}\` 来代指当前的角色本身**！
-   - 绝对禁止输出任何真实名字（如"杨越"、"真由"等），也禁止使用"用户"、"User"、"Character"、"角色"或第一/第二人称（如"你"、"我"、"他"）。
-
-【核心指令】
-1. 记忆画像的防膨胀与高保真合并：
-   - 避免无限膨胀：仔细查阅【当前已有的记忆与画像】。如果这一轮新对话中没有产生任何"具有长期持久、全新价值的事实或偏好变化"，请原样复制并返回现有的长期记忆与画像事实，绝对不要盲目增加新条目！
-   - 合并与精简：如果发现本轮对话中的偏好与已有的条目相似或相关，请主动将其【合并】成一条更精炼的表述，不要留存多条高度重复的条目。
-   - 智能修剪与删除：如果旧的记忆/画像事实在对话中被新事实所推翻或已过期（如用户表示改变了习惯），请从列表/对象中直接【更新】或【删除】该旧记忆，或将对应 LTM 键删去。
-   - 专属画像容量控制：专属画像事实（char_user_facts）数组的总上限建议控制在 15 条以内。如果接近或超过此上限，请务必进行智能归并。
-   - 拒绝琐碎对话细节：只记录具有长期持久参考价值（如用户喜好、重要个人背景、稳定的习惯等）的事实。过滤掉临时性、一次性、与本轮任务无关的琐碎杂谈。
-
-2. 撰写格式规范：
-   - 必须以第三人称客观陈述句撰写事实（例如："\`{{user}}更喜欢直接且简短的回复\`"或"\`{{user}}的生日是 9 月 10 日\`"）。
-   - 严禁撰写指令性或提示词式的句子（例如：严禁写"\`总是简短回答\`"、"\`注意多赞美用户\`"）。
-   - **严禁在记忆条目中使用相对时间词**（如"明天"、"下周"、"昨天"、"后天"等）！必须将相对时间转换为具体的绝对日期（如"2026-06-03"）或改为无时间歧义的事实陈述，避免记忆条目随时间推移产生逻辑错误。
-   - 所有提取的记忆与画像事实必须使用【简体中文】。
-
-【当前已有的记忆与画像】
-${currentMemoryContext}
-
-【角色当前状态更新评估】
-请审查角色当前状态，它们的含义（"指标含义"）以及自定义更新规则（"AI更新规则"），并评估最新对话对这些状态的影响：
-- 如果用户表达温暖、关心、支持或赞美：mood 增加 (+5 至 +10)，intimacy 增加 (+1 至 +3)。
-- 如果用户冷淡、挑剔、争吵或沉默：mood 降低 (-10 至 -20)，intimacy 降低 (-2 至 -5)。
-- 遵循 State 列表中的 AI更新规则 评估自定义数值/文本状态。若文本状态（如 clothing）发生变化，请在 'value' 字段中提供更新后的文本（无需提供 'delta'）。
-- 针对钱包余额 (balance) 属性的变动更新，必须且仅能使用相对值形式 'delta' 进行增加或扣减（例如评估收到 100 元红包应输出 { "key": "balance", "delta": 100 }，若口头请客花掉 15 元应输出 { "key": "balance", "delta": -15 }），绝对禁止使用 'value' 进行直接覆盖重置！
-
-角色当前状态：
-${stateContext}
-
-【输出格式】
-你必须返回一个符合以下格式要求的 JSON 对象，不要用 \`\`\`markdown 等包裹（除非是标准的 JSON Fences），不要附加任何解释或对话。
-
-Target JSON 格式：
-{
-  "ltm": {
-    // 完整的、经过你合并/精炼/增删后的最新长期记忆（LTM）键值对。
-    // 如果没有变化，请完整复制原有的 LTM。键和值中均应使用 {{user}} 和 {{char}}。
-  },
-  "char_user_facts": [
-    // 完整的、经过你合并/精炼/增删后的最新专属画像事实（USER.md Facts）数组。
-    // 如果没有变化，请完整复制原有的 Facts。建议控制在 15 条以内。必须使用 {{user}} 和 {{char}}。
-  ],
-  "stm_updates": [
-    // 本轮对话中产生的"最新短期记忆（STM）"。只有在发现有真正值得记录的最新关键话题或事件时填入（1-2 条短事实，必须使用 {{user}} 和 {{char}}）。
-    // 如果没有或只是普通的日常闲聊，必须返回空数组 []。
-  ],
-  "state_updates": [
-    { "key": "intimacy", "delta": 2 },
-    { "key": "clothing", "value": "白大褂" }
-  ]
-}`;
-      }
-
-      // 组装聊天内容快照
-      const userContent = `[LATEST DIALOGUE TURN]\nUser: ${userMessage}\nCharacter: ${assistantMessage}`;
-      const messages: ChatMessage[] = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent }
-      ];
-
-      // 2. 调用大模型进行静默推理 (首选辅助大模型 options.useSecondary: true)
-      const response = await this.modelAdapter.chat(messages, { useSecondary: true, characterId: charId });
-      const rawContent = response.content.trim();
-
-      // 3. 正则捕获 JSON 内容区
-      const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const jsonStr = jsonMatch[0];
-        const parsed = JSON.parse(jsonStr) as {
-          ltm?: Record<string, string>;
-          char_user_facts?: string[];
-          stm_updates?: string[];
-          state_updates?: { key: string; delta?: number; value?: any }[];
-        };
-
-        // ======================================================================
-        // 4. 根据模式分两条路处理提炼结果
-        // ======================================================================
-
-        if (isGroup) {
-          // ─── 群聊路径：维持原有立即写盘行为 ───
+        // 调用大模型群聊推理
+        const response = await this.modelAdapter.chat(messages, { useSecondary: true, characterId: charId });
+        const rawContent = response.content.trim();
+        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
 
           // A. STM 增量追加
           if (Array.isArray(parsed.stm_updates) && parsed.stm_updates.length > 0) {
@@ -275,82 +191,332 @@ Target JSON 格式：
               MemoryReaderWriter.writeMemory(memoryPath, memory.stm, memory.ltm);
             }
           }
-
-        } else {
-          // ─── 单聊路径：构建 PendingMemoryDiff 草稿，不写盘，由调用方持久化后延迟落盘 ───
-
-          // A. 整理 STM 新增条目
-          const pendingStmUpdates: string[] = [];
-          if (Array.isArray(parsed.stm_updates)) {
-            for (const stmFact of parsed.stm_updates) {
-              const cleaned = stmFact.trim();
-              if (cleaned) pendingStmUpdates.push(cleaned);
-            }
-          }
-
-          // B. 整理 LTM（保留原有防呆逻辑）
-          let pendingLtm: Record<string, string> | null = null;
-          if (parsed.ltm && typeof parsed.ltm === 'object') {
-            const cleanedLtm: Record<string, string> = {};
-            for (const key of Object.keys(parsed.ltm)) {
-              const val = parsed.ltm[key];
-              if (typeof val === 'string' && val.trim() !== '') {
-                cleanedLtm[key.trim()] = val.trim();
-              }
-            }
-            const newKeysCount = Object.keys(cleanedLtm).length;
-            const oldKeysCount = Object.keys(currentLtm).length;
-            if (newKeysCount === 0 && oldKeysCount > 0) {
-              // 返回空 LTM 大概率是幻觉，草稿中标记为 null 跳过写盘
-              console.warn('[MemoryAgentService] 单聊 大模型返回 LTM 字典为空，草稿中跳过 LTM 更新以保全旧数据。');
-              pendingLtm = null;
-            } else {
-              pendingLtm = cleanedLtm;
-            }
-          }
-
-          // C. 整理 USER.md Facts（保留防呆逻辑，交由 commitPendingMemory 时执行相似度去抖）
-          let pendingCharUserFacts: string[] | null = null;
-          if (Array.isArray(parsed.char_user_facts)) {
-            const cleanedFacts = parsed.char_user_facts
-              .map((f: any) => typeof f === 'string' ? f.trim() : '')
-              .filter((f: string, idx: number, self: string[]) => f !== '' && self.indexOf(f) === idx);
-            if (cleanedFacts.length === 0 && currentCharFacts.length > 0) {
-              // 防止大模型幻觉清空画像
-              console.warn('[MemoryAgentService] 单聊 大模型返回专属画像 Facts 为空，草稿中跳过 Facts 更新以保全旧画像。');
-              pendingCharUserFacts = null;
-            } else {
-              pendingCharUserFacts = cleanedFacts;
-            }
-          }
-
-          // D. 整理 State delta（过滤 balance，由 commitPendingMemory 时执行 intimacy 速率干涉）
-          const pendingStateUpdates: { key: string; delta?: number; value?: any }[] = [];
-          if (Array.isArray(parsed.state_updates)) {
-            for (const u of parsed.state_updates) {
-              if (u && u.key !== 'balance') {
-                pendingStateUpdates.push(u);
-              }
-            }
-          }
-
-          // 构建草稿并从方法返回，由 index.ts 调用方持久化到 Settings 表
-          const diff: PendingMemoryDiff = {
-            anchorTs,
-            ltm: pendingLtm,
-            stm_updates: pendingStmUpdates,
-            char_user_facts: pendingCharUserFacts,
-            state_updates: pendingStateUpdates
-          };
-          console.log(`[MemoryAgentService] 单聊记忆草稿已构建，anchorTs=${anchorTs}，等待用户下次发消息时核验落盘。`);
-
-          // 🚀 并发解死锁自愈防线：在 return 之前异步触发 Schedule/Goals 推进（锁将在 finally 中释放）
-          this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter).catch(err => {
-            console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
-          });
-
-          return diff;
         }
+      } else {
+        // ─── 单聊路径：构建 PendingMemoryDiff 草稿，解耦状态评估与记忆提炼 ───
+
+        // 1. 频次判定：获取单聊总 Round 数量 (排除红包、表情包、日记)
+        let shouldExtractMemory = false;
+        try {
+          const db = getDatabaseService();
+          const roundCountRow = db.db.prepare(`
+            SELECT COUNT(DISTINCT round_id) as count 
+            FROM Messages 
+            WHERE character_id = ? 
+              AND round_id IS NOT NULL 
+              AND round_id != '' 
+              AND round_id IN (
+                SELECT round_id FROM Messages 
+                WHERE character_id = ?
+                  AND role = 'user'
+                  AND content NOT LIKE '[character_diary]:%'
+                  AND content NOT LIKE '[wechat_red_packet]:%'
+                  AND content NOT LIKE '[wechat_custom_emoji]:%'
+              )
+          `).get(charId, charId) as { count: number } | undefined;
+          
+          const totalRounds = roundCountRow ? roundCountRow.count : 0;
+          shouldExtractMemory = totalRounds > 0 && totalRounds % 3 === 0;
+          console.log(`[MemoryAgentService] 角色 ${charId} 单聊过滤后总轮数: ${totalRounds}，本轮触发记忆提炼=${shouldExtractMemory}`);
+        } catch (dbErr) {
+          console.error('[MemoryAgentService] 判定记忆自省频次失败，默认触发:', dbErr);
+          shouldExtractMemory = true;
+        }
+
+        currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
+
+        currentMemoryContext = `
+--- 当前已有的短期记忆 (STM) 队列 ---
+${currentStm.length === 0 ? '（暂无短期记忆）' : currentStm.map((f, i) => `[短期 #${i + 1}] ${f}`).join('\n')}
+
+--- 当前已有的长期记忆 (LTM) 键值对 ---
+${Object.keys(currentLtm).length === 0 ? '（暂无长期记忆）' : Object.entries(currentLtm).map(([k, v]) => `"${k}": "${v}"`).join('\n')}
+
+--- 当前已有的专属画像事实 (Facts) 列表 ---
+${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentCharFacts.map((f, i) => `[画像 #${i + 1}] ${f}`).join('\n')}
+`;
+
+        statePath = path.join(path.dirname(memoryPath), 'State.md');
+        const currentState = StateReaderWriter.readState(statePath);
+        stateContext = currentState.items
+          .map(i => {
+            const meaningDesc = i.meaning ? ` (指标含义：${i.meaning})` : '';
+            const ruleDesc = i.rule ? ` (AI更新规则：${i.rule})` : '';
+            const minVal = i.min ?? 0;
+            const maxVal = i.key === 'balance' ? '无上限' : (i.max ?? 100);
+            return `- ${i.label} (${i.key}): 当前值 ${i.value}${meaningDesc}${ruleDesc} (取值范围 ${minVal}-${maxVal}) ${i.emoji}`;
+          })
+          .join('\n');
+
+        // 2. 🚀 后端多轮对话上下文合并 (排除红包、表情包、日记)
+        let historyDialogueContext = '';
+        try {
+          const db = getDatabaseService();
+          const rounds = db.db.prepare(`
+            SELECT round_id 
+            FROM Messages 
+            WHERE character_id = ? 
+              AND timestamp < ? 
+              AND round_id IS NOT NULL 
+              AND round_id != '' 
+              AND round_id IN (
+                SELECT round_id FROM Messages 
+                WHERE character_id = ?
+                  AND role = 'user'
+                  AND content NOT LIKE '[character_diary]:%'
+                  AND content NOT LIKE '[wechat_red_packet]:%'
+                  AND content NOT LIKE '[wechat_custom_emoji]:%'
+              )
+            GROUP BY round_id 
+            ORDER BY MAX(timestamp) DESC 
+            LIMIT 2
+          `).all(charId, anchorTs, charId) as { round_id: string }[];
+
+          if (rounds.length > 0) {
+            const roundIds = rounds.map(r => r.round_id);
+            const placeholders = roundIds.map(() => '?').join(',');
+            const historyMsgs = db.db.prepare(`
+              SELECT role, content, timestamp, round_id 
+              FROM Messages 
+              WHERE character_id = ? 
+                AND round_id IN (${placeholders}) 
+                AND content NOT LIKE '[character_diary]:%'
+                AND content NOT LIKE '[wechat_red_packet]:%'
+                AND content NOT LIKE '[wechat_custom_emoji]:%'
+              ORDER BY timestamp ASC
+            `).all(charId, ...roundIds) as { role: string; content: string; timestamp: number; round_id: string }[];
+
+            const roundGroups: Record<string, typeof historyMsgs> = {};
+            for (const msg of historyMsgs) {
+              if (msg.round_id) {
+                if (!roundGroups[msg.round_id]) {
+                  roundGroups[msg.round_id] = [];
+                }
+                roundGroups[msg.round_id].push(msg);
+              }
+            }
+
+            const sortedRoundIds = [...roundIds].reverse();
+            let roundIndex = 1;
+            for (const rid of sortedRoundIds) {
+              const group = roundGroups[rid];
+              if (group && group.length > 0) {
+                const uContent = group.filter(m => m.role === 'user').map(m => cleanMessageText(m.content)).join('\n');
+                const aContent = group.filter(m => m.role === 'assistant').map(m => cleanMessageText(m.content)).join('\n');
+                historyDialogueContext += `\n[HISTORICAL DIALOGUE ROUND ${roundIndex}]\nUser: ${uContent}\nCharacter: ${aContent}\n`;
+                roundIndex++;
+              }
+            }
+          }
+        } catch (dbErr) {
+          console.error('[MemoryAgentService] 提取最近对话历史失败，降级为单轮评估:', dbErr);
+        }
+
+        const cleanUserMsg = cleanMessageText(userMessage);
+        const cleanAssistantMsg = cleanMessageText(assistantMessage);
+        const dialogueSnapshot = `${historyDialogueContext}\n[LATEST DIALOGUE TURN]\nUser: ${cleanUserMsg}\nCharacter: ${cleanAssistantMsg}`;
+
+        // 3. 状态评估提示词
+        const stateSystemPrompt = `你是一个 Echo 平台的后台认知与心智状态评估智能体。你的任务是分析用户（User）与角色（Character）之间的最新对话（我们为你提供了最近3轮的对话上下文，请结合全盘语境分析），并评估该对话对角色当前内心状态（如亲密度、心情及各自定义状态）的影响。
+
+【角色当前状态更新评估】
+请审查角色当前状态，它们的含义（"指标含义"）以及自定义更新规则（"AI更新规则"），并评估最新对话对这些状态的影响。你必须遵循以下两层评估法则：
+
+1. 系统内置状态栏 (intimacy, mood)：
+   - 如果用户表达温暖、关心、支持或赞美：mood 增加 (+5 至 +10)，intimacy 增加 (+1 至 +3)。
+   - 如果用户冷淡、挑剔、争吵或沉默：mood 降低 (-10 至 -20)，intimacy 降低 (-2 至 -5)。
+
+2. 用户自定义状态栏 (如 custom_* 或其他自定义项)：
+   - **你必须严格读取并无条件遵守每个状态项中由用户指定的 "AI更新规则（rule）"，这是判定该状态如何更新的最高指令！**
+   - **在分析变动时，你必须根据前面提供的最近3轮对话上下文，严格核对是否触发了该状态更新规则中的特定触发条件或要求。**
+   - 【强制变动铁律】：为了让用户在每一轮交互中都能感知到状态的变化，**对于所有自定义指标（尤其是文本类指标，如衣着 clothing、发型、当前位置等），你必须在每一轮对话中都输出更新的 value，绝对不允许忽略或保持原样！**
+   - 【文本微观细节修饰】：如果某些文本状态（如 clothing 衣着）在规则中没有触发大换装的特定条件（如换成泳装），你也**绝对不能**直接返回原有的旧文本（如“白大褂”）。你必须在不违反更新规则的前提下，结合当下的聊天环境、角色的心情、天气、动作或对话背景，为其修饰和附加微观的环境或外观细节（例如从“白大褂”修饰为“略显凌乱的白大褂”、“有些松垮的白大褂”或“整洁如新的白大褂”），通过这种细节的变动来实现“每一轮状态都有可见的改变”。
+
+3. 通用格式要求：
+   - 文本型状态的变化，请在 'value' 字段中提供更新后的文本（无需提供 'delta'）。
+   - 针对钱包余额 (balance) 属性的变动更新，必须且仅能使用相对值形式 'delta' 进行增加或扣减（例如评估收到 100 元红包应输出 { "key": "balance", "delta": 100 }，若口头请客花掉 15 元应输出 { "key": "balance", "delta": -15 }），绝对禁止使用 'value' 进行直接覆盖重置！
+
+角色当前状态：
+${stateContext}
+
+【输出格式】
+你必须返回一个符合以下格式要求的 JSON 对象，不要用 \`\`\`markdown 等包裹（除非是标准的 JSON Fences），不要附加任何解释或对话。
+
+Target JSON 格式：
+{
+  "state_updates": [
+    { "key": "intimacy", "delta": 2 },
+    { "key": "clothing", "value": "整洁如新的白大褂" }
+  ]
+}`;
+
+        // 4. 记忆自省提示词
+        const memorySystemPrompt = `你是一个 Echo 平台的后台认知与记忆提取智能体。你的任务是分析用户（User）与角色（Character）之间的对话（我们为你提供了最近3轮的对话上下文，请结合全盘语境分析），并结合【当前已有的记忆与画像】，评估是否需要增补、更新或合并/修剪长期记忆（LTM）和专属画像事实（char_user_facts）。
+
+【至关重要：记忆画像提取核心红线规则】
+1. 严格仅基于用户（User）本人的输入提取偏好与画像：
+   - 对于关于用户（User）的任何偏好、行为习惯、身份背景或事实的提取，**必须严格且仅能基于用户（User）在对话历史中亲口输入、承认、表达或确认的内容**！
+   - **绝对禁止**将角色（Character）在回复中单方面口嗨、虚构、编造或提及的背景设定、回忆（例如角色提及："你上次说想吃盐烤鲑鱼"、"我记得你最讨厌咖啡了"等）直接当作用户的真实事实提取！角色单方面为了扮演沉浸而编造或引申的内容，在没有得到用户亲口明确认可之前，**绝对不能**算作用户的偏好！
+   - 只有用户（User）在本轮对话中亲口发出的消息，才是确认用户偏好与画像事实的唯一真理源！
+
+2. 统一且强制使用 {{user}} 与 {{char}} 占位符：
+   - 在所有提取或合并的长期记忆（LTM）、短期记忆（STM）以及专属画像事实（char_user_facts）中，**必须且仅能使用 \`{{user}}\` 来代指用户本身，使用 \`{{char}}\` 来代指当前的角色本身**！
+   - 绝对禁止输出任何真实名字（如"杨越"、"真由"等），也禁止使用"用户"、"User"、"Character"、"角色"或第一/第二人称（如"你"、"我"、"他"）。
+
+【核心指令】
+1. 记忆画像的防膨胀与高保真合并：
+   - 避免无限膨胀：仔细查阅【当前已有的记忆与画像】。如果这一轮新对话中没有产生任何"具有长期持久、全新价值的事实或偏好变化"，请原样复制并返回现有的长期记忆与画像事实，绝对不要盲目增加新条目！
+   - 合并与精简：如果发现本轮对话中的偏好与已有的条目相似或相关，请主动将其【合并】成一条更精炼的表述，不要留存多条高度重复的条目。
+   - 智能修剪与删除：如果旧的记忆/画像事实在对话中被新事实所推翻或已过期（如用户表示改变了习惯），请从列表/对象中直接【更新】或【删除】该旧记忆，或将对应 LTM 键删去。
+   - 专属画像容量控制：专属画像事实（char_user_facts）数组的总上限建议控制在 15 条以内。如果接近或超过此上限，请务必进行智能归并。
+   - 拒绝琐碎对话细节：只记录具有长期持久参考价值（如用户喜好、重要个人背景、稳定的习惯等）的事实。过滤掉临时性、一次性、与本轮任务无关的琐碎杂谈。
+
+2. 撰写格式规范：
+   - 必须以第三人称客观陈述句撰写事实（例如："\`{{user}}更喜欢直接且简短的回复\`"或"\`{{user}}的生日是 9 月 10 日\`"）。
+   - 严禁撰写指令性或提示词式的句子（例如：严禁写"\`总是简短回答\`"、"\`注意多赞美用户\`"）。
+   - **严禁在记忆条目中使用相对时间词**（如"明天"、"下周"、"昨天"、"后天"等）！必须将相对时间转换为具体的绝对日期（如"2026-06-03"）或改为无时间歧义的事实陈述，避免记忆条目随时间推移产生逻辑错误。
+   - 所有提取的记忆与画像事实必须使用【简体中文】。
+
+【当前已有的记忆与画像】
+${currentMemoryContext}
+
+【输出格式】
+你必须返回一个符合以下格式要求的 JSON 对象，不要用 \`\`\`markdown 等包裹（除非是标准的 JSON Fences），不要附加任何解释或对话。
+
+Target JSON 格式：
+{
+  "ltm": {
+    // 完整的、经过你合并/精炼/增删后的最新长期记忆（LTM）键值对。
+    // 如果没有变化，请完整复制原有的 LTM。键和值中均应使用 {{user}} 和 {{char}}。
+  },
+  "char_user_facts": [
+    // 完整的、经过你合并/精炼/增删后的最新专属画像事实（USER.md Facts）数组。
+    // 如果没有变化，请完整复制原有的 Facts。建议控制在 15 条以内。必须使用 {{user}} 和 {{char}}。
+  ],
+  "stm_updates": [
+    // 本轮对话中产生的"最新短期记忆（STM）"。只有在发现有真正值得记录的最新关键话题或事件时填入（1-2 条短事实，必须使用 {{user}} 和 {{char}}）。
+    // 如果没有或只是普通的日常闲聊，必须返回空数组 []。
+  ]
+}`;
+
+        // 5. ─── 单聊路径：双 LLM 调用解耦提炼，构建 PendingMemoryDiff 草稿 ───
+        const stateMessages: ChatMessage[] = [
+          { role: 'system', content: stateSystemPrompt },
+          { role: 'user', content: dialogueSnapshot }
+        ];
+
+        const memoryMessages: ChatMessage[] = [
+          { role: 'system', content: memorySystemPrompt },
+          { role: 'user', content: dialogueSnapshot }
+        ];
+
+        const promises: Promise<any>[] = [];
+
+        // 1) 状态评估专用调用（每回合均运行）
+        promises.push(
+          this.modelAdapter.chat(stateMessages, { useSecondary: true, characterId: charId })
+            .then(res => {
+              const raw = res.content.trim();
+              const match = raw.match(/\{[\s\S]*\}/);
+              if (match) return JSON.parse(match[0]);
+              return null;
+            })
+            .catch(err => {
+              console.error('[MemoryAgentService] 单聊状态自省 LLM 调用失败:', err);
+              return null;
+            })
+        );
+
+        // 2) 记忆自省调用（每 3 轮运行一次）
+        if (shouldExtractMemory) {
+          promises.push(
+            this.modelAdapter.chat(memoryMessages, { useSecondary: true, characterId: charId })
+              .then(res => {
+                const raw = res.content.trim();
+                const match = raw.match(/\{[\s\S]*\}/);
+                if (match) return JSON.parse(match[0]);
+                return null;
+              })
+              .catch(err => {
+                console.error('[MemoryAgentService] 单聊记忆提炼 LLM 调用失败:', err);
+                return null;
+              })
+          );
+        } else {
+          promises.push(Promise.resolve(null));
+        }
+
+        const [stateRes, memoryRes] = await Promise.all(promises);
+
+        // A. 整理 STM 新增条目
+        const pendingStmUpdates: string[] = [];
+        if (memoryRes && Array.isArray(memoryRes.stm_updates)) {
+          for (const stmFact of memoryRes.stm_updates) {
+            const cleaned = stmFact.trim();
+            if (cleaned) pendingStmUpdates.push(cleaned);
+          }
+        }
+
+        // B. 整理 LTM（保留防呆逻辑）
+        let pendingLtm: Record<string, string> | null = null;
+        if (memoryRes && memoryRes.ltm && typeof memoryRes.ltm === 'object') {
+          const cleanedLtm: Record<string, string> = {};
+          for (const key of Object.keys(memoryRes.ltm)) {
+            const val = memoryRes.ltm[key];
+            if (typeof val === 'string' && val.trim() !== '') {
+              cleanedLtm[key.trim()] = val.trim();
+            }
+          }
+          const newKeysCount = Object.keys(cleanedLtm).length;
+          const oldKeysCount = Object.keys(currentLtm).length;
+          if (newKeysCount === 0 && oldKeysCount > 0) {
+            console.warn('[MemoryAgentService] 单聊 大模型返回 LTM 字典为空，草稿中跳过 LTM 更新以保全旧数据。');
+            pendingLtm = null;
+          } else {
+            pendingLtm = cleanedLtm;
+          }
+        }
+
+        // C. 整理 USER.md Facts（保留防呆逻辑）
+        let pendingCharUserFacts: string[] | null = null;
+        if (memoryRes && Array.isArray(memoryRes.char_user_facts)) {
+          const cleanedFacts = memoryRes.char_user_facts
+            .map((f: any) => typeof f === 'string' ? f.trim() : '')
+            .filter((f: string, idx: number, self: string[]) => f !== '' && self.indexOf(f) === idx);
+          if (cleanedFacts.length === 0 && currentCharFacts.length > 0) {
+            console.warn('[MemoryAgentService] 单聊 大模型返回专属画像 Facts 为空，草稿中跳过 Facts 更新以保全旧画像。');
+            pendingCharUserFacts = null;
+          } else {
+            pendingCharUserFacts = cleanedFacts;
+          }
+        }
+
+        // D. 整理 State delta（过滤 balance）
+        const pendingStateUpdates: { key: string; delta?: number; value?: any }[] = [];
+        if (stateRes && Array.isArray(stateRes.state_updates)) {
+          for (const u of stateRes.state_updates) {
+            if (u && u.key !== 'balance') {
+              pendingStateUpdates.push(u);
+            }
+          }
+        }
+
+        // 构建草稿并从方法返回，由 index.ts 调用方持久化到 Settings 表
+        const diff: PendingMemoryDiff = {
+          anchorTs,
+          ltm: pendingLtm,
+          stm_updates: pendingStmUpdates,
+          char_user_facts: pendingCharUserFacts,
+          state_updates: pendingStateUpdates
+        };
+        console.log(`[MemoryAgentService] 单聊记忆草稿已构建，shouldExtractMemory=${shouldExtractMemory}，anchorTs=${anchorTs}`);
+
+        // 🚀 并发解死锁自愈防线：在 return 之前异步触发 Schedule/Goals 推进
+        this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter).catch(err => {
+          console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
+        });
+
+        return diff;
       }
 
     } catch (e) {
