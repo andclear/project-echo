@@ -8528,15 +8528,9 @@ ${soulContent}
       const db = getDatabaseService()
       db.setSetting('general_config', JSON.stringify(payload))
 
-      // 实时热重启生命引擎以应用最新的扫档排程周期
+      // 实时热重启生命引擎，强行写死应用 30 分钟扫档排程周期
       if (globalLifeEngine) {
-        let cronExpr = '*/30 * * * *'
-        if (payload.cron_frequency === 'standard') {
-          cronExpr = '0 * * * *'
-        } else if (payload.cron_frequency === 'quiet') {
-          cronExpr = '0 */2 * * *'
-        }
-        globalLifeEngine.restart(cronExpr)
+        globalLifeEngine.restart('*/30 * * * *')
       }
 
       // 实时热插拔开启/关闭局域网映射静态 Web 服务，打通打包独立客户端后的局域网联机
@@ -9565,23 +9559,10 @@ app.whenReady().then(() => {
     console.error('音乐服务初始化异常:', error)
   }
 
-  // 启动常驻自主生命引擎（由 Settings 表中的 general_config 决定轮询周期，默认 30 分钟）
+  // 启动常驻自主生命引擎（强行写死 30 分钟轮询周期，以精准驱动主动引擎的各项冷却与上限限制）
   try {
     globalLifeEngine = new AgentLifeEngine()
-    const db = getDatabaseService()
-    const genConfigStr = db.getSetting('general_config')
-    let cronExpr = '*/30 * * * *' // 默认活跃：30分钟
-    if (genConfigStr) {
-      try {
-        const config = JSON.parse(genConfigStr)
-        if (config.cron_frequency === 'standard') {
-          cronExpr = '0 * * * *' // 1小时
-        } else if (config.cron_frequency === 'quiet') {
-          cronExpr = '0 */2 * * *' // 2小时
-        }
-      } catch (_) { }
-    }
-    globalLifeEngine.start(cronExpr)
+    globalLifeEngine.start('*/30 * * * *')
   } catch (err) {
     console.error('[Main] 常驻生命引擎启动异常:', err)
   }
