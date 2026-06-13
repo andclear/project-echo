@@ -4904,13 +4904,15 @@ ${soulContent}
       }
     } else if (payload.roundId) {
       // 正常发送时，如果存在前端打包好的 roundId，合并同轮前置发言并从上下文中过滤
-      const roundUserMsgs = rawHistory.filter((m: any) => m.role === 'user' && m.round_id === payload.roundId)
+      // ⚠️ 必须排除当前最新发送的这条 userMsgId，以防重复合并自身导致一条消息在 prompt 中出现两次！
+      const roundUserMsgs = rawHistory.filter((m: any) => m.role === 'user' && m.round_id === payload.roundId && m.id !== userMsgId)
       if (roundUserMsgs.length > 0) {
         // rawHistory 本身已是从旧到新的时间升序排列，无需 reverse
         const mergedContents = roundUserMsgs.map((m: any) => m.content).join('\n')
         userMessageFinalMerged = mergedContents + '\n' + userMessage
-        rawHistory = rawHistory.filter((m: any) => !(m.role === 'user' && m.round_id === payload.roundId))
       }
+      // 无论是否有同轮前置发言，都必须在 rawHistory 中把属于当前 roundId 的所有 user 消息（包含最新这条）全部过滤掉，因为它们将在 messages 尾部统一以 finalUserContent 的形式传入
+      rawHistory = rawHistory.filter((m: any) => !(m.role === 'user' && m.round_id === payload.roundId))
     }
 
     // 内存级反向流式合并，恢复高保真上下文
@@ -5767,7 +5769,8 @@ ${memoryContent}
       userMessage,
       finalResponse,
       false,    // isGroup
-      anchorTs  // 锚点时间戳
+      anchorTs, // 锚点时间戳
+      roundId   // 传入当前这一轮的 roundId，以过滤历史重复
     ).then(async (pendingDiff) => {
       if (pendingDiff) {
         db.setSetting(`pending_memory_diff_${characterId}`, JSON.stringify(pendingDiff))
@@ -6253,7 +6256,8 @@ ${memoryContent}
               cleanUserText,
               cleanAssistantText,
               false,
-              anchorTs
+              anchorTs,
+              msgRow.round_id
             )
 
             if (pendingDiff) {

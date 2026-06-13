@@ -60,7 +60,8 @@ export class MemoryAgentService {
     userMessage: string,
     assistantMessage: string,
     isGroup: boolean = false,
-    anchorTs: number = 0
+    anchorTs: number = 0,
+    currentRoundId?: string
   ): Promise<PendingMemoryDiff | null> {
 
     // 1. 获取非阻塞并发互斥锁，确保前台 Stream 对话没有任何卡顿
@@ -98,6 +99,15 @@ export class MemoryAgentService {
           } catch {
             return '[表情]';
           }
+        }
+        if (text.includes('[USER_RED_ENVELOPE:')) {
+          let cleaned = text;
+          const splitIdx = text.indexOf('\n\n请以你当前的');
+          if (splitIdx !== -1) {
+            cleaned = text.substring(0, splitIdx);
+          }
+          cleaned = cleaned.replace(/\[USER_RED_ENVELOPE:[^\]]+\]/, '[红包]');
+          return cleaned.trim();
         }
         return text;
       };
@@ -195,31 +205,70 @@ Target JSON 格式：
       } else {
         // ─── 单聊路径：构建 PendingMemoryDiff 草稿，解耦状态评估与记忆提炼 ───
 
-        // 1. 频次判定：获取单聊总 Round 数量 (排除红包、表情包、日记、生图)
+        // 1. 频次判定：获取单聊总 Round 数量 (排除当前这轮，排除红包、表情包、日记、生图)
         let shouldExtractMemory = false;
         try {
           const db = getDatabaseService();
-          const roundCountRow = db.db.prepare(`
-            SELECT COUNT(DISTINCT round_id) as count 
-            FROM Messages 
-            WHERE character_id = ? 
-              AND round_id IS NOT NULL 
-              AND round_id != '' 
-              AND round_id NOT IN (
-                SELECT DISTINCT round_id FROM Messages 
-                WHERE character_id = ?
-                  AND (
-                    content LIKE '[character_diary]:%'
-                    OR content LIKE '[wechat_red_packet]:%'
-                    OR content LIKE '[wechat_custom_emoji]:%'
-                    OR content LIKE '[wechat_image_media]:%'
+
+          // A. 判定当前这一轮是否属于被排除的轮次。如果是，则直接不触发本轮的记忆自省提炼。
+          const isCurrentRoundExcluded = 
+            userMessage.includes('[USER_RED_ENVELOPE:') ||
+            userMessage.startsWith('[wechat_red_packet]:') ||
+            userMessage.startsWith('[wechat_custom_emoji]:') ||
+            userMessage.startsWith('[wechat_image_media]:') ||
+            assistantMessage.startsWith('[wechat_red_packet]:') ||
+            assistantMessage.startsWith('[wechat_custom_emoji]:') ||
+            assistantMessage.startsWith('[wechat_image_media]:');
+
+          if (isCurrentRoundExcluded) {
+            shouldExtractMemory = false;
+            console.log(`[MemoryAgentService] 角色 ${charId} 当前对话轮属于红包/生图/表情等排除类型，跳过本轮记忆自省提炼。`);
+          } else {
+            let roundCountRow;
+            if (currentRoundId) {
+              roundCountRow = db.db.prepare(`
+                SELECT COUNT(DISTINCT round_id) as count 
+                FROM Messages 
+                WHERE character_id = ? 
+                  AND round_id IS NOT NULL 
+                  AND round_id != '' 
+                  AND round_id != ?
+                  AND round_id NOT IN (
+                    SELECT DISTINCT round_id FROM Messages 
+                    WHERE character_id = ?
+                      AND (
+                        content LIKE '[character_diary]:%'
+                        OR content LIKE '[wechat_red_packet]:%'
+                        OR content LIKE '[wechat_custom_emoji]:%'
+                        OR content LIKE '[wechat_image_media]:%'
+                      )
                   )
-              )
-          `).get(charId, charId) as { count: number } | undefined;
-          
-          const totalRounds = roundCountRow ? roundCountRow.count : 0;
-          shouldExtractMemory = totalRounds > 0 && totalRounds % 3 === 0;
-          console.log(`[MemoryAgentService] 角色 ${charId} 单聊过滤后总轮数: ${totalRounds}，本轮触发记忆提炼=${shouldExtractMemory}`);
+              `).get(charId, currentRoundId, charId) as { count: number } | undefined;
+            } else {
+              roundCountRow = db.db.prepare(`
+                SELECT COUNT(DISTINCT round_id) as count 
+                FROM Messages 
+                WHERE character_id = ? 
+                  AND round_id IS NOT NULL 
+                  AND round_id != '' 
+                  AND round_id NOT IN (
+                    SELECT DISTINCT round_id FROM Messages 
+                    WHERE character_id = ?
+                      AND (
+                        content LIKE '[character_diary]:%'
+                        OR content LIKE '[wechat_red_packet]:%'
+                        OR content LIKE '[wechat_custom_emoji]:%'
+                        OR content LIKE '[wechat_image_media]:%'
+                      )
+                  )
+              `).get(charId, charId) as { count: number } | undefined;
+            }
+            
+            const totalRounds = roundCountRow ? roundCountRow.count : 0;
+            // 当前非排除轮是第 totalRounds + 1 轮
+            shouldExtractMemory = totalRounds > 0 && (totalRounds + 1) % 3 === 0;
+            console.log(`[MemoryAgentService] 角色 ${charId} 单聊过滤后历史总轮数: ${totalRounds}，当前这轮是第 ${totalRounds + 1} 轮，触发记忆提炼=${shouldExtractMemory}`);
+          }
         } catch (dbErr) {
           console.error('[MemoryAgentService] 判定记忆自省频次失败，默认触发:', dbErr);
           shouldExtractMemory = true;
@@ -250,31 +299,57 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
           })
           .join('\n');
 
-        // 2. 🚀 后端多轮对话上下文合并 (排除红包、表情包、日记、生图)
+        // 2. 🚀 后端多轮对话上下文合并 (排除当前这轮，排除红包、表情包、日记、生图)
         let historyDialogueContext = '';
         try {
           const db = getDatabaseService();
-          const rounds = db.db.prepare(`
-            SELECT round_id 
-            FROM Messages 
-            WHERE character_id = ? 
-              AND timestamp < ? 
-              AND round_id IS NOT NULL 
-              AND round_id != '' 
-              AND round_id NOT IN (
-                SELECT DISTINCT round_id FROM Messages 
-                WHERE character_id = ?
-                  AND (
-                    content LIKE '[character_diary]:%'
-                    OR content LIKE '[wechat_red_packet]:%'
-                    OR content LIKE '[wechat_custom_emoji]:%'
-                    OR content LIKE '[wechat_image_media]:%'
-                  )
-              )
-            GROUP BY round_id 
-            ORDER BY MAX(timestamp) DESC 
-            LIMIT 2
-          `).all(charId, anchorTs, charId) as { round_id: string }[];
+          let rounds;
+          if (currentRoundId) {
+            rounds = db.db.prepare(`
+              SELECT round_id 
+              FROM Messages 
+              WHERE character_id = ? 
+                AND timestamp < ? 
+                AND round_id IS NOT NULL 
+                AND round_id != '' 
+                AND round_id != ?
+                AND round_id NOT IN (
+                  SELECT DISTINCT round_id FROM Messages 
+                  WHERE character_id = ?
+                    AND (
+                      content LIKE '[character_diary]:%'
+                      OR content LIKE '[wechat_red_packet]:%'
+                      OR content LIKE '[wechat_custom_emoji]:%'
+                      OR content LIKE '[wechat_image_media]:%'
+                    )
+                )
+              GROUP BY round_id 
+              ORDER BY MAX(timestamp) DESC 
+              LIMIT 2
+            `).all(charId, anchorTs, currentRoundId, charId) as { round_id: string }[];
+          } else {
+            rounds = db.db.prepare(`
+              SELECT round_id 
+              FROM Messages 
+              WHERE character_id = ? 
+                AND timestamp < ? 
+                AND round_id IS NOT NULL 
+                AND round_id != '' 
+                AND round_id NOT IN (
+                  SELECT DISTINCT round_id FROM Messages 
+                  WHERE character_id = ?
+                    AND (
+                      content LIKE '[character_diary]:%'
+                      OR content LIKE '[wechat_red_packet]:%'
+                      OR content LIKE '[wechat_custom_emoji]:%'
+                      OR content LIKE '[wechat_image_media]:%'
+                    )
+                )
+              GROUP BY round_id 
+              ORDER BY MAX(timestamp) DESC 
+              LIMIT 2
+            `).all(charId, anchorTs, charId) as { round_id: string }[];
+          }
 
           if (rounds.length > 0) {
             const roundIds = rounds.map(r => r.round_id);
@@ -497,11 +572,20 @@ Target JSON 格式：
           }
         }
 
-        // D. 整理 State delta（过滤 balance）
+        // D. 整理 State delta（仅过滤微信红包轮的 balance，保留大模型自发产生的日常口头消费）
+        const isRedPacketRound = 
+          userMessage.includes('[USER_RED_ENVELOPE:') ||
+          userMessage.startsWith('[wechat_red_packet]:') ||
+          assistantMessage.startsWith('[wechat_red_packet]:');
+
         const pendingStateUpdates: { key: string; delta?: number; value?: any }[] = [];
         if (stateRes && Array.isArray(stateRes.state_updates)) {
           for (const u of stateRes.state_updates) {
-            if (u && u.key !== 'balance') {
+            if (u) {
+              if (u.key === 'balance' && isRedPacketRound) {
+                console.log('[MemoryAgentService] 过滤红包轮草稿中的 balance 项:', u);
+                continue;
+              }
               pendingStateUpdates.push(u);
             }
           }
@@ -624,18 +708,35 @@ Target JSON 格式：
         .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '')
         .trim();
 
-      const getOverlapRatio = (s1: string, s2: string): number => {
-        const p1 = purify(s1);
-        const p2 = purify(s2);
-        if (p1 === p2) return 1.0;
-        if (!p1 || !p2) return 0.0;
-        const chars1 = Array.from(p1);
-        const set2 = new Set(Array.from(p2));
-        const intersection = chars1.filter(c => set2.has(c)).length;
-        return intersection / Math.max(chars1.length, p2.length);
+      const getEditDistance = (s1: string, s2: string): number => {
+        const len1 = s1.length;
+        const len2 = s2.length;
+        const matrix: number[][] = [];
+        for (let i = 0; i <= len1; i++) matrix[i] = [i];
+        for (let j = 0; j <= len2; j++) matrix[0][j] = j;
+        for (let i = 1; i <= len1; i++) {
+          for (let j = 1; j <= len2; j++) {
+            const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
+            matrix[i][j] = Math.min(
+              matrix[i - 1][j] + 1,
+              matrix[i][j - 1] + 1,
+              matrix[i - 1][j - 1] + cost
+            );
+          }
+        }
+        return matrix[len1][len2];
       };
 
-      const isSimilar = (f1: string, f2: string) => getOverlapRatio(f1, f2) >= 0.70;
+      const getSimilarity = (s1: string, s2: string): number => {
+        const p1 = purify(s1);
+        const p2 = purify(s2);
+        const dist = getEditDistance(p1, p2);
+        const maxLen = Math.max(p1.length, p2.length);
+        if (maxLen === 0) return 1.0;
+        return 1.0 - dist / maxLen;
+      };
+
+      const isSimilar = (f1: string, f2: string) => getSimilarity(f1, f2) >= 0.85;
 
       const hasNewDryGoods = cleanedFacts.some(nf => !currentCharFacts.some(of => isSimilar(nf, of)));
       const hasDeletedFacts = currentCharFacts.some(of => !cleanedFacts.some(nf => isSimilar(nf, of)));
@@ -648,9 +749,9 @@ Target JSON 格式：
       }
     }
 
-    // D. State.md Delta（执行 balance 过滤和 intimacy 速率干涉）
+    // D. State.md Delta（执行 intimacy 速率干涉并写入）
     if (diff.state_updates && diff.state_updates.length > 0) {
-      let filteredUpdates = diff.state_updates.filter(u => u && u.key !== 'balance');
+      let filteredUpdates = diff.state_updates || [];
 
       if (filteredUpdates.length > 0) {
         if (intimacySpeed === 'slow') {
