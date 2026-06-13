@@ -509,7 +509,18 @@ export class AgentLifeEngine {
 
     // A. 7天定时扫描更新角色的 Schedule.md 和 Goals.md 进化
     try {
-      await this.checkAndUpdateScheduleAndGoals(char, modelAdapter);
+      const baseDir = this.storageManager.getBaseDir();
+      const memoryPath = path.join(baseDir, folderName, 'Memory.md');
+      const memoryService = new MemoryAgentService(modelAdapter);
+      await memoryService.checkAndUpdateScheduleAndGoals(
+        memoryPath,
+        modelAdapter,
+        false, // force
+        'both', // target
+        char.name, // charName
+        false, // skipLock
+        120 // customStepLimit
+      );
     } catch (err) {
       console.error(`[AgentLifeEngine] 角色 ${char.name} 7天日程/目标更新失败:`, err);
     }
@@ -1127,6 +1138,7 @@ export class AgentLifeEngine {
    * 7天周期性日程与目标评估更新推进
    */
   private async checkAndUpdateScheduleAndGoals(char: any, modelAdapter: ModelAdapter): Promise<void> {
+    /* 已经合并到 MemoryAgentService.ts
     const db = getDatabaseService();
     const charId = char.id;
     const folderName = char.folder_name;
@@ -1351,5 +1363,6 @@ ${charUserContent}
 
     db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
     db.setSetting(`last_schedule_goals_msg_count_${charId}`, currentMsgCount.toString());
+    */
   }
 }

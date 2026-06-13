@@ -4828,6 +4828,7 @@ ${soulContent}
     // 🔒 安全修复：始终从数据库读取该角色的专属 chatMode，不信任前端 payload 传来的值，
     // 防止前端 UI 状态（currentChatMode）因 race condition 或选中角色错位导致 chatMode 串号。
     // 与 AgentLifeEngine、MemoryAgentService 等后台服务保持完全一致的读取策略。
+    const userMsgId = payload.userMsgId || crypto.randomUUID()
     const chatMode = db.getSetting(`chat_mode_${characterId}`) as 'descriptive' | 'dialogue' | 'director' || 'dialogue'
     const globalPrompt = settings.globalPrompt || ''
 
@@ -5187,15 +5188,35 @@ ${memoryContent}
     }
 
     // 🚀 提前存盘用户消息（在 AI 调用前）：让 SSE 立即广播给手机端，不再等 AI 回复完成
-    const userMsgId = payload.userMsgId || crypto.randomUUID()
+    // 使用顶层已初始化好的 userMsgId
     if (!payload.isRegenerate) {
       // 用户消息直接通过 MessageBusService 存盘（跨端同步）
       // skipUnreadUpdate=true：自己发的消息不增加未读计数
       // skipElectronPush：仅当来自 Electron 本机时跳过推回（前端 UI 已显示）；
       //                   手机端（IPC bridge）调用时必须推给 Electron 主窗口以实现桌面同步！
       const isFromIpcBridge = !!(event as any)?.sender?.isIpcBridge
-      const roundId = payload.roundId || crypto.randomUUID()
-        ; (payload as any)._roundId = roundId  // 将 roundId 共享给后续 AI 回复消息使用
+      // 🚀 具有自愈能力的多气泡 roundId 校验对齐逻辑
+      let roundId = payload.roundId
+      if (!roundId) {
+        try {
+          if (payload.userMsgId) {
+            const row = db.db.prepare('SELECT round_id FROM Messages WHERE id = ?').get(payload.userMsgId) as { round_id: string } | undefined
+            if (row && row.round_id) {
+              roundId = row.round_id
+            }
+          }
+          if (!roundId) {
+            const row = db.db.prepare('SELECT round_id FROM Messages WHERE character_id = ? AND role = "user" ORDER BY timestamp DESC LIMIT 1').get(characterId) as { round_id: string } | undefined
+            if (row && row.round_id) {
+              roundId = row.round_id
+            }
+          }
+        } catch (_) {}
+      }
+      if (!roundId) {
+        roundId = crypto.randomUUID()
+      }
+      ; (payload as any)._roundId = roundId  // 将 roundId 共享给后续 AI 回复消息使用
       const userMsgType = dbContent.startsWith('[wechat_image_media]:') ? 'image' : 'text'
       MessageBusService.getInstance().publish({
         id: userMsgId,
@@ -5766,7 +5787,7 @@ ${memoryContent}
     memoryService.extractMemoryAndProfile(
       memoryPath,
       charUserPath,
-      userMessage,
+      userMessageFinalMerged,
       finalResponse,
       false,    // isGroup
       anchorTs, // 锚点时间戳
@@ -5774,7 +5795,7 @@ ${memoryContent}
     ).then(async (pendingDiff) => {
       if (pendingDiff) {
         db.setSetting(`pending_memory_diff_${characterId}`, JSON.stringify(pendingDiff))
-        console.log(`[MemoryService] 记忆草稿已暂存，anchorTs=${anchorTs}`)
+        // console.log(`[MemoryService] 记忆草稿已暂存，anchorTs=${anchorTs}`)
 
         // 🚀 草稿写入后即时广播更新通知，令前端渲染最新的内存合并状态
         const stateBroadcast = { characterId, updates: pendingDiff.state_updates || [] }
@@ -6734,6 +6755,16 @@ ${memoryContent}
       storageManager.writeCharacterFile(payload.folderName, 'Memory.md', processedContent)
       console.log(`[IPC] Memory.md 手动保存成功并自动同步元数据 JSON: ${payload.folderName}`)
 
+      // 清理 pending_memory_diff 缓存，防止下一次对话把刚刚手动编辑的内容覆盖掉
+      let charId = payload.folderName;
+      try {
+        const charRow = db.db.prepare('SELECT id FROM Characters WHERE folder_name = ?').get(payload.folderName) as { id: string } | undefined;
+        if (charRow) {
+          charId = charRow.id;
+        }
+      } catch (_) {}
+      db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${charId}`);
+
       // 🚀 广播通知其他局域网客户端与电脑端记忆文件已更新，触发秒级同步
       const memoryBroadcast = { folderName: payload.folderName, fileName: 'Memory.md', content: payload.content }
       if (mainWindow && !mainWindow.webContents.isDestroyed()) {
@@ -6767,6 +6798,17 @@ ${memoryContent}
 
       storageManager.writeCharacterFile(payload.folderName, 'USER.md', processedContent)
       console.log(`[IPC] 角色专属 USER.md 手动保存成功并自动同步元数据 JSON: ${payload.folderName}`)
+
+      // 清理 pending_memory_diff 缓存，防止下一次对话把刚刚手动编辑的内容覆盖掉
+      let charId = payload.folderName;
+      try {
+        const charRow = db.db.prepare('SELECT id FROM Characters WHERE folder_name = ?').get(payload.folderName) as { id: string } | undefined;
+        if (charRow) {
+          charId = charRow.id;
+        }
+      } catch (_) {}
+      db.db.prepare('DELETE FROM Settings WHERE key = ?').run(`pending_memory_diff_${charId}`);
+
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }

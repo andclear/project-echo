@@ -70,7 +70,7 @@ export class MemoryAgentService {
     try {
       const charDir = path.dirname(memoryPath);
       const charId = path.basename(charDir);
-      console.log(`[MemoryAgentService] 互斥锁获取成功，开始后台长期记忆自省提取(群聊模式=${isGroup})...`);
+      // console.log(`[MemoryAgentService] 互斥锁获取成功，开始后台长期记忆自省提取(群聊模式=${isGroup})...`);
 
       // B. 读取当前的短期记忆 (STM) 与长期记忆 (LTM)
       const currentMemory = MemoryReaderWriter.readMemory(memoryPath);
@@ -267,7 +267,9 @@ Target JSON 格式：
             const totalRounds = roundCountRow ? roundCountRow.count : 0;
             // 当前非排除轮是第 totalRounds + 1 轮
             shouldExtractMemory = totalRounds > 0 && (totalRounds + 1) % 3 === 0;
-            console.log(`[MemoryAgentService] 角色 ${charId} 单聊过滤后历史总轮数: ${totalRounds}，当前这轮是第 ${totalRounds + 1} 轮，触发记忆提炼=${shouldExtractMemory}`);
+            if (shouldExtractMemory) {
+              console.log(`[MemoryAgentService] 角色 ${charId} 单聊过滤后历史总轮数: ${totalRounds}，当前这轮是第 ${totalRounds + 1} 轮，触发记忆提炼=${shouldExtractMemory}`);
+            }
           }
         } catch (dbErr) {
           console.error('[MemoryAgentService] 判定记忆自省频次失败，默认触发:', dbErr);
@@ -599,10 +601,19 @@ Target JSON 格式：
           char_user_facts: pendingCharUserFacts,
           state_updates: pendingStateUpdates
         };
-        console.log(`[MemoryAgentService] 单聊记忆草稿已构建，shouldExtractMemory=${shouldExtractMemory}，anchorTs=${anchorTs}`);
+        if (shouldExtractMemory) {
+          console.log(`[MemoryAgentService] 单聊记忆草稿已构建，shouldExtractMemory=${shouldExtractMemory}，anchorTs=${anchorTs}`);
+        }
 
-        // 🚀 并发解死锁自愈防线：在 return 之前异步触发 Schedule/Goals 推进
-        this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter).catch(err => {
+        // 🚀 并发解死锁自愈防线：在 return 之前同步触发 Schedule/Goals 推进（使用外部锁且不重新加锁）
+        await this.checkAndUpdateScheduleAndGoals(
+          memoryPath,
+          this.modelAdapter,
+          false,
+          'both',
+          undefined,
+          true // skipLock
+        ).catch(err => {
           console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
         });
 
@@ -614,14 +625,7 @@ Target JSON 格式：
     } finally {
       // 5. 绝对确保安全地释放锁，激活队列中下一个等待的任务
       InferenceMutex.unlock();
-      console.log('[MemoryAgentService] 后台自省任务结束，互斥锁已安全释放。');
-    }
-
-    // 🚀 并发解死锁自愈防线：仅在单聊时，异步触发 Schedule/Goals 推进
-    if (!isGroup) {
-      this.checkAndUpdateScheduleAndGoals(memoryPath, this.modelAdapter).catch(err => {
-        console.error('[MemoryAgentService] 异步 checkAndUpdateScheduleAndGoals 异常:', err);
-      });
+      // console.log('[MemoryAgentService] 后台自省任务结束，互斥锁已安全释放。');
     }
 
     return null;
@@ -797,135 +801,152 @@ Target JSON 格式：
     memoryPath: string,
     modelAdapter: ModelAdapter,
     force?: boolean,
-    target: 'schedule' | 'goals' | 'both' = 'both'
+    target: 'schedule' | 'goals' | 'both' = 'both',
+    charName?: string,
+    skipLock: boolean = false,
+    customStepLimit?: number
   ): Promise<void> {
-    const db = getDatabaseService();
-    const charDir = path.dirname(memoryPath);
-    const folderName = path.basename(charDir);
-    const charId = folderName;
-
-    const schedulePath = path.join(charDir, 'Schedule.md');
-    const goalsPath = path.join(charDir, 'Goals.md');
-
-    const isScheduleEmpty =
-      !fs.existsSync(schedulePath) ||
-      fs.readFileSync(schedulePath, 'utf8').trim() === '' ||
-      fs.readFileSync(schedulePath, 'utf8').includes('暂无日程');
-
-    const isGoalsEmpty =
-      !fs.existsSync(goalsPath) ||
-      fs.readFileSync(goalsPath, 'utf8').trim() === '' ||
-      fs.readFileSync(goalsPath, 'utf8').includes('暂无长期目标');
-
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-
-    const lastUpdateStr = db.getSetting(`last_schedule_goals_date_${charId}`);
-
-    // 获取当前该角色的消息总数
-    let currentMsgCount = 0;
+    if (!skipLock) {
+      await InferenceMutex.lock();
+    }
     try {
-      const stmt = db.db.prepare('SELECT COUNT(*) as count FROM Messages WHERE character_id = ?');
-      const row = stmt.get(charId) as { count: number } | undefined;
-      currentMsgCount = row ? row.count : 0;
-    } catch (_) { }
+      const db = getDatabaseService();
+      const charDir = path.dirname(memoryPath);
+      const folderName = path.basename(charDir);
+      
+      // 🚀 精准查找真正的 characterId，防止 settings 表读写键冲突
+      let charId = folderName;
+      try {
+        const charRow = db.db.prepare('SELECT id FROM Characters WHERE folder_name = ?').get(folderName) as { id: string } | undefined;
+        if (charRow) {
+          charId = charRow.id;
+        }
+      } catch (_) {}
 
-    const lastMsgCountStr = db.getSetting(`last_schedule_goals_msg_count_${charId}`);
-    const lastMsgCount = lastMsgCountStr ? parseInt(lastMsgCountStr, 10) : 0;
-    const messagesPassed = currentMsgCount - lastMsgCount;
+      const schedulePath = path.join(charDir, 'Schedule.md');
+      const goalsPath = path.join(charDir, 'Goals.md');
 
-    let needUpdate = false;
+      const isScheduleEmpty =
+        !fs.existsSync(schedulePath) ||
+        fs.readFileSync(schedulePath, 'utf8').trim() === '' ||
+        fs.readFileSync(schedulePath, 'utf8').includes('暂无日程');
 
-    if (force || isScheduleEmpty || isGoalsEmpty || !lastUpdateStr) {
-      needUpdate = true;
-    } else {
-      const lastUpdate = new Date(lastUpdateStr);
-      const daysPassed = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
-      // 🚀 日程更新自省自适应双门限
+      const isGoalsEmpty =
+        !fs.existsSync(goalsPath) ||
+        fs.readFileSync(goalsPath, 'utf8').trim() === '' ||
+        fs.readFileSync(goalsPath, 'utf8').includes('暂无长期目标');
+
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      const lastUpdateStr = db.getSetting(`last_schedule_goals_date_${charId}`);
+
+      // 获取当前该角色的消息总数
+      let currentMsgCount = 0;
+      try {
+        const stmt = db.db.prepare('SELECT COUNT(*) as count FROM Messages WHERE character_id = ?');
+        const row = stmt.get(charId) as { count: number } | undefined;
+        currentMsgCount = row ? row.count : 0;
+      } catch (_) { }
+
+      const lastMsgCountStr = db.getSetting(`last_schedule_goals_msg_count_${charId}`);
+      const lastMsgCount = lastMsgCountStr ? parseInt(lastMsgCountStr, 10) : 0;
+      const messagesPassed = currentMsgCount - lastMsgCount;
+
+      let needUpdate = false;
+
+      if (force || isScheduleEmpty || isGoalsEmpty || !lastUpdateStr) {
+        needUpdate = true;
+      } else {
+        const lastUpdate = new Date(lastUpdateStr);
+        const daysPassed = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24);
+        // 🚀 日程更新自省自适应双门限，若存在 customStepLimit 则直接使用
+        const chatMode = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
+        const isDialogue = chatMode === 'dialogue';
+        const stepLimit = customStepLimit !== undefined ? customStepLimit : (isDialogue ? 240 : 100);
+        if (daysPassed >= 7 || messagesPassed >= stepLimit) {
+          needUpdate = true;
+        }
+      }
+
+      if (!needUpdate) return;
+
+      console.log(`[MemoryAgentService] 触发角色 ${folderName} 的 Schedule.md 与 Goals.md 定期推进自省...`);
+
+      const soulPath = path.join(charDir, 'Soul.md');
+      const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8').trim() : '一个神秘的人。';
+
+      // 完整的记忆文档（Memory.md）
+      const memoryFilePath = path.join(charDir, 'Memory.md');
+      const memoryContent = fs.existsSync(memoryFilePath) ? fs.readFileSync(memoryFilePath, 'utf8').trim() : '暂无专属记忆积累事实。';
+
+      // 完整的角色对用户的画像（USER.md，注意是专属目录下的 USER.md，而不是全局 of USER.md）
+      const charUserPath = path.join(charDir, 'USER.md');
+      const charUserContent = fs.existsSync(charUserPath) ? fs.readFileSync(charUserPath, 'utf8').trim() : '暂无角色对用户的特定画像侧写。';
+
+      // 完整的聊天上下文：大事记 SUMMARY.md + 最近 50 条消息以 last_compression_ts 门控截断后的增量消息
+      const summaryPath = path.join(charDir, 'SUMMARY.md');
+      const summaryContent = fs.existsSync(summaryPath) ? fs.readFileSync(summaryPath, 'utf8').trim() : '暂无大事记简报。';
+
+      // 如果有传入的真实姓名，则优先使用，否则查询数据库兜底
+      let resolvedCharName = charName || folderName;
+      if (!charName) {
+        try {
+          const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(charId) as { name: string } | undefined;
+          if (charRow) {
+            resolvedCharName = charRow.name;
+          }
+        } catch (_) { }
+      }
+
+      // 获取 last_compression_ts
+      const lastCompressionKey = `last_compression_ts_${charId}`;
+      const lastCompressionTsStr = db.getSetting(lastCompressionKey);
+      const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
+
+      // 🚀 日程更新自省历史拉取拼合
       const chatMode = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
       const isDialogue = chatMode === 'dialogue';
-      const stepLimit = isDialogue ? 240 : 100;
-      if (daysPassed >= 7 || messagesPassed >= stepLimit) {
-        needUpdate = true;
+      const limit = isDialogue ? 160 : 60;
+      let rawHistory = db.getChatHistory(charId, limit);
+      if (lastCompressionTs > 0) {
+        rawHistory = rawHistory.filter((m: any) => m.timestamp > lastCompressionTs);
       }
-    }
+      const mergedHistory = mergeChatHistory(rawHistory);
 
-    if (!needUpdate) return;
+      // 过滤掉 AI 生成图片消息（assistant 图片），用户图片保留占位符
+      const cleanHistory = mergedHistory.filter((m: any) => {
+        if (!m.content) return false;
+        const contentStr = m.content.trim();
+        if (contentStr.startsWith('[character_diary]:')) return false;
+        // AI 生成图片消息完全过滤
+        if (m.role !== 'user' && contentStr.startsWith('[wechat_image_media]:')) return false;
+        return true;
+      });
 
-    console.log(`[MemoryAgentService] 触发角色 ${folderName} 的 Schedule.md 与 Goals.md 定期推进自省...`);
-
-    const soulPath = path.join(charDir, 'Soul.md');
-    const soulContent = fs.existsSync(soulPath) ? fs.readFileSync(soulPath, 'utf8').trim() : '一个神秘的人。';
-
-    // 完整的记忆文档（Memory.md）
-    const memoryFilePath = path.join(charDir, 'Memory.md');
-    const memoryContent = fs.existsSync(memoryFilePath) ? fs.readFileSync(memoryFilePath, 'utf8').trim() : '暂无专属记忆积累事实。';
-
-    // 完整的角色对用户的画像（USER.md，注意是专属目录下的 USER.md，而不是全局的 USER.md）
-    const charUserPath = path.join(charDir, 'USER.md');
-    const charUserContent = fs.existsSync(charUserPath) ? fs.readFileSync(charUserPath, 'utf8').trim() : '暂无角色对用户的特定画像侧写。';
-
-    // 完整的聊天上下文：大事记 SUMMARY.md + 最近 50 条消息以 last_compression_ts 门控截断后的增量消息
-    const summaryPath = path.join(charDir, 'SUMMARY.md');
-    const summaryContent = fs.existsSync(summaryPath) ? fs.readFileSync(summaryPath, 'utf8').trim() : '暂无大事记简报。';
-
-    // 读取该角色的真实名字，用来丰富 history 渲染
-    let charName = folderName;
-    try {
-      const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(charId) as { name: string } | undefined;
-      if (charRow) {
-        charName = charRow.name;
+      let historyContext = '';
+      if (cleanHistory.length > 0) {
+        historyContext = cleanHistory.map((m: any) => {
+          const sender = m.role === 'user' ? 'User' : resolvedCharName;
+          const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
+            ? formatUserImageForLLM(m.content)
+            : cleanContentForLLM(m.content));
+          return `[${sender}]: ${content}`;
+        }).join('\n');
+      } else {
+        historyContext = '*先前没有发生与用户的互动对话。*';
       }
-    } catch (_) { }
 
-    // 获取 last_compression_ts
-    const lastCompressionKey = `last_compression_ts_${charId}`;
-    const lastCompressionTsStr = db.getSetting(lastCompressionKey);
-    const lastCompressionTs = lastCompressionTsStr ? parseInt(lastCompressionTsStr, 10) : 0;
+      // A. 推进并写回 Schedule.md
+      if (target === 'schedule' || target === 'both') {
+        try {
+          const dateList: string[] = [];
+          for (let i = 0; i < 7; i++) {
+            const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+            dateList.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+          }
 
-    // 🚀 日程更新自省历史拉取拼合
-    const chatMode = db.getSetting(`chat_mode_${charId}`) || 'dialogue';
-    const isDialogue = chatMode === 'dialogue';
-    const limit = isDialogue ? 160 : 60;
-    let rawHistory = db.getChatHistory(charId, limit);
-    if (lastCompressionTs > 0) {
-      rawHistory = rawHistory.filter((m: any) => m.timestamp > lastCompressionTs);
-    }
-    const mergedHistory = mergeChatHistory(rawHistory);
-
-    // 过滤掉 AI 生成图片消息（assistant 图片），用户图片保留占位符
-    const cleanHistory = mergedHistory.filter((m: any) => {
-      if (!m.content) return false;
-      const contentStr = m.content.trim();
-      if (contentStr.startsWith('[character_diary]:')) return false;
-      // AI 生成图片消息完全过滤
-      if (m.role !== 'user' && contentStr.startsWith('[wechat_image_media]:')) return false;
-      return true;
-    });
-
-    let historyContext = '';
-    if (cleanHistory.length > 0) {
-      historyContext = cleanHistory.map((m: any) => {
-        const sender = m.role === 'user' ? 'User' : charName;
-        const content = (m.role === 'user' && m.content.startsWith('[wechat_image_media]:')
-          ? formatUserImageForLLM(m.content)
-          : cleanContentForLLM(m.content));
-        return `[${sender}]: ${content}`;
-      }).join('\n');
-    } else {
-      historyContext = '*先前没有发生与用户的互动对话。*';
-    }
-
-    // A. 推进并写回 Schedule.md
-    if (target === 'schedule' || target === 'both') {
-      try {
-        const dateList: string[] = [];
-        for (let i = 0; i < 7; i++) {
-          const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-          dateList.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
-        }
-
-        const schedulePrompt = `你当前处于数字生命的深度规划状态，你需要为你接下来的 7 天规划一份极其拟真、符合你人设性格与生活境遇的个人日程表。
+          const schedulePrompt = `你当前处于数字生命的深度规划状态，你需要为你接下来的 7 天规划一份极其拟真、符合你人设性格与生活境遇的个人日程表。
 
 【三大核心输入（具有最高裁决力与时效性，必须作为你日程规划的主轴）】：
 1. 你的专属记忆记录（Memory.md）：
@@ -965,28 +986,28 @@ ${dateList.map((d, i) => `     第 ${i + 1} 天: ${d}`).join('\n')}
 # 近7天日程
 - **YYYY-MM-DD**: 日程具体内容描述`;
 
-        const scheduleResponse = await modelAdapter.chat([
-          { role: 'system', content: schedulePrompt },
-          { role: 'user', content: '请规划并输出你最新近7天的拟真日程表。' }
-        ], { useSecondary: true, characterId: charId });
+          const scheduleResponse = await modelAdapter.chat([
+            { role: 'system', content: schedulePrompt },
+            { role: 'user', content: '请规划并输出你最新近7天的拟真日程表。' }
+          ], { useSecondary: true, characterId: charId });
 
-        const newSchedule = scheduleResponse.content.trim();
-        if (newSchedule && !newSchedule.includes('Error')) {
-          const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
-          const processedSchedule = UserProfileReaderWriter.replaceUserNameToPlaceholder(newSchedule, userName);
-          fs.writeFileSync(schedulePath, processedSchedule, 'utf8');
-          console.log(`[MemoryAgentService] 物理覆写/生成 Schedule.md 成功: ${folderName}`);
+          const newSchedule = scheduleResponse.content.trim();
+          if (newSchedule && !newSchedule.includes('Error')) {
+            const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+            const processedSchedule = UserProfileReaderWriter.replaceUserNameToPlaceholder(newSchedule, userName);
+            fs.writeFileSync(schedulePath, processedSchedule, 'utf8');
+            console.log(`[MemoryAgentService] 物理覆写/生成 Schedule.md 成功: ${folderName}`);
+          }
+        } catch (err) {
+          console.error(`[MemoryAgentService] 规划 ${folderName} 的近 7 天日程表发生异常:`, err);
         }
-      } catch (err) {
-        console.error(`[MemoryAgentService] 规划 ${folderName} 的近 7 天日程表发生异常:`, err);
       }
-    }
 
-    // B. 推进并写回 Goals.md
-    if (target === 'goals' || target === 'both') {
-      try {
-        const oldGoals = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
-        const goalsPrompt = `你处于深度认知与自我进化规划状态，你需要评估、修缮并推进你的长期目标与心理成长路径（Goals.md）。
+      // B. 推进并写回 Goals.md
+      if (target === 'goals' || target === 'both') {
+        try {
+          const oldGoals = fs.existsSync(goalsPath) ? fs.readFileSync(goalsPath, 'utf8') : '暂无长期目标';
+          const goalsPrompt = `你处于深度认知与自我进化规划状态，你需要评估、修缮并推进你的长期目标与心理成长路径（Goals.md）。
 
 【三大核心输入（极高权重，具有最高裁决力与时效性，必须作为你目标演进的主轴）】：
 1. 你的专属记忆记录（Memory.md）：
@@ -1024,27 +1045,32 @@ ${charUserContent}
   - 目前进展：[具体事实与感悟]
   - 下一步行动：[计划]`;
 
-        const goalsResponse = await modelAdapter.chat([
-          { role: 'system', content: goalsPrompt },
-          { role: 'user', content: '请评估并推进你的长期目标，输出最新的Goals.md。' }
-        ], { useSecondary: true, characterId: charId });
+          const goalsResponse = await modelAdapter.chat([
+            { role: 'system', content: goalsPrompt },
+            { role: 'user', content: '请评估并推进你的长期目标，输出最新的Goals.md。' }
+          ], { useSecondary: true, characterId: charId });
 
-        const newGoals = goalsResponse.content.trim();
-        if (newGoals && !newGoals.includes('Error')) {
-          const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
-          const processedGoals = UserProfileReaderWriter.replaceUserNameToPlaceholder(newGoals, userName);
-          fs.writeFileSync(goalsPath, processedGoals, 'utf8');
-          console.log(`[MemoryAgentService] 物理覆写/生成 Goals.md 成功: ${folderName}`);
+          const newGoals = goalsResponse.content.trim();
+          if (newGoals && !newGoals.includes('Error')) {
+            const userName = UserProfileReaderWriter.getUserNameByFolder(folderName);
+            const processedGoals = UserProfileReaderWriter.replaceUserNameToPlaceholder(newGoals, userName);
+            fs.writeFileSync(goalsPath, processedGoals, 'utf8');
+            console.log(`[MemoryAgentService] 物理覆写/生成 Goals.md 成功: ${folderName}`);
+          }
+        } catch (err) {
+          console.error(`[MemoryAgentService] 规划 ${folderName} 的长期目标进化发生异常:`, err);
         }
-      } catch (err) {
-        console.error(`[MemoryAgentService] 规划 ${folderName} 的长期目标进化发生异常:`, err);
       }
-    }
 
-    // 只有在非 force 的自动轮询/对话自动触发，或者明确为 both 的全刷时，才覆写 7天基准时间戳和消息步数计数
-    if (!force || target === 'both') {
-      db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
-      db.setSetting(`last_schedule_goals_msg_count_${charId}`, currentMsgCount.toString());
+      // 只有在非 force 的自动轮询/对话自动触发，或者明确为 both 的全刷时，才覆写 7天基准时间戳和消息步数计数
+      if (!force || target === 'both') {
+        db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
+        db.setSetting(`last_schedule_goals_msg_count_${charId}`, currentMsgCount.toString());
+      }
+    } finally {
+      if (!skipLock) {
+        InferenceMutex.unlock();
+      }
     }
   }
 
@@ -1076,7 +1102,7 @@ ${charUserContent}
     }
 
     if (activeHistory.length < compressThreshold) {
-      console.log(`[MemoryAgentService] 活跃历史条数为 ${activeHistory.length}，未达 ${compressThreshold} 物理条阈值，暂不触发归并压缩。`);
+      // console.log(`[MemoryAgentService] 活跃历史条数为 ${activeHistory.length}，未达 ${compressThreshold} 物理条阈值，暂不触发归并压缩。`);
       return;
     }
 
