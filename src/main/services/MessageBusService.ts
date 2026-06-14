@@ -27,7 +27,7 @@ import { SseManager } from './SseManager'
 // ────────────────────────────────────────────────────────────
 
 /** 消息类型枚举 */
-export type MessageType = 'text' | 'red_packet' | 'image' | 'custom_emoji' | 'diary' | 'system'
+export type MessageType = 'text' | 'red_packet' | 'image' | 'custom_emoji' | 'diary' | 'system' | 'roast'
 
 /** 会话元数据结构 */
 export interface ConversationMeta {

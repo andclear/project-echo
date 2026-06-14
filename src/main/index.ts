@@ -36,6 +36,7 @@ import { WeatherService } from './utils/WeatherService'
 import { MessageBusService, EchoMessage, MessageType } from './services/MessageBusService'
 import { parseMemoryMd, parseUserMd } from './utils/MarkdownMetadataParser'
 import { SseManager } from './services/SseManager'
+import { RoastService } from './services/RoastService'
 import { migrateLegacyUserProfile, performEmojiBase64DecoupleMigration } from './utils/MigrationHelper'
 
 // 🚀 至尊级日志静默盾：劫持全局 console.error，静默过滤掉由于 Electron 内部对已销毁/已刷新渲染帧发送 IPC 消息时，在底层 JS init 代码中强行抛出的 WebFrameMain/disposed 冗余控制台报错
@@ -3871,7 +3872,8 @@ ${soulContent}
 
           // B. 拉取历史消息并格式化为剧本 RP 形式的大文本控制台（自适应群聊多气泡膨胀）
           const limit = isDialogue ? 200 : 60
-          const rawHistory = db.getChatHistory(groupId, limit)
+          let rawHistory = db.getChatHistory(groupId, limit)
+          rawHistory = rawHistory.filter((m: any) => m.msg_type !== 'roast')
           const history = mergeChatHistory(rawHistory)
 
           // 新增：自动接力搭话机制。如果队列已空但发言总轮数未满 4 轮，100% 自动挑选另一个 AI 成员接力发言，确保群聊维持在 4 轮的充分热闹程度
@@ -4889,8 +4891,8 @@ ${soulContent}
     const isDialogue = chatMode === 'dialogue'
     const limit = isDialogue ? 160 : 60
     let rawHistory = db.getChatHistory(characterId, limit)
-    // 过滤掉后台自动生成的日记消息，不作为微信对话上下文塞给 LLM，防止时空幻觉崩塌
-    rawHistory = rawHistory.filter((m: any) => !m.content?.startsWith('[character_diary]:'))
+    // 过滤掉后台自动生成的日记消息和戏外吐槽，不作为微信对话上下文塞给 LLM，防止时空幻觉与穿帮崩塌
+    rawHistory = rawHistory.filter((m: any) => !m.content?.startsWith('[character_diary]:') && m.msg_type !== 'roast')
 
     // 增量逻辑物理截断：只保留上一次压缩之后的新消息，完美对齐缓存哈希！
     if (lastCompressionTs > 0) {
@@ -5958,6 +5960,55 @@ ${memoryContent}
     }
   })
 
+  // 13.5 获取当前角色的吐槽历史
+  ipcMain.handle('get-roast-history', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const rows = db.db.prepare("SELECT * FROM Messages WHERE character_id = ? AND msg_type = 'roast' ORDER BY timestamp DESC").all(payload.characterId)
+      return { success: true, history: rows }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 13.6 触发最新的 AI 吐槽并落盘广播
+  ipcMain.handle('trigger-ai-roast', async (_, payload: { characterId: string; folderName: string; mode: 'praise' | 'calm' | 'angry' }) => {
+    try {
+      const db = getDatabaseService()
+      const configStr = db.getSetting('model_config')
+      if (!configStr) {
+        throw new Error('未配置全局大模型参数，请前往设置中心先进行配置保存！')
+      }
+      const settings = JSON.parse(configStr)
+      const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+
+      const roastService = new RoastService(modelAdapter)
+      const text = await roastService.generateRoast(payload.characterId, payload.folderName, payload.mode)
+
+      // 组装吐槽消息结构存盘
+      const roastMsg: EchoMessage = {
+        id: crypto.randomUUID(),
+        round_id: `roast_${Date.now()}`,
+        seq: 0,
+        character_id: payload.characterId,
+        role: 'assistant',
+        msg_type: 'roast',
+        content: text,
+        timestamp: Date.now(),
+        token_usage: 0,
+        inner_thought: JSON.stringify({ mode: payload.mode }) // 将模式存在 inner_thought 字段中
+      }
+
+      // 发布消息（这会自动将消息存入数据库，并广播推送给所有端渲染）
+      MessageBusService.getInstance().publish(roastMsg, { skipUnreadUpdate: true })
+
+      return { success: true, text }
+    } catch (e: any) {
+      console.error('[IPC trigger-ai-roast] 异常:', e)
+      return { success: false, error: e.message || e }
+    }
+  })
+
   // 14. 触发做梦反思进化测试 (防挫败与 Patch DREAM.md 测试) IPC 通道
   ipcMain.handle('trigger-review-test', async (_, payload: { characterId: string; folderName: string }) => {
     try {
@@ -5973,7 +6024,8 @@ ${memoryContent}
       const chatMode = db.getSetting(`chat_mode_${characterId}`) || 'descriptive'
       const isDialogue = chatMode === 'dialogue'
       const limit = isDialogue ? 20 : 5
-      const rawHistory = db.getChatHistory(characterId, limit)
+      let rawHistory = db.getChatHistory(characterId, limit)
+      rawHistory = rawHistory.filter((m: any) => m.msg_type !== 'roast')
       const recentHistory = isDialogue ? mergeChatHistory(rawHistory).slice(0, 5) : rawHistory
       await reviewService.reviewAndPatch(folderName, characterId, recentHistory, modelAdapter)
       return { success: true }
@@ -6009,6 +6061,7 @@ ${memoryContent}
     try {
       const db = getDatabaseService()
       let history = db.getChatHistory(payload.characterId, payload.limit || 20, payload.beforeTimestamp)
+      history = history.filter((m: any) => m.msg_type !== 'roast')
 
       // 选项一逻辑：读取窗口清除时间戳并过滤，使再次打开显示空白会话且在界面搜不到
       const clearTimeStr = db.getSetting('clear_chat_at_' + payload.characterId)
@@ -7222,7 +7275,8 @@ ${memoryContent}
       const chatMode = db.getSetting(`chat_mode_${payload.characterId}`) || 'descriptive'
       const isDialogue = chatMode === 'dialogue'
       const limit = isDialogue ? 30 : 10
-      const rawHistory = db.getChatHistory(payload.characterId, limit)
+      let rawHistory = db.getChatHistory(payload.characterId, limit)
+      rawHistory = rawHistory.filter((m: any) => m.msg_type !== 'roast')
       const history = isDialogue ? mergeChatHistory(rawHistory) : rawHistory
       let historyContext = ''
       if (history.length > 0) {
@@ -8198,7 +8252,8 @@ Please output in exactly this XML format:
   ipcMain.handle('regenerate-reply', async (_, payload: { characterId: string }) => {
     try {
       const db = getDatabaseService()
-      const history = db.getChatHistory(payload.characterId, 100)
+      let history = db.getChatHistory(payload.characterId, 100)
+      history = history.filter((m: any) => m.msg_type !== 'roast')
       if (history.length === 0) {
         throw new Error('没有历史对话可以重答')
       }

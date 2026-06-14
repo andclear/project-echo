@@ -10108,6 +10108,17 @@
                     <ApertureIcon v-else class="w-5 h-5 transition-all duration-300" />
                   </button>
 
+                  <!-- AI 吐槽大会 -->
+                  <button
+                    v-if="!isGroupActive"
+                    @click="toggleRoastPanel"
+                    class="input-tool-btn animate-fade-in"
+                    :class="{ 'text-primary bg-surface-high': showRoastPanel }"
+                    title="AI 吐槽大会"
+                  >
+                    <MaskIcon class="w-5 h-5 transition-all duration-300" />
+                  </button>
+
                   <!-- 当前用户人设回显 (仅电脑端/宽屏显示，可在未开启对话时切换人设) -->
                   <div
                     v-if="
@@ -11646,6 +11657,127 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================= 弹窗：吐槽大会 ========================= -->
+    <div
+      v-if="showRoastPanel && activeCharacter"
+      class="modal-overlay"
+      @click.self="showRoastPanel = false"
+    >
+      <div class="modal-panel w-[520px] h-[580px] flex flex-col overflow-hidden animate-scale-up rounded-2xl border border-outline-variant/30 shadow-2xl bg-surface">
+        <!-- 头部：自适应明暗模式，呼吸感 Padding -->
+        <div class="modal-header flex-shrink-0 px-6 py-4.5 border-b border-outline-variant/30">
+          <div class="flex items-center space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500 shadow-inner">
+              <MaskIcon class="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <span class="text-xs font-bold text-on-surface tracking-wide">
+                {{ activeCharacter.name }}
+              </span>
+              <span class="text-[10px] text-on-surface-variant/50 ml-1 font-mono tracking-wider">· 戏外吐槽大会</span>
+            </div>
+          </div>
+          <button
+            @click="showRoastPanel = false"
+            class="modal-close-btn hover:bg-surface-high/60 p-1.5 rounded-lg transition-colors"
+          >
+            <XIcon class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- 吐槽历史混合流时间线：精致的渐变背景与呼吸感的卡片间距 -->
+        <div class="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-surface-low to-surface/30 custom-scrollbar min-h-0">
+          <div v-if="roastHistory.length === 0 && !isRoastGenerating" class="h-full flex flex-col items-center justify-center text-center p-6">
+            <div class="w-16 h-16 rounded-full bg-on-surface-variant/5 flex items-center justify-center mb-3 text-on-surface-variant/20 shadow-inner">
+              <MaskIcon class="w-8 h-8" />
+            </div>
+            <p class="text-xs text-on-surface-variant/60 font-mono">当前没有任何吐槽发言记录</p>
+            <p class="text-[10px] text-on-surface-variant/40 mt-1 font-mono">在下方选择你期待的演员人格，邀请其登台吐槽！</p>
+          </div>
+
+          <div v-else class="space-y-4">
+            <!-- 生成中的骨架屏 -->
+            <div
+              v-if="isRoastGenerating"
+              class="p-4 bg-surface border border-outline-variant/40 rounded-xl space-y-2.5 animate-pulse shadow-sm"
+            >
+              <div class="flex items-center justify-between">
+                <div class="h-4 w-14 bg-surface-high rounded"></div>
+                <div class="h-3 w-16 bg-surface-high rounded"></div>
+              </div>
+              <div class="space-y-1.5 pt-1">
+                <div class="h-3.5 w-full bg-surface-high rounded"></div>
+                <div class="h-3.5 w-5/6 bg-surface-high rounded"></div>
+              </div>
+            </div>
+
+            <!-- 历史吐槽卡片：圆角升级、加入微阴影 -->
+            <div
+              v-for="roast in roastHistory"
+              :key="roast.id"
+              class="p-4 bg-surface/95 border border-outline-variant/35 rounded-xl shadow-[0_2px_8px_rgba(0,0,0,0.015)] dark:shadow-[0_4px_12px_rgba(0,0,0,0.15)] hover:shadow-md hover:border-outline-variant/65 transition-all duration-300 flex flex-col space-y-2"
+            >
+              <!-- 卡片头部：Badge + 时间 -->
+              <div class="flex items-center justify-between select-none">
+                <span
+                  class="px-2 py-0.5 text-[9px] font-bold rounded-md font-mono"
+                  :class="getRoastModeInfo(roast.inner_thought).color"
+                >
+                  {{ getRoastModeInfo(roast.inner_thought).text }}
+                </span>
+                <span class="text-[9px] text-on-surface-variant/45 font-mono">
+                  {{ new Date(roast.timestamp).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }}
+                </span>
+              </div>
+              <!-- 卡片正文 -->
+              <p class="text-xs leading-relaxed text-on-surface whitespace-pre-wrap font-sans break-words select-text">
+                {{ roast.content }}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部操作区：呼吸感的 P-6 padding、加深间距 -->
+        <div class="p-6 border-t border-outline-variant/30 bg-surface flex-shrink-0 flex flex-col space-y-4">
+          <!-- 极简模式切换 Tab 键：更大的 Tab 舒适区 -->
+          <div class="flex items-center bg-surface-low border border-outline-variant/40 p-1 rounded-xl shadow-inner">
+            <button
+              @click="selectedRoastMode = 'praise'"
+              class="flex-1 py-1.5 text-xs transition-all cursor-pointer rounded-lg select-none text-center"
+              :class="selectedRoastMode === 'praise' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/20 shadow-sm' : 'bg-transparent text-on-surface-variant/50 hover:text-on-surface border border-transparent'"
+            >
+              💎 赞美版
+            </button>
+            <button
+              @click="selectedRoastMode = 'calm'"
+              class="flex-1 py-1.5 text-xs transition-all cursor-pointer rounded-lg select-none text-center"
+              :class="selectedRoastMode === 'calm' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-500/20 shadow-sm' : 'bg-transparent text-on-surface-variant/50 hover:text-on-surface border border-transparent'"
+            >
+              🧊 冷静版
+            </button>
+            <button
+              @click="selectedRoastMode = 'angry'"
+              class="flex-1 py-1.5 text-xs transition-all cursor-pointer rounded-lg select-none text-center"
+              :class="selectedRoastMode === 'angry' ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 font-bold border border-rose-500/20 shadow-sm' : 'bg-transparent text-on-surface-variant/50 hover:text-on-surface border border-transparent'"
+            >
+              🔥 暴躁版
+            </button>
+          </div>
+
+          <!-- 发起吐槽按钮：高阶微缩阴影动效 -->
+          <button
+            @click="triggerAiRoast"
+            :disabled="isRoastGenerating"
+            class="w-full py-2.5 bg-primary text-on-primary font-bold text-xs rounded-xl shadow-lg shadow-primary/10 hover:shadow-xl hover:shadow-primary/20 hover:-translate-y-0.5 active:translate-y-0 active:scale-98 transition-all duration-300 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:pointer-events-none cursor-pointer tracking-wider font-mono"
+          >
+            <Loader2Icon v-if="isRoastGenerating" class="w-3.5 h-3.5 animate-spin" />
+            <span v-else class="text-xs">🎭</span>
+            <span>{{ isRoastGenerating ? 'AI 演员正在拿麦上台...' : '邀请 AI 演员登台吐槽' }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -15436,6 +15568,7 @@ import {
   Minus as MinusIcon,
   Type as TypeIcon,
   ScanHeart as ScanHeartIcon,
+  VenetianMask as MaskIcon,
 } from 'lucide-vue-next';
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue';
@@ -19029,6 +19162,84 @@ async function handleCleanOption(option: number) {
   }
 }
 
+
+// ===================== 吐槽大会面板 =====================
+const showRoastPanel = ref(false);
+const roastHistory = ref<any[]>([]);
+const isRoastGenerating = ref(false);
+const selectedRoastMode = ref<'praise' | 'calm' | 'angry'>('calm');
+
+const toggleRoastPanel = () => {
+  if (showRoastPanel.value) {
+    showRoastPanel.value = false;
+  } else {
+    // 互斥关闭其他面板
+    showDiaryPanel.value = false;
+    showBrainPanel.value = false;
+    showRoastPanel.value = true;
+    loadRoastHistory();
+  }
+};
+
+const loadRoastHistory = async () => {
+  const charId = selectedCharacterId.value;
+  if (!charId) return;
+  try {
+    if (window.api && window.api.invoke) {
+      const res = await window.api.invoke('get-roast-history', { characterId: charId });
+      if (res && res.success) {
+        roastHistory.value = res.history || [];
+      }
+    }
+  } catch (err) {
+    console.error('加载吐槽历史失败:', err);
+  }
+};
+
+const triggerAiRoast = async () => {
+  const charId = selectedCharacterId.value;
+  if (!charId) return;
+  const activeChar = activeCharacter.value || characters.value.find(c => c.id === charId);
+  if (!activeChar) return;
+  
+  isRoastGenerating.value = true;
+  try {
+    if (window.api && window.api.invoke) {
+      const res = await window.api.invoke('trigger-ai-roast', {
+        characterId: charId,
+        folderName: activeChar.folder_name,
+        mode: selectedRoastMode.value
+      });
+      if (res && res.success) {
+        // 重新加载吐槽历史
+        await loadRoastHistory();
+      } else {
+        showCustomAlert('吐槽大会故障', `${res.error || '大模型暂时开小差了'}`, 'error');
+      }
+    }
+  } catch (err: any) {
+    showCustomAlert('吐槽失败', `${err.message || err}`, 'error');
+  } finally {
+    isRoastGenerating.value = false;
+  }
+};
+
+const getRoastModeInfo = (innerThoughtJson: string) => {
+  try {
+    if (!innerThoughtJson) return { text: '冷静', color: 'text-emerald-500 bg-emerald-500/5 border border-emerald-500/10' };
+    const parsed = JSON.parse(innerThoughtJson);
+    if (parsed.mode === 'praise') {
+      return { text: '💎 赞美', color: 'text-amber-500/80 bg-amber-500/5 border border-amber-500/10' };
+    } else if (parsed.mode === 'angry') {
+      return { text: '🔥 暴躁', color: 'text-rose-500/80 bg-rose-500/5 border border-rose-500/10' };
+    } else {
+      return { text: '🧊 冷静', color: 'text-emerald-500/80 bg-emerald-500/5 border border-emerald-500/10' };
+    }
+  } catch (_) {
+    return { text: '🧊 冷静', color: 'text-emerald-500/80 bg-emerald-500/5 border border-emerald-500/10' };
+  }
+};
+
 // ===================== 日记面板与分栏拆分 =====================
 const showDiaryPanel = ref(false);
 const selectedDiaryIdx = ref(0);
@@ -19237,6 +19448,12 @@ watch(selectedContactId, () => {
         selectedContactBindingProfileId.value = res.profileId;
       }
     });
+  }
+});
+
+watch(selectedCharacterId, () => {
+  if (showRoastPanel.value) {
+    loadRoastHistory();
   }
 });
 
@@ -20599,9 +20816,10 @@ async function selectCharacter(charId: string) {
     conversationMeta[charId].hidden = false;
   }
 
-  // 清零未读，无需重复反向写盘
+  // 清零未读，并同步反向写盘保存至 SQLite，确保重启后红点不复现
   if (conversationMeta[charId]) {
     conversationMeta[charId].unread = 0;
+    window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] });
   }
 
   // 重置输入状态
@@ -25860,6 +26078,10 @@ onMounted(async () => {
   // 使用 function 声明以获得变量提升（hoisting），允许在文件中任意位置调用
   // ────────────────────────────────────────────────────────
   function handleEchoMessage(msg: any) {
+    if (msg.msg_type === 'roast') {
+      // 吐槽消息属于演员戏外吐槽，在此默默拦截，绝不混入主聊天界面
+      return;
+    }
     // 包装为 async IIFE，允许内部 await（不阻塞其他消息接收）
     (async () => {
       const charId = msg.character_id;
