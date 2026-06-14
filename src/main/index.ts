@@ -1389,7 +1389,7 @@ function registerIpcHandlers(): void {
 
       const url = `${baseUrl.replace(/\/$/, '')}/models`
        const headers: Record<string, string> = {
-        'User-Agent': 'EchoPlatform/1.0.6 (Desktop AI Roleplay Platform)'
+        'User-Agent': 'EchoPlatform/1.0.7 (Desktop AI Roleplay Platform)'
       }
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`
@@ -1698,6 +1698,10 @@ function registerIpcHandlers(): void {
   // 订阅运行日志实时推送
   ipcMain.handle('subscribe-console-logs', async (event) => {
     try {
+      // 局域网桥接端（手机端/Web端）不需要也不应该注册为原生 Electron webContents 订阅者，直接走全局 SSE 广播即可，防止产生日志死循环
+      if (event && event.sender && (event.sender as any).isIpcBridge) {
+        return { success: true }
+      }
       LogBufferService.getInstance().subscribe(event.sender)
       return { success: true }
     } catch (err: any) {
@@ -1706,8 +1710,11 @@ function registerIpcHandlers(): void {
   })
 
   // 取消订阅运行日志实时推送
-  ipcMain.handle('unsubscribe-console-logs', async () => {
+  ipcMain.handle('unsubscribe-console-logs', async (event) => {
     try {
+      if (event && event.sender && (event.sender as any).isIpcBridge) {
+        return { success: true }
+      }
       LogBufferService.getInstance().unsubscribe()
       return { success: true }
     } catch (err: any) {
@@ -7931,7 +7938,7 @@ Please output in exactly this XML format:
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
-          'User-Agent': 'EchoPlatform/1.0.6 (Desktop AI Roleplay Platform)'
+          'User-Agent': 'EchoPlatform/1.0.7 (Desktop AI Roleplay Platform)'
         }
       })
 
@@ -9964,6 +9971,8 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
                 if (ch === 'chat-chunk' && data && data.isSystem) {
                   // $admin 调试系统提示消息，特许通过 SSE 广播给所有客户端
                   SseManager.getInstance().broadcast('chat-chunk', data)
+                } else if (ch === 'new-log-broadcast') {
+                  // 运行日志由 LogBufferService 在主进程全局通过 SSE 广播，在此直接拦截，严禁打印 console.log 以免引起死递归
                 } else {
                   // IPC bridge 中，对无需推送的内部信号直接记录日志
                   console.log(`[IPC Bridge Proxy send] channel: ${ch} (SSE 不再转发内部信号)`)

@@ -409,11 +409,12 @@ ${currentCharFacts.length === 0 ? '（暂无专属画像事实）' : currentChar
    - 如果用户表达温暖、关心、支持或赞美：mood 增加 (+5 至 +10)，intimacy 增加 (+1 至 +3)。
    - 如果用户冷淡、挑剔、争吵或沉默：mood 降低 (-10 至 -20)，intimacy 降低 (-2 至 -5)。
 
-2. 用户自定义状态栏 (如 custom_* 或其他自定义项)：
+2. 用户自定义状态栏：
    - **你必须严格读取并无条件遵守每个状态项中由用户指定的 "AI更新规则（rule）"，这是判定该状态如何更新的最高指令！**
    - **在分析变动时，你必须根据前面提供的最近3轮对话上下文，严格核对是否触发了该状态更新规则中的特定触发条件或要求。**
-   - 【强制变动铁律】：为了让用户在每一轮交互中都能感知到状态的变化，**对于所有自定义指标（尤其是文本类指标，如衣着 clothing、发型、当前位置等），你必须在每一轮对话中都输出更新的 value，绝对不允许忽略或保持原样！**
-   - 【文本微观细节修饰】：如果某些文本状态（如 clothing 衣着）在规则中没有触发大换装的特定条件（如换成泳装），你也**绝对不能**直接返回原有的旧文本（如“白大褂”）。你必须在不违反更新规则的前提下，结合当下的聊天环境、角色的心情、天气、动作或对话背景，为其修饰和附加微观的环境或外观细节（例如从“白大褂”修饰为“略显凌乱的白大褂”、“有些松垮的白大褂”或“整洁如新的白大褂”），通过这种细节的变动来实现“每一轮状态都有可见的改变”。
+   - **【只允许更新已有状态铁律】：你绝对禁止凭空捏造、杜撰或输出任何在下面的“角色当前状态”列表中没有给出的 key。你仅能评估和更新在“角色当前状态”中已列出的合法状态项！**
+   - 【强制变动铁律】：为了让用户在每一轮交互中都能感知到状态的变化，**对于当前状态列表中已存在的自定义文本型指标，你必须在每一轮对话中都输出更新后的 value，绝对不允许忽略或保持原样！**
+   - 【文本微观细节修饰】：如果对某个已存在的自定义文本型状态，在规则中没有触发大幅度变动的条件，你也**绝对不能**直接返回原有的旧文本。你必须在不违反其规则的前提下，结合当下的聊天环境、角色的心情、天气、动作或对话背景，为其修饰和附加微观的环境或外观细节，通过这种细节的变动来实现“每一轮状态都有可见的改变”。
 
 3. 通用格式要求：
    - 文本型状态的变化，请在 'value' 字段中提供更新后的文本（无需提供 'delta'）。
@@ -429,7 +430,8 @@ Target JSON 格式：
 {
   "state_updates": [
     { "key": "intimacy", "delta": 2 },
-    { "key": "clothing", "value": "整洁如新的白大褂" }
+    { "key": "mood", "delta": 5 },
+    { "key": "custom_state_key", "value": "更新后的状态描述" }
   ]
 }`;
 
@@ -777,6 +779,17 @@ Target JSON 格式：
     // D. State.md Delta（执行 intimacy 速率干涉并写入）
     if (diff.state_updates && diff.state_updates.length > 0) {
       let filteredUpdates = diff.state_updates || [];
+
+      // 安全防线：物理校验 key 合法性，绝对禁止大语言模型越权生造 State.md 中未配置的自定义状态
+      try {
+        const currentState = StateReaderWriter.readState(statePath);
+        if (currentState && Array.isArray(currentState.items)) {
+          const validKeys = new Set(currentState.items.map(item => item.key));
+          filteredUpdates = filteredUpdates.filter(u => validKeys.has(u.key));
+        }
+      } catch (err) {
+        console.error('[MemoryAgentService] 读取当前状态以做安全过滤失败:', err);
+      }
 
       if (filteredUpdates.length > 0) {
         if (intimacySpeed === 'slow') {

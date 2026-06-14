@@ -146,6 +146,14 @@ export class LogBufferService {
           this.subscriberWebContents = null
         }
       }
+
+      // 6. 向所有通过局域网/手机长连接的 SSE 客户端实时推送日志，打通多端同步
+      try {
+        const { SseManager } = require('./SseManager')
+        SseManager.getInstance().broadcast('new-log-broadcast', entry)
+      } catch (_) {
+        // 静默保护
+      }
     } catch (err) {
       // 出错时退回使用最原始输出，绝不卡死系统
       this.originalError('[LogBuffer] 日志推入缓冲区异常:', err)

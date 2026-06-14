@@ -16007,6 +16007,9 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     eventSource.addEventListener('creator-bot-message', handleSseEvent);
     eventSource.addEventListener('character-imported', handleSseEvent);
 
+    // 🚀 监听运行日志实时广播，打通局域网手机端多端同步
+    eventSource.addEventListener('new-log-broadcast', handleSseEvent);
+
     // 🚀 监听小说 AI 写手事件，使局域网/移动端接收到红点和进程变更广播
     eventSource.addEventListener('novel-chapter-added', handleSseEvent);
     eventSource.addEventListener('novel-chapter-rewritten', handleSseEvent);
@@ -16221,7 +16224,7 @@ const updateErrorMsg = ref('');
 const isDockerUpdate = ref(false);
 const copiedDockerCmd = ref(false);
 
-const appVersion = ref('1.0.6');
+const appVersion = ref('1.0.7');
 const isElectron = typeof window !== 'undefined' && !!(window.electron && window.electron.ipcRenderer);
 
 function isNewerVersion(current: string, latest: string): boolean {

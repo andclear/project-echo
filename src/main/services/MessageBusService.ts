@@ -143,10 +143,18 @@ export class MessageBusService {
     this.getMainWindow = getWindow
   }
 
+  private pendingClears = new Map<string, NodeJS.Timeout>()
+
   /**
    * 设置指定客户端当前前台活跃的聊天会话 ID
    */
   setActiveCharacterId(clientId: string, characterId: string | null): void {
+    // 闪断重连防守：如果当前客户端已被加入了清理等待队列，立即清除定时器，恢复其活跃状态
+    const pendingTimer = this.pendingClears.get(clientId)
+    if (pendingTimer) {
+      clearTimeout(pendingTimer)
+      this.pendingClears.delete(clientId)
+    }
     this.activeConversations.set(clientId, characterId)
     if (characterId) {
       this.clearUnread(characterId)
@@ -155,9 +163,18 @@ export class MessageBusService {
 
   /**
    * 移除指定客户端的活跃状态（如客户端连接断开）
+   * 采用 5 秒延迟防抖设计，防止短时间网络闪断、页面刷新、断线重连时，因活跃状态瞬间丢失而导致未读数统计偏差或离线提醒误判。
    */
   clearActiveCharacterId(clientId: string): void {
-    this.activeConversations.delete(clientId)
+    const pendingTimer = this.pendingClears.get(clientId)
+    if (pendingTimer) {
+      clearTimeout(pendingTimer)
+    }
+    const timer = setTimeout(() => {
+      this.activeConversations.delete(clientId)
+      this.pendingClears.delete(clientId)
+    }, 5000)
+    this.pendingClears.set(clientId, timer)
   }
 
   /**
