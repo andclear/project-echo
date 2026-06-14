@@ -9982,8 +9982,10 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
                 } else if (ch === 'new-log-broadcast') {
                   // 运行日志由 LogBufferService 在主进程全局通过 SSE 广播，在此直接拦截，严禁打印 console.log 以免引起死递归
                 } else {
-                  // IPC bridge 中，对无需推送的内部信号直接记录日志
-                  console.log(`[IPC Bridge Proxy send] channel: ${ch} (SSE 不再转发内部信号)`)
+                  // IPC bridge 中，对无需推送的内部信号直接记录日志（过滤掉高频的向量补录进度和聊天字块，防止日志刷屏）
+                  if (ch !== 'vector-backfill-progress' && ch !== 'chat-chunk') {
+                    console.log(`[IPC Bridge Proxy send] channel: ${ch} (SSE 不再转发内部信号)`)
+                  }
                 }
               }
             }
