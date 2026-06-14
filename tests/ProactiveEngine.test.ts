@@ -125,8 +125,9 @@ describe('Echo 自主生命引擎重构 - 基于 Plan 逻辑校验测试', () =>
   let charPath: string;
 
   beforeEach(() => {
-    // 开启虚拟定时器，防止测试用例之间异步 setTimeout 串流泄露
+    // 开启虚拟定时器，防止测试用例之间异步 setTimeout 串流泄露，并设定固定时间避开午夜免打扰时段
     vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
 
     engine = new AgentLifeEngine();
     storageManager = new CharacterStorageManager();

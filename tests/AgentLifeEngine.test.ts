@@ -55,6 +55,9 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
   let charPath: string;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    // 设为 2026-06-15 12:00:00 (中午12点)
+    vi.setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
     engine = new AgentLifeEngine();
     storageManager = new CharacterStorageManager();
     charPath = path.join(storageManager.getBaseDir(), testFolderName);
@@ -87,6 +90,7 @@ describe('AgentLifeEngine 0-Token 唤醒门控 (Wake Gate) 内存自闭环测试
 
   // 测试清理
   afterEach(() => {
+    vi.useRealTimers();
     if (fs.existsSync(charPath)) {
       fs.rmSync(charPath, { recursive: true, force: true });
     }

@@ -9981,6 +9981,14 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
                   SseManager.getInstance().broadcast('chat-chunk', data)
                 } else if (ch === 'new-log-broadcast') {
                   // 运行日志由 LogBufferService 在主进程全局通过 SSE 广播，在此直接拦截，严禁打印 console.log 以免引起死递归
+                } else if ([
+                  'vector-model-download-progress',
+                  'vector-model-download-done',
+                  'vector-backfill-progress',
+                  'vector-backfill-done'
+                ].includes(ch)) {
+                  // 🚀 向量服务在局域网/Docker环境中的特权事件：捕获进度信号并实时通过 SSE 广播给所有手机端/Web端
+                  SseManager.getInstance().broadcast(ch, data)
                 } else {
                   // IPC bridge 中，对无需推送的内部信号直接记录日志（过滤掉高频的向量补录进度和聊天字块，防止日志刷屏）
                   if (ch !== 'vector-backfill-progress' && ch !== 'chat-chunk') {

@@ -16033,6 +16033,10 @@ if (typeof window !== 'undefined' && !(window as any).api) {
     eventSource.addEventListener('update-check-status', handleSseEvent);
     eventSource.addEventListener('update-download-progress', handleSseEvent);
     eventSource.addEventListener('update-download-status', handleSseEvent);
+    eventSource.addEventListener('vector-model-download-progress', handleSseEvent);
+    eventSource.addEventListener('vector-model-download-done', handleSseEvent);
+    eventSource.addEventListener('vector-backfill-progress', handleSseEvent);
+    eventSource.addEventListener('vector-backfill-done', handleSseEvent);
 
     eventSource.onerror = err => {
       console.warn('[Polyfill SSE Connect Error] SSE 连接异常中断，正在自动重连...', err);
