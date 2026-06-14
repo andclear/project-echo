@@ -3983,415 +3983,419 @@
               </div>
 
               <!-- C. 辅助大模型 -->
-              <div v-else-if="activeSettingsTab === 'secondary'" class="space-y-6">
-                <div class="flex items-center justify-between pb-6 border-b border-outline-variant/10 mb-4">
-                  <div>
-                    <h3 class="text-sm font-bold text-on-surface">启用辅助大模型</h3>
-                    <p class="text-[10px] text-on-surface-variant mt-1">
-                      开启后，除角色对话和角色卡导入外的其他调用，都将使用辅助大模型（例如论坛/朋友圈功能等...）。
-                    </p>
-                  </div>
-                  <button
-                    @click="enableSecondary = !enableSecondary"
-                    class="relative w-11 h-6 rounded-full transition-all focus:outline-none"
-                    :class="enableSecondary ? 'bg-primary' : 'bg-outline-variant'"
-                  >
-                    <span
-                      class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all shadow-md"
-                      :class="enableSecondary ? 'left-5.5' : 'left-0.5'"
-                    ></span>
-                  </button>
-                </div>
-
-                <div v-if="enableSecondary" class="space-y-4 pt-2">
-                  <div class="form-group">
-                    <label class="form-label font-bold text-xs">模型提供商</label>
-                    <div class="relative">
-                      <button
-                        @click="showSecondaryProviderDropdown = !showSecondaryProviderDropdown"
-                        @blur="hideProviderDropdownDelayed('secondary')"
-                        class="form-input text-xs text-left w-full flex items-center justify-between cursor-pointer select-none active:scale-[0.99] transition-all"
-                      >
-                        <span>{{
-                          modelProviders.find(p => p.value === secondary.provider)?.label || '请选择提供商'
-                        }}</span>
-                        <ChevronDownIcon
-                          class="w-3.5 h-3.5 text-on-surface-variant transition-transform duration-200"
-                          :class="{ 'rotate-180': showSecondaryProviderDropdown }"
-                        />
-                      </button>
-
-                      <!-- 自定义毛玻璃提供商选择气泡 -->
-                      <div
-                        v-if="showSecondaryProviderDropdown"
-                        class="absolute left-0 right-0 top-full mt-1.5 rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 select-none animate-in fade-in slide-in-from-top-1.5 duration-150"
-                      >
-                        <div
-                          v-for="p in modelProviders"
-                          :key="p.value"
-                          @mousedown="selectProvider('secondary', p.value)"
-                          class="px-3.5 py-2 text-xs text-on-surface hover:bg-secondary/10 hover:text-secondary transition-all flex items-center justify-between cursor-pointer"
-                          :class="{ 'bg-secondary/5 text-secondary font-bold': secondary.provider === p.value }"
-                        >
-                          <span>{{ p.label }}</span>
-                          <span
-                            v-if="secondary.provider === p.value"
-                            class="text-[9px] font-bold text-secondary bg-secondary/10 px-1.5 py-0.5 rounded-md"
-                            >当前</span
-                          >
-                        </div>
-                      </div>
+              <div v-else-if="activeSettingsTab === 'secondary'" class="space-y-6 animate-in fade-in duration-200">
+                <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-5 space-y-5">
+                  <div class="flex items-center justify-between pb-6 border-b border-outline-variant/10 mb-4">
+                    <div>
+                      <h3 class="text-sm font-bold text-on-surface">启用辅助大模型</h3>
+                      <p class="text-[10px] text-on-surface-variant mt-1">
+                        开启后，除角色对话和角色卡导入外的其他调用，都将使用辅助大模型（例如论坛/朋友圈功能等...）。
+                      </p>
                     </div>
-                  </div>
-                  <div class="form-group">
-                    <label class="form-label font-bold text-xs">Base URL</label>
-                    <input
-                      v-model="secondary.baseUrl"
-                      type="text"
-                      class="form-input font-mono text-xs"
-                      placeholder="https://api.openai.com/v1"
-                    />
-                  </div>
-                  <div class="form-group">
-                    <label class="form-label font-bold text-xs">API Key</label>
-                    <div class="relative">
-                      <input
-                        v-model="secondary.apiKey"
-                        :type="showSecondaryApiKey ? 'text' : 'password'"
-                        class="form-input pr-9 font-mono text-xs"
-                        placeholder="sk-..."
-                      />
-                      <button
-                        @click="showSecondaryApiKey = !showSecondaryApiKey"
-                        class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant"
-                      >
-                        <EyeIcon v-if="!showSecondaryApiKey" class="w-4 h-4" />
-                        <EyeOffIcon v-else class="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div class="form-group">
-                    <label class="form-label font-bold text-xs flex justify-between items-center">
-                      <span>模型名称</span>
-                      <button
-                        @click="fetchModelList('secondary')"
-                        :disabled="fetchingSecondaryModels"
-                        class="text-secondary hover:opacity-80 flex items-center space-x-1 disabled:opacity-50 select-none active:scale-95 transition-all"
-                      >
-                        <Loader2Icon v-if="fetchingSecondaryModels" class="w-3 h-3 animate-spin" />
-                        <RefreshCwIcon v-else class="w-3 h-3" />
-                        <span>{{ fetchingSecondaryModels ? '拉取中...' : '在线获取模型列表' }}</span>
-                      </button>
-                    </label>
-                    <div class="relative">
-                      <input
-                        v-model="secondary.model"
-                        type="text"
-                        @focus="showSecondaryDropdown = true"
-                        @blur="hideDropdownDelayed('secondary')"
-                        class="form-input font-mono text-xs pr-6"
-                        placeholder="gpt-4o-mini"
-                      />
-                      <!-- 自定义毛玻璃模糊过滤下拉卡片 -->
-                      <div
-                        v-if="showSecondaryDropdown && secondaryModelsList.length > 0"
-                        class="absolute left-0 right-0 top-full mt-1.5 max-h-48 overflow-y-auto rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 cursor-default select-none animate-in fade-in slide-in-from-top-1.5 duration-150"
-                      >
-                        <div
-                          v-for="m in filteredSecondaryModels"
-                          :key="m"
-                          @mousedown="selectModel('secondary', m)"
-                          class="px-3.5 py-2 text-[11px] font-mono text-on-surface hover:bg-secondary/10 hover:text-secondary transition-all flex items-center justify-between cursor-pointer"
-                          :class="{ 'bg-secondary/5 text-secondary font-bold': secondary.model === m }"
-                        >
-                          <span>{{ m }}</span>
-                          <span
-                            v-if="secondary.model === m"
-                            class="text-[9px] font-bold text-secondary bg-secondary/10 px-1.5 py-0.5 rounded-md"
-                            >当前</span
-                          >
-                        </div>
-                        <div
-                          v-if="filteredSecondaryModels.length === 0"
-                          class="px-3.5 py-2 text-[10px] text-on-surface-variant/50 text-center italic"
-                        >
-                          无匹配模型
-                        </div>
-                      </div>
-                    </div>
-                    <!-- 错误状态反馈 -->
-                    <div
-                      v-if="secondaryModelsError"
-                      class="text-[10px] text-error mt-1 select-none font-mono opacity-90 leading-normal"
+                    <button
+                      @click="enableSecondary = !enableSecondary"
+                      class="relative w-11 h-6 rounded-full transition-all focus:outline-none"
+                      :class="enableSecondary ? 'bg-primary' : 'bg-outline-variant'"
                     >
-                      {{ secondaryModelsError }}
-                    </div>
-                  </div>
-                  <div class="form-group">
-                    <label class="form-label font-bold text-xs flex justify-between"
-                      ><span>温度 (Temperature)</span
-                      ><span class="text-secondary font-mono">{{ secondary.temperature.toFixed(1) }}</span></label
-                    >
-                    <input
-                      v-model.number="secondary.temperature"
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      class="w-full accent-secondary"
-                    />
-                  </div>
+                      <span
+                        class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all shadow-md"
+                        :class="enableSecondary ? 'left-5.5' : 'left-0.5'"
+                      ></span>
+                    </button>
                   </div>
 
-                  <!-- D-2. 本地向量记忆设置（辅助模型标签下方独立区域） -->
-                  <div class="border-t border-outline-variant/10 pt-6 space-y-5">
-                    <!-- 标题行 + 开关 -->
-                    <div class="flex items-center justify-between pb-4 border-b border-outline-variant/5">
-                      <div>
-                        <h3 class="text-sm font-bold text-on-surface flex items-center space-x-1.5">
-                          <BrainIcon class="w-4 h-4 text-primary" />
-                          <span>语义向量记忆 (RAG)</span>
-                        </h3>
-                        <p class="text-[10px] text-on-surface-variant mt-1">
-                          为数字生命引入基于语义向量的历史对话召回（长期记忆）。当提到历史话题时，自动在背景中精准唤醒记忆。
-                        </p>
-                      </div>
-                      <button
-                        @click="vectorConfig.enabled = !vectorConfig.enabled"
-                        class="relative w-11 h-6 rounded-full transition-all focus:outline-none"
-                        :class="vectorConfig.enabled ? 'bg-primary' : 'bg-outline-variant'"
-                      >
-                        <span
-                          class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all shadow-md"
-                          :class="vectorConfig.enabled ? 'left-5.5' : 'left-0.5'"
-                        ></span>
-                      </button>
-                    </div>
+                  <div v-if="enableSecondary" class="space-y-4 pt-2">
+                    <div class="form-group">
+                      <label class="form-label font-bold text-xs">模型提供商</label>
+                      <div class="relative">
+                        <button
+                          @click="showSecondaryProviderDropdown = !showSecondaryProviderDropdown"
+                          @blur="hideProviderDropdownDelayed('secondary')"
+                          class="form-input text-xs text-left w-full flex items-center justify-between cursor-pointer select-none active:scale-[0.99] transition-all"
+                        >
+                          <span>{{
+                            modelProviders.find(p => p.value === secondary.provider)?.label || '请选择提供商'
+                          }}</span>
+                          <ChevronDownIcon
+                            class="w-3.5 h-3.5 text-on-surface-variant transition-transform duration-200"
+                            :class="{ 'rotate-180': showSecondaryProviderDropdown }"
+                          />
+                        </button>
 
-                    <!-- 展开的详细设置 -->
-                    <div v-if="vectorConfig.enabled" class="space-y-4 pt-2 animate-in fade-in duration-200">
-                      <!-- 模式选择 -->
-                      <div class="form-group">
-                        <label class="form-label font-bold text-xs">计算模式</label>
-                        <div class="grid grid-cols-2 gap-3 mt-1.5">
-                          <button
-                            type="button"
-                            @click="vectorConfig.mode = 'local'"
-                            class="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all active:scale-98"
-                            :class="vectorConfig.mode === 'local' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/30 hover:bg-surface-low text-on-surface-variant'"
+                        <!-- 自定义毛玻璃提供商选择气泡 -->
+                        <div
+                          v-if="showSecondaryProviderDropdown"
+                          class="absolute left-0 right-0 top-full mt-1.5 rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 select-none animate-in fade-in slide-in-from-top-1.5 duration-150"
+                        >
+                          <div
+                            v-for="p in modelProviders"
+                            :key="p.value"
+                            @mousedown="selectProvider('secondary', p.value)"
+                            class="px-3.5 py-2 text-xs text-on-surface hover:bg-secondary/10 hover:text-secondary transition-all flex items-center justify-between cursor-pointer"
+                            :class="{ 'bg-secondary/5 text-secondary font-bold': secondary.provider === p.value }"
                           >
-                            <HardDriveIcon class="w-4 h-4" />
-                            <span>本地 ONNX 推理</span>
-                          </button>
-                          <button
-                            type="button"
-                            @click="vectorConfig.mode = 'online'"
-                            class="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all active:scale-98"
-                            :class="vectorConfig.mode === 'online' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/30 hover:bg-surface-low text-on-surface-variant'"
-                          >
-                            <CloudIcon class="w-4 h-4" />
-                            <span>在线 API 连接</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <!-- 1. 本地 ONNX 模式配置 -->
-                      <div v-if="vectorConfig.mode === 'local'" class="space-y-4">
-                        <!-- 硬件状态面板 -->
-                        <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-4 flex items-center justify-between">
-                          <div class="flex items-center space-x-3">
-                            <div class="w-9 h-9 rounded-xl bg-secondary/10 border border-secondary/20 flex items-center justify-center text-secondary">
-                              <CpuIcon class="w-4 h-4" />
-                            </div>
-                            <div>
-                              <h4 class="text-xs font-bold text-on-surface">本地硬件环境评估</h4>
-                              <p class="text-[10px] text-on-surface-variant mt-0.5">
-                                核心数: <span class="font-mono">{{ hardwareInfo.cpuCores }}核</span> | 
-                                空闲内存: <span class="font-mono">{{ hardwareInfo.freeMemMB }}MB</span> / 总内存: <span class="font-mono">{{ hardwareInfo.totalMemMB }}MB</span>
-                              </p>
-                            </div>
-                          </div>
-                          <div class="text-right">
+                            <span>{{ p.label }}</span>
                             <span
-                              v-if="hardwareInfo.totalMemMB < 8000"
-                              class="text-[9px] font-bold text-error bg-error/10 border border-error/20 px-2 py-1 rounded-lg"
+                              v-if="secondary.provider === p.value"
+                              class="text-[9px] font-bold text-secondary bg-secondary/10 px-1.5 py-0.5 rounded-md"
+                              >当前</span
                             >
-                              ⚠️ 建议选择在线 API
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label font-bold text-xs">Base URL</label>
+                      <input
+                        v-model="secondary.baseUrl"
+                        type="text"
+                        class="form-input font-mono text-xs"
+                        placeholder="https://api.openai.com/v1"
+                      />
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label font-bold text-xs">API Key</label>
+                      <div class="relative">
+                        <input
+                          v-model="secondary.apiKey"
+                          :type="showSecondaryApiKey ? 'text' : 'password'"
+                          class="form-input pr-9 font-mono text-xs"
+                          placeholder="sk-..."
+                        />
+                        <button
+                          @click="showSecondaryApiKey = !showSecondaryApiKey"
+                          class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant"
+                        >
+                          <EyeIcon v-if="!showSecondaryApiKey" class="w-4 h-4" />
+                          <EyeOffIcon v-else class="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label font-bold text-xs flex justify-between items-center">
+                        <span>模型名称</span>
+                        <button
+                          @click="fetchModelList('secondary')"
+                          :disabled="fetchingSecondaryModels"
+                          class="text-secondary hover:opacity-80 flex items-center space-x-1 disabled:opacity-50 select-none active:scale-95 transition-all"
+                        >
+                          <Loader2Icon v-if="fetchingSecondaryModels" class="w-3 h-3 animate-spin" />
+                          <RefreshCwIcon v-else class="w-3 h-3" />
+                          <span>{{ fetchingSecondaryModels ? '拉取中...' : '在线获取模型列表' }}</span>
+                        </button>
+                      </label>
+                      <div class="relative">
+                        <input
+                          v-model="secondary.model"
+                          type="text"
+                          @focus="showSecondaryDropdown = true"
+                          @blur="hideDropdownDelayed('secondary')"
+                          class="form-input font-mono text-xs pr-6"
+                          placeholder="gpt-4o-mini"
+                        />
+                        <!-- 自定义毛玻璃模糊过滤下拉卡片 -->
+                        <div
+                          v-if="showSecondaryDropdown && secondaryModelsList.length > 0"
+                          class="absolute left-0 right-0 top-full mt-1.5 max-h-48 overflow-y-auto rounded-xl border border-outline-variant bg-surface-high/90 backdrop-blur-xl shadow-xl py-1 z-30 cursor-default select-none animate-in fade-in slide-in-from-top-1.5 duration-150"
+                        >
+                          <div
+                            v-for="m in filteredSecondaryModels"
+                            :key="m"
+                            @mousedown="selectModel('secondary', m)"
+                            class="px-3.5 py-2 text-[11px] font-mono text-on-surface hover:bg-secondary/10 hover:text-secondary transition-all flex items-center justify-between cursor-pointer"
+                            :class="{ 'bg-secondary/5 text-secondary font-bold': secondary.model === m }"
+                          >
+                            <span>{{ m }}</span>
+                            <span
+                              v-if="secondary.model === m"
+                              class="text-[9px] font-bold text-secondary bg-secondary/10 px-1.5 py-0.5 rounded-md"
+                              >当前</span
+                            >
+                          </div>
+                          <div
+                            v-if="filteredSecondaryModels.length === 0"
+                            class="px-3.5 py-2 text-[10px] text-on-surface-variant/50 text-center italic"
+                          >
+                            无匹配模型
+                          </div>
+                        </div>
+                      </div>
+                      <!-- 错误状态反馈 -->
+                      <div
+                        v-if="secondaryModelsError"
+                        class="text-[10px] text-error mt-1 select-none font-mono opacity-90 leading-normal"
+                      >
+                        {{ secondaryModelsError }}
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label font-bold text-xs flex justify-between"
+                        ><span>温度 (Temperature)</span
+                        ><span class="text-secondary font-mono">{{ secondary.temperature.toFixed(1) }}</span></label
+                      >
+                      <input
+                        v-model.number="secondary.temperature"
+                        type="range"
+                        min="0"
+                        max="2"
+                        step="0.1"
+                        class="w-full accent-secondary"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- D-2. 本地向量记忆设置 (Tab: vector) -->
+              <div v-else-if="activeSettingsTab === 'vector'" class="space-y-6 animate-in fade-in duration-200">
+                <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-5 space-y-5">
+                  <!-- 标题行 + 开关 -->
+                  <div class="flex items-center justify-between pb-4 border-b border-outline-variant/20">
+                    <div>
+                      <h3 class="text-sm font-bold text-on-surface flex items-center space-x-1.5">
+                        <BrainIcon class="w-4 h-4 text-primary" />
+                        <span>语义向量记忆 (RAG)</span>
+                      </h3>
+                      <p class="text-[10px] text-on-surface-variant mt-1">
+                        为数字生命引入基于语义向量的历史对话召回（长期记忆）。当提到历史话题时，自动在背景中精准唤醒记忆。
+                      </p>
+                    </div>
+                    <button
+                      @click="vectorConfig.enabled = !vectorConfig.enabled"
+                      class="relative w-11 h-6 rounded-full transition-all focus:outline-none"
+                      :class="vectorConfig.enabled ? 'bg-primary' : 'bg-outline-variant'"
+                    >
+                      <span
+                        class="absolute w-5 h-5 rounded-full bg-white top-0.5 transition-all shadow-md"
+                        :class="vectorConfig.enabled ? 'left-5.5' : 'left-0.5'"
+                      ></span>
+                    </button>
+                  </div>
+
+                  <!-- 展开的详细设置 -->
+                  <div v-if="vectorConfig.enabled" class="space-y-4 pt-2 animate-in fade-in duration-200">
+                    <!-- 模式选择 -->
+                    <div class="form-group">
+                      <label class="form-label font-bold text-xs">计算模式</label>
+                      <div class="grid grid-cols-2 gap-3 mt-1.5">
+                        <button
+                          type="button"
+                          @click="vectorConfig.mode = 'local'"
+                          class="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all active:scale-98"
+                          :class="vectorConfig.mode === 'local' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/30 hover:bg-surface-low text-on-surface-variant'"
+                        >
+                          <HardDriveIcon class="w-4 h-4" />
+                          <span>本地 ONNX 推理</span>
+                        </button>
+                        <button
+                          type="button"
+                          @click="vectorConfig.mode = 'online'"
+                          class="flex items-center justify-center space-x-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all active:scale-98"
+                          :class="vectorConfig.mode === 'online' ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant/30 hover:bg-surface-low text-on-surface-variant'"
+                        >
+                          <CloudIcon class="w-4 h-4" />
+                          <span>在线 API 连接</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- 1. 本地 ONNX 模式配置 -->
+                    <div v-if="vectorConfig.mode === 'local'" class="space-y-4">
+                      <!-- 硬件状态面板 -->
+                      <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-4 flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                          <div class="w-9 h-9 rounded-xl bg-secondary/10 border border-secondary/20 flex items-center justify-center text-secondary">
+                            <CpuIcon class="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 class="text-xs font-bold text-on-surface">本地硬件环境评估</h4>
+                            <p class="text-[10px] text-on-surface-variant mt-0.5">
+                              核心数: <span class="font-mono">{{ hardwareInfo.cpuCores }}核</span> | 
+                              空闲内存: <span class="font-mono">{{ hardwareInfo.freeMemMB }}MB</span> / 总内存: <span class="font-mono">{{ hardwareInfo.totalMemMB }}MB</span>
+                            </p>
+                          </div>
+                        </div>
+                        <div class="text-right">
+                          <span
+                            v-if="hardwareInfo.totalMemMB < 8000"
+                            class="text-[9px] font-bold text-error bg-error/10 border border-error/20 px-2 py-1 rounded-lg"
+                          >
+                            ⚠️ 建议选择在线 API
+                          </span>
+                          <span
+                            v-else
+                            class="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-1 rounded-lg"
+                          >
+                            ✨ 适合本地推理
+                          </span>
+                        </div>
+                      </div>
+
+                      <!-- 本地模型状态及下载 -->
+                      <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-4 space-y-4">
+                        <div class="flex items-center justify-between">
+                          <div class="flex items-center space-x-2">
+                            <DatabaseIcon class="w-4 h-4 text-primary" />
+                            <span class="text-xs font-bold text-on-surface">本地轻量模型 (bge-small-zh-v1.5)</span>
+                          </div>
+                          <div>
+                            <span
+                              v-if="vectorModelStatus.ready"
+                              class="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-1 rounded-lg flex items-center space-x-1"
+                            >
+                              <CheckCircleIcon class="w-3 h-3 text-primary animate-pulse" />
+                              <span>模型已加载并就绪</span>
+                            </span>
+                            <span
+                              v-else-if="vectorModelStatus.downloaded"
+                              class="text-[9px] font-bold text-secondary bg-secondary/10 border border-secondary/20 px-2 py-1 rounded-lg flex items-center space-x-1"
+                            >
+                              <CheckCircleIcon class="w-3 h-3 text-secondary" />
+                              <span>已下载 (待保存加载)</span>
                             </span>
                             <span
                               v-else
-                              class="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-1 rounded-lg"
+                              class="text-[9px] font-bold text-error bg-error/10 border border-error/20 px-2 py-1 rounded-lg flex items-center space-x-1"
                             >
-                              ✨ 适合本地推理
+                              <AlertTriangleIcon class="w-3 h-3 text-error" />
+                              <span>未检测到模型文件</span>
                             </span>
                           </div>
                         </div>
 
-                        <!-- 本地模型状态及下载 -->
-                        <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-4 space-y-4">
-                          <div class="flex items-center justify-between">
-                            <div class="flex items-center space-x-2">
-                              <DatabaseIcon class="w-4 h-4 text-primary" />
-                              <span class="text-xs font-bold text-on-surface">本地轻量模型 (bge-small-zh-v1.5)</span>
+                        <!-- 未下载且不处于下载中 -->
+                        <div v-if="!vectorModelStatus.downloaded && !isDownloadingModel" class="space-y-3 pt-1">
+                          <div class="form-group">
+                            <label class="form-label text-[10px] text-on-surface-variant font-bold">自定义模型下载源镜像 (非必填)</label>
+                            <div class="flex space-x-2 mt-1">
+                              <input
+                                v-model="customMirrorUrl"
+                                type="text"
+                                class="form-input font-mono text-[11px] flex-1 py-1.5"
+                                placeholder="https://hf-mirror.com"
+                              />
                             </div>
-                            <div>
-                              <span
-                                v-if="vectorModelStatus.ready"
-                                class="text-[9px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-1 rounded-lg flex items-center space-x-1"
-                              >
-                                <CheckCircleIcon class="w-3 h-3 text-primary animate-pulse" />
-                                <span>模型已加载并就绪</span>
-                              </span>
-                              <span
-                                v-else-if="vectorModelStatus.downloaded"
-                                class="text-[9px] font-bold text-secondary bg-secondary/10 border border-secondary/20 px-2 py-1 rounded-lg flex items-center space-x-1"
-                              >
-                                <CheckCircleIcon class="w-3 h-3 text-secondary" />
-                                <span>已下载 (待保存加载)</span>
-                              </span>
-                              <span
-                                v-else
-                                class="text-[9px] font-bold text-error bg-error/10 border border-error/20 px-2 py-1 rounded-lg flex items-center space-x-1"
-                              >
-                                <AlertTriangleIcon class="w-3 h-3 text-error" />
-                                <span>未检测到模型文件</span>
-                              </span>
-                            </div>
+                            <p class="text-[9px] text-on-surface-variant/70 mt-1">
+                              默认使用国内快速镜像 https://hf-mirror.com 下载（模型约 94MB）。
+                            </p>
                           </div>
+                          <button
+                            type="button"
+                            @click="startDownloadVectorModel"
+                            class="w-full btn-primary py-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all"
+                          >
+                            <DownloadIcon class="w-3.5 h-3.5" />
+                            <span>立即下载模型文件 (约94MB)</span>
+                          </button>
+                        </div>
 
-                          <!-- 未下载且不处于下载中 -->
-                          <div v-if="!vectorModelStatus.downloaded && !isDownloadingModel" class="space-y-3 pt-1">
-                            <div class="form-group">
-                              <label class="form-label text-[10px] text-on-surface-variant font-bold">自定义模型下载源镜像 (非必填)</label>
-                              <div class="flex space-x-2 mt-1">
-                                <input
-                                  v-model="customMirrorUrl"
-                                  type="text"
-                                  class="form-input font-mono text-[11px] flex-1 py-1.5"
-                                  placeholder="https://hf-mirror.com"
-                                />
-                              </div>
-                              <p class="text-[9px] text-on-surface-variant/70 mt-1">
-                                默认使用国内快速镜像 https://hf-mirror.com 下载（模型约 94MB）。
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              @click="startDownloadVectorModel"
-                              class="w-full btn-primary py-2 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 transition-all"
-                            >
-                              <DownloadIcon class="w-3.5 h-3.5" />
-                              <span>立即下载模型文件 (约94MB)</span>
-                            </button>
+                        <!-- 下载中进度条 -->
+                        <div v-if="isDownloadingModel" class="space-y-2.5 pt-1">
+                          <div class="flex justify-between items-center text-[10px]">
+                            <span class="text-on-surface-variant flex items-center space-x-1.5 font-bold">
+                              <Loader2Icon class="w-3 h-3 animate-spin text-primary" />
+                              <span>正在下载: <span class="font-mono text-primary">{{ downloadingFileName }}</span></span>
+                            </span>
+                            <span class="font-mono text-primary font-bold">{{ downloadProgress }}%</span>
                           </div>
-
-                          <!-- 下载中进度条 -->
-                          <div v-if="isDownloadingModel" class="space-y-2.5 pt-1">
-                            <div class="flex justify-between items-center text-[10px]">
-                              <span class="text-on-surface-variant flex items-center space-x-1.5 font-bold">
-                                <Loader2Icon class="w-3 h-3 animate-spin text-primary" />
-                                <span>正在下载: <span class="font-mono text-primary">{{ downloadingFileName }}</span></span>
-                              </span>
-                              <span class="font-mono text-primary font-bold">{{ downloadProgress }}%</span>
-                            </div>
-                            <div class="w-full h-2 rounded-full bg-outline-variant/20 overflow-hidden relative border border-outline-variant/10">
-                              <div
-                                class="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-300"
-                                :style="{ width: `${downloadProgress}%` }"
-                              ></div>
-                            </div>
-                            <button
-                              type="button"
-                              @click="cancelDownloadVectorModel"
-                              class="w-full border border-error/20 bg-error/5 hover:bg-error/10 text-error text-[10px] py-1.5 rounded-xl font-bold transition-all"
-                            >
-                              取消模型下载
-                            </button>
+                          <div class="w-full h-2 rounded-full bg-outline-variant/20 overflow-hidden relative border border-outline-variant/10">
+                            <div
+                              class="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-300"
+                              :style="{ width: `${downloadProgress}%` }"
+                            ></div>
                           </div>
+                          <button
+                            type="button"
+                            @click="cancelDownloadVectorModel"
+                            class="w-full border border-error/20 bg-error/5 hover:bg-error/10 text-error text-[10px] py-1.5 rounded-xl font-bold transition-all"
+                          >
+                            取消模型下载
+                          </button>
                         </div>
                       </div>
+                    </div>
 
-                      <!-- 2. 在线 API 模式配置 -->
-                      <div v-if="vectorConfig.mode === 'online'" class="space-y-3.5">
-                        <div class="form-group">
-                          <label class="form-label font-bold text-xs">Embedding API Base URL</label>
-                          <input
-                            v-model="vectorConfig.onlineApiBase"
-                            type="text"
-                            class="form-input font-mono text-xs"
-                            placeholder="https://api.siliconflow.cn/v1"
-                          />
+                    <!-- 2. 在线 API 模式配置 -->
+                    <div v-if="vectorConfig.mode === 'online'" class="space-y-3.5">
+                      <div class="form-group">
+                        <label class="form-label font-bold text-xs">Embedding API Base URL</label>
+                        <input
+                          v-model="vectorConfig.onlineApiBase"
+                          type="text"
+                          class="form-input font-mono text-xs"
+                          placeholder="https://api.siliconflow.cn/v1"
+                        />
+                      </div>
+                      <div class="form-group">
+                        <label class="form-label font-bold text-xs">Embedding API Key</label>
+                        <input
+                          v-model="vectorConfig.onlineApiKey"
+                          type="password"
+                          class="form-input font-mono text-xs"
+                          placeholder="输入 SiliconFlow 或第三方平台密钥"
+                        />
+                      </div>
+                      <div class="form-group">
+                        <label class="form-label font-bold text-xs">Embedding 模型名称</label>
+                        <input
+                          v-model="vectorConfig.onlineModel"
+                          type="text"
+                          class="form-input font-mono text-xs"
+                          placeholder="BAAI/bge-large-zh-v1.5"
+                        />
+                      </div>
+                    </div>
+
+                    <!-- 3. 历史对话逆序向量化进度条（全部角色） -->
+                    <div class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-4 space-y-4">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-2">
+                          <HistoryIcon class="w-4 h-4 text-primary" />
+                          <span class="text-xs font-bold text-on-surface">存量对话历史向量化进度（全部角色）</span>
                         </div>
-                        <div class="form-group">
-                          <label class="form-label font-bold text-xs">Embedding API Key</label>
-                          <input
-                            v-model="vectorConfig.onlineApiKey"
-                            type="password"
-                            class="form-input font-mono text-xs"
-                            placeholder="输入 SiliconFlow 或第三方平台密钥"
-                          />
-                        </div>
-                        <div class="form-group">
-                          <label class="form-label font-bold text-xs">Embedding 模型名称</label>
-                          <input
-                            v-model="vectorConfig.onlineModel"
-                            type="text"
-                            class="form-input font-mono text-xs"
-                            placeholder="BAAI/bge-large-zh-v1.5"
-                          />
-                        </div>
+                        <span class="text-[10px] font-mono font-bold text-primary">
+                          {{ vectorProgress.done }} / {{ vectorProgress.total }} 轮
+                        </span>
                       </div>
 
-                      <!-- 3. 历史对话逆序向量化进度条（仅单聊角色显示） -->
-                      <div v-if="selectedCharacterId && !activeGroupChat" class="bg-surface-low/30 border border-outline-variant/10 rounded-2xl p-4 space-y-4">
-                        <div class="flex items-center justify-between">
-                          <div class="flex items-center space-x-2">
-                            <HistoryIcon class="w-4 h-4 text-primary" />
-                            <span class="text-xs font-bold text-on-surface">存量对话历史向量化进度</span>
-                          </div>
-                          <span class="text-[10px] font-mono font-bold text-primary">
-                            {{ vectorProgress.done }} / {{ vectorProgress.total }} 轮
+                      <!-- 进度条 -->
+                      <div class="w-full h-2 rounded-full bg-outline-variant/20 overflow-hidden border border-outline-variant/10">
+                        <div
+                          class="h-full bg-primary rounded-full transition-all duration-300"
+                          :style="{ width: `${vectorProgress.total > 0 ? Math.min((vectorProgress.done / vectorProgress.total) * 100, 100) : 0}%` }"
+                        ></div>
+                      </div>
+
+                      <!-- 补录操作区 -->
+                      <div class="flex space-x-2 pt-1">
+                        <button
+                          v-if="!isBackfilling"
+                          type="button"
+                          @click="startVectorBackfill"
+                          :disabled="!vectorConfig.enabled || (vectorConfig.mode === 'local' && !vectorModelStatus.ready)"
+                          class="w-full btn-secondary py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40"
+                        >
+                          开始存量补录向量化
+                        </button>
+                        <button
+                          v-else
+                          type="button"
+                          @click="cancelVectorBackfill"
+                          class="w-full border border-error/20 bg-error/5 hover:bg-error/10 text-error text-xs py-2 rounded-xl font-bold transition-all"
+                        >
+                          <span class="flex items-center justify-center space-x-1.5">
+                            <Loader2Icon class="w-3.5 h-3.5 animate-spin" />
+                            <span>向量化补录中... 点击取消</span>
                           </span>
-                        </div>
-
-                        <!-- 进度条 -->
-                        <div class="w-full h-2 rounded-full bg-outline-variant/20 overflow-hidden border border-outline-variant/10">
-                          <div
-                            class="h-full bg-primary rounded-full transition-all duration-300"
-                            :style="{ width: `${vectorProgress.total > 0 ? Math.min((vectorProgress.done / vectorProgress.total) * 100, 100) : 0}%` }"
-                          ></div>
-                        </div>
-
-                        <!-- 补录操作区 -->
-                        <div class="flex space-x-2 pt-1">
-                          <button
-                            v-if="!isBackfilling"
-                            type="button"
-                            @click="startVectorBackfill"
-                            :disabled="!vectorConfig.enabled || (vectorConfig.mode === 'local' && !vectorModelStatus.ready)"
-                            class="w-full btn-secondary py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-40"
-                          >
-                            开始存量补录向量化
-                          </button>
-                          <button
-                            v-else
-                            type="button"
-                            @click="cancelVectorBackfill"
-                            class="w-full border border-error/20 bg-error/5 hover:bg-error/10 text-error text-xs py-2 rounded-xl font-bold transition-all"
-                          >
-                            <span class="flex items-center justify-center space-x-1.5">
-                              <Loader2Icon class="w-3.5 h-3.5 animate-spin" />
-                              <span>向量化补录中... 点击取消</span>
-                            </span>
-                          </button>
-                        </div>
-                        <p class="text-[9px] text-on-surface-variant/70">
-                          逆序对本角色过往已产生的对话进行向量嵌入索引（只在闲时运行）。若不补录，历史消息将无法通过语义召回，但新对话仍会自动入库。
-                        </p>
+                        </button>
                       </div>
+                      <p class="text-[9px] text-on-surface-variant/70">
+                        逆序对本角色过往已产生的对话进行向量嵌入索引（只在闲时运行）。若不补录，历史消息将无法通过语义召回，但新对话仍会自动入库。
+                      </p>
                     </div>
                   </div>
                 </div>
+              </div>
 
               <!-- E. AI 绘图设置 (Tab: drawing) -->
               <div v-else-if="activeSettingsTab === 'drawing'" class="space-y-6 animate-in fade-in duration-200">
@@ -6184,8 +6188,8 @@
                       ? saveNovelAiConfig()
                       : activeSettingsTab === 'proactive'
                         ? saveProactiveSettings()
-                        : activeSettingsTab === 'secondary'
-                          ? saveSecondaryAndVectorConfig()
+                        : activeSettingsTab === 'vector'
+                          ? saveVectorMemoryConfig()
                           : saveModelConfig()
                   "
                   :disabled="saving"
@@ -17853,6 +17857,7 @@ const activeSettingsTab = ref<
   | 'states'
   | 'primary'
   | 'secondary'
+  | 'vector'
   | 'drawing'
   | 'wechat'
   | 'migration'
@@ -17869,6 +17874,7 @@ const settingsMenus: {
     | 'states'
     | 'primary'
     | 'secondary'
+    | 'vector'
     | 'drawing'
     | 'wechat'
     | 'migration'
@@ -17885,6 +17891,7 @@ const settingsMenus: {
   { id: 'states', label: '状态栏设置', icon: HeartIcon },
   { id: 'primary', label: '主大模型', icon: CpuIcon },
   { id: 'secondary', label: '辅助大模型', icon: CpuIcon },
+  { id: 'vector', label: '向量记忆', icon: BrainIcon },
   { id: 'drawing', label: 'AI 绘图', icon: ImageIcon },
   { id: 'novel', label: 'AI 写手', icon: BookOpenIcon },
   { id: 'wechat', label: '微信接入', icon: MessageCircleIcon },
@@ -17894,7 +17901,7 @@ const settingsMenus: {
 ];
 
 watch(activeSettingsTab, newTab => {
-  if (newTab === 'secondary') {
+  if (newTab === 'vector') {
     loadVectorMemoryConfig();
   }
   if (newTab === 'profile') {
@@ -26920,7 +26927,7 @@ onMounted(async () => {
     // 监听历史存量向量化进度
     const rVectorBfProg = window.api.receive('vector-backfill-progress', (data: { characterId: string; done: number; total: number }) => {
       isBackfilling.value = true;
-      if (selectedCharacterId.value === data.characterId) {
+      if (data.characterId === 'all' || selectedCharacterId.value === data.characterId) {
         vectorProgress.value = {
           done: data.done,
           total: data.total
@@ -26933,11 +26940,13 @@ onMounted(async () => {
     const rVectorBfDone = window.api.receive('vector-backfill-done', (data: { characterId: string; done: boolean }) => {
       isBackfilling.value = false;
       if (data.done) {
-        showToast('🎉 该角色的历史对话向量化补录已全部完成！');
+        if (data.characterId === 'all') {
+          showToast('🎉 全量历史对话向量化补录已全部完成！');
+        } else {
+          showToast('🎉 该角色的历史对话向量化补录已全部完成！');
+        }
       }
-      if (selectedCharacterId.value === data.characterId) {
-        refreshVectorProgress(data.characterId);
-      }
+      refreshVectorProgress('all');
     });
     unlistenVectorBackfillDone = typeof rVectorBfDone === 'function' ? (rVectorBfDone as any) : null;
   }
@@ -28115,9 +28124,7 @@ const loadVectorMemoryConfig = async () => {
     }
     await refreshVectorModelStatus();
     await refreshHardwareInfo();
-    if (selectedCharacterId.value) {
-      await refreshVectorProgress(selectedCharacterId.value);
-    }
+    await refreshVectorProgress('all');
   } catch (err) {
     console.error('加载向量记忆配置失败:', err);
   }
@@ -28207,16 +28214,11 @@ const cancelDownloadVectorModel = async () => {
   }
 };
 
-// 手动触发指定角色的历史存量补向量化
+// 手动触发全部角色的历史存量补向量化
 const startVectorBackfill = async () => {
-  const charId = selectedCharacterId.value;
-  if (!charId) {
-    showToast('未选择 AI 角色');
-    return;
-  }
   isBackfilling.value = true;
   try {
-    const res = await window.api.invoke('start-vector-backfill', { characterId: charId });
+    const res = await window.api.invoke('start-vector-backfill', { characterId: 'all' });
     if (!res || !res.success) {
       isBackfilling.value = false;
       showCustomAlert('向量化失败', res?.error || '无法启动存量补向量化任务', 'error');
@@ -28235,20 +28237,11 @@ const cancelVectorBackfill = async () => {
     await window.api.invoke('cancel-vector-backfill');
     isBackfilling.value = false;
     showToast('历史消息向量化任务已请求停止');
-    if (selectedCharacterId.value) {
-      await refreshVectorProgress(selectedCharacterId.value);
-    }
+    await refreshVectorProgress('all');
   } catch (err) {
     console.error('取消向量化失败:', err);
   }
 };
-
-// 监听选中的角色 ID 变动，实时更新向量进度
-watch(selectedCharacterId, (newId) => {
-  if (newId && vectorConfig.enabled) {
-    refreshVectorProgress(newId);
-  }
-});
 </script>
 
 <style lang="postcss" scoped>

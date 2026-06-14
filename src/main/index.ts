@@ -1764,10 +1764,21 @@ function registerIpcHandlers(): void {
     }
   })
 
-  // 获取向量化进度（指定角色）
+  // 获取向量化进度（指定角色或全部角色）
   ipcMain.handle('get-vector-embedding-progress', async (_, payload: { characterId: string }) => {
     try {
       const db = getDatabaseService()
+      if (payload.characterId === 'all') {
+        const characters = db.getAllCharacters()
+        let done = 0
+        let total = 0
+        for (const char of characters) {
+          const progress = db.getVectorizationProgress(char.id)
+          done += progress.done
+          total += progress.total
+        }
+        return { success: true, done, total }
+      }
       const progress = db.getVectorizationProgress(payload.characterId)
       return { success: true, ...progress }
     } catch (err: any) {
@@ -4028,6 +4039,45 @@ ${soulContent}
           // B. 拉取历史消息并格式化为剧本 RP 形式的大文本控制台（自适应群聊多气泡膨胀）
           const limit = isDialogue ? 200 : 60
           let rawHistory = db.getChatHistory(groupId, limit)
+
+          // 🚀 语义向量记忆检索 (RAG) 注入群聊当前发言人上下文
+          let groupSystemPromptFinalAdjusted = groupSystemPromptFinal
+          try {
+            const vectorSvc = VectorMemoryService.getInstance()
+            if (vectorSvc.isOperational() && currentSpeaker && currentSpeaker.id) {
+              const recentRoundIds = Array.from(
+                new Set(
+                  rawHistory
+                    .map((m: any) => m.round_id)
+                    .filter(Boolean)
+                )
+              ).slice(-3)
+
+              const queryEmbedding = await vectorSvc.computeEmbedding(userMessage)
+              if (queryEmbedding) {
+                const recalled = await vectorSvc.retrieveSimilarRounds(
+                  currentSpeaker.id,
+                  queryEmbedding,
+                  recentRoundIds,
+                  5,
+                  0.7
+                )
+
+                if (recalled.length > 0) {
+                  const recalledBlock = recalled.map(r => {
+                    const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleString() : ''
+                    const timePrefix = timeStr ? `[${timeStr}] ` : ''
+                    return `- ${timePrefix}${r.contentText}`
+                  }).join('\n')
+
+                  groupSystemPromptFinalAdjusted += `\n\n【以下是系统从更早历史对话中语义召回的与 ${currentSpeaker.name} 相关的历史片段，仅供参考回忆】：\n${recalledBlock}`
+                  console.log(`[RAG] 成功为群聊角色 [${currentSpeaker.name}] 召回并注入了 ${recalled.length} 条历史对话片段`)
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[RAG] 群聊语义记忆检索失败，已静默降级:', e)
+          }
           rawHistory = rawHistory.filter((m: any) => m.msg_type !== 'roast')
           const history = mergeChatHistory(rawHistory)
 
@@ -4088,7 +4138,7 @@ ${soulContent}
  3. 你的红包【只能且必须发送给用户】，绝对禁止给群里其他 AI 成员发红包！同时也绝对禁止感谢或回应非自己所属的专属红包（别人发给用户的红包或用户给别人的专属红包，与你完全无关，请直接无视，绝不能领用或感谢）！`
 
           const chatMessages: ChatMessage[] = [
-            { role: 'system', content: groupSystemPromptFinal },
+            { role: 'system', content: groupSystemPromptFinalAdjusted },
             { role: 'user', content: userPromptText + rpInstruction }
           ]
 
@@ -5266,6 +5316,44 @@ ${memoryContent}
       )
 
       systemPrompt += buildEmojiSystemPromptSuffix(chatMode)
+
+      // 🚀 语义向量记忆检索 (RAG) 注入到 System Prompt 记忆块的后面
+      try {
+        const vectorSvc = VectorMemoryService.getInstance()
+        if (vectorSvc.isOperational()) {
+          const recentRoundIds = Array.from(
+            new Set(
+              historyWithTime
+                .map((m: any) => m.round_id)
+                .filter(Boolean)
+            )
+          ).slice(-3)
+
+          const queryEmbedding = await vectorSvc.computeEmbedding(userMessage)
+          if (queryEmbedding) {
+            const recalled = await vectorSvc.retrieveSimilarRounds(
+              characterId,
+              queryEmbedding,
+              recentRoundIds,
+              5,
+              0.7
+            )
+
+            if (recalled.length > 0) {
+              const recalledBlock = recalled.map(r => {
+                const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleString() : ''
+                const timePrefix = timeStr ? `[${timeStr}] ` : ''
+                return `- ${timePrefix}${r.contentText}`
+              }).join('\n')
+
+              systemPrompt += `\n\n【以下是系统从更早历史对话中语义召回的相关片段，仅供参考回忆】：\n${recalledBlock}`
+              console.log(`[RAG] 成功为单聊角色 [${characterId}] 召回并注入了 ${recalled.length} 条历史对话片段`)
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[RAG] 单聊语义记忆检索失败，已静默降级:', e)
+      }
 
       const dynamicContext = ContextAssembler.assembleDynamicContext(
         soulPath,

@@ -97,6 +97,20 @@ export class VectorMemoryService {
 
   public saveConfig(config: VectorMemoryConfig): void {
     const db = getDatabaseService()
+    try {
+      const oldConfigStr = db.getSetting('vector_memory_config')
+      if (oldConfigStr) {
+        const oldConfig = JSON.parse(oldConfigStr) as VectorMemoryConfig
+        const modeChanged = oldConfig.mode !== config.mode
+        const modelChanged = oldConfig.mode === 'online' && config.mode === 'online' && oldConfig.onlineModel !== config.onlineModel
+        if (modeChanged || modelChanged) {
+          console.log('[VectorMemory] 检测到向量计算模式或在线模型变更，自动物理重置 MessageEmbeddings 数据表以允许重新补录！')
+          db.db.prepare('DELETE FROM MessageEmbeddings').run()
+        }
+      }
+    } catch (e) {
+      console.error('[VectorMemory] 检查模式变更自动重置失败:', e)
+    }
     db.setSetting('vector_memory_config', JSON.stringify(config))
   }
 
@@ -305,8 +319,12 @@ export class VectorMemoryService {
     if (!cfg.onlineApiBase || !cfg.onlineApiKey || !cfg.onlineModel) return null
     try {
       const axios = (await import('axios')).default
+      let url = cfg.onlineApiBase.replace(/\/$/, '')
+      if (!url.endsWith('/embeddings')) {
+        url += '/embeddings'
+      }
       const res = await axios.post(
-        `${cfg.onlineApiBase.replace(/\/$/, '')}/embeddings`,
+        url,
         { model: cfg.onlineModel, input: text },
         {
           headers: { Authorization: `Bearer ${cfg.onlineApiKey}` },
@@ -417,33 +435,77 @@ export class VectorMemoryService {
 
     try {
       const db = getDatabaseService()
-      const { total } = db.getVectorizationProgress(characterId)
 
-      while (!this.backfillCancelFlag) {
-        const batch = db.getUnvectorizedRounds(characterId, batchSize)
-        if (batch.length === 0) break
-
-        for (const round of batch) {
-          if (this.backfillCancelFlag) break
-          const text = [round.user_content, round.assistant_content]
-            .filter(Boolean).join(' ')
-          const embedding = await this.computeEmbedding(text)
-          if (embedding) {
-            db.saveEmbedding(
-              round.round_id,
-              characterId,
-              JSON.stringify(embedding),
-              text,
-              round.timestamp
-            )
-          }
-          done++
-          onProgress?.(done, total)
-          // 每条间隔 80ms，防止卡顿主线程
-          await new Promise(r => setTimeout(r, 80))
+      if (characterId === 'all') {
+        const characters = db.getAllCharacters()
+        // 先计算所有角色的 done 和 total 总和
+        let overallDone = 0
+        let overallTotal = 0
+        for (const char of characters) {
+          const prog = db.getVectorizationProgress(char.id)
+          overallDone += prog.done
+          overallTotal += prog.total
         }
+
+        onProgress?.(overallDone, overallTotal)
+
+        for (const char of characters) {
+          if (this.backfillCancelFlag) break
+          while (!this.backfillCancelFlag) {
+            const batch = db.getUnvectorizedRounds(char.id, batchSize)
+            if (batch.length === 0) break
+
+            for (const round of batch) {
+              if (this.backfillCancelFlag) break
+              const text = [round.user_content, round.assistant_content]
+                .filter(Boolean).join(' ')
+              const embedding = await this.computeEmbedding(text)
+              if (embedding) {
+                db.saveEmbedding(
+                  round.round_id,
+                  char.id,
+                  JSON.stringify(embedding),
+                  text,
+                  round.timestamp
+                )
+              }
+              overallDone++
+              onProgress?.(overallDone, overallTotal)
+              // 每条间隔 80ms，防止卡顿主线程
+              await new Promise(r => setTimeout(r, 80))
+            }
+          }
+        }
+        console.log(`[VectorMemory] 全量存量补向量化完成：共处理 ${overallDone} 轮`)
+      } else {
+        const { total } = db.getVectorizationProgress(characterId)
+
+        while (!this.backfillCancelFlag) {
+          const batch = db.getUnvectorizedRounds(characterId, batchSize)
+          if (batch.length === 0) break
+
+          for (const round of batch) {
+            if (this.backfillCancelFlag) break
+            const text = [round.user_content, round.assistant_content]
+              .filter(Boolean).join(' ')
+            const embedding = await this.computeEmbedding(text)
+            if (embedding) {
+              db.saveEmbedding(
+                round.round_id,
+                characterId,
+                JSON.stringify(embedding),
+                text,
+                round.timestamp
+              )
+            }
+            done++
+            onProgress?.(done, total)
+            // 每条间隔 80ms，防止卡顿主线程
+            await new Promise(r => setTimeout(r, 80))
+          }
+        }
+        console.log(`[VectorMemory] 存量补向量化完成：共处理 ${done} 轮`)
       }
-      console.log(`[VectorMemory] 存量补向量化完成：共处理 ${done} 轮`)
     } catch (err) {
       console.error('[VectorMemory] 存量补向量化异常:', err)
     } finally {

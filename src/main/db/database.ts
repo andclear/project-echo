@@ -426,19 +426,49 @@ export class DatabaseService {
       console.error("[Database Auto-heal] 检测 Messages.inner_thought 自愈异常:", e.message)
     }
 
-    // 🚀 物理自愈：确保 MessageEmbeddings 向量表必然存在（双重保险，不受迁移版本限制）
+    // 🚀 物理自愈：确保 MessageEmbeddings 向量表必然存在，且为 (round_id, character_id) 复合主键，防止多AI群聊时覆盖冲突
     try {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS MessageEmbeddings (
-          round_id       TEXT PRIMARY KEY,
+          round_id       TEXT NOT NULL,
           character_id   TEXT NOT NULL,
           embedding_json TEXT NOT NULL,
           content_text   TEXT NOT NULL,
-          timestamp      INTEGER NOT NULL
+          timestamp      INTEGER NOT NULL,
+          PRIMARY KEY (round_id, character_id)
         );
       `);
       this.db.exec(`CREATE INDEX IF NOT EXISTS idx_embeddings_char ON MessageEmbeddings(character_id);`);
-    } catch (_) {}
+
+      // 检测是否为旧的单主键表，若是则无损升级为复合主键
+      const tableInfo = this.db.prepare("PRAGMA table_info(MessageEmbeddings)").all() as any[]
+      const pkCount = tableInfo.filter((c: any) => c.pk > 0).length
+      if (pkCount === 1) {
+        console.log("[Database Auto-heal] 检测到 MessageEmbeddings 为旧单主键结构，开始无损迁移为复合主键...")
+        this.db.transaction(() => {
+          this.db.exec("ALTER TABLE MessageEmbeddings RENAME TO MessageEmbeddings_old;")
+          this.db.exec(`
+            CREATE TABLE MessageEmbeddings (
+              round_id       TEXT NOT NULL,
+              character_id   TEXT NOT NULL,
+              embedding_json TEXT NOT NULL,
+              content_text   TEXT NOT NULL,
+              timestamp      INTEGER NOT NULL,
+              PRIMARY KEY (round_id, character_id)
+            );
+          `)
+          this.db.exec("CREATE INDEX IF NOT EXISTS idx_embeddings_char ON MessageEmbeddings(character_id);")
+          this.db.exec(`
+            INSERT OR IGNORE INTO MessageEmbeddings (round_id, character_id, embedding_json, content_text, timestamp)
+            SELECT round_id, character_id, embedding_json, content_text, timestamp FROM MessageEmbeddings_old;
+          `)
+          this.db.exec("DROP TABLE MessageEmbeddings_old;")
+        })()
+        console.log("[Database Auto-heal] MessageEmbeddings 复合主键无损迁移圆满成功！")
+      }
+    } catch (e: any) {
+      console.error("[Database Auto-heal] 向量表自愈升级异常:", e.message)
+    }
 
     console.log('[Database] 数据表结构初始化顺利完成！')
   }
@@ -767,14 +797,15 @@ export class DatabaseService {
       {
         version: 11,
         up: (db: Database.Database) => {
-          // 创建轮次粒度的向量索引表（RAG 长期记忆召回）
+          // 创建轮次及角色粒度的向量索引表（RAG 长期记忆召回，支持群聊复合主键）
           db.exec(`
             CREATE TABLE IF NOT EXISTS MessageEmbeddings (
-              round_id       TEXT PRIMARY KEY,
+              round_id       TEXT NOT NULL,
               character_id   TEXT NOT NULL,
               embedding_json TEXT NOT NULL,
               content_text   TEXT NOT NULL,
-              timestamp      INTEGER NOT NULL
+              timestamp      INTEGER NOT NULL,
+              PRIMARY KEY (round_id, character_id)
             );
           `);
           try {
@@ -1015,6 +1046,10 @@ export class DatabaseService {
   public deleteChatHistory(characterId: string): void {
     const stmt = this.db.prepare('DELETE FROM Messages WHERE character_id = ?')
     stmt.run(characterId)
+
+    // 🚀 清空聊天历史时，同步清空对应的语义向量化记忆，保证数据一致性
+    const stmtEmb = this.db.prepare('DELETE FROM MessageEmbeddings WHERE character_id = ?')
+    stmtEmb.run(characterId)
 
     // 🚀 清空聊天历史时，同步重置该小说写手的活跃书籍和时间线起点，确保物理清空判定绝对准确
     const stmtSettings = this.db.prepare('DELETE FROM Settings WHERE key IN (?, ?, ?)')
@@ -1542,6 +1577,9 @@ export class DatabaseService {
     // 物理清空群聊聊天消息历史
     const stmt3 = this.db.prepare('DELETE FROM Messages WHERE character_id = ?')
     stmt3.run(id)
+    // 物理清空群聊对应的语义向量化记忆
+    const stmt4 = this.db.prepare('DELETE FROM MessageEmbeddings WHERE character_id = ?')
+    stmt4.run(id)
   }
 
   /**
@@ -2082,7 +2120,7 @@ export class DatabaseService {
     this.db.prepare(`
       INSERT INTO MessageEmbeddings (round_id, character_id, embedding_json, content_text, timestamp)
       VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(round_id) DO UPDATE SET
+      ON CONFLICT(round_id, character_id) DO UPDATE SET
         embedding_json = excluded.embedding_json,
         content_text   = excluded.content_text,
         timestamp      = excluded.timestamp
