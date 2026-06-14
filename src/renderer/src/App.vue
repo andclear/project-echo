@@ -9962,6 +9962,19 @@
                           <ApertureIcon v-else class="w-4 h-4 text-indigo-500" />
                           <span>AI 绘图</span>
                         </button>
+
+                        <!-- AI 吐槽大会 -->
+                        <button
+                          v-if="!isGroupActive"
+                          @click="
+                            toggleRoastPanel();
+                            showMobilePlusMenu = false;
+                          "
+                          class="flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-on-surface-variant hover:text-rose-500 hover:bg-rose-500/10 transition-all w-full text-left"
+                        >
+                          <MaskIcon class="w-4 h-4 text-rose-500" />
+                          <span>AI 吐槽大会</span>
+                        </button>
                       </div>
                     </div>
 

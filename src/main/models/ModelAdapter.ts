@@ -716,57 +716,41 @@ export class ModelAdapter {
   public async analyzeImage(imageBase64: string): Promise<string> {
     try {
       const config = this.primary
-      const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...COMMON_HEADERS
-      }
-      if (config.apiKey) {
-        headers['Authorization'] = `Bearer ${config.apiKey}`
-      }
-
       const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '')
       const mimeType = imageBase64.match(/^data:(image\/\w+);base64,/)?.[1] || 'image/png'
 
-      const payload = {
-        model: config.model,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: '请用一两句话以简体中文极其客观、精炼地描述这张图片中呈现的内容（包含主体、动作、物品和环境），不要有任何废话、猜测或长篇大论，直接陈述画面事实，控制在50字内。'
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:${mimeType};base64,${cleanBase64}`
-                }
+      const messages: ChatMessage[] = [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: '请用一两句话以简体中文极其客观、精炼地描述这张图片中呈现的内容（包含主体、动作、物品和环境），不要有任何废话、猜测或长篇大论，直接陈述画面事实，控制在50字内。'
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:${mimeType};base64,${cleanBase64}`
               }
-            ]
-          }
-        ],
-        stream: false,
-        max_tokens: 150
-      }
+            }
+          ] as any
+        }
+      ]
 
       console.log(`[Vision Service] 正在向模型 [${config.model}] 发起多模态图片识别分析...`)
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload)
-      })
+      const provider = ProviderFactory.getProvider(config.provider)
+      const res = await provider.chat(config, messages)
+      const desc = res.content.trim()
 
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(`Vision API 响应错误 (${response.status}): ${errText}`)
+      // 全自动无缝拦截并异步物理记入 ModelStats 数据库表，确保 100% 捕获图像识别的多模态调用
+      try {
+        const db = getDatabaseService()
+        db.recordModelCall('primary', config.model, res.tokenUsage || 0)
+      } catch (err: any) {
+        console.error('[ModelAdapter] analyzeImage 自动计入 ModelStats 失败:', err.message)
       }
 
-      const result = await response.json()
-      const desc = result.choices?.[0]?.message?.content?.trim() || ''
       console.log(`[Vision Service] 图像识别结果已提炼: "${desc}"`)
       return desc
     } catch (err: any) {
