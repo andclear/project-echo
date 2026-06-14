@@ -9662,56 +9662,57 @@
                       </div>
 
                       <!-- 常规文字气泡 -->
-                      <div
-                        v-else-if="msg.content"
-                        class="ai-chat-bubble relative"
-                        :class="{
-                          'emoji-only-bubble': isEmojiOnly(msg.content),
-                          'border-red-500/30 bg-red-500/5 dark:bg-red-500/10 text-red-600 dark:text-red-400':
-                            msg.isError,
-                        }"
-                        @contextmenu.prevent="openMessageContextMenu($event, msg)"
-                        @touchstart="onLongPressStart($event, msg, 'message')"
-                        @touchend="onLongPressEnd"
-                        @touchmove="onLongPressMove"
-                      >
-                        <!-- 失败警告的小图标 -->
+                      <div v-else-if="msg.content" class="relative w-fit">
                         <div
-                          v-if="msg.isError"
-                          class="absolute -left-6 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20"
-                          title="连接超时，右键气泡可重新回复"
+                          class="ai-chat-bubble relative"
+                          :class="{
+                            'emoji-only-bubble': isEmojiOnly(msg.content),
+                            'border-red-500/30 bg-red-500/5 dark:bg-red-500/10 text-red-600 dark:text-red-400':
+                              msg.isError,
+                          }"
+                          @contextmenu.prevent="openMessageContextMenu($event, msg)"
+                          @touchstart="onLongPressStart($event, msg, 'message')"
+                          @touchend="onLongPressEnd"
+                          @touchmove="onLongPressMove"
                         >
-                          <AlertTriangleIcon class="w-3.5 h-3.5" />
-                        </div>
-                        <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
-
-                        <!-- 玻璃拟态角色心声悬浮窗 -->
-                        <transition
-                          enter-active-class="transition duration-200 ease-out"
-                          enter-from-class="opacity-0 translate-y-2 scale-95"
-                          enter-to-class="opacity-100 translate-y-0 scale-100"
-                          leave-active-class="transition duration-150 ease-in"
-                          leave-from-class="opacity-100 translate-y-0 scale-100"
-                          leave-to-class="opacity-0 translate-y-2 scale-95"
-                        >
+                          <!-- 失败警告的小图标 -->
                           <div
-                            v-if="currentChatMode === 'dialogue' && msg.inner_thought && activeInnerThoughtMsgId === msg.id"
-                            class="absolute z-10 bottom-full left-0 mb-2 w-64 p-3 rounded-xl border border-[#ffb6c1]/20 dark:border-[#ffb6c1]/10 bg-white/80 dark:bg-[#1f1619]/80 backdrop-blur-md shadow-lg text-[11px] leading-relaxed text-pink-700 dark:text-pink-300 font-medium select-text"
+                            v-if="msg.isError"
+                            class="absolute -left-6 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20"
+                            title="连接超时，右键气泡可重新回复"
                           >
-                            <div class="flex items-center space-x-1 text-[10px] text-pink-500 dark:text-pink-400 mb-1 font-bold select-none">
-                              <ScanHeartIcon class="w-3.5 h-3.5 animate-pulse" />
-                              <span>角色心声</span>
-                            </div>
-                            <p class="italic">“{{ msg.inner_thought }}”</p>
-                            <!-- 装饰用小三角 -->
-                            <div class="absolute top-full left-4 -mt-1 border-4 border-transparent border-t-white/80 dark:border-t-[#1f1619]/80"></div>
+                            <AlertTriangleIcon class="w-3.5 h-3.5" />
                           </div>
-                        </transition>
+                          <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
 
-                        <!-- 微型 ScanHeartIcon 图标 (绝对定位到气泡右侧外，规避 flex 父级 max-w-[68%] 对宽度的限制与挤压，在移动端依然顺畅悬浮展示) -->
+                          <!-- 玻璃拟态角色心声悬浮窗 -->
+                          <transition
+                            enter-active-class="transition duration-200 ease-out"
+                            enter-from-class="opacity-0 translate-y-2 scale-95"
+                            enter-to-class="opacity-100 translate-y-0 scale-100"
+                            leave-active-class="transition duration-150 ease-in"
+                            leave-from-class="opacity-100 translate-y-0 scale-100"
+                            leave-to-class="opacity-0 translate-y-2 scale-95"
+                          >
+                            <div
+                              v-if="currentChatMode === 'dialogue' && msg.inner_thought && activeInnerThoughtMsgId === msg.id"
+                              class="absolute z-10 bottom-full left-0 mb-2 w-64 p-3 rounded-xl border border-[#ffb6c1]/20 dark:border-[#ffb6c1]/10 bg-white/80 dark:bg-[#1f1619]/80 backdrop-blur-md shadow-lg text-[11px] leading-relaxed text-pink-700 dark:text-pink-300 font-medium select-text"
+                            >
+                              <div class="flex items-center space-x-1 text-[10px] text-pink-500 dark:text-pink-400 mb-1 font-bold select-none">
+                                <ScanHeartIcon class="w-3.5 h-3.5 animate-pulse" />
+                                <span>角色心声</span>
+                              </div>
+                              <p class="italic">“{{ msg.inner_thought }}”</p>
+                              <!-- 装饰用小三角 -->
+                              <div class="absolute top-full left-4 -mt-1 border-4 border-transparent border-t-white/80 dark:border-t-[#1f1619]/80"></div>
+                            </div>
+                          </transition>
+                        </div>
+
+                        <!-- 微型 ScanHeartIcon 图标 (显示在气泡外面，绝对定位到右侧，脱离文档流宽度，兼顾电脑与手机端安全展露) -->
                         <button
                           v-if="currentChatMode === 'dialogue' && msg.inner_thought"
-                          class="absolute -right-6 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center text-on-surface-variant/40 hover:text-pink-500 hover:bg-pink-500/10 active:scale-95 transition-all select-none"
+                          class="absolute -right-6 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center text-pink-500 dark:text-pink-400 bg-pink-500/10 hover:bg-pink-500/20 active:scale-95 transition-all select-none"
                           title="查看角色心声"
                           @click.stop="toggleInnerThought(msg.id)"
                         >
@@ -20247,6 +20248,7 @@ function restoreMessageProps(m: any) {
     imageBase64: m.imageBase64 || '',
     imageMeta: m.imageMeta || null,
     sender_id: m.sender_id || m.character_id,
+    inner_thought: m.inner_thought, // 🚀 映射并保留从 SQLite 读出来的心声字段
   };
 
   if (m.content) {

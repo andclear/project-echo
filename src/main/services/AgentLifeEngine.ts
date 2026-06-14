@@ -14,6 +14,7 @@ import { ContextAssembler } from '../utils/ContextAssembler';
 import { MemoryAgentService } from './MemoryAgentService';
 import { WeatherService } from '../utils/WeatherService';
 import { MessageBusService } from './MessageBusService';
+import { StateReaderWriter } from '../utils/StateReaderWriter';
 
 
 export interface WakeContext {
@@ -101,7 +102,6 @@ export class AgentLifeEngine {
               const storageManager = new CharacterStorageManager();
               const statePath = path.join(storageManager.getBaseDir(), char.folder_name, 'State.md');
               if (fs.existsSync(statePath)) {
-                const { StateReaderWriter } = require('../utils/StateReaderWriter');
                 const state = StateReaderWriter.readState(statePath);
                 
                 const sbItem = state.items.find((i: any) => i.key === 'salary_base');
