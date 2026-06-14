@@ -117,15 +117,12 @@ export class WeatherService {
   public static async prefetchWeather(location: string, forceRefresh = false): Promise<string> {
     const loc = (location || '').trim();
     if (!loc) {
-      console.log('[WeatherService] prefetchWeather: 传入地理位置为空字符串');
       return '';
     }
 
     const now = Date.now();
     const cached = this.cache.get(loc);
-    console.log(`[WeatherService] prefetchWeather: loc="${loc}", forceRefresh=${forceRefresh}, 是否命中有用缓存:`, (!forceRefresh && cached && now - cached.timestamp < this.CACHE_DURATION));
     if (!forceRefresh && cached && now - cached.timestamp < this.CACHE_DURATION) {
-      console.log(`[WeatherService] prefetchWeather: 命中缓存, 直接返回: "${cached.text}"`);
       return cached.text;
     }
 
@@ -134,28 +131,19 @@ export class WeatherService {
 
     const countyLoc = this.getCountyLevel(loc);
     const cityLoc = this.getCityLevel(loc);
-    console.log(`[WeatherService] prefetchWeather: 开始两阶段查询. 区县级="${countyLoc}", 城市级="${cityLoc}"`);
 
     // 第一阶段：优先精确尝试区县级
     try {
-      console.log(`[WeatherService] [第一阶段] 正在请求区县天气: "${countyLoc}"`);
       const weatherText = await this.fetchRawWeather(countyLoc);
-      console.log(`[WeatherService] [第一阶段] 成功获取区县天气: "${weatherText}"`);
       this.cache.set(loc, { text: weatherText, timestamp: Date.now() });
       return weatherText;
     } catch (err: any) {
-      console.warn(`[WeatherService] [第一阶段] 失败 [${countyLoc}], 准备降级至市级 [${cityLoc}]. 错误原因:`, err.message || err);
-
       // 第二阶段：降级尝试市级
       try {
-        console.log(`[WeatherService] [第二阶段] 正在请求城市天气: "${cityLoc}"`);
         const weatherText = await this.fetchRawWeather(cityLoc);
-        console.log(`[WeatherService] [第二阶段] 成功获取城市天气: "${weatherText}"`);
         this.cache.set(loc, { text: weatherText, timestamp: Date.now() });
         return weatherText;
       } catch (err2: any) {
-        console.error(`[WeatherService] [第二阶段] 失败 [${cityLoc}]. 彻底获取失败. 错误原因:`, err2.message || err2);
-
         // 彻底失败：容错降级，返回旧值
         const fallbackText = cached?.text || '';
         this.cache.set(loc, { text: fallbackText, timestamp: now - this.CACHE_DURATION + 10 * 60 * 1000 }); // 10分钟后重试

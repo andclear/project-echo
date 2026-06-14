@@ -5857,6 +5857,59 @@
                 </div>
               </div>
 
+              <!-- E. 运行日志 -->
+              <div v-else-if="activeSettingsTab === 'logs'" class="h-full flex flex-col space-y-4 select-text">
+                <div class="flex items-center justify-between">
+                  <div class="space-y-0.5">
+                    <h3 class="text-xs font-bold text-on-surface">系统运行日志</h3>
+                    <p class="text-[10px] text-on-surface-variant">展示主进程最近 500 条日志</p>
+                  </div>
+                  <div class="flex items-center space-x-2">
+                    <button
+                      @click="autoScrollLogs = !autoScrollLogs"
+                      class="px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition flex items-center space-x-1"
+                      :class="autoScrollLogs ? 'bg-primary/10 text-primary border border-primary/20' : 'bg-surface-low border border-outline-variant/10 text-on-surface-variant'"
+                    >
+                      <span>{{ autoScrollLogs ? '🔔 滚动锁定' : '🔕 自由滚动' }}</span>
+                    </button>
+                    <button
+                      @click="clearScreenLogs"
+                      class="px-2.5 py-1.5 rounded-lg text-[10px] font-medium bg-error/10 hover:bg-error/20 text-error border border-error/20 transition"
+                    >
+                      <span>🗑️ 清空屏幕</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  ref="logsConsoleContainer"
+                  class="flex-1 h-full min-h-[350px] overflow-y-auto p-4 rounded-sm font-mono text-[11px] leading-relaxed select-text"
+                  :class="isDark ? 'bg-[#121214] text-[#a9b1d6] border border-neutral-800' : 'bg-[#f8f9fa] text-[#374151] border border-neutral-200'"
+                  style="white-space: pre-wrap; word-break: break-all;"
+                >
+                  <div v-if="logEntries.length === 0" class="text-center py-10 text-on-surface-variant opacity-60">
+                    暂无运行日志输出
+                  </div>
+                  <div
+                    v-else
+                    v-for="(log, idx) in logEntries"
+                    :key="idx"
+                    class="py-1 border-b border-dashed/5 flex items-start space-x-2"
+                    :class="isDark ? 'border-neutral-900' : 'border-neutral-100'"
+                  >
+                    <!-- 时间戳设为 select-none，使用户自由复制日志内容时不会顺带粘上时间戳，极具专业感 -->
+                    <span class="text-on-surface-variant font-mono opacity-40 select-none flex-shrink-0">
+                      [{{ new Date(log.timestamp).toLocaleTimeString() }}]
+                    </span>
+                    <div class="flex-1 font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap select-text">
+                      <span v-if="log.type === 'error'" class="text-error font-semibold">[ERROR] </span>
+                      <span v-else-if="log.type === 'warn'" class="text-warning font-semibold">[WARN] </span>
+                      <span v-html="highlightLogMessage(log.message)"></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- E. 关于软件 -->
               <div v-else-if="activeSettingsTab === 'about'" class="space-y-6 select-text">
                 <div class="bg-surface-low/20 p-6 rounded-xl text-center select-none">
@@ -6156,7 +6209,8 @@
                 activeSettingsTab !== 'about' &&
                 activeSettingsTab !== 'migration' &&
                 activeSettingsTab !== 'profile' &&
-                activeSettingsTab !== 'feedback'
+                activeSettingsTab !== 'feedback' &&
+                activeSettingsTab !== 'logs'
               "
               class="flex-shrink-0 p-4 border-t border-outline-variant/20 bg-surface flex flex-col space-y-3 select-none"
             >
@@ -17865,7 +17919,64 @@ const activeSettingsTab = ref<
   | 'feedback'
   | 'novel'
   | 'proactive'
+  | 'logs'
 >('general');
+
+// ===================== 运行日志控制台专有 Vue3 响应式状态机 =====================
+const logEntries = ref<Array<{ type: 'info'|'warn'|'error'; message: string; timestamp: number }>>([]);
+const autoScrollLogs = ref(true);
+const logsConsoleContainer = ref<HTMLDivElement | null>(null);
+let unlistenNewLog: (() => void) | null = null;
+
+const scrollToBottomLogs = () => {
+  nextTick(() => {
+    if (logsConsoleContainer.value) {
+      logsConsoleContainer.value.scrollTop = logsConsoleContainer.value.scrollHeight;
+    }
+  });
+};
+
+const enterLogsTab = async () => {
+  const res = await window.api.invoke('get-all-cached-logs');
+  if (res.success && Array.isArray(res.logs)) {
+    logEntries.value = res.logs;
+  }
+  if (typeof window.api.receive === 'function' && !unlistenNewLog) {
+    const rLog = window.api.receive('new-log-broadcast', (entry: any) => {
+      logEntries.value.push(entry);
+      if (logEntries.value.length > 500) {
+        logEntries.value.shift();
+      }
+      if (autoScrollLogs.value) {
+        scrollToBottomLogs();
+      }
+    });
+    unlistenNewLog = typeof rLog === 'function' ? (rLog as any) : null;
+  }
+  await window.api.invoke('subscribe-console-logs');
+  setTimeout(scrollToBottomLogs, 80);
+};
+
+const exitLogsTab = async () => {
+  if (unlistenNewLog) {
+    unlistenNewLog();
+    unlistenNewLog = null;
+  }
+  await window.api.invoke('unsubscribe-console-logs');
+};
+
+const clearScreenLogs = () => {
+  logEntries.value = [];
+};
+
+const highlightLogMessage = (msg: string) => {
+  // 匹配所有方括号 [...] 包裹的内容，并在前端高亮显示
+  return msg.replace(
+    /(\[[^\]]+\])/g,
+    `<span class="text-primary font-bold">$1</span>`
+  );
+};
+
 const globalPrompt = ref('');
 const settingsMenus: {
   id:
@@ -17881,7 +17992,8 @@ const settingsMenus: {
     | 'about'
     | 'feedback'
     | 'novel'
-    | 'proactive';
+    | 'proactive'
+    | 'logs';
   label: string;
   icon: any;
 }[] = [
@@ -17897,10 +18009,17 @@ const settingsMenus: {
   { id: 'wechat', label: '微信接入', icon: MessageCircleIcon },
   { id: 'migration', label: '数据备份与迁移', icon: Share2Icon },
   { id: 'feedback', label: '意见反馈', icon: MessageSquareIcon },
+  { id: 'logs', label: '运行日志', icon: TerminalIcon },
   { id: 'about', label: '关于软件', icon: HelpCircleIcon },
 ];
 
-watch(activeSettingsTab, newTab => {
+watch(activeSettingsTab, (newTab, oldTab) => {
+  if (oldTab === 'logs') {
+    exitLogsTab();
+  }
+  if (newTab === 'logs') {
+    enterLogsTab();
+  }
   if (newTab === 'vector') {
     loadVectorMemoryConfig();
   }
@@ -17915,6 +18034,14 @@ watch(activeSettingsTab, newTab => {
         }
       }
     });
+  }
+});
+
+watch(showSettingsModal, newVal => {
+  if (!newVal) {
+    exitLogsTab();
+  } else if (activeSettingsTab.value === 'logs') {
+    enterLogsTab();
   }
 });
 

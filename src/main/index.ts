@@ -1,6 +1,10 @@
 import './utils/AppUserDataLock'
 import { app, shell, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, screen } from 'electron'
 import path, { join, extname, basename } from 'path'
+import { LogBufferService } from './services/LogBufferService'
+
+// 🚀 极早期启动运行日志劫持缓冲服务，保障自检控制台记录启动以来的完整历史
+LogBufferService.getInstance().init()
 import fs from 'fs'
 import crypto from 'crypto'
 import zlib from 'zlib'
@@ -1004,12 +1008,9 @@ function registerIpcHandlers(): void {
   // 0.0.1.b 获取目前真实天气数据
   ipcMain.handle('get-realtime-weather', async (_, location: string, forceRefresh = false) => {
     try {
-      console.log(`[IPC get-realtime-weather] 收到天气请求, location="${location}", forceRefresh=${forceRefresh}`);
       const weatherText = await WeatherService.prefetchWeather(location, forceRefresh)
-      console.log(`[IPC get-realtime-weather] 天气请求完成, 结果="${weatherText}"`);
       return { success: true, weather: weatherText }
     } catch (e: any) {
-      console.error(`[IPC get-realtime-weather] 天气请求异常:`, e);
       return { success: false, error: e.message || e }
     }
   })
@@ -1691,6 +1692,36 @@ function registerIpcHandlers(): void {
       return { success: true }
     } catch (err: any) {
       return { success: false, error: err.message }
+    }
+  })
+
+  // 订阅运行日志实时推送
+  ipcMain.handle('subscribe-console-logs', async (event) => {
+    try {
+      LogBufferService.getInstance().subscribe(event.sender)
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 取消订阅运行日志实时推送
+  ipcMain.handle('unsubscribe-console-logs', async () => {
+    try {
+      LogBufferService.getInstance().unsubscribe()
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 一次性拉取最近最多 500 条运行日志缓存
+  ipcMain.handle('get-all-cached-logs', async () => {
+    try {
+      const logs = LogBufferService.getInstance().getLogs()
+      return { success: true, logs }
+    } catch (err: any) {
+      return { success: false, error: err.message, logs: [] }
     }
   })
 
@@ -10116,14 +10147,8 @@ export function startIpcBridgeServer(port: number = 3000) {
       }, 15000);
 
       try {
-        console.log(`[IPC Bridge Server] ipcMain 自身属性:`, Object.getOwnPropertyNames(ipcMain));
-        const proto = Object.getPrototypeOf(ipcMain);
-        if (proto) {
-          console.log(`[IPC Bridge Server] ipcMain 原型属性:`, Object.getOwnPropertyNames(proto));
-        }
         if ((ipcMain as any)._invokeHandlers) {
           console.log(`[IPC Bridge Server] 诊断：已注册的处理器通道数 = ${(ipcMain as any)._invokeHandlers.size}`);
-          console.log(`[IPC Bridge Server] 诊断：所有已注册通道名称 =`, Array.from((ipcMain as any)._invokeHandlers.keys()));
         } else {
           console.log(`[IPC Bridge Server] 警告：未在 ipcMain 上找到 _invokeHandlers 映射！`);
         }
