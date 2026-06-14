@@ -38,6 +38,7 @@ import { parseMemoryMd, parseUserMd } from './utils/MarkdownMetadataParser'
 import { SseManager } from './services/SseManager'
 import { RoastService } from './services/RoastService'
 import { migrateLegacyUserProfile, performEmojiBase64DecoupleMigration } from './utils/MigrationHelper'
+import { VectorMemoryService } from './services/VectorMemoryService'
 
 // 🚀 至尊级日志静默盾：劫持全局 console.error，静默过滤掉由于 Electron 内部对已销毁/已刷新渲染帧发送 IPC 消息时，在底层 JS init 代码中强行抛出的 WebFrameMain/disposed 冗余控制台报错
 const originalConsoleError = console.error
@@ -1663,6 +1664,160 @@ function registerIpcHandlers(): void {
     } catch (error: any) {
       console.error('[IPC] 读取全局模型配置失败:', error)
       return { success: false, error: error.message || error }
+    }
+  })
+
+  // ===================== 向量记忆 IPC 通道 =====================
+
+  // 获取向量记忆配置
+  ipcMain.handle('get-vector-memory-config', async () => {
+    try {
+      const svc = VectorMemoryService.getInstance()
+      return { success: true, config: svc.getConfig() }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 保存向量记忆配置
+  ipcMain.handle('save-vector-memory-config', async (_, config) => {
+    try {
+      const svc = VectorMemoryService.getInstance()
+      svc.saveConfig(config)
+      // 若启用了本地模式且模型已下载，尝试热加载
+      if (config.enabled && config.mode === 'local') {
+        svc.tryLoadModel().catch(() => {})
+      }
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 获取硬件资源信息
+  ipcMain.handle('get-vector-hardware-info', async () => {
+    try {
+      const svc = VectorMemoryService.getInstance()
+      return { success: true, ...svc.getHardwareInfo() }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 获取本地模型状态（是否已下载、是否已就绪）
+  ipcMain.handle('get-vector-model-status', async () => {
+    try {
+      const svc = VectorMemoryService.getInstance()
+      return {
+        success: true,
+        downloaded: svc.isModelDownloaded(),
+        ready: svc.isModelReady(),
+        loading: svc.isModelLoading()
+      }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 触发本地模型下载（通过 IPC 广播进度）
+  ipcMain.handle('download-vector-model', async (event, payload: { mirrorUrl?: string }) => {
+    try {
+      const svc = VectorMemoryService.getInstance()
+      const mirrorUrl = payload?.mirrorUrl || 'https://hf-mirror.com'
+      // 异步下载，通过 IPC 推送进度
+      svc.downloadModel(mirrorUrl, (pct, fileName) => {
+        const progressPayload = { pct, fileName }
+        try {
+          event.sender.send('vector-model-download-progress', progressPayload)
+        } catch (_) {}
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('vector-model-download-progress', progressPayload)
+        }
+        SseManager.getInstance().broadcast('vector-model-download-progress', progressPayload)
+      }).then(async (result) => {
+        const donePayload = { ...result }
+        try {
+          event.sender.send('vector-model-download-done', donePayload)
+        } catch (_) {}
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('vector-model-download-done', donePayload)
+        }
+        SseManager.getInstance().broadcast('vector-model-download-done', donePayload)
+        // 下载成功后自动尝试热加载
+        if (result.success) {
+          await svc.tryLoadModel()
+        }
+      }).catch(() => {})
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 取消模型下载
+  ipcMain.handle('cancel-vector-model-download', async () => {
+    try {
+      VectorMemoryService.getInstance().cancelDownload()
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 获取向量化进度（指定角色）
+  ipcMain.handle('get-vector-embedding-progress', async (_, payload: { characterId: string }) => {
+    try {
+      const db = getDatabaseService()
+      const progress = db.getVectorizationProgress(payload.characterId)
+      return { success: true, ...progress }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 手动触发指定角色的历史存量补向量化
+  ipcMain.handle('start-vector-backfill', async (event, payload: { characterId: string }) => {
+    try {
+      const svc = VectorMemoryService.getInstance()
+      if (!svc.isOperational()) {
+        return { success: false, error: '向量化服务未就绪，请先配置并下载本地模型或配置在线 API' }
+      }
+      if (svc.isBackfilling()) {
+        return { success: false, error: '已有存量补向量化任务正在运行' }
+      }
+      // 异步运行，通过 IPC 推送进度
+      svc.backfillHistory(payload.characterId, 20, (done, total) => {
+        const progressPayload = { characterId: payload.characterId, done, total }
+        try {
+          event.sender.send('vector-backfill-progress', progressPayload)
+        } catch (_) {}
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('vector-backfill-progress', progressPayload)
+        }
+        SseManager.getInstance().broadcast('vector-backfill-progress', progressPayload)
+      }).then(() => {
+        const donePayload = { characterId: payload.characterId, done: true }
+        try {
+          event.sender.send('vector-backfill-done', donePayload)
+        } catch (_) {}
+        if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send('vector-backfill-done', donePayload)
+        }
+        SseManager.getInstance().broadcast('vector-backfill-done', donePayload)
+      }).catch(() => {})
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 取消存量补向量化
+  ipcMain.handle('cancel-vector-backfill', async () => {
+    try {
+      VectorMemoryService.getInstance().cancelBackfill()
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message }
     }
   })
 
@@ -4243,6 +4398,15 @@ ${soulContent}
             MessageBusService.getInstance().publishBatch(groupMsgBatch)
           }
 
+          // 异步向量化本轮群聊 AI 回复（火了即忘，不影响主链路）
+          try {
+            const vectorSvc = VectorMemoryService.getInstance()
+            if (vectorSvc.isOperational() && groupRoundId && finalResponse) {
+              const roundText = [userMessage, finalResponse].filter(Boolean).join('\n')
+              vectorSvc.enqueueVectorize(groupRoundId, currentSpeakerId, roundText, Date.now())
+            }
+          } catch (_) {}
+
           // G. 每一满 10 条消息时，异步触发群聊专属记忆提取与大事记合并压缩
           try {
             const totalMsgsRow = db.db.prepare('SELECT COUNT(*) as count FROM Messages WHERE character_id = ?').get(groupId) as any
@@ -5855,6 +6019,15 @@ ${memoryContent}
     if (msgBatch.length > 0) {
       MessageBusService.getInstance().publishBatch(msgBatch)
     }
+
+    // 异步向量化本轮对话（火了即忘，不影响对话主链路）
+    try {
+      const vectorSvc = VectorMemoryService.getInstance()
+      if (vectorSvc.isOperational() && roundId && (userMessageFinalMerged || finalResponse)) {
+        const roundText = [userMessageFinalMerged, finalResponse].filter(Boolean).join('\n')
+        vectorSvc.enqueueVectorize(roundId, characterId, roundText, Date.now())
+      }
+    } catch (_) {}
 
     // 缓存前缀保温：改用已清洗的 finalResponse（而非含控制符/思考链的原始 accumulatedResponse）
     // 原因：accumulatedResponse 含有控制符（[SEND_RED_PACKET]、[RECEIVE_RED_PACKET] 等）和 <cot> 思考链，
@@ -10001,6 +10174,19 @@ app.whenReady().then(() => {
       performUserPlaceholderMigration()
       performEmojiBase64DecoupleMigration()
     }, 2000)
+
+    // 🚀 启动时自动热加载本地向量记忆模型（若已启用本地模式且模型已下载）
+    setTimeout(() => {
+      try {
+        const vectorSvc = VectorMemoryService.getInstance()
+        const config = vectorSvc.getConfig()
+        if (config.enabled && config.mode === 'local' && vectorSvc.isModelDownloaded()) {
+          vectorSvc.tryLoadModel().catch(() => {})
+        }
+      } catch (err) {
+        console.error('[VectorMemory] 启动自动热加载异常:', err)
+      }
+    }, 3000)
   } catch (error) {
     console.error('SQLite 数据库初始化异常:', error)
   }

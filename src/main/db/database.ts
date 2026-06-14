@@ -426,6 +426,20 @@ export class DatabaseService {
       console.error("[Database Auto-heal] 检测 Messages.inner_thought 自愈异常:", e.message)
     }
 
+    // 🚀 物理自愈：确保 MessageEmbeddings 向量表必然存在（双重保险，不受迁移版本限制）
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS MessageEmbeddings (
+          round_id       TEXT PRIMARY KEY,
+          character_id   TEXT NOT NULL,
+          embedding_json TEXT NOT NULL,
+          content_text   TEXT NOT NULL,
+          timestamp      INTEGER NOT NULL
+        );
+      `);
+      this.db.exec(`CREATE INDEX IF NOT EXISTS idx_embeddings_char ON MessageEmbeddings(character_id);`);
+    } catch (_) {}
+
     console.log('[Database] 数据表结构初始化顺利完成！')
   }
 
@@ -747,6 +761,24 @@ export class DatabaseService {
             if (!hasCol) {
               db.exec("ALTER TABLE Messages ADD COLUMN inner_thought TEXT DEFAULT NULL;")
             }
+          } catch (_) {}
+        }
+      },
+      {
+        version: 11,
+        up: (db: Database.Database) => {
+          // 创建轮次粒度的向量索引表（RAG 长期记忆召回）
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS MessageEmbeddings (
+              round_id       TEXT PRIMARY KEY,
+              character_id   TEXT NOT NULL,
+              embedding_json TEXT NOT NULL,
+              content_text   TEXT NOT NULL,
+              timestamp      INTEGER NOT NULL
+            );
+          `);
+          try {
+            db.exec(`CREATE INDEX IF NOT EXISTS idx_embeddings_char ON MessageEmbeddings(character_id);`);
           } catch (_) {}
         }
       }
@@ -2033,6 +2065,88 @@ export class DatabaseService {
     } catch (err) {
       console.error('[Database Auto-heal] 升级老用户小说书名失败:', err)
     }
+  }
+
+  // ===================== 向量记忆相关方法 =====================
+
+  /**
+   * 保存或更新一条轮次的向量嵌入
+   */
+  public saveEmbedding(
+    roundId: string,
+    characterId: string,
+    embeddingJson: string,
+    contentText: string,
+    timestamp: number
+  ): void {
+    this.db.prepare(`
+      INSERT INTO MessageEmbeddings (round_id, character_id, embedding_json, content_text, timestamp)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(round_id) DO UPDATE SET
+        embedding_json = excluded.embedding_json,
+        content_text   = excluded.content_text,
+        timestamp      = excluded.timestamp
+    `).run(roundId, characterId, embeddingJson, contentText, timestamp);
+  }
+
+  /**
+   * 获取某角色的所有向量条目（用于 KNN 内存检索）
+   */
+  public getEmbeddingsByCharacter(
+    characterId: string
+  ): { round_id: string; embedding_json: string; content_text: string; timestamp: number }[] {
+    return this.db.prepare(
+      'SELECT round_id, embedding_json, content_text, timestamp FROM MessageEmbeddings WHERE character_id = ? ORDER BY timestamp ASC'
+    ).all(characterId) as any[];
+  }
+
+  /**
+   * 获取某角色的已向量化轮次数 / 总轮次数（用于进度显示）
+   */
+  public getVectorizationProgress(characterId: string): { done: number; total: number } {
+    const done = (this.db.prepare(
+      'SELECT COUNT(*) as count FROM MessageEmbeddings WHERE character_id = ?'
+    ).get(characterId) as { count: number }).count;
+    const total = (this.db.prepare(
+      "SELECT COUNT(DISTINCT round_id) as count FROM Messages WHERE character_id = ? AND round_id IS NOT NULL AND role = 'assistant'"
+    ).get(characterId) as { count: number }).count;
+    return { done, total };
+  }
+
+  /**
+   * 按角色获取尚未向量化的轮次（用于存量补向量化）
+   * 返回格式：{ round_id, user_content, assistant_content, timestamp }
+   */
+  public getUnvectorizedRounds(
+    characterId: string,
+    limit = 50
+  ): { round_id: string; user_content: string; assistant_content: string; timestamp: number }[] {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT m.round_id
+      FROM Messages m
+      WHERE m.character_id = ?
+        AND m.round_id IS NOT NULL
+        AND m.role = 'assistant'
+        AND m.round_id NOT IN (SELECT round_id FROM MessageEmbeddings WHERE character_id = ?)
+      ORDER BY (
+        SELECT MIN(timestamp) FROM Messages WHERE round_id = m.round_id AND character_id = ?
+      ) DESC
+      LIMIT ?
+    `).all(characterId, characterId, characterId, limit) as { round_id: string }[];
+
+    const result: { round_id: string; user_content: string; assistant_content: string; timestamp: number }[] = [];
+    for (const { round_id } of rows) {
+      const msgs = this.db.prepare(
+        "SELECT role, content, timestamp FROM Messages WHERE round_id = ? AND character_id = ? AND role IN ('user','assistant') ORDER BY timestamp ASC"
+      ).all(round_id, characterId) as { role: string; content: string; timestamp: number }[];
+      const userMsgs = msgs.filter(m => m.role === 'user').map(m => m.content).join(' ');
+      const assistantMsgs = msgs.filter(m => m.role === 'assistant').map(m => m.content).join(' ');
+      const ts = msgs.length > 0 ? msgs[0].timestamp : Date.now();
+      if (userMsgs || assistantMsgs) {
+        result.push({ round_id, user_content: userMsgs, assistant_content: assistantMsgs, timestamp: ts });
+      }
+    }
+    return result;
   }
 }
 
