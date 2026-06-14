@@ -6522,6 +6522,14 @@ ${memoryContent}
       //    System Prompt，不清除则角色会通过"日记"感知到已被删除的历史内容）
       storageManager.writeCharacterFile(folderName, 'Diary.md', '')
 
+      // G1. 从 Favorites 表中物理删除该角色关联的所有收藏（日记与消息等）
+      try {
+        db.db.prepare('DELETE FROM Favorites WHERE character_id = ?').run(characterId)
+        console.log(`[IPC] 已安全清除角色 [${folderName}] 在 Favorites 收藏表中的所有记录`)
+      } catch (favErr) {
+        console.error(`[IPC] 清空角色 [${folderName}] 的收藏记录失败:`, favErr)
+      }
+
       // H. 清空 SUMMARY.md 大事记（对话历史压缩精华，会在 checkAndUpdateScheduleAndGoals
       //    重建日程/目标时直接读取并作为 Prompt 上下文；群聊清空有处理，单聊此前漏清）
       const summaryInitContent = `<!--\n{\n  "summary": ""\n}\n-->\n# 对话大事记 (History Summary)\n\n暂无大事记`

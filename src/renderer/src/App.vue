@@ -19535,6 +19535,14 @@ async function handleCleanOption(option: number) {
           if (res.success) {
             allMessages[targetId] = [];
 
+            // 🚀 重置当前角色的日记状态与通讯录日记标记，防止界面残留
+            if (targetId === selectedCharacterId.value) {
+              activeDiary.value = '';
+            }
+            if (selectedContactId.value === targetId) {
+              contactHasDiary.value = false;
+            }
+
             // 🚀 重新校验并过滤当前角色的绑定关系（若绑定的是无效的'default'，立位置空以触发首聊弹窗）
             if (targetId === selectedCharacterId.value) {
               const exists = userProfilesList.value.some(p => p.profileId === currentChatBindingProfileId.value);
