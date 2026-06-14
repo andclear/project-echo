@@ -125,9 +125,18 @@ export class MemoryReaderWriter {
 
       // 3. 智能对比与自动物理对齐 (Autoreconciliation)
       if (jsonData) {
-        // 判断两个数据源是否一致
-        const isStmEqual = JSON.stringify(jsonData.stm) === JSON.stringify(mdData.stm);
-        const isLtmEqual = JSON.stringify(jsonData.ltm) === JSON.stringify(mdData.ltm);
+        // 判断两个数据源是否一致 (排序后深度比对，彻底杜绝 Key 的无序状态误判)
+        const isStmEqual = jsonData.stm.length === mdData.stm.length &&
+                           jsonData.stm.every((val, index) => val === mdData.stm[index]);
+
+        const getSortedLtmString = (ltmObj: Record<string, string>): string => {
+          const sorted: Record<string, string> = {};
+          Object.keys(ltmObj).sort().forEach(k => {
+            sorted[k] = ltmObj[k];
+          });
+          return JSON.stringify(sorted);
+        };
+        const isLtmEqual = getSortedLtmString(jsonData.ltm) === getSortedLtmString(mdData.ltm);
         
         if (!isStmEqual || !isLtmEqual) {
           console.log(`[MemoryReaderWriter] 检测到用户手工直接修改了底部的 Markdown 文本！正在智能同步对齐 JSON 注释...`);

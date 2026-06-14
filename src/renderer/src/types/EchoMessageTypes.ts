@@ -38,6 +38,8 @@ export interface EchoMessage {
   sender_id?: string
   /** 是否为角色主动搭讪消息（1=是，不参与连续气泡合并）*/
   is_proactive?: number
+  /** 角色心声潜台词 */
+  inner_thought?: string | null
   /** 红包动作（领取/退回/发出），仅在推送 payload 中携带 */
   redPacketAction?: 'receive' | 'return' | 'send' | null
   /** 自定义表情包发送信息，仅在推送 payload 中携带 */

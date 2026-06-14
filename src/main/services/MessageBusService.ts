@@ -69,6 +69,8 @@ export interface EchoMessage {
   sender_id?: string
   /** 是否为角色主动搭讪消息（1=是，不参与连续气泡合并）*/
   is_proactive?: number
+  /** 角色心声潜台词 */
+  inner_thought?: string | null
   // ──── 以下字段不存入 DB，仅在推送 payload 中携带 ────
   /** 红包动作（领取/退回/发出），由业务层在发布时附加 */
   redPacketAction?: 'receive' | 'return' | 'send' | null
@@ -339,7 +341,8 @@ export class MessageBusService {
       is_proactive: msg.is_proactive ?? 0,
       round_id: msg.round_id,
       seq: msg.seq,
-      msg_type: msg.msg_type
+      msg_type: msg.msg_type,
+      inner_thought: msg.inner_thought
     })
   }
 

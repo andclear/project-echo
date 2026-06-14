@@ -693,15 +693,16 @@ Target JSON 格式：
       }
     }
 
-    // B. LTM 整合覆盖
+    // B. LTM 增量合并与覆盖
     if (diff.ltm !== null && typeof diff.ltm === 'object') {
       const memory = MemoryReaderWriter.readMemory(memoryPath);
-      memory.ltm = diff.ltm;
+      // 🚀 增量合并，防止大模型遗漏造成大清洗
+      memory.ltm = { ...memory.ltm, ...diff.ltm };
       MemoryReaderWriter.writeMemory(memoryPath, memory.stm, memory.ltm);
-      console.log('[MemoryAgentService] commitPendingMemory: LTM 整合覆盖写盘成功。');
+      console.log('[MemoryAgentService] commitPendingMemory: LTM 增量合并写盘成功。');
     }
 
-    // C. USER.md Facts 整合覆盖（保留高精度相似度防微调去抖逻辑）
+    // C. USER.md Facts 增量合并与去重（保留高精度相似度防微调去抖逻辑）
     if (diff.char_user_facts !== null && Array.isArray(diff.char_user_facts)) {
       const currentCharFacts = UserProfileReaderWriter.readCharacterProfile(charUserPath);
       const cleanedFacts = diff.char_user_facts;
@@ -742,14 +743,34 @@ Target JSON 格式：
 
       const isSimilar = (f1: string, f2: string) => getSimilarity(f1, f2) >= 0.85;
 
-      const hasNewDryGoods = cleanedFacts.some(nf => !currentCharFacts.some(of => isSimilar(nf, of)));
-      const hasDeletedFacts = currentCharFacts.some(of => !cleanedFacts.some(nf => isSimilar(nf, of)));
+      // 🚀 高精度相似度增量合并与去重，保护历史积累
+      const mergedFacts = [...currentCharFacts];
+      for (const newFact of cleanedFacts) {
+        const existingIdx = mergedFacts.findIndex(of => isSimilar(newFact, of));
+        if (existingIdx !== -1) {
+          // 相似项更新，覆盖旧句段
+          mergedFacts[existingIdx] = newFact;
+        } else {
+          // 全新事实，追加写入
+          mergedFacts.push(newFact);
+        }
+      }
 
-      if (!hasNewDryGoods && !hasDeletedFacts) {
-        console.log('[MemoryAgentService] commitPendingMemory: 专属画像 Facts 仅微调，跳过写盘以保持前缀缓存。');
+      // 容量保护，限制在最多 15 条 facts，超出则保留最新的 15 条
+      let finalFacts = mergedFacts;
+      if (finalFacts.length > 15) {
+        finalFacts = finalFacts.slice(-15);
+      }
+
+      // 比对合并后与已有数据是否有实质变化以决定是否物理写盘
+      const isChanged = finalFacts.length !== currentCharFacts.length ||
+                        finalFacts.some((f, i) => f !== currentCharFacts[i]);
+
+      if (!isChanged) {
+        console.log('[MemoryAgentService] commitPendingMemory: 专属画像 Facts 增量合并后无变化，跳过写盘以保持前缀缓存。');
       } else {
-        UserProfileReaderWriter.writeCharacterProfile(charUserPath, cleanedFacts);
-        console.log('[MemoryAgentService] commitPendingMemory: 专属画像 USER.md Facts 更新落盘成功。');
+        UserProfileReaderWriter.writeCharacterProfile(charUserPath, finalFacts);
+        console.log('[MemoryAgentService] commitPendingMemory: 专属画像 USER.md Facts 增量合并物理更新落盘成功。');
       }
     }
 

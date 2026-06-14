@@ -9142,6 +9142,7 @@
                 ref="chatContainer"
                 class="w-full h-full overflow-y-auto px-5 py-4 flex flex-col space-y-3 select-text"
                 @scroll.passive="handleChatScroll"
+                @click="activeInnerThoughtMsgId = null"
               >
                 <!-- 初始空白（不显示开场白） -->
                 <div
@@ -9683,6 +9684,39 @@
                           <AlertTriangleIcon class="w-3.5 h-3.5" />
                         </div>
                         <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+
+                        <!-- 玻璃拟态角色心声悬浮窗 -->
+                        <transition
+                          enter-active-class="transition duration-200 ease-out"
+                          enter-from-class="opacity-0 translate-y-2 scale-95"
+                          enter-to-class="opacity-100 translate-y-0 scale-100"
+                          leave-active-class="transition duration-150 ease-in"
+                          leave-from-class="opacity-100 translate-y-0 scale-100"
+                          leave-to-class="opacity-0 translate-y-2 scale-95"
+                        >
+                          <div
+                            v-if="currentChatMode === 'dialogue' && msg.inner_thought && activeInnerThoughtMsgId === msg.id"
+                            class="absolute z-10 bottom-full left-0 mb-2 w-64 p-3 rounded-xl border border-[#ffb6c1]/20 dark:border-[#ffb6c1]/10 bg-white/80 dark:bg-[#1f1619]/80 backdrop-blur-md shadow-lg text-[11px] leading-relaxed text-pink-700 dark:text-pink-300 font-medium select-text"
+                          >
+                            <div class="flex items-center space-x-1 text-[10px] text-pink-500 dark:text-pink-400 mb-1 font-bold select-none">
+                              <ScanHeartIcon class="w-3.5 h-3.5 animate-pulse" />
+                              <span>角色心声</span>
+                            </div>
+                            <p class="italic">“{{ msg.inner_thought }}”</p>
+                            <!-- 装饰用小三角 -->
+                            <div class="absolute top-full left-4 -mt-1 border-4 border-transparent border-t-white/80 dark:border-t-[#1f1619]/80"></div>
+                          </div>
+                        </transition>
+
+                        <!-- 微型 ScanHeartIcon 图标 (绝对定位到气泡右侧外，规避 flex 父级 max-w-[68%] 对宽度的限制与挤压，在移动端依然顺畅悬浮展示) -->
+                        <button
+                          v-if="currentChatMode === 'dialogue' && msg.inner_thought"
+                          class="absolute -right-6 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center text-on-surface-variant/40 hover:text-pink-500 hover:bg-pink-500/10 active:scale-95 transition-all select-none"
+                          title="查看角色心声"
+                          @click.stop="toggleInnerThought(msg.id)"
+                        >
+                          <ScanHeartIcon class="w-3.5 h-3.5" />
+                        </button>
                       </div>
 
                       <!-- Token 统计小字指标 -->
@@ -15400,6 +15434,7 @@ import {
   Trash2 as Trash2Icon,
   Minus as MinusIcon,
   Type as TypeIcon,
+  ScanHeart as ScanHeartIcon,
 } from 'lucide-vue-next';
 
 import CharacterPreviewModal from './components/CharacterPreviewModal.vue';
@@ -16100,6 +16135,15 @@ const showAddCharacterMenu = ref(false);
 const showTopMoreMenu = ref(false);
 const showMobilePlusMenu = ref(false);
 const textareaHeight = ref('40px');
+
+const activeInnerThoughtMsgId = ref<string | null>(null);
+function toggleInnerThought(msgId: string) {
+  if (activeInnerThoughtMsgId.value === msgId) {
+    activeInnerThoughtMsgId.value = null;
+  } else {
+    activeInnerThoughtMsgId.value = msgId;
+  }
+}
 
 function adjustTextareaHeight(event?: Event) {
   let elements: HTMLTextAreaElement[] = [];
@@ -20414,6 +20458,7 @@ async function setChatMode(mode: 'dialogue' | 'descriptive' | 'director') {
 
 // ===================== 选中角色 =====================
 async function selectCharacter(charId: string) {
+  activeInnerThoughtMsgId.value = null;
   const oldCharId = selectedCharacterId.value;
   if (oldCharId && pendingCleanedContentMap[oldCharId]) {
     const msgs = allMessages[oldCharId] || [];
@@ -21343,6 +21388,7 @@ async function onReSummarize(userInstruction: string) {
 
 // ===================== 发送消息 =====================
 async function sendChatMessage() {
+  activeInnerThoughtMsgId.value = null;
   const char = activeCharacter.value || activeGroupChat.value;
   // 安全拦截：当 AI 正在回复当前角色（streamingCharsSet 中）或者输入与图片均为空时，拦截不予发送
   if (!char || streamingCharsSet.has(char.id) || (!chatInputText.value.trim() && !pastedImageBase64.value)) return;
@@ -21636,6 +21682,8 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
               res.completion_tokens,
               res.cached_tokens,
               webMsgId,
+              undefined,
+              res.inner_thought,
             );
           }
         }, 4000);
@@ -21671,6 +21719,8 @@ async function triggerMergedAiResponse(char: any, overrideText?: string, isRegen
             res.completion_tokens,
             res.cached_tokens,
             msgId,
+            undefined,
+            res.inner_thought,
           );
         }
       }, 3000);
@@ -21724,6 +21774,7 @@ async function handleAssistantResponse(
   cachedTokens?: number,
   messageId?: string,
   senderId?: string, // 🚀 新增可选参数：指示真正的发言人角色 ID（用于群聊）
+  innerThought?: string | null, // 💡 新增参数：角色心声潜台词
 ) {
   const sessionId = char.id;
   const actualSenderId = senderId || char.id;
@@ -21966,6 +22017,7 @@ async function handleAssistantResponse(
           prompt_tokens: isLast ? promptTokens : undefined,
           completion_tokens: isLast ? completionTokens : undefined,
           cached_tokens: isLast ? cachedTokens : undefined,
+          inner_thought: isLast ? innerThought : null, // 💡 只有最后一句绑定心声
         });
         insertAt = safeInsertAt + 1; // 下一句插入到本句之后
         nextTick(() => scrollToBottom());
@@ -22604,6 +22656,8 @@ async function sendCustomEmoji(emoji: { base64: string; meaning: string }) {
             res.completion_tokens,
             res.cached_tokens,
             safetyMsgId,
+            undefined,
+            res.inner_thought,
           );
         }
       }, safetyDelay);
@@ -26097,6 +26151,7 @@ onMounted(async () => {
                   msg.cached_tokens,
                   msg.id,
                   senderId,
+                  msg.inner_thought,
                 );
               } catch (err) {
                 console.error(`[playbackChain] handleAssistantResponse 异常 (charId=${charId}):`, err);
@@ -26161,6 +26216,8 @@ onMounted(async () => {
                   msg.completion_tokens,
                   msg.cached_tokens,
                   msg.id,
+                  undefined,
+                  msg.inner_thought,
                 );
               }
             }
@@ -27189,6 +27246,7 @@ async function ctxRegenerateMessage() {
     '重新回复消息',
     `您确定要删除此条旧回复，并要求 [${char.name}] 重新回复吗？\n\n注意：如果角色有连续多段气泡，它们将被同时统一抹去并由 AI 重新接管渲染。`,
     async () => {
+      activeInnerThoughtMsgId.value = null;
       const res = await window.api.invoke('regenerate-reply', { characterId: char.id });
       if (res.success) {
         // 1. 前端物理擦除 Messages 里的旧助理回复气泡

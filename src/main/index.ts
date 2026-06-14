@@ -109,6 +109,49 @@ function stripThinkingTags(content: string): string {
     .trim()
 }
 
+/**
+ * 从 AI 响应文本中提取弹性心声并将其与正文剥离。
+ * 支持弹性心声，包含闭合括号优先匹配、无闭合括号的物理换行自愈分离、以及不兜底暴露格式。
+ * @param text 大模型输出
+ * @returns { innerThought: string | null, cleanText: string }
+ */
+export function extractInnerThought(text: string): { innerThought: string | null; cleanText: string } {
+  if (!text) return { innerThought: null, cleanText: text }
+
+  // 1. 第一级：完全闭合匹配（支持 [ ]、< >、( )、{ }、［ ］、【 】、｛ ｝等）
+  // 匹配关键字支持 INNER_THOUGHT, 内心潜台词, 内心独白, 心声，防止大模型受上下文诱导吐出中文
+  const closedReg = /^\s*[\[<（【(｛［]?\s*(?:INNER_THOUGHT|内心潜台词|内心独白|心声)\s*[:：]\s*([^\]>）】)}］\n]+?)[\]>）】)}］]/i
+  const closedMatch = text.match(closedReg)
+  if (closedMatch) {
+    const innerThought = closedMatch[1].trim()
+    let cleanText = text.substring(closedMatch[0].length)
+    if (cleanText.startsWith('\n')) {
+      cleanText = cleanText.substring(1)
+    } else if (cleanText.startsWith('\r\n')) {
+      cleanText = cleanText.substring(2)
+    }
+    return { innerThought, cleanText }
+  }
+
+  // 2. 第二级：缺少右括号的换行分离自愈
+  const openPrefixReg = /^\s*[\[<（【(｛［]?\s*(?:INNER_THOUGHT|内心潜台词|内心独白|心声)\s*[:：]/i
+  if (openPrefixReg.test(text)) {
+    const lines = text.split(/\r?\n/)
+    if (lines.length > 1) {
+      const firstLine = lines[0]
+      const prefixMatch = firstLine.match(openPrefixReg)
+      if (prefixMatch) {
+        const innerThought = firstLine.substring(prefixMatch[0].length).trim()
+        const cleanText = lines.slice(1).join('\n')
+        return { innerThought, cleanText }
+      }
+    }
+  }
+
+  // 3. 第三级：不做自动修补，返回 null 暴露格式现场给用户以触发重新生成
+  return { innerThought: null, cleanText: text }
+}
+
 // 级联反向流式拼合器：将数据库中连续的、时间相近的角色分段气泡，融合成单条高密度大消息
 export function mergeChatHistory(history: any[]): any[] {
   if (!history || history.length === 0) return []
@@ -132,6 +175,10 @@ export function mergeChatHistory(history: any[]): any[] {
       currentMsg.timestamp = msg.timestamp // 保持最新时间戳
       if (msg.token_usage) {
         currentMsg.token_usage = (currentMsg.token_usage || 0) + msg.token_usage
+      }
+      // 💡 级联保留心声属性：确保合并后的消息不丢失最后一包的心声内容
+      if (msg.inner_thought) {
+        currentMsg.inner_thought = msg.inner_thought
       }
     } else {
       merged.push(currentMsg)
@@ -5139,7 +5186,18 @@ ${memoryContent}
       }
       if (timeGapWarning) systemAnnotations += timeGapWarning + '\n\n'
 
-      finalUserContent = systemAnnotations + `${messagePrefix}\n` + userMessageFinal
+      let innerThoughtPrompt = ''
+      if (chatMode === 'dialogue') {
+        innerThoughtPrompt = `\n\n【💭 角色内心活动心声输出指令】
+请你必须在回复中同时思考自己嘴上说的话与内心真正的潜台词。
+1. 输出规则：如果你内心的真实心理活动、潜台词、未说出口的小情绪（如害羞、傲娇掩饰、腹黑盘算、内心吐槽或期盼）和嘴上说的话表里不一或有戏剧张力，请务必将该【内心潜台词心声】使用控制符 \`[INNER_THOUGHT: 心声内容]\` 输出（字数限 30 字以内，字句要生动传神）。
+2. 避免偷懒与废话：请绝对避免无意义的废话心声（例如，当嘴上说“下午两点”，内心如果仅是“告诉他是两点”或者没有实质心理活动，请省略该控制符，不要注水）；但只要角色有任何微妙的情绪波动、隐秘心意、或希望推动后续剧情的潜在动机，你必须输出心声，绝不能偷懒省略。
+3. 格式规范与强力换行：控制符必须写在整句回复的最开头，并且【必须在心声结束后强制换行】，真实回复的正文在下一行开始。例如：
+[INNER_THOUGHT: 哼，除非你求我，我才勉强答应你]
+我才不跟你玩呢。`
+      }
+
+      finalUserContent = systemAnnotations + `${messagePrefix}\n` + userMessageFinal + innerThoughtPrompt
 
       messages = [
         { role: 'system', content: systemPrompt },
@@ -5152,9 +5210,23 @@ ${memoryContent}
             const timePrefix = (m.role === 'user' && timeStr) ? `[发送时间: ${timeStr}]\n` : ''
             const timeGapPrefix = m.timeGapTag || ''
             
+            let formattedContent = formatMessageContentForLLM(m.content, m.role)
+            if (m.role === 'assistant') {
+              // 💡 优先通过 extractInnerThought 洗去可能残留在 content 内的控制符
+              const extraction = extractInnerThought(m.content)
+              const cleanText = extraction.cleanText
+              // 统一前置拼装为 [INNER_THOUGHT: ] 以使大模型学到规范格式，推动剧情且不污染正常正文
+              const finalInnerThought = m.inner_thought || extraction.innerThought
+              if (finalInnerThought) {
+                formattedContent = `[INNER_THOUGHT: ${finalInnerThought}]\n${formatMessageContentForLLM(cleanText, m.role)}`
+              } else {
+                formattedContent = formatMessageContentForLLM(cleanText, m.role)
+              }
+            }
+            
             return {
               role: m.role as any,
-              content: `${timePrefix}${timeGapPrefix}${formatMessageContentForLLM(m.content, m.role)}`
+              content: `${timePrefix}${timeGapPrefix}${formattedContent}`
             }
           })
       ]
@@ -5575,6 +5647,14 @@ ${memoryContent}
       }
     }
 
+    // 💡 物理剥离大模型在首部弹性吐出的角色心声
+    let innerThought: string | null = null
+    if (chatMode === 'dialogue') {
+      const extraction = extractInnerThought(finalResponse)
+      innerThought = extraction.innerThought
+      finalResponse = extraction.cleanText
+    }
+
     finalResponse = finalResponse
       .replace(/`?\s*\[?RECEIVE_RED_PACKET\]?\s*`?/gi, '')
       .replace(/`?\s*\[?RETURN_RED_PACKET\]?\s*`?/gi, '')
@@ -5688,7 +5768,8 @@ ${memoryContent}
             prompt_tokens: isLast ? finalPromptTokens : undefined,
             completion_tokens: isLast ? finalCompletionTokens : undefined,
             cached_tokens: isLast ? finalCachedTokens : undefined,
-            redPacketAction: isLast ? redPacketAction : undefined
+            redPacketAction: isLast ? redPacketAction : undefined,
+            inner_thought: isLastText ? (innerThought || null) : null // 💡 只有最后一包文字消息绑定心声
           })
           finalMsgTimestamp = pTimestamp
         })
@@ -5712,7 +5793,8 @@ ${memoryContent}
           prompt_tokens: isLast ? finalPromptTokens : undefined,
           completion_tokens: isLast ? finalCompletionTokens : undefined,
           cached_tokens: isLast ? finalCachedTokens : undefined,
-          redPacketAction: isLast ? redPacketAction : undefined
+          redPacketAction: isLast ? redPacketAction : undefined,
+          inner_thought: null // 💡 包含描写模式下不启用心声
         })
       }
     }
@@ -5736,7 +5818,8 @@ ${memoryContent}
         prompt_tokens: finalPromptTokens,
         completion_tokens: finalCompletionTokens,
         cached_tokens: finalCachedTokens,
-        redPacketAction: 'send'
+        redPacketAction: 'send',
+        inner_thought: null // 💡 红包消息不带心声
       })
     }
 
@@ -5759,7 +5842,8 @@ ${memoryContent}
         prompt_tokens: finalPromptTokens,
         completion_tokens: finalCompletionTokens,
         cached_tokens: finalCachedTokens,
-        customEmojiSend
+        customEmojiSend,
+        inner_thought: null // 💡 表情包消息不带心声
       })
     }
 
@@ -5840,7 +5924,8 @@ ${memoryContent}
       redPacketSend: redPacketSend ? JSON.parse(JSON.stringify(redPacketSend)) : null,
       prompt_tokens: finalPromptTokens,
       completion_tokens: finalCompletionTokens,
-      cached_tokens: finalCachedTokens
+      cached_tokens: finalCachedTokens,
+      inner_thought: innerThought // 💡 携带心声内容
     }
   }); ipcMain.handle('trigger-life-reflection', async () => {
     try {

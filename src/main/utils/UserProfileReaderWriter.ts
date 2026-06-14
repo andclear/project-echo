@@ -318,11 +318,42 @@ export class UserProfileReaderWriter {
     try {
       this.ensureFile(filePath, false);
       const content = fs.readFileSync(filePath, 'utf-8');
+      
+      // 1. 优先尝试解析 HTML 注释中的 JSON 块
       const match = content.match(/<!--([\s\S]*?)-->/);
       if (match && match[1]) {
-        const data = JSON.parse(match[1].trim()) as CharacterUserProfile;
-        return Array.isArray(data.character_specific_facts) ? data.character_specific_facts : [];
+        try {
+          const data = JSON.parse(match[1].trim()) as CharacterUserProfile;
+          if (data && Array.isArray(data.character_specific_facts)) {
+            return data.character_specific_facts;
+          }
+        } catch (je) {
+          console.warn(`[UserProfileReaderWriter] JSON 注释解析失败，将降级尝试 Markdown 解析:`, je);
+        }
       }
+
+      // 2. 物理降级防线：如果 JSON 解析失败或注释损坏，从底部的 Markdown 自然语言列表中正则匹配捕获并还原 Facts
+      const facts: string[] = [];
+      const lines = content.split('\n');
+      let startCapture = false;
+      for (const line of lines) {
+        const cleanLine = line.trim();
+        if (cleanLine.includes('## 专属画像事实 (Facts)') || cleanLine.includes('## 专属画像事实')) {
+          startCapture = true;
+          continue;
+        }
+        if (startCapture && cleanLine.startsWith('#')) {
+          // 到了下一个大标题，结束捕获
+          break;
+        }
+        if (startCapture && cleanLine.startsWith('-')) {
+          const fact = cleanLine.substring(1).trim();
+          if (fact && !fact.includes('暂无角色专属侧写事实') && !fact.includes('暂无')) {
+            facts.push(fact);
+          }
+        }
+      }
+      return facts;
     } catch (e) {
       console.error(`[UserProfileReaderWriter] 读取专属角色画像文件失败: ${filePath}`, e);
     }

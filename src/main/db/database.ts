@@ -67,7 +67,8 @@ export class DatabaseService {
         role TEXT NOT NULL,
         content TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
-        token_usage INTEGER DEFAULT 0
+        token_usage INTEGER DEFAULT 0,
+        inner_thought TEXT
       );
     `)
 
@@ -413,6 +414,18 @@ export class DatabaseService {
     // 自动修复遗留小说标题
     this.autoHealLegacyNovelsTitle()
 
+    // 🚀 物理自愈：确保 Messages 表中必然包含 inner_thought 字段，不受迁移版本限制
+    try {
+      const pragma = this.db.pragma("table_info(Messages)") as any[]
+      const hasCol = pragma.some((c: any) => c.name === 'inner_thought')
+      if (!hasCol) {
+        this.db.exec("ALTER TABLE Messages ADD COLUMN inner_thought TEXT DEFAULT NULL;")
+        console.log("[Database Auto-heal] 成功为 Messages 追加 inner_thought 字段！")
+      }
+    } catch (e: any) {
+      console.error("[Database Auto-heal] 检测 Messages.inner_thought 自愈异常:", e.message)
+    }
+
     console.log('[Database] 数据表结构初始化顺利完成！')
   }
 
@@ -726,6 +739,15 @@ export class DatabaseService {
           insertSetting.run('social_moment_min_interval_hours', '24')
           insertSetting.run('social_max_forum_per_week', '2')
           insertSetting.run('social_forum_min_interval_hours', '48')
+
+          // 物理补齐 inner_thought 字段，带 try-catch 保护
+          try {
+            const pragma = db.pragma("table_info(Messages)") as any[]
+            const hasCol = pragma.some((c: any) => c.name === 'inner_thought')
+            if (!hasCol) {
+              db.exec("ALTER TABLE Messages ADD COLUMN inner_thought TEXT DEFAULT NULL;")
+            }
+          } catch (_) {}
         }
       }
     ]
@@ -805,7 +827,7 @@ export class DatabaseService {
    * 保存聊天消息
    */
   /**
-   * 保存聊天消息（完整版，支持 v7 新增字段：round_id / seq / msg_type）
+   * 保存聊天消息（完整版，支持 v7 新增字段：round_id / seq / msg_type & 心声字段）
    */
   public saveMessage(msg: {
     id: string
@@ -822,6 +844,7 @@ export class DatabaseService {
     round_id?: string      // 轮次 ID（v7 新增）
     seq?: number           // 轮次内序号（v7 新增）
     msg_type?: string      // 消息类型（v7 新增）
+    inner_thought?: string | null // 角色心声（新增）
   }): void {
     let finalContent = msg.content
     if (finalContent && finalContent.startsWith('[wechat_custom_emoji]:')) {
@@ -839,8 +862,8 @@ export class DatabaseService {
       INSERT INTO Messages
         (id, character_id, role, content, timestamp, token_usage,
          prompt_tokens, completion_tokens, cached_tokens,
-         sender_id, is_proactive, round_id, seq, msg_type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         sender_id, is_proactive, round_id, seq, msg_type, inner_thought)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     stmt.run(
       msg.id,
@@ -856,7 +879,8 @@ export class DatabaseService {
       msg.is_proactive !== undefined ? msg.is_proactive : 0,
       msg.round_id !== undefined ? msg.round_id : null,
       msg.seq !== undefined ? msg.seq : 0,
-      msg.msg_type !== undefined ? msg.msg_type : 'text'
+      msg.msg_type !== undefined ? msg.msg_type : 'text',
+      msg.inner_thought !== undefined ? msg.inner_thought : null
     )
 
     // 触发所有已注册的消息保存监听器
