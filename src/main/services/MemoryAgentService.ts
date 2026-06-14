@@ -177,7 +177,7 @@ Target JSON 格式：
               const cleaned = stmFact.trim();
               if (cleaned) {
                 MemoryReaderWriter.pushSTM(memoryPath, cleaned);
-                console.log(`[MemoryAgentService] 群聊 物理短期记忆追加 STM: ${cleaned}`);
+                console.log(`[MemoryAgentService] 群聊 物理短期记忆追加 STM，字符数: ${cleaned ? cleaned.length : 0}`);
               }
             }
           }
@@ -688,7 +688,7 @@ Target JSON 格式：
       for (const stmFact of diff.stm_updates) {
         if (stmFact) {
           MemoryReaderWriter.pushSTM(memoryPath, stmFact);
-          console.log(`[MemoryAgentService] commitPendingMemory: 追加 STM: ${stmFact}`);
+          console.log(`[MemoryAgentService] commitPendingMemory: 追加 STM，字符数: ${stmFact ? stmFact.length : 0}`);
         }
       }
     }

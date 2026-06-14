@@ -590,7 +590,7 @@ Constraints:
                 { role: 'user', content: '请将上述朋友圈文案重写为自然的纯文字版本。' }
               ], { useSecondary: true, skipSystemInjection: true });
               finalContent = rewriteResponse.content.trim().replace(/^["']|["']$/g, '');
-              console.log(`[SocialMediaService] 朋友圈去图化重写成功。原：「${textContent}」-> 新：「${finalContent}」`);
+              console.log(`[SocialMediaService] 朋友圈去图化重写成功。原字数: ${textContent ? textContent.length : 0} -> 新字数: ${finalContent ? finalContent.length : 0}`);
             } catch (rewriteErr: any) {
               console.error('[SocialMediaService] 朋友圈去图化重写失败，保持原文字:', rewriteErr);
               finalContent = textContent;
@@ -1028,7 +1028,7 @@ Constraints:
                 { role: 'user', content: '请将上述论坛帖子正文重写为自然的纯文字版本。' }
               ], { useSecondary: true, skipSystemInjection: true });
               finalBody = rewriteResponse.content.trim().replace(/^["']|["']$/g, '');
-              console.log(`[SocialMediaService] 论坛帖子去图化重写成功。原：「${textBody}」-> 新：「${finalBody}」`);
+              console.log(`[SocialMediaService] 论坛帖子去图化重写成功。原字数: ${textBody ? textBody.length : 0} -> 新字数: ${finalBody ? finalBody.length : 0}`);
             } catch (rewriteErr: any) {
               console.error('[SocialMediaService] 论坛帖子去图化重写失败，保持原文字:', rewriteErr);
               finalBody = textBody;

@@ -773,7 +773,7 @@ export class AgentLifeEngine {
         characterName: char.name
       });
       const rawContent = response.content.trim();
-      console.log(`[AgentLifeEngine] 角色 ${char.name} 搭讪模型原始输出:`, rawContent);
+      console.log(`[AgentLifeEngine] 角色 ${char.name} 搭讪模型已成功生成，内容长度: ${rawContent ? rawContent.length : 0}`);
 
       // 增强型静默判断逻辑，全面兼容大小写、拼写错误 [SLIENT]、带引号或括号的各种静默标记
       const isSilentMsg = (text: string): boolean => {

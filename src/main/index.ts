@@ -2372,7 +2372,7 @@ ${soulContent}
             { role: 'user', content: prompt }
           ])
 
-          console.log('[evaluateInitialIntimacy] 大模型亲密度评估原始响应:', response)
+          console.log('[evaluateInitialIntimacy] 大模型亲密度评估完成，响应字符数:', response?.content?.length || 0)
 
           const match = response.content.match(/\{[\s\S]*?\}/)
           let score = 20 // 兜底
@@ -3710,7 +3710,7 @@ ${soulContent}
     // ===================== 群聊模式专属级联调度与流式生成引擎 =====================
     if (isGroup) {
       const groupId = characterId // 群聊时 characterId 传入的是 groupId
-      console.log(`[Group Chat] ➜ 收到群聊流式请求. 会话群组: ${groupId}, 发送消息: "${userMessage}"`)
+      console.log(`[Group Chat] ➜ 收到群聊流式请求. 会话群组: ${groupId}, 发送消息长度: ${userMessage ? userMessage.length : 0}`)
 
       const db = getDatabaseService()
 
@@ -4308,7 +4308,7 @@ ${soulContent}
       return { success: true }
     }
 
-    console.log(`[IPC] ➜ 收到流式聊天请求. 角色: ${characterId}, 消息: "${userMessage}"`)
+    console.log(`[IPC] ➜ 收到流式聊天请求. 角色: ${characterId}, 消息长度: ${userMessage ? userMessage.length : 0}`)
 
     // ===================== $admin 调试命令拦截器 =====================
     // $admin 命令：不存 DB、不入上下文、不推气泡，仅通过 isSystem chat-chunk 推送文字提示
