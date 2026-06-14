@@ -3689,7 +3689,8 @@ ${soulContent}
     isRegenerate?: boolean // 🚀 是否是重新回复触发
     roundId?: string
   }) => {
-    const { characterId, folderName, userMessage } = payload
+    try {
+      const { characterId, folderName, userMessage } = payload
     const isGroup = !!payload.isGroup
 
     // 异步拉取当前所在地天气数据，并加入2秒超时保护
@@ -5928,7 +5929,25 @@ ${memoryContent}
       cached_tokens: finalCachedTokens,
       inner_thought: innerThought // 💡 携带心声内容
     }
-  }); ipcMain.handle('trigger-life-reflection', async () => {
+  } catch (err: any) {
+    console.error('[IPC chat-stream] 核心链路发生异常:', err)
+    const errorMsg = `⚠️ 角色响应失败：${err.message || err}`
+    const chunkPayload = {
+      characterId: payload.characterId,
+      content: errorMsg,
+      done: true,
+      isSystem: true
+    }
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('chat-chunk', chunkPayload)
+    }
+    SseManager.getInstance().broadcast('chat-chunk', chunkPayload)
+    try {
+      event.sender.send('chat-chunk', chunkPayload)
+    } catch (_) { }
+    return { success: false, error: err.message || err }
+  }
+}); ipcMain.handle('trigger-life-reflection', async () => {
     try {
       console.log('[IPC] 收到手动常驻生命自省 Tick 触发请求')
       const lifeEngine = new AgentLifeEngine()
@@ -7140,6 +7159,16 @@ ${memoryContent}
       const db = getDatabaseService()
       const meta = db.getConversationMeta(payload.characterId)
       return { success: true, meta }
+    } catch (e: any) {
+      return { success: false, error: e.message || e }
+    }
+  })
+
+  // 16.5 设置当前前台活跃会话角色/群聊 ID
+  ipcMain.handle('set-active-conversation', async (_, payload: { characterId: string | null; clientId?: string }) => {
+    try {
+      MessageBusService.getInstance().setActiveCharacterId(payload.clientId || 'electron', payload.characterId)
+      return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message || e }
     }
@@ -9172,9 +9201,14 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
   if (req.method === 'GET' && req.url && req.url.startsWith('/api/events')) {
     // 解析客户端最后收到的 sseSeq（断线重连时浏览器自动携带，或作为 URL query 参数传入以兼容移动端主动重连）
     let lastReceivedSeq = -1
+    let clientId = ''
     try {
       const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
       const queryLastId = parsedUrl.searchParams.get('lastEventId')
+      const queryClientId = parsedUrl.searchParams.get('clientId')
+      if (queryClientId) {
+        clientId = queryClientId
+      }
       const headerLastId = req.headers['last-event-id']
       const rawLastId = headerLastId || queryLastId
       if (rawLastId) lastReceivedSeq = parseInt(rawLastId as string, 10)
@@ -9186,6 +9220,9 @@ function handleIpcBridgeRequest(req: http.IncomingMessage, res: http.ServerRespo
 
     req.on('close', () => {
       sseManager.removeClient(res)
+      if (clientId) {
+        MessageBusService.getInstance().clearActiveCharacterId(clientId)
+      }
     })
     return true
   }

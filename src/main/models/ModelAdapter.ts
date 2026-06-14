@@ -91,7 +91,13 @@ export function mergeSystemMessage(messages: ChatMessage[]): ChatMessage[] {
 export class OpenAIProvider implements IModelProvider {
   public async chat(config: ModelConfig, messages: ChatMessage[]): Promise<ChatResponse> {
     const finalMessages = config.supportsSystem === false ? mergeSystemMessage(messages) : messages
-    const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`
+    
+    // 智能修正 Base URL：移除可能误多拼的 /chat/completions
+    let cleanBaseUrl = config.baseUrl.replace(/\/$/, '')
+    if (cleanBaseUrl.endsWith('/chat/completions')) {
+      cleanBaseUrl = cleanBaseUrl.slice(0, -'/chat/completions'.length).replace(/\/$/, '')
+    }
+    const url = `${cleanBaseUrl}/chat/completions`
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -134,7 +140,13 @@ export class OpenAIProvider implements IModelProvider {
     messages: ChatMessage[]
   ): AsyncGenerator<ChatChunk, void, unknown> {
     const finalMessages = config.supportsSystem === false ? mergeSystemMessage(messages) : messages
-    const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`
+    
+    // 智能修正 Base URL：移除可能误多拼的 /chat/completions
+    let cleanBaseUrl = config.baseUrl.replace(/\/$/, '')
+    if (cleanBaseUrl.endsWith('/chat/completions')) {
+      cleanBaseUrl = cleanBaseUrl.slice(0, -'/chat/completions'.length).replace(/\/$/, '')
+    }
+    const url = `${cleanBaseUrl}/chat/completions`
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -163,12 +175,23 @@ export class OpenAIProvider implements IModelProvider {
       controller.abort()
     }, 60 * 1000)
 
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
       signal: controller.signal
     })
+
+    if (!response.ok && (response.status === 400 || response.status === 422) && payload.stream_options) {
+      console.warn(`[OpenAI API] 携带 stream_options 请求失败 (${response.status})，正在自动尝试退回不带 stream_options 的重试...`)
+      delete payload.stream_options
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      })
+    }
 
     if (!response.ok) {
       clearTimeout(timeoutId)

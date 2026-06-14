@@ -15507,7 +15507,7 @@ if (typeof window !== 'undefined' && !(window as any).api) {
   // 在局域网手机端初始化 SSE 双向主动推送连接
   try {
     const lastId = localStorage.getItem('last_sse_event_id') || '-1';
-    const eventSource = new EventSource(`${baseUrl}/api/events?lastEventId=${lastId}`);
+    const eventSource = new EventSource(`${baseUrl}/api/events?lastEventId=${lastId}&clientId=${myClientId.value}`);
 
     // SseManager 发送带 event: 类型的 SSE 帧（`event: echo:message`），
     // 必须用 addEventListener 才能接收，onmessage 只接收无类型的默认帧
@@ -20027,13 +20027,30 @@ const isChattingActive = computed(() => {
   );
 });
 
-// 监听是否处于当前活跃角色的正常聊天页，一旦切回，即时清零未读数并落盘
+// 前端唯一客户端 ID（区分 Electron 原生端与局域网多 Web 终端）
+const myClientId = ref('electron');
+if (!window.electron) {
+  myClientId.value = 'web_' + Math.random().toString(36).substring(2, 11);
+}
+
+// 计算当前正处于活跃查看状态的聊天会话 ID
+const currentActiveChattingId = computed(() => {
+  return isChattingActive.value ? selectedCharacterId.value : null;
+});
+
+// 监听活跃聊天会话 ID，并即时向主进程进行源头同步（携带自身唯一的 clientId）
+watch(currentActiveChattingId, (newId) => {
+  if (window.api && window.api.invoke) {
+    window.api.invoke('set-active-conversation', { characterId: newId, clientId: myClientId.value });
+  }
+}, { immediate: true });
+
+// 监听是否处于当前活跃角色的正常聊天页，一旦切回，即时清零本地未读数，不再进行反向写盘
 watch(isChattingActive, newActive => {
   if (newActive && selectedCharacterId.value) {
     const charId = selectedCharacterId.value;
     if (conversationMeta[charId] && conversationMeta[charId].unread && conversationMeta[charId].unread > 0) {
       conversationMeta[charId].unread = 0;
-      window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] });
     }
   }
 });
@@ -20582,10 +20599,9 @@ async function selectCharacter(charId: string) {
     conversationMeta[charId].hidden = false;
   }
 
-  // 清零未读并物理落盘同步
+  // 清零未读，无需重复反向写盘
   if (conversationMeta[charId]) {
     conversationMeta[charId].unread = 0;
-    window.api.invoke('save-conversation-meta', { characterId: charId, ...conversationMeta[charId] });
   }
 
   // 重置输入状态
@@ -25097,7 +25113,7 @@ onMounted(async () => {
       if (!conversationMeta[characterId]) {
         conversationMeta[characterId] = { pinned: false, unread: 0, muted: false, hidden: false };
       }
-      // 如果用户正在查看该会话，维持未读=0，不展示红点（服务端的计数不反映当前用户实际已读状态）
+      // 如果用户正在查看该会话，维持未读=0，不展示红点
       if (selectedCharacterId.value === characterId && isChattingActive.value) {
         conversationMeta[characterId].unread = 0;
       } else {
@@ -25761,18 +25777,7 @@ onMounted(async () => {
       // 竞态自愈正反馈逻辑：同步已读未读状态
       if (unread !== undefined) {
         if (selectedCharacterId.value === characterId && isChattingActive.value) {
-          if (unread > 0) {
-            // 当前终端处于该角色的活跃聊天页面中，但收到了不为 0 的未读数广播，说明有其他终端因为新消息自增了未读并写库
-            // 此时我们将本地未读强行重设为 0，并立刻主动上报修正存库，触发二次广播以消灭其他端的红点 badge
-            conversationMeta[characterId].unread = 0;
-            window.api.invoke('save-conversation-meta', {
-              characterId: characterId,
-              ...conversationMeta[characterId],
-              unread: 0,
-            });
-          } else {
-            conversationMeta[characterId].unread = 0;
-          }
+          conversationMeta[characterId].unread = 0;
         } else {
           // 非活跃页面，直接同步接收到的未读数
           conversationMeta[characterId].unread = unread;

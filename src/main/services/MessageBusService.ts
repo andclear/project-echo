@@ -121,6 +121,9 @@ export class MessageBusService {
    */
   private dispatchQueue: Promise<void> = Promise.resolve()
 
+  /** 各终端客户端对应的活跃聊天会话状态 Map（clientId -> characterId） */
+  private activeConversations = new Map<string, string | null>()
+
   private constructor() {}
 
   /**
@@ -138,6 +141,35 @@ export class MessageBusService {
    */
   bindMainWindow(getWindow: () => BrowserWindow | null): void {
     this.getMainWindow = getWindow
+  }
+
+  /**
+   * 设置指定客户端当前前台活跃的聊天会话 ID
+   */
+  setActiveCharacterId(clientId: string, characterId: string | null): void {
+    this.activeConversations.set(clientId, characterId)
+    if (characterId) {
+      this.clearUnread(characterId)
+    }
+  }
+
+  /**
+   * 移除指定客户端的活跃状态（如客户端连接断开）
+   */
+  clearActiveCharacterId(clientId: string): void {
+    this.activeConversations.delete(clientId)
+  }
+
+  /**
+   * 判断某个会话角色/群聊当前在任何终端是否处于活跃聊天中
+   */
+  isConversationActive(characterId: string): boolean {
+    for (const activeId of this.activeConversations.values()) {
+      if (activeId === characterId) {
+        return true
+      }
+    }
+    return false
   }
 
   // ──────────────────────────────────────────────
@@ -161,7 +193,11 @@ export class MessageBusService {
 
     // 2. 更新会话元数据（未读计数 + 最近消息时间戳）
     if (!options.skipUnreadUpdate && msg.role !== 'user') {
-      this.updateConversationMeta(msg.character_id, msg.timestamp)
+      if (this.isConversationActive(msg.character_id)) {
+        this.updateConversationMetaToZero(msg.character_id, msg.timestamp)
+      } else {
+        this.updateConversationMeta(msg.character_id, msg.timestamp)
+      }
     } else if (msg.role === 'user') {
       // 用户消息也更新 last_msg_ts，但不增加 unread
       this.updateLastMsgTs(msg.character_id, msg.timestamp)
@@ -212,7 +248,11 @@ export class MessageBusService {
     const lastTs = Math.max(...msgs.map(m => m.timestamp))
     const hasAssistantMsg = msgs.some(m => m.role !== 'user')
     if (!options.skipUnreadUpdate && hasAssistantMsg) {
-      this.updateConversationMeta(msgs[0].character_id, lastTs)
+      if (this.isConversationActive(msgs[0].character_id)) {
+        this.updateConversationMetaToZero(msgs[0].character_id, lastTs)
+      } else {
+        this.updateConversationMeta(msgs[0].character_id, lastTs)
+      }
     } else {
       this.updateLastMsgTs(msgs[0].character_id, lastTs)
     }
@@ -357,6 +397,19 @@ export class MessageBusService {
     // 推送未读数更新给所有端
     this.sendToElectron('echo:unread-update', { characterId, unread: newUnread })
     SseManager.getInstance().broadcast('echo:unread-update', { characterId, unread: newUnread })
+  }
+
+  /**
+   * 将会话未读数强制写盘重置为 0，并更新 last_msg_ts
+   */
+  private updateConversationMetaToZero(characterId: string, timestamp: number): void {
+    const db = getDatabaseService()
+    db.setConversationMetaField(characterId, 'unread', 0)
+    db.setConversationMetaField(characterId, 'last_msg_ts', timestamp)
+
+    // 推送未读清零事件给所有端
+    this.sendToElectron('echo:unread-update', { characterId, unread: 0 })
+    SseManager.getInstance().broadcast('echo:unread-update', { characterId, unread: 0 })
   }
 
   /**
