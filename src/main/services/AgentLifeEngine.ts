@@ -95,6 +95,67 @@ export class AgentLifeEngine {
         setTimeout(async () => {
           try {
             const charId = char.id;
+
+            // ------------------ 钱包定期发薪增资逻辑 ------------------
+            try {
+              const storageManager = new CharacterStorageManager();
+              const statePath = path.join(storageManager.getBaseDir(), char.folder_name, 'State.md');
+              if (fs.existsSync(statePath)) {
+                const { StateReaderWriter } = require('../utils/StateReaderWriter');
+                const state = StateReaderWriter.readState(statePath);
+                
+                const sbItem = state.items.find((i: any) => i.key === 'salary_base');
+                const spItem = state.items.find((i: any) => i.key === 'salary_period');
+                
+                const salaryBase = sbItem ? Number(sbItem.value) : 0;
+                const salaryPeriod = spItem ? String(spItem.value).trim().toLowerCase() : 'none';
+                
+                if (salaryBase > 0 && ['daily', 'weekly', 'monthly'].includes(salaryPeriod)) {
+                  const settingKey = `last_salary_settlement_time_${charId}`;
+                  const lastTimeStr = db.getSetting(settingKey);
+                  const now = Date.now();
+                  
+                  if (!lastTimeStr) {
+                    db.setSetting(settingKey, now.toString());
+                  } else {
+                    const lastTime = parseInt(lastTimeStr, 10);
+                    if (!isNaN(lastTime) && now > lastTime) {
+                      const periods = this.calculatePeriodsPassed(salaryPeriod, lastTime, now);
+                      if (periods > 0) {
+                        const totalAdd = salaryBase * periods;
+                        const balanceItem = state.items.find((i: any) => i.key === 'balance');
+                        const oldBalance = balanceItem ? Number(balanceItem.value) || 0 : 0;
+                        const newBalance = Math.round((oldBalance + totalAdd) * 100) / 100;
+                        
+                        StateReaderWriter.applyStateUpdates(statePath, [
+                          { key: 'balance', value: newBalance }
+                        ]);
+                        
+                        db.setSetting(settingKey, now.toString());
+                        console.log(`[AgentLifeEngine] 角色 ${char.name} 钱包定期发薪：周期=${salaryPeriod}, 单次基数=${salaryBase}, 经历周期数=${periods}, 共发放=${totalAdd}元。新余额=${newBalance}元。`);
+                        
+                        // 广播状态更新
+                        const stateBroadcast = { characterId: char.folder_name, updates: [] };
+                        const allWindows = BrowserWindow.getAllWindows();
+                        for (const win of allWindows) {
+                          if (!win.webContents.isDestroyed()) {
+                            win.webContents.send('character-state-updated', stateBroadcast);
+                          }
+                        }
+                        try {
+                          const { SseManager } = require('./SseManager');
+                          SseManager.getInstance().broadcast('character-state-updated', stateBroadcast);
+                        } catch (_) {}
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (salaryErr) {
+              console.error(`[AgentLifeEngine] 角色 ${char.name} 定期发薪逻辑执行失败:`, salaryErr);
+            }
+            // --------------------------------------------------------
+
             const planTimestampStr = db.getSetting(`active_plan_timestamp_${charId}`);
 
             if (!planTimestampStr) {
@@ -1364,5 +1425,56 @@ ${charUserContent}
     db.setSetting(`last_schedule_goals_date_${charId}`, todayStr);
     db.setSetting(`last_schedule_goals_msg_count_${charId}`, currentMsgCount.toString());
     */
+  }
+
+  /**
+   * 计算两个时间戳之间跨越了多少个结算日期变更线（午夜零点、周一、1号）
+   */
+  private calculatePeriodsPassed(period: string, startTime: number, endTime: number): number {
+    if (startTime >= endTime) return 0;
+
+    const startDate = new Date(startTime);
+    const endDate = new Date(endTime);
+
+    if (period === 'daily') {
+      const d1 = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+      const d2 = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+      const diffMs = d2.getTime() - d1.getTime();
+      return Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+    }
+
+    if (period === 'weekly') {
+      let count = 0;
+      const current = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+      current.setDate(current.getDate() + 1);
+      const endCompare = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+      let safetyLimit = 0;
+      while (current <= endCompare && safetyLimit < 5000) {
+        safetyLimit++;
+        if (current.getDay() === 1) { // 1 代表周一
+          count++;
+        }
+        current.setDate(current.getDate() + 1);
+      }
+      return count;
+    }
+
+    if (period === 'monthly') {
+      let count = 0;
+      const current = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+      current.setDate(current.getDate() + 1);
+      const endCompare = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+      let safetyLimit = 0;
+      while (current <= endCompare && safetyLimit < 5000) {
+        safetyLimit++;
+        if (current.getDate() === 1) { // 1号
+          count++;
+        }
+        current.setDate(current.getDate() + 1);
+      }
+      return count;
+    }
+
+    return 0;
   }
 }

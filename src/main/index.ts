@@ -8159,11 +8159,88 @@ Please output in exactly this XML format:
   })
 
   // =================== 状态栏指标统一规整与排序方法 ===================
+  // 辅助大模型格式纠错与重试自愈机制
+  const parseAiJsonWithRetry = async (
+    prompt: string,
+    modelAdapter: ModelAdapter,
+    characterId: string
+  ): Promise<{ salary_base: number; salary_period: string; salary_desc: string }> => {
+    const fallback = {
+      salary_base: 0.00,
+      salary_period: "none",
+      salary_desc: "不定期自动增资"
+    };
+
+    let responseText = "";
+    try {
+      const res = await modelAdapter.chat([
+        { role: 'user', content: prompt }
+      ], { useSecondary: true });
+      responseText = res.content;
+      return parseAndValidate(responseText);
+    } catch (err) {
+      console.warn(`[parseAiJsonWithRetry] 角色 ${characterId} 第一次评估解析失败，准备重试:`, err, "原返回文本:", responseText);
+      try {
+        const retryPrompt = `${prompt}
+
+【警告】：你上一次的输出没有成功被解析为合法的 JSON。可能因为你包含了 Markdown 标记（如 \`\`\`json）、额外解释性文字、或者 JSON 语法错误。
+请务必直接输出且仅输出合法 JSON 字符串，不要带任何格式包裹，也不要说任何多余话。格式必须为：
+{
+  "salary_base": 数值,
+  "salary_period": "daily" | "weekly" | "monthly" | "none",
+  "salary_desc": "来源说明"
+}`;
+        const res = await modelAdapter.chat([
+          { role: 'user', content: retryPrompt }
+        ], { useSecondary: true });
+        responseText = res.content;
+        return parseAndValidate(responseText);
+      } catch (retryErr) {
+        console.error(`[parseAiJsonWithRetry] 角色 ${characterId} 第二次评估解析也失败，使用安全兜底方案:`, retryErr, "重试返回文本:", responseText);
+        return fallback;
+      }
+    }
+
+    function parseAndValidate(text: string) {
+      const match = text.match(/\{[\s\S]*?\}/);
+      if (!match) throw new Error("未找到 JSON 括号结构");
+      const parsed = JSON.parse(match[0]);
+      
+      let base = Number(parsed.salary_base);
+      if (isNaN(base) || base < 0) base = 0.00;
+      
+      let period = String(parsed.salary_period).trim().toLowerCase();
+      if (!['daily', 'weekly', 'monthly', 'none'].includes(period)) {
+        period = 'none';
+      }
+      
+      let desc = String(parsed.salary_desc).trim();
+      if (!desc) desc = '不定期自动增资';
+      if (desc.length > 15) desc = desc.slice(0, 15);
+      
+      return {
+        salary_base: Math.round(base * 100) / 100,
+        salary_period: period,
+        salary_desc: desc
+      };
+    }
+  };
+
   // 辅助函数：统一获取、补齐、过滤、注入全局预设、排序并持久化写入当前角色的状态
   const getProcessedCharacterStates = (folderName: string): StateItem[] => {
+    const db = getDatabaseService()
     const storageManager = new CharacterStorageManager()
     const statePath = join(storageManager.getBaseDir(), folderName, 'State.md')
     const state = StateReaderWriter.readState(statePath)
+
+    // 获取唯一角色ID以作持久化配置标记
+    let charId = folderName
+    try {
+      const charRow = db.db.prepare('SELECT id FROM Characters WHERE folder_name = ?').get(folderName) as { id: string } | undefined
+      if (charRow) {
+        charId = charRow.id
+      }
+    } catch (_) {}
 
     // 检查老角色是否有 intimacy，如果没有，补充上默认值并自动触发评估
     let intimacyItem = state.items.find(i => i.key === 'intimacy')
@@ -8175,12 +8252,14 @@ Please output in exactly this XML format:
       const soulPath = join(storageManager.getBaseDir(), folderName, 'Soul.md')
       if (fs.existsSync(soulPath)) {
         const soulContent = fs.readFileSync(soulPath, 'utf8')
-        const db = getDatabaseService()
         const configStr = db.getSetting('model_config')
         const settings = configStr ? JSON.parse(configStr) : { primary: null, secondary: null }
         const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
         const evaluateOldCharIntimacy = async () => {
           try {
+            // 延迟 25 秒执行，避开用户刚进入聊天界面时的 API 呼叫高峰，确保正常的聊天对话为绝对第一优先级
+            await new Promise(resolve => setTimeout(resolve, 25000))
+
             const prompt = `你是一个背景人设分析专家。你需要分析角色与用户 {{user}} 在背景设定（Lore）中原有的亲密关系级别。
 角色的人设背景（Soul.md）内容如下：
 """
@@ -8227,11 +8306,79 @@ ${soulContent}
       }
     }
 
+    // 异步后台自动评估角色的定期发薪/收支方案
+    const evaluatedKey = `salary_evaluated_${charId}`
+    const hasEvaluated = db.getSetting(evaluatedKey)
+    if (!hasEvaluated) {
+      db.setSetting(evaluatedKey, 'true')
+      const soulPath = join(storageManager.getBaseDir(), folderName, 'Soul.md')
+      if (fs.existsSync(soulPath)) {
+        const soulContent = fs.readFileSync(soulPath, 'utf8')
+        const configStr = db.getSetting('model_config')
+        const settings = configStr ? JSON.parse(configStr) : { primary: null, secondary: null }
+        const modelAdapter = new ModelAdapter(settings.primary, settings.secondary)
+        
+        const evaluateSalary = async () => {
+          try {
+            // 延迟 15 秒执行，避开用户刚进入聊天界面时的 API 呼叫高峰，确保正常的聊天对话为绝对第一优先级
+            await new Promise(resolve => setTimeout(resolve, 15000))
+
+            const prompt = `你是一个背景人设分析与数字生命经济评估专家。你需要分析角色的背景设定，并为其定制一个符合其人设的、周期性自动发薪（或生活费/零花钱）的财务增资方案。
+角色的人设背景（Soul.md）内容如下：
+"""
+${soulContent}
+"""
+
+请仔细阅读人设设定，根据角色的职业、身份、家庭背景、经济状况等，评估其收支周期、金额和来源：
+1. 收支周期 (salary_period) 必须是以下四个之一：
+   - "daily"（每日发放，适用于日结兼职、短期零工、每天有固定零花钱的学生等）
+   - "weekly"（每周发放，适用于周薪制兼职、每周零花钱等）
+   - "monthly"（每月发放，适用于月薪制上班族、总裁、月度生活费的学生等）
+   - "none"（无定期收入，适用于完全没有固定收入来源的角色）
+2. 收支基数 (salary_base)：在每个周期结束时角色应当增加的余额（数字，建议合理：如普通上班族 monthly 4000~30000，总裁/富豪 monthly 50000~300000，穷学生 weekly 100~300，富裕学生 weekly 500~1000等，完全没有收入的为 0）。
+3. 资金来源说明 (salary_desc)：一句话简短说明这笔钱的性质和来源，例如 "兼职打工所得"、"总裁月度股份分红"、"每周零花钱"、"父母给的生活费" 等。界面空间有限，说明文字请控制在 15 个字以内。
+
+你必须以 JSON 格式输出，不要包含任何 markdown 标记、注释或多余文字。格式为：
+{
+  "salary_base": 1200.00,
+  "salary_period": "monthly",
+  "salary_desc": "兼职打工所得"
+}
+`;
+            const result = await parseAiJsonWithRetry(prompt, modelAdapter, charId)
+            const currentState = StateReaderWriter.readState(statePath)
+            
+            const itemsToUpdate = [
+              { key: 'salary_base', value: result.salary_base },
+              { key: 'salary_period', value: result.salary_period },
+              { key: 'salary_desc', value: result.salary_desc }
+            ]
+            
+            for (const update of itemsToUpdate) {
+              const item = currentState.items.find(i => i.key === update.key)
+              if (item) {
+                item.value = update.value
+              } else {
+                const defaultItem = StateReaderWriter.getInitialState().items.find(i => i.key === update.key)
+                if (defaultItem) {
+                  currentState.items.push({ ...defaultItem, value: update.value })
+                }
+              }
+            }
+            StateReaderWriter.writeState(statePath, currentState)
+            console.log(`[get-character-states] 成功评估并发配老角色 ${folderName} 的发薪方案:`, result)
+          } catch (err) {
+            console.error('[get-character-states] 后台评估老角色发薪方案失败:', err)
+          }
+        }
+        evaluateSalary()
+      }
+    }
+
     // 去掉可能残存的老角色孤独感
     let filteredItems = state.items.filter(item => item.key !== 'loneliness')
 
     // 读取全局预设状态栏
-    const db = getDatabaseService()
     const presetsStr = db.getSetting('state_presets')
     const presets = presetsStr ? JSON.parse(presetsStr) : []
     const globalPresets = presets.filter((p: any) => p.is_global)
@@ -8461,7 +8608,14 @@ ${soulContent}
   })
 
   // 2.6 手动更新单个状态值（数字/文本）
-  ipcMain.handle('update-character-state-value', async (_, payload: { folderName: string; key: string; value: number | string }) => {
+  ipcMain.handle('update-character-state-value', async (_, payload: { 
+    folderName: string; 
+    key: string; 
+    value: number | string;
+    salary_base?: number;
+    salary_period?: string;
+    salary_desc?: string;
+  }) => {
     try {
       // 在修改之前，先运行一次规整排序方法，以保证修改的目标 key 存在且结构一致
       getProcessedCharacterStates(payload.folderName)
@@ -8485,6 +8639,31 @@ ${soulContent}
           }
           item.value = finalVal
         }
+
+        // 如果 key === 'balance'，同步更新发薪的三个字段
+        if (payload.key === 'balance') {
+          if (payload.salary_base !== undefined) {
+            const sbItem = state.items.find(i => i.key === 'salary_base')
+            if (sbItem) sbItem.value = Math.max(0, Math.round(Number(payload.salary_base) * 100) / 100)
+          }
+          if (payload.salary_period !== undefined) {
+            const spItem = state.items.find(i => i.key === 'salary_period')
+            const spVal = String(payload.salary_period).trim().toLowerCase()
+            if (spItem && ['daily', 'weekly', 'monthly', 'none'].includes(spVal)) {
+              spItem.value = spVal
+            }
+          }
+          if (payload.salary_desc !== undefined) {
+            const sdItem = state.items.find(i => i.key === 'salary_desc')
+            if (sdItem) {
+              let desc = String(payload.salary_desc).trim()
+              if (!desc) desc = '不定期自动增资'
+              if (desc.length > 15) desc = desc.slice(0, 15)
+              sdItem.value = desc
+            }
+          }
+        }
+
         state.last_updated = new Date().toISOString().split('T')[0]
         StateReaderWriter.writeState(statePath, state)
 

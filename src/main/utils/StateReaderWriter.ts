@@ -97,7 +97,10 @@ export class StateReaderWriter {
           type: 'number', 
           meaning: "该数字生命角色在虚拟世界的流动资产", 
           rule: "当用户给角色发红包、购买礼物时余额增加；角色自主发送红包时余额扣减" 
-        }
+        },
+        { key: "salary_base", label: "收支基数", value: 0.00, emoji: "💵", min: 0, type: 'number' },
+        { key: "salary_period", label: "收支周期", value: "none", emoji: "⏱️", type: 'text' },
+        { key: "salary_desc", label: "资金来源", value: "不定期自动增资", emoji: "📝", type: 'text' }
       ],
       last_updated: new Date().toISOString().split('T')[0]
     };
@@ -126,11 +129,12 @@ export class StateReaderWriter {
         // 极致无感向下兼容：物理过滤掉任何已有的 energy 属性项，实现彻底的精力值退役
         state.items = state.items.filter((i: any) => i.key !== 'energy');
 
+        let needWrite = false;
         // 向后兼容补齐：若读取的 State 中缺少 mood 字段，自动为其补齐
         let hasMood = state.items.some((i: any) => i.key === 'mood');
         if (!hasMood) {
           state.items.push({ key: "mood", label: "心情", value: 72, emoji: "😊", min: 0, max: 100, type: 'number' });
-          this.writeState(filePath, state);
+          needWrite = true;
         }
 
         // 向后兼容补齐：若读取的 State 中缺少 balance 字段，自动为其补齐
@@ -146,6 +150,27 @@ export class StateReaderWriter {
             meaning: "该数字生命角色在虚拟世界的流动资产",
             rule: "当用户给角色发红包、购买礼物时余额增加；角色自主发送红包时余额扣减"
           });
+          needWrite = true;
+        }
+
+        // 向后兼容补齐：若缺少 salary_base, salary_period, salary_desc 字段，自动为其补齐
+        let hasSalaryBase = state.items.some((i: any) => i.key === 'salary_base');
+        if (!hasSalaryBase) {
+          state.items.push({ key: "salary_base", label: "收支基数", value: 0.00, emoji: "💵", min: 0, type: 'number' });
+          needWrite = true;
+        }
+        let hasSalaryPeriod = state.items.some((i: any) => i.key === 'salary_period');
+        if (!hasSalaryPeriod) {
+          state.items.push({ key: "salary_period", label: "收支周期", value: "none", emoji: "⏱️", type: 'text' });
+          needWrite = true;
+        }
+        let hasSalaryDesc = state.items.some((i: any) => i.key === 'salary_desc');
+        if (!hasSalaryDesc) {
+          state.items.push({ key: "salary_desc", label: "资金来源", value: "不定期自动增资", emoji: "📝", type: 'text' });
+          needWrite = true;
+        }
+
+        if (needWrite) {
           this.writeState(filePath, state);
         }
         return state;
