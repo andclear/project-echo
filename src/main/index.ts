@@ -4060,14 +4060,24 @@ ${soulContent}
                   queryEmbedding,
                   recentRoundIds,
                   5,
-                  0.7
+                  0.6
                 )
 
                 if (recalled.length > 0) {
+                  const userProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+                  const userName = (userProfile && userProfile.name) ? userProfile.name : '用户'
+
                   const recalledBlock = recalled.map(r => {
                     const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleString() : ''
                     const timePrefix = timeStr ? `[${timeStr}] ` : ''
-                    return `- ${timePrefix}${r.contentText}`
+                    const replacedText = r.contentText
+                      .replace(/\{\{user\}\}/g, userName)
+                      .replace(/\{\{char\}\}/g, currentSpeaker.name)
+
+                    return replacedText
+                      .split('\n')
+                      .map(line => `${timePrefix}${line}`)
+                      .join('\n')
                   }).join('\n')
 
                   groupSystemPromptFinalAdjusted += `\n\n【以下是系统从更早历史对话中语义召回的与 ${currentSpeaker.name} 相关的历史片段，仅供参考回忆】：\n${recalledBlock}`
@@ -4451,8 +4461,15 @@ ${soulContent}
           // 异步向量化本轮群聊 AI 回复（火了即忘，不影响主链路）
           try {
             const vectorSvc = VectorMemoryService.getInstance()
-            if (vectorSvc.isOperational() && groupRoundId && finalResponse) {
-              const roundText = [userMessage, finalResponse].filter(Boolean).join('\n')
+            if (vectorSvc.isOperational() && groupRoundId && (userMessage || finalResponse)) {
+              const roundTextParts: string[] = []
+              if (userMessage) {
+                roundTextParts.push(`{{user}}: ${userMessage}`)
+              }
+              if (finalResponse) {
+                roundTextParts.push(`{{char}}: ${finalResponse}`)
+              }
+              const roundText = roundTextParts.join('\n')
               vectorSvc.enqueueVectorize(groupRoundId, currentSpeakerId, roundText, Date.now())
             }
           } catch (_) {}
@@ -5336,14 +5353,26 @@ ${memoryContent}
               queryEmbedding,
               recentRoundIds,
               5,
-              0.7
+              0.6
             )
 
             if (recalled.length > 0) {
+              const charRow = db.db.prepare('SELECT name FROM Characters WHERE id = ?').get(characterId) as any
+              const charName = charRow ? charRow.name : '角色'
+              const userProfile = UserProfileReaderWriter.readGlobalProfile(globalUserPath)
+              const userName = (userProfile && userProfile.name) ? userProfile.name : '用户'
+
               const recalledBlock = recalled.map(r => {
                 const timeStr = r.timestamp ? new Date(r.timestamp).toLocaleString() : ''
                 const timePrefix = timeStr ? `[${timeStr}] ` : ''
-                return `- ${timePrefix}${r.contentText}`
+                const replacedText = r.contentText
+                  .replace(/\{\{user\}\}/g, userName)
+                  .replace(/\{\{char\}\}/g, charName)
+
+                return replacedText
+                  .split('\n')
+                  .map(line => `${timePrefix}${line}`)
+                  .join('\n')
               }).join('\n')
 
               systemPrompt += `\n\n【以下是系统从更早历史对话中语义召回的相关片段，仅供参考回忆】：\n${recalledBlock}`
@@ -6112,7 +6141,14 @@ ${memoryContent}
     try {
       const vectorSvc = VectorMemoryService.getInstance()
       if (vectorSvc.isOperational() && roundId && (userMessageFinalMerged || finalResponse)) {
-        const roundText = [userMessageFinalMerged, finalResponse].filter(Boolean).join('\n')
+        const roundTextParts: string[] = []
+        if (userMessageFinalMerged) {
+          roundTextParts.push(`{{user}}: ${userMessageFinalMerged}`)
+        }
+        if (finalResponse) {
+          roundTextParts.push(`{{char}}: ${finalResponse}`)
+        }
+        const roundText = roundTextParts.join('\n')
         vectorSvc.enqueueVectorize(roundId, characterId, roundText, Date.now())
       }
     } catch (_) {}

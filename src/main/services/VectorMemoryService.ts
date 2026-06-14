@@ -457,8 +457,14 @@ export class VectorMemoryService {
 
             for (const round of batch) {
               if (this.backfillCancelFlag) break
-              const text = [round.user_content, round.assistant_content]
-                .filter(Boolean).join(' ')
+              const textParts: string[] = []
+              if (round.user_content) {
+                textParts.push(`{{user}}: ${round.user_content}`)
+              }
+              if (round.assistant_content) {
+                textParts.push(`{{char}}: ${round.assistant_content}`)
+              }
+              const text = textParts.join('\n')
               const embedding = await this.computeEmbedding(text)
               if (embedding) {
                 db.saveEmbedding(
@@ -486,8 +492,14 @@ export class VectorMemoryService {
 
           for (const round of batch) {
             if (this.backfillCancelFlag) break
-            const text = [round.user_content, round.assistant_content]
-              .filter(Boolean).join(' ')
+            const textParts: string[] = []
+            if (round.user_content) {
+              textParts.push(`{{user}}: ${round.user_content}`)
+            }
+            if (round.assistant_content) {
+              textParts.push(`{{char}}: ${round.assistant_content}`)
+            }
+            const text = textParts.join('\n')
             const embedding = await this.computeEmbedding(text)
             if (embedding) {
               db.saveEmbedding(
@@ -528,14 +540,14 @@ export class VectorMemoryService {
    * @param queryEmbedding 当前用户发言的向量
    * @param excludeRoundIds 需要排除的轮次 ID（最近 N 轮，避免重复）
    * @param topK 最多返回条数（默认 5）
-   * @param minSimilarity 最小相似度阈值（默认 0.7）
+   * @param minSimilarity 最小相似度阈值（默认 0.6）
    */
   public async retrieveSimilarRounds(
     characterId: string,
     queryEmbedding: number[],
     excludeRoundIds: string[],
     topK = 5,
-    minSimilarity = 0.7
+    minSimilarity = 0.6
   ): Promise<RecalledRound[]> {
     try {
       const db = getDatabaseService()

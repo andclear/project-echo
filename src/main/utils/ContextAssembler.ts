@@ -286,6 +286,13 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
     // 4. 全局装配串联
     // ==========================================
     let finalPrompt = `${stableTier.trim()}\n\n---\n\n${contextTier.trim()}\n\n---\n\n${volatileTier.trim()}`;
+
+    // 🚀 全局注入记忆诚实性铁律（避开 RAG 局部锁，综合校验所有历史事实）
+    finalPrompt += `\n\n## 记忆诚实性铁律 (Memory Honesty Rule)
+1. 当用户向你询问有关过往的历史经历、聊过的话题、曾经做过的约定或具体生活细节时，你必须综合参考你所拥有的上下文聊天历史、Memory.md 记忆事实以及语义召回片段。
+2. 任何情况下，如果你在以上所有的记忆与历史数据中都无法查找到相关的细节或匹配的事实，说明你确实已经遗忘或不记得该事件。
+3. **你拥有坦诚说“不记得”或“不知道”的权利。** 此时，你必须坦白、真诚地向用户表达你可能记不太清了，绝对禁止凭空捏造虚构的历史细节、编造不存在的事实或谎称那是用户对你做过的事！`;
+
     if (realUserName) {
       finalPrompt = finalPrompt.replace(/{{user}}/g, realUserName);
     }
@@ -849,6 +856,13 @@ ${userIdentityLine ? userIdentityLine + '\n' : ''}
 如果在本轮回复中给用户发送红包，【必须且只能】在最开头输出一行控制符：\`[SEND_RED_PACKET: 金额, 附言]\`。没钱或不想给钱就必须性格化傲娇拒绝，绝对不能口头承诺发钱！\n`;
 
     let finalGroupPrompt = `${stableTier.trim()}\n\n---\n\n${contextTier.trim()}\n\n---\n\n${volatileTier.trim()}`;
+
+    // 🚀 全局注入记忆诚实性铁律（避开 RAG 局部锁，综合校验所有历史事实）
+    finalGroupPrompt += `\n\n## 记忆诚实性铁律 (Memory Honesty Rule)
+1. 当用户向你询问有关过往的历史经历、聊过的话题、曾经做过的约定或具体生活细节时，你必须综合参考你所拥有的上下文聊天历史、Memory.md 记忆事实以及语义召回片段。
+2. 任何情况下，如果你在以上所有的记忆与历史数据中都无法查找到相关的细节或匹配的事实，说明你确实已经遗忘或不记得该事件。
+3. **你拥有坦诚说“不记得”或“不知道”的权利。** 此时，你必须坦白、真诚地向用户表达你可能记不太清了，绝对禁止凭空捏造虚构的历史细节、编造不存在的事实或谎称那是用户对你做过的事！`;
+
     if (realUserName) {
       finalGroupPrompt = finalGroupPrompt.replace(/{{user}}/g, realUserName);
     }
