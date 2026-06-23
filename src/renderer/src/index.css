@@ -1,0 +1,431 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* =====================================================================
+   核心设计系统：亮色与暗色模式的 CSS 变量声明
+   回音 (Echo) - 微信风格高沉浸数字生命平台
+   ===================================================================== */
+:root {
+  --global-font-size: 16px;
+  /* 亮色模式 - Luminous Intelligence */
+  --background: #f9f9ff;
+  --surface: #ffffff;
+  --surface-dim: #d3daef;
+  --surface-bright: #f9f9ff;
+  --surface-lowest: #ffffff;
+  --surface-low: #f1f3ff;
+  --surface-container: #e9edff;
+  --surface-high: #e8eaf0;
+  --surface-highest: #dce2f7;
+  
+  --primary: #4648d4;
+  --on-primary: #ffffff;
+  --primary-container: #6063ee;
+  
+  --secondary: #b4136d;
+  --on-secondary: #ffffff;
+  --secondary-container: #fd56a7;
+  
+  --tertiary: #904900;
+  --on-tertiary: #ffffff;
+  --tertiary-container: #b55d00;
+  
+  --error: #ba1a1a;
+  --on-error: #ffffff;
+  --warning: #b55d00;
+  --on-warning: #ffffff;
+  --on-surface: #141b2b;
+  --on-surface-variant: #464554;
+  --outline: #767586;
+  --outline-variant: #c7c4d7;
+
+  /* 亮色 - 导航栏 */
+  --nav-bar: #ededf3;
+  --nav-border: #dcdbe5;
+  --nav-icon: #000000;
+  --nav-icon-opacity: 0.5;
+  --nav-icon-hover: #4648d4;
+  --nav-icon-hover-opacity: 1;
+  --nav-icon-hover-bg: rgba(70, 72, 212, 0.06);
+  --nav-icon-active-bg: rgba(70, 72, 212, 0.12);
+  --nav-avatar-border: rgba(70, 72, 212, 0.15);
+
+  /* 亮色 - 侧边栏 */
+  --sidebar: rgba(255, 255, 255, 0.7);
+  --sidebar-border: #e2e1ec;
+
+  /* 亮色 - 聊天区 */
+  --chat-bg: #ededed;
+  --chat-header: rgba(255,255,255,0.95);
+  --chat-border: #e0e0e0;
+  --chat-input-bg: #f9f9f9;
+  --chat-input-border: #e0e0e0;
+
+  /* 亮色 - 气泡 */
+  --user-bubble: #07c160;
+  --user-bubble-text: #ffffff;
+  --ai-bubble: #ffffff;
+  --ai-bubble-text: #1a1a1a;
+
+  /* 亮色 - 会话列表 */
+  --conversation-hover: rgba(0,0,0,0.04);
+  --conversation-selected: rgba(0,0,0,0.06);
+  --primary-opacity-5: rgba(70, 72, 212, 0.05);
+
+  /* 亮色 - 圆角体系 */
+  --radius-sm: 0.125rem;
+  --radius-default: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* 搜索匹配文字高亮自适应配色 */
+  --highlight-bg: rgba(70, 72, 212, 0.12);
+  --highlight-text: #4648d4;
+  
+  /* 动作描写非对话文本专属配色（带亮色主题色调，但更浅） */
+  --narrative-text: rgba(70, 72, 212, 0.72);
+}
+
+.dark {
+  /* 暗色模式 - Stealth Luxe (Tech-Noir 极简黑) */
+  --background: #111111;
+  --surface: #1e1e1e;
+  --surface-dim: #131313;
+  --surface-bright: #3a3939;
+  --surface-lowest: #0e0e0e;
+  --surface-low: #1a1a1a;
+  --surface-container: #201f1f;
+  --surface-high: #2a2a2a;
+  --surface-highest: #353534;
+  
+  --primary: #4edea3;
+  --on-primary: #003824;
+  --primary-container: #10b981;
+  
+  --secondary: #c6c6c6;
+  --on-secondary: #2f3131;
+  --secondary-container: #454747;
+  
+  --tertiary: #ffb3af;
+  --on-tertiary: #650911;
+  --tertiary-container: #fc7c78;
+  
+  --error: #ffb4ab;
+  --on-error: #690005;
+  --warning: #fc7c78;
+  --on-warning: #650911;
+  --on-surface: #e5e2e1;
+  --on-surface-variant: #bbcabf;
+  --outline: #4f4f4f;         /* 暗色模式下中等亮度边框，柔和不刺眼 (统一采用 Hex 修复 Tailwind 透明度修饰符失效 bug) */
+  --outline-variant: #262626; /* 暗色模式下低亮/默认边框，极其深邃和隐蔽 (统一采用 Hex 修复 Tailwind 透明度修饰符失效 bug) */
+
+  /* 暗色 - 导航栏 */
+  --nav-bar: #1a1a1a;
+  --nav-border: rgba(255, 255, 255, 0.04);
+  --nav-icon: #ffffff;
+  --nav-icon-opacity: 0.45;
+  --nav-icon-hover: #ffffff;
+  --nav-icon-hover-opacity: 0.85;
+  --nav-icon-hover-bg: rgba(255, 255, 255, 0.06);
+  --nav-icon-active-bg: rgba(255,255,255,0.10);
+  --nav-avatar-border: rgba(255,255,255,0.20);
+
+  /* 暗色 - 侧边栏 */
+  --sidebar: #1f1f1f;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+
+  /* 暗色 - 聊天区 */
+  --chat-bg: #111111;
+  --chat-header: rgba(22,22,22,0.98);
+  --chat-border: rgba(255, 255, 255, 0.06);
+  --chat-input-bg: #1a1a1a;
+  --chat-input-border: rgba(255, 255, 255, 0.12);
+
+  /* 暗色 - 气泡 */
+  --user-bubble: #07c160;
+  --user-bubble-text: #ffffff;
+  --ai-bubble: #2c2c2c;
+  --ai-bubble-text: #e5e2e1;
+
+  /* 暗色 - 会话列表 */
+  --conversation-hover: rgba(255,255,255,0.05);
+  --conversation-selected: rgba(255,255,255,0.08);
+  --primary-opacity-5: rgba(78, 222, 163, 0.05);
+
+  /* 暗色 - 圆角体系 */
+  --radius-sm: 0.125rem;
+  --radius-default: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* 搜索匹配文字高亮自适应配色 */
+  --highlight-bg: rgba(78, 222, 163, 0.15);
+  --highlight-text: #4edea3;
+  
+  /* 动作描写非对话文本专属配色（带暗色主题色调，但更浅） */
+  --narrative-text: rgba(78, 222, 163, 0.65);
+}
+
+@layer base {
+  *, ::before, ::after {
+    border-color: var(--outline-variant);
+  }
+  mark {
+    background-color: var(--highlight-bg);
+    color: var(--highlight-text);
+    padding: 0 1px;
+  }
+}
+
+/* =====================================================================
+   页面基础重置
+   ===================================================================== */
+html {
+  font-size: var(--global-font-size);
+}
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* =====================================================================
+   Tailwind 扩展颜色映射（使用 CSS 变量动态绑定）
+   ===================================================================== */
+.bg-nav-bar { background-color: var(--nav-bar); }
+.border-nav-border { border-color: var(--nav-border); }
+.text-nav-icon { color: var(--nav-icon); }
+.text-nav-icon-hover { color: var(--nav-icon-hover); }
+.hover\:text-nav-icon-hover:hover { color: var(--nav-icon-hover); }
+.hover\:bg-nav-icon-hover-bg:hover { background-color: var(--nav-icon-hover-bg); }
+.bg-nav-icon-active-bg { background-color: var(--nav-icon-active-bg); }
+.border-nav-avatar-border { border-color: var(--nav-avatar-border); }
+
+/* 规避 SVG 半透明路径重合交叉亮斑的 opacity 缓冲 */
+.nav-icon-btn svg {
+  transition: opacity 0.2s;
+  opacity: var(--nav-icon-opacity);
+}
+.nav-icon-btn:hover svg {
+  opacity: var(--nav-icon-hover-opacity);
+}
+.nav-icon-btn-active svg {
+  opacity: 1 !important;
+}
+
+.bg-sidebar { background-color: var(--sidebar); }
+.border-sidebar-border { border-color: var(--sidebar-border); }
+
+.bg-chat-bg { background-color: var(--chat-bg); }
+.bg-chat-header { background-color: var(--chat-header); }
+.border-chat-border { border-color: var(--chat-border); }
+.bg-chat-input-bg { background-color: var(--chat-input-bg); }
+.border-chat-input-border { border-color: var(--chat-input-border); }
+
+.bg-user-bubble { background-color: var(--user-bubble); }
+.text-user-bubble-text { color: var(--user-bubble-text); }
+.bg-ai-bubble { background-color: var(--ai-bubble); }
+.text-ai-bubble-text { color: var(--ai-bubble-text); }
+
+.bg-conversation-hover { background-color: var(--conversation-hover); }
+.bg-conversation-selected { background-color: var(--conversation-selected); }
+
+/* =====================================================================
+   精细化滚动条
+   ===================================================================== */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--outline-variant); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--outline); }
+
+/* =====================================================================
+   毛玻璃面板
+   ===================================================================== */
+.glass-panel {
+  backdrop-filter: blur(20px);
+  background-color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(118, 117, 134, 0.1);
+}
+.dark .glass-panel {
+  backdrop-filter: blur(20px);
+  background-color: rgba(15, 15, 15, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* =====================================================================
+   动画效果
+   ===================================================================== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+/* =====================================================================
+   字体 - 苹方/系统字体优先
+   ===================================================================== */
+body {
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* =====================================================================
+   Markdown 渲染微型排版样式
+   ===================================================================== */
+.markdown-body {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.markdown-body em,
+.markdown-body .narrative-bracket {
+  font-style: italic;
+  color: var(--narrative-text);
+}
+.markdown-body .dialogue-quote {
+  color: var(--primary);
+  font-weight: 600;
+}
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+.markdown-body strong {
+  font-weight: 700;
+  color: var(--primary);
+}
+.dark .markdown-body strong {
+  color: var(--primary);
+}
+.markdown-body code {
+  font-family: var(--font-mono);
+  background-color: var(--surface-low);
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  border: 1px solid var(--outline-variant);
+}
+.markdown-body pre {
+  background-color: var(--surface-low);
+  padding: 12px;
+  border-radius: var(--radius-default);
+  overflow-x: auto;
+  border: 1px solid var(--outline-variant);
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+.markdown-body pre code {
+  padding: 0;
+  background-color: transparent;
+  border: none;
+  font-size: 11px;
+}
+.markdown-body ul, .markdown-body ol {
+  padding-left: 20px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  list-style-type: disc;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--primary);
+  padding-left: 12px;
+  color: var(--on-surface-variant);
+  margin: 8px 0;
+  font-style: italic;
+}
+
+/* =====================================================================
+   回音音乐 - 奢华黑胶唱片缓缓旋转与反光扫射拟真动效
+   ===================================================================== */
+@keyframes spinSlow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spinSlow 25s linear infinite;
+}
+
+.animate-spin-paused {
+  animation-play-state: paused !important;
+}
+
+/* 拟真黑胶唱盘密纹与仿真质感 */
+.vinyl-disc {
+  background: radial-gradient(circle, #0c0d10 0%, #15181f 35%, #08090a 55%, #181b22 70%, #000000 100%);
+  box-shadow: 0 0 0 12px rgba(255, 255, 255, 0.03), 
+              0 30px 60px -15px rgba(0, 0, 0, 0.9), 
+              inset 0 0 20px rgba(255, 255, 255, 0.15), 
+              inset 0 0 2px 2px rgba(255, 255, 255, 0.05);
+  position: relative;
+}
+
+/* 密纹反光特效层 */
+.vinyl-grooves {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle, rgba(255, 255, 255, 0.015) 0px, rgba(255, 255, 255, 0.015) 1px, transparent 1px, transparent 2px);
+  pointer-events: none;
+}
+
+/* 旋转唱片光泽扫射动效 */
+.vinyl-shine {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(255, 255, 255, 0.04) 45deg, transparent 90deg, transparent 180deg, rgba(255, 255, 255, 0.04) 225deg, transparent 270deg, transparent 360deg);
+  pointer-events: none;
+}
+
+/* =====================================================================
+   移动端长按手势防系统文字选择与 callout 干扰（黄金自愈）
+   ===================================================================== */
+.user-chat-bubble,
+.ai-chat-bubble {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.wechat-red-packet-card {
+  user-select: none;
+  -webkit-user-select: none;   /* 针对 iOS Safari 极速物理拦截 */
+  -webkit-touch-callout: none; /* 针对 iOS 原生长按 Callout 弹出物理压制 */
+}
+
+/* 
+   🚀 媒体特性查询高级自愈：
+   仅针对 coarse 触控手势设备（如 iPhone/Android 手机平板）强行锁定 user-select: none;
+   而在 PC 桌面端（fine 鼠标设备）依旧保留鼠标拖拽选中高亮复制的极佳体验，做到两全其美！
+*/
+@media (pointer: coarse) {
+  .user-chat-bubble,
+  .ai-chat-bubble,
+  .user-chat-bubble *,
+  .ai-chat-bubble * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    -webkit-touch-callout: none !important;
+  }
+}
+
+/* 
+   🚀 移动端选择复制专用类：
+   物理重写一切外层手势屏蔽，让特定文字选择卡片在手机端 100% 能够拖拽与局部高亮选中
+*/
+.mobile-select-text,
+.mobile-select-text * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+

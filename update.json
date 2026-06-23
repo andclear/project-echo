@@ -1,0 +1,18 @@
+{
+  "version": "1.0.8",
+  "changelog": "1. 增加了拓展功能：大剧院、回音直播、心理按摩、树洞、真心话真心话；\n2.修复了一些BUG；\n3.根据意见反馈，优化了Prompt。",
+  "platforms": {
+    "win32": {
+      "url": ""
+    },
+    "darwin_x64": {
+      "url": ""
+    },
+    "darwin_arm64": {
+      "url": ""
+    },
+    "linux": {
+      "url": ""
+    }
+  }
+}

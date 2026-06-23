@@ -1,0 +1,29 @@
+{
+  "id": "example-echo-plugin",
+  "name": "回音示例插件",
+  "version": "1.0.0",
+  "description": "用于演示 Echo 平台下如何接入底层 API 和宿主桥接服务的示例插件。",
+  "author": "Echo Developer",
+  "entry": {
+    "main": "dist/index.js",
+    "renderer": "dist/renderer.js"
+  },
+  "permissions": [
+    "llm-chat",
+    "character-read",
+    "user-profile-read",
+    "image-generation"
+  ],
+  "configuration": {
+    "enableAutomaticSync": {
+      "type": "boolean",
+      "default": true,
+      "description": "是否开启自动与宿主同步数据"
+    },
+    "syncInterval": {
+      "type": "number",
+      "default": 30,
+      "description": "数据同步间隔时间 (秒)"
+    }
+  }
+}
