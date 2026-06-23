@@ -94,3 +94,6 @@ data/
 # Echo home game folder (explicitly ignored by user)
 src/renderer/public/echo-home-game/
 
+# 内部开发与发布指南文件 (开源前防泄露屏蔽)
+/更新版本指南.md
+
