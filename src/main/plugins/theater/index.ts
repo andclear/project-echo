@@ -244,6 +244,16 @@ export class TheaterPlugin implements IPlugin {
       }
     });
 
+    // 13-2. 大剧院：获取当前卡片导入的最新进度（为 Web 模式下 SSE 掉线/不通时提供轮询自愈兜底）
+    ipcMain.handle('theater-get-import-progress', async () => {
+      try {
+        const progress = this.theaterService.getCurrentImportProgress();
+        return { success: true, data: progress };
+      } catch (e: any) {
+        return { success: false, error: e.message || e };
+      }
+    });
+
     // 14. 大剧院：从未保存角色的人设 Soul 文本直接 AI 提炼外貌生图 Tags
     ipcMain.handle('theater-ai-extract-appearance', async (_, payload: { soul: string }) => {
       try {

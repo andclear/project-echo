@@ -1683,14 +1683,38 @@ async function onCardFileChange(e: Event) {
     unsubscribeProgress = window.electron.ipcRenderer.on('theater-import-progress', handleImportProgress);
   }
 
+  // 轮询定时器，为 Web/Docker 端 SSE 掉线自愈提供兜底进度刷新
+  let pollTimer: any = null;
+  const startPolling = () => {
+    pollTimer = setInterval(async () => {
+      try {
+        const progressRes = await window.api.invoke('theater-get-import-progress');
+        if (progressRes && progressRes.success && progressRes.data) {
+          handleImportProgress(progressRes.data);
+        }
+      } catch (err) {
+        console.warn('[Theater Import Poll Error]', err);
+      }
+    }, 1500);
+  };
+
+  const stopPolling = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  };
+
   try {
     const arrayReader = new FileReader();
     arrayReader.onload = async () => {
       try {
+        startPolling();
         const arrayBuffer = arrayReader.result as ArrayBuffer;
         const uint8ArrayData = Array.from(new Uint8Array(arrayBuffer));
 
         const res = await window.api.invoke('theater-parse-character-card', { uint8ArrayData });
+        stopPolling();
         unsubscribeProgress();
 
         if (!res.success) {
@@ -1747,6 +1771,7 @@ async function onCardFileChange(e: Event) {
         editorTab.value = 'manual'; // 切回手动表单展示
         alert('酒馆角色卡解密提炼成功！已回填至表单。');
       } catch (err: any) {
+        stopPolling();
         unsubscribeProgress();
         isProcessing.value = false;
         alert('解析角色卡数据提取失败: ' + (err.message || err));
@@ -1754,6 +1779,7 @@ async function onCardFileChange(e: Event) {
     };
     arrayReader.readAsArrayBuffer(file);
   } catch (err: any) {
+    stopPolling();
     unsubscribeProgress();
     isProcessing.value = false;
     alert('读取角色卡文件失败: ' + (err.message || err));

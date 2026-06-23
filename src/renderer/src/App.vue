@@ -16132,6 +16132,7 @@ if (typeof window !== 'undefined' && !(window as any).api) {
         'character-file-updated', 'custom-emojis-updated', 'update-check-status',
         'update-download-progress', 'update-download-status', 'vector-model-download-progress',
         'vector-model-download-done', 'vector-backfill-progress', 'vector-backfill-done',
+        'theater-import-progress', // 🚀 监听大剧院导入进度，使其在 Web 端也能实时更新看板
         'plugin-event-broadcast' // 🚀 统一注册插件广播代理通道
       ];
       sseEvents.forEach(evt => eventSource.addEventListener(evt, handleSseEvent));

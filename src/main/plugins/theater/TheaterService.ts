@@ -19,6 +19,11 @@ export interface TheaterThemeConfig {
 
 export class TheaterService {
   private baseDir: string;
+  private currentImportProgress: any = null;
+
+  public getCurrentImportProgress(): any {
+    return this.currentImportProgress;
+  }
 
   constructor() {
     let legacyDir = '';
@@ -221,7 +226,15 @@ export class TheaterService {
    * 从二进制 Buffer 导入酒馆角色卡解密提炼
    */
   public async parseCharacterCardFromBuffer(buffer: Buffer | Uint8Array, onProgress?: (data: any) => void): Promise<any> {
-    const modelAdapter = this.getModelAdapter();
+    const rawProgress = onProgress;
+    const onProgressWrapper = (data: any) => {
+      this.currentImportProgress = data;
+      rawProgress?.(data);
+    };
+    onProgress = onProgressWrapper;
+
+    try {
+      const modelAdapter = this.getModelAdapter();
     const globalPrompt = this.getGlobalPrompt();
 
     // 1. 解析基础卡片文本
@@ -477,13 +490,16 @@ ${world}\n\n${scenario}
       console.warn('[TheaterService] 转换角色卡 buffer 到 base64 封面失败:', e);
     }
 
-    return {
-      world,
-      scenario,
-      characters: resultCharacters,
-      relations,
-      cover: coverBase64
-    };
+      return {
+        world,
+        scenario,
+        characters: resultCharacters,
+        relations,
+        cover: coverBase64
+      };
+    } finally {
+      this.currentImportProgress = null;
+    }
   }
 
   /**
