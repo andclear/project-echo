@@ -148,20 +148,18 @@ ${cleanWorldInput}
 `
 
     try {
-      // 并行请求主模型进行归纳提炼，提升导入速度
-      const soulPromise = adapter.chat([
+      // 顺序请求主模型，避免部分 OpenAI 兼容服务在同一账号并发计费时触发订阅表更新冲突。
+      const soulRes = await adapter.chat([
         { role: 'user', content: soulPrompt }
       ], { usePrimary: true })
 
-      const worldPromise = adapter.chat([
+      const worldRes = await adapter.chat([
         { role: 'user', content: worldPrompt }
       ], { usePrimary: true })
 
-      const appearancePromise = adapter.chat([
+      const appearanceRes = await adapter.chat([
         { role: 'user', content: appearancePrompt }
       ], { usePrimary: true })
-
-      const [soulRes, worldRes, appearanceRes] = await Promise.all([soulPromise, worldPromise, appearancePromise])
 
       let soulContent = soulRes.content || '# 暂无提炼人设'
       let worldContent = worldRes.content || '# 暂无提炼世界观'

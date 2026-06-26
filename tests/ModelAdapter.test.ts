@@ -210,6 +210,39 @@ describe('ModelAdapter & Providers 深度重构测试', () => {
       const body = JSON.parse(options.body as string)
       expect(body.temperature).toBe(0.7)
     })
+
+    it('遇到上游订阅更新冲突 500 时，应当自动重试', async () => {
+      const mockSuccessResponse = {
+        choices: [{ message: { content: '重试后成功' } }],
+        usage: { total_tokens: 42 }
+      }
+
+      global.fetch = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 500,
+          text: () => Promise.resolve(`{"error":{"message":"Error 1020 (HY000): Record has changed since last read in table 'user_subscriptions'","code":"update_data_error"}}`)
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(mockSuccessResponse)
+        } as Response)
+
+      const config: ModelConfig = {
+        provider: 'openai',
+        baseUrl: 'https://api.custom.com/v1',
+        apiKey: 'sk-mock-key',
+        model: 'custom-model'
+      }
+
+      const provider = ProviderFactory.getProvider('openai')
+      const result = await provider.chat(config, [{ role: 'user', content: '你好' }])
+
+      expect(global.fetch).toHaveBeenCalledTimes(2)
+      expect(result.content).toBe('重试后成功')
+      expect(result.tokenUsage).toBe(42)
+    })
   })
 
   describe('AnthropicProvider 适配器测试', () => {

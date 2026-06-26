@@ -90,6 +90,25 @@ export function mergeSystemMessage(messages: ChatMessage[]): ChatMessage[] {
  * OpenAI 兼容协议适配器
  */
 export class OpenAIProvider implements IModelProvider {
+  private static sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  private static isRetryableApiError(status: number, body: string): boolean {
+    if (status === 429 || status === 502 || status === 503 || status === 504) {
+      return true
+    }
+
+    if (status === 500) {
+      const normalized = body.toLowerCase()
+      return normalized.includes('update_data_error') ||
+        normalized.includes('record has changed since last read') ||
+        normalized.includes('user_subscriptions')
+    }
+
+    return false
+  }
+
   public async chat(config: ModelConfig, messages: ChatMessage[]): Promise<ChatResponse> {
     const finalMessages = config.supportsSystem === false ? mergeSystemMessage(messages) : messages
     
@@ -118,38 +137,49 @@ export class OpenAIProvider implements IModelProvider {
       payload.temperature = config.temperature
     }
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => {
-      console.warn(`[OpenAI API] 90秒无响应，正在物理中断非流式请求。`)
-      controller.abort()
-    }, 90 * 1000)
+    const maxAttempts = 3
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => {
+        console.warn(`[OpenAI API] 90秒无响应，正在物理中断非流式请求。`)
+        controller.abort()
+      }, 90 * 1000)
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      })
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        })
 
-      if (!response.ok) {
-        const errText = await response.text()
-        throw new Error(`OpenAI API 响应错误 (${response.status}): ${errText}`)
+        if (!response.ok) {
+          const errText = await response.text()
+          if (attempt < maxAttempts && OpenAIProvider.isRetryableApiError(response.status, errText)) {
+            const delayMs = 600 * attempt
+            console.warn(`[OpenAI API] 上游瞬时错误 (${response.status})，${delayMs}ms 后自动重试第 ${attempt + 1}/${maxAttempts} 次。`)
+            await OpenAIProvider.sleep(delayMs)
+            continue
+          }
+          throw new Error(`OpenAI API 响应错误 (${response.status}): ${errText}`)
+        }
+
+        const result = await response.json()
+        const content = result.choices?.[0]?.message?.content || ''
+        const tokenUsage = result.usage?.total_tokens || 0
+
+        return { content, tokenUsage }
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          throw new Error('大模型响应超时（设定上限90秒），已自动中断请求。请检查网络代理状态或稍后重试。')
+        }
+        throw err
+      } finally {
+        clearTimeout(timeoutId)
       }
-
-      const result = await response.json()
-      const content = result.choices?.[0]?.message?.content || ''
-      const tokenUsage = result.usage?.total_tokens || 0
-
-      return { content, tokenUsage }
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error('大模型响应超时（设定上限90秒），已自动中断请求。请检查网络代理状态或稍后重试。🐾')
-      }
-      throw err
-    } finally {
-      clearTimeout(timeoutId)
     }
+
+    throw new Error('OpenAI API 请求重试耗尽。')
   }
 
   public async *chatStream(
