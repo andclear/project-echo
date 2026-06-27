@@ -141,7 +141,7 @@ export class TheaterPlugin implements IPlugin {
     });
 
     // 6. 大剧院游玩：修改/更新 Agent 提示词配置
-    ipcMain.handle('theater-update-agent-prompts', async (_, payload: { sessionId: string; prompts: Record<string, string> }) => {
+    ipcMain.handle('theater-update-agent-prompts', async (_, payload: { sessionId: string; prompts: Record<string, any> }) => {
       try {
         this.theaterStageService.updateAgentPrompts(payload.sessionId, payload.prompts);
         return { success: true };

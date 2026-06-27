@@ -181,6 +181,7 @@ const isConfigOpen = ref(false);
 const selectedAgentKey = ref<string>('narrator');
 const configPrompts = ref<any>({});
 const enableImageGen = ref(false);
+const enableOptionsGen = ref(true);
 const isResettingRuntime = ref(false);
 
 const agentPromptEntries = [
@@ -300,6 +301,7 @@ async function loadSessionState() {
       });
       prompts.value = s.prompts || {};
       enableImageGen.value = !!s.prompts.enableImageGen;
+      enableOptionsGen.value = s.prompts.enableOptionsGen !== false;
       
       // 默认选中玩家当前扮演的角色
       if (!selectedCharName.value) {
@@ -311,7 +313,7 @@ async function loadSessionState() {
       scrollToBottom();
 
       // 🚀 智能自愈判定：如果在等待演绎（Loading 状态），而拉取回来的最新消息已经包含了新产出的内容，则重置消退 Loading
-      if (isGenerating.value) {
+      if (isGenerating.value && !currentNpcGenerating.value) {
         const lastMsg = messages.value[messages.value.length - 1];
         if (lastMsg && lastMsg.role !== 'user') {
           isGenerating.value = false;
@@ -346,6 +348,13 @@ function handleNpcChunk(
 ) {
   // preload 的 on() 已将 _event 剥离，第一个参数直接就是 payload
   if (!payload) return;
+
+  if (payload.type === 'stage-status') {
+    if (!payload.sessionId || payload.sessionId === props.sessionId) {
+      currentNpcGenerating.value = payload.role || payload.content || '';
+    }
+    return;
+  }
 
   if (payload.type === 'next-options-cleared') {
     if (!payload.sessionId || payload.sessionId === props.sessionId) {
@@ -466,16 +475,6 @@ watch(isMobile, (newVal) => {
 });
 
 let sseUnsubscribe: (() => void) | null = null;
-
-// 🚀 引入通用插件数据推拉同步 Hook：SSE 断线恢复连接、或者收到任何更新通知时，都会触发 loadSessionState 拉取最新会话状态，实现 100% 数据自愈同步
-usePluginSync({
-  pluginName: 'theater',
-  eventName: 'npc-action-chunk',
-  fetchFn: async () => {
-    console.log('[TheaterStage] 触发通用插件推拉自愈同步，拉取最新状态...');
-    await loadSessionState();
-  }
-});
 
 usePluginSync({
   pluginName: 'theater',
@@ -967,12 +966,14 @@ async function saveSoulEdits() {
 // -------------------------------------------------------------
 function openAgentConfig() {
   configPrompts.value = JSON.parse(JSON.stringify(prompts.value));
+  enableOptionsGen.value = configPrompts.value.enableOptionsGen !== false;
   isConfigOpen.value = true;
 }
 
 async function saveAgentConfig() {
   isConfigOpen.value = false;
   configPrompts.value.enableImageGen = enableImageGen.value; // 同步开关
+  configPrompts.value.enableOptionsGen = enableOptionsGen.value;
   
   try {
     const res = await window.api.invoke('theater-update-agent-prompts', {
@@ -2085,6 +2086,13 @@ onUnmounted(() => {
                 <div class="text-[9px] text-on-surface-variant/70">本功能需要您在常规设置中已开启 NovelAI 绘图功能且生图 API 密钥有效。</div>
               </div>
               <input type="checkbox" v-model="enableImageGen" class="w-4 h-4 rounded text-primary focus:ring-primary border-outline-variant/50 cursor-pointer" />
+            </div>
+            <div v-if="selectedAgentKey === 'options'" class="p-3 bg-primary/5 rounded border border-primary/20 flex items-center justify-between">
+              <div class="space-y-0.5">
+                <div class="text-xs font-bold text-primary">启用大剧院剧情推进选项</div>
+                <div class="text-[9px] text-on-surface-variant/70">关闭后每轮结束不会调用推进选项 Agent，底部引导选项保持为空。</div>
+              </div>
+              <input type="checkbox" v-model="enableOptionsGen" class="w-4 h-4 rounded text-primary focus:ring-primary border-outline-variant/50 cursor-pointer" />
             </div>
             
             <div class="flex-1 flex flex-col min-h-0">

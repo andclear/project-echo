@@ -445,6 +445,8 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(stepRes.timeSpace).toBe('傍晚，大剧院化妆间里');
     expect(stepRes.characterStates.length).toBe(2);
     expect(pushedEvents.some((evt) => evt.type === 'next-options-cleared' && evt.sessionId === sessionId)).toBe(true);
+    expect(pushedEvents.some((evt) => evt.type === 'stage-status' && evt.role === '正在评估和结算状态属性...')).toBe(true);
+    expect(pushedEvents.some((evt) => evt.type === 'stage-status' && evt.role === '正在生成引导选项...')).toBe(true);
     expect(pushedEvents.some((evt) => evt.role === '小红' && String(evt.id).startsWith('msg_'))).toBe(true);
     expect(pushedEvents.some((evt) => evt.role === 'narrator' && String(evt.id).includes('_mainplot'))).toBe(true);
     expect(mockNextOptionsUpdates).toContain('[]');
@@ -473,6 +475,16 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     service.updateAgentPrompts(sessionId, { narrator: '你是一个全新的旁白。' });
     const reloadedState = service.getSessionState(sessionId);
     expect(reloadedState.prompts.narrator).toBe('你是一个全新的旁白。');
+
+    service.updateAgentPrompts(sessionId, { enableOptionsGen: false });
+    const disabledOptionsState = service.getSessionState(sessionId);
+    expect(disabledOptionsState.prompts.enableOptionsGen).toBe(false);
+    const disabledOptionEvents: any[] = [];
+    const disabledOptionStep = await service.executeStep(sessionId, '*继续观察屋内气氛*', (payload: any) => {
+      disabledOptionEvents.push(payload);
+    });
+    expect(disabledOptionStep.nextOptions).toEqual([]);
+    expect(disabledOptionEvents.some((evt) => evt.type === 'stage-status' && evt.role === '正在生成引导选项...')).toBe(false);
 
     // 6. 手动修改角色状态属性值测试
     service.updateCharacterState(sessionId, '小红', {

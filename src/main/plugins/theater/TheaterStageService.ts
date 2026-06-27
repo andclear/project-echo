@@ -22,6 +22,11 @@ export interface AgentPromptConfig {
   consistencyRepair: string;
 }
 
+interface TheaterPromptRuntimeConfig extends AgentPromptConfig {
+  enableImageGen?: boolean;
+  enableOptionsGen?: boolean;
+}
+
 export interface CharacterState {
   name: string;
   status_bars: Record<string, number | string>;
@@ -136,12 +141,13 @@ export class TheaterStageService {
       }));
   }
 
-  private mergePromptDefaults(savedPrompts: any): AgentPromptConfig & { enableImageGen?: boolean } {
-    const defaults = this.getDefaultPrompts() as AgentPromptConfig & { enableImageGen?: boolean };
+  private mergePromptDefaults(savedPrompts: any): TheaterPromptRuntimeConfig {
+    const defaults = this.getDefaultPrompts() as TheaterPromptRuntimeConfig;
     return {
       ...defaults,
       ...(savedPrompts || {}),
-      enableImageGen: !!savedPrompts?.enableImageGen
+      enableImageGen: !!savedPrompts?.enableImageGen,
+      enableOptionsGen: savedPrompts?.enableOptionsGen !== false
     };
   }
 
@@ -999,7 +1005,8 @@ ${charactersSummary}
 
     const initPromptsSave = {
       ...defaultPrompts,
-      enableImageGen: false // 生图 Agent 默认不启用
+      enableImageGen: false, // 生图 Agent 默认不启用
+      enableOptionsGen: true
     };
     const initialRoundContext = this.buildDefaultRoundContext({
       sessionId,
@@ -1139,7 +1146,9 @@ ${charactersSummary}
       this.buildDefaultCharacterMinds(staticCharacters, session.player_character)
     );
 
-    console.log(`[TheaterStageService] getSessionState 加载会话: ${sessionId}, 角色状态数: ${dynamicStates?.length}`);
+    if (process.env.ECHO_DEBUG_THEATER_STATE === '1') {
+      console.log(`[TheaterStageService] getSessionState 加载会话: ${sessionId}, 角色状态数: ${dynamicStates?.length}`);
+    }
 
     // 检查并自愈可能为空的角色关系列表
     let needSave = false;
@@ -1385,9 +1394,21 @@ ${charactersSummary}
     this.ensureStatusBarsConfig(themeJson);
     const characters = this.loadThemeCharacters(session.theme_id);
 
-    const prompts: AgentPromptConfig & { enableImageGen?: boolean } = stateRow
+    const prompts: TheaterPromptRuntimeConfig = stateRow
       ? this.mergePromptDefaults(JSON.parse(stateRow.agent_prompts))
       : this.mergePromptDefaults(null);
+
+    const pushStageStatus = (label: string) => {
+      if (!onNpcAction) return;
+      onNpcAction({
+        id: `evt_${Date.now()}_stage_status`,
+        sessionId,
+        roundId,
+        role: label,
+        content: '',
+        type: 'stage-status'
+      } as any);
+    };
 
     // 获取本轮开始前的角色状态深拷贝
     const prevCharStates: CharacterState[] = JSON.parse(stateRow ? stateRow.character_states : session.npc_states);
@@ -1492,6 +1513,7 @@ ${charactersSummary}
     let actionQueue: string[] = [];
 
     try {
+      pushStageStatus('正在分析本轮时空与行动顺序...');
       console.log('[TheaterStageService] [时空背景 Agent] 正在根据最新轮次互动分析时空状态并推演 NPC 行动顺序队列...');
       const res = await modelAdapter.chat([{ role: 'system', content: tsPromptText }], { useSecondary: true, skipSystemInjection: true });
       const cleanJson = this.cleanJsonWrap(res.content);
@@ -1688,6 +1710,7 @@ ${charactersSummary}
       ];
 
       try {
+        pushStageStatus(`${npcName} 正在行动...`);
         console.log(`[TheaterStageService] [NPC 扮演 Agent] 🎭 角色 [${npcName}] 正在思考并准备输出言行...`);
         const res = await modelAdapter.chat(charMessages, { usePrimary: true, skipSystemInjection: true });
         let npcOutput = res.content.trim();
@@ -1770,6 +1793,7 @@ ${charactersSummary}
     const mainPlotMsgId = `msg_${roundStartTime}_mainplot`;
     const mainPlotCreatedAt = roundStartTime + 100;
     try {
+      pushStageStatus('旁白生成中...');
       if (onNpcAction) {
         onNpcAction({
           id: mainPlotMsgId,
@@ -1833,7 +1857,7 @@ ${charactersSummary}
 
     // 所有角色扮演与剧情收束完毕，通知前端当前正在进行后台结算与生成选项
     if (onNpcAction) {
-      onNpcAction({ role: '系统正在为您构思下一轮行动引导选项...', content: '' });
+      pushStageStatus('正在评估和结算状态属性...');
     }
 
     // 7. 被动关系维护 Agent
@@ -1857,6 +1881,7 @@ ${charactersSummary}
       );
 
       try {
+        pushStageStatus('正在评估角色关系变化...');
         console.log('[TheaterStageService] [关系维护 Agent] 🤝 正在评估本轮剧情对角色社会关系网络的影响并进行自省自愈维护...');
         const res = await modelAdapter.chat([{ role: 'system', content: relPromptText }], { useSecondary: true, skipSystemInjection: true });
         const cleanJson = this.cleanJsonWrap(res.content);
@@ -1891,6 +1916,7 @@ ${charactersSummary}
     }
 
     // 7. 状态维护 Agent (一次性聚合评估)
+    pushStageStatus('正在评估和结算状态属性...');
     console.log('[TheaterStageService] [属性结算 Agent] 📊 正在一次性评估并结算所有角色的状态属性、背包物品和余额变动...');
     
     const statusBarsDefStr = JSON.stringify(themeJson.status_bars || [], null, 2);
@@ -2151,6 +2177,7 @@ ${charactersSummary}
 
     // 11. 主线状态与角色心理更新 Agent
     try {
+      pushStageStatus('正在更新主线状态...');
       const plotStatePromptText = this.renderPromptText(
         prompts.plotState,
         {
@@ -2185,6 +2212,7 @@ ${charactersSummary}
     }
 
     try {
+      pushStageStatus('正在更新角色心理状态...');
       const mindPromptText = this.renderPromptText(
         prompts.characterMind,
         {
@@ -2238,38 +2266,43 @@ ${charactersSummary}
 
     // 12. 选项生成 Agent
     const charSummaryText = characters.map(c => `姓名: ${c.name}, 设定: ${c.soul.substring(0, 100)}...`).join('\n');
-    const optPromptText = this.renderPromptText(
-      prompts.options,
-      {
-        themeJson,
-        stateRow,
-        session,
-        userText,
-        cleanedHistory: cleanedHistory + '\n' + roundInteractionText,
-        participatingNames,
-        characters
-      },
-      {
-        summary: newSummary || '(无总结)',
-        time_space: newTimeSpace,
-        character_settings: charSummaryText,
-        player_character: session.player_character,
-        director_intent: roundContext.directorIntent,
-        round_context: JSON.stringify(roundContext, null, 2),
-        plot_state: JSON.stringify(plotState, null, 2)
-      }
-    );
-
     let nextOptions = [];
-    try {
-      console.log('[TheaterStageService] [选项生成 Agent] 💡 正在为下一轮玩家动作生成 4 个极简引导选项...');
-      const res = await modelAdapter.chat([{ role: 'system', content: optPromptText }], { useSecondary: true, skipSystemInjection: true });
-      const cleanJson = this.cleanJsonWrap(res.content);
-      nextOptions = this.normalizePlayerOptions(JSON.parse(cleanJson), session.player_character);
-      console.log(`[TheaterStageService] [选项生成 Agent] 💡 引导选项生成成功，共生成了 ${nextOptions.length} 个选项。`);
-    } catch (err) {
-      console.warn('[TheaterStageService] [选项生成 Agent] 💡 生成选项失败，将保持空选项。异常信息:', err);
-      nextOptions = [];
+    if (prompts.enableOptionsGen !== false) {
+      const optPromptText = this.renderPromptText(
+        prompts.options,
+        {
+          themeJson,
+          stateRow,
+          session,
+          userText,
+          cleanedHistory: cleanedHistory + '\n' + roundInteractionText,
+          participatingNames,
+          characters
+        },
+        {
+          summary: newSummary || '(无总结)',
+          time_space: newTimeSpace,
+          character_settings: charSummaryText,
+          player_character: session.player_character,
+          director_intent: roundContext.directorIntent,
+          round_context: JSON.stringify(roundContext, null, 2),
+          plot_state: JSON.stringify(plotState, null, 2)
+        }
+      );
+
+      try {
+        pushStageStatus('正在生成引导选项...');
+        console.log('[TheaterStageService] [选项生成 Agent] 💡 正在为下一轮玩家动作生成 4 个极简引导选项...');
+        const res = await modelAdapter.chat([{ role: 'system', content: optPromptText }], { useSecondary: true, skipSystemInjection: true });
+        const cleanJson = this.cleanJsonWrap(res.content);
+        nextOptions = this.normalizePlayerOptions(JSON.parse(cleanJson), session.player_character);
+        console.log(`[TheaterStageService] [选项生成 Agent] 💡 引导选项生成成功，共生成了 ${nextOptions.length} 个选项。`);
+      } catch (err) {
+        console.warn('[TheaterStageService] [选项生成 Agent] 💡 生成选项失败，将保持空选项。异常信息:', err);
+        nextOptions = [];
+      }
+    } else {
+      console.log('[TheaterStageService] [选项生成 Agent] 💡 当前会话已关闭引导选项生成，跳过。');
     }
 
     // 保存新生成的选项到数据库以供状态读取/重载
@@ -2448,7 +2481,7 @@ ${charactersSummary}
   /**
    * 7. 物理更新配置
    */
-  public updateAgentPrompts(sessionId: string, prompts: Record<string, string>): void {
+  public updateAgentPrompts(sessionId: string, prompts: Record<string, any>): void {
     const db = getDatabaseService();
     const stateRow = db.db.prepare('SELECT agent_prompts FROM TheaterSessionStates WHERE session_id = ?').get(sessionId) as any;
     if (!stateRow) {
