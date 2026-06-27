@@ -271,6 +271,11 @@ vi.mock('../src/main/models/ModelAdapter', () => {
               ])
             };
           }
+          if (systemMsg.includes('事实一致性修正员')) {
+            return {
+              content: '修正后的测试文本'
+            };
+          }
           if (systemMsg.includes('分支设计师')) {
             return {
               content: JSON.stringify([

@@ -712,6 +712,36 @@ export class TheaterStageService {
     return clean.trim();
   }
 
+  private async repairConsistencyOutput(
+    modelAdapter: ModelAdapter,
+    prompts: AgentPromptConfig,
+    renderContext: any,
+    roundContext: TheaterRoundContext,
+    content: string,
+    label: string
+  ): Promise<string> {
+    if (!content.trim() || !prompts.consistencyRepair) {
+      return content;
+    }
+
+    try {
+      const repairPromptText = this.renderPromptText(
+        prompts.consistencyRepair,
+        renderContext,
+        {
+          round_context: JSON.stringify(roundContext, null, 2),
+          latest_round_content: content
+        }
+      );
+      const res = await modelAdapter.chat([{ role: 'system', content: repairPromptText }], { useSecondary: true, skipSystemInjection: true });
+      const repaired = res.content.trim();
+      return repaired || content;
+    } catch (err: any) {
+      console.warn(`[TheaterStageService] [事实一致性修正 Agent] ${label} 修正失败，沿用原文:`, err.message || err);
+      return content;
+    }
+  }
+
   private normalizePlayerOptions(rawOptions: any, playerCharacter: string): any[] {
     if (!Array.isArray(rawOptions)) {
       return [];
@@ -1623,9 +1653,25 @@ ${charactersSummary}
       try {
         console.log(`[TheaterStageService] [NPC 扮演 Agent] 🎭 角色 [${npcName}] 正在思考并准备输出言行...`);
         const res = await modelAdapter.chat(charMessages, { usePrimary: true, skipSystemInjection: true });
-        const npcOutput = res.content.trim();
+        let npcOutput = res.content.trim();
 
         if (npcOutput) {
+          npcOutput = await this.repairConsistencyOutput(
+            modelAdapter,
+            prompts,
+            {
+              themeJson,
+              stateRow,
+              session,
+              userText,
+              cleanedHistory: cleanedHistory + '\n' + roundInteractionText,
+              participatingNames,
+              characters
+            },
+            roundContext,
+            npcOutput,
+            `NPC ${npcName}`
+          );
           const cleanOutput = this.cleanInnerThought(npcOutput);
           console.log(`[TheaterStageService] [NPC 扮演 Agent] 🎭 角色 [${npcName}] 扮演输出完成。`);
           
@@ -1704,6 +1750,23 @@ ${charactersSummary}
         isRelationChangeTriggered = true;
         content = content.replace('[RELATION_CHANGE_REQUIRED]', '').trim();
       }
+      content = await this.repairConsistencyOutput(
+        modelAdapter,
+        prompts,
+        {
+          themeJson,
+          stateRow,
+          session,
+          userText,
+          cleanedHistory: cleanedHistory + '\n' + roundInteractionText,
+          participatingNames,
+          roundInteractionText,
+          characters
+        },
+        roundContext,
+        content,
+        '剧情收束旁白'
+      );
       mainPlotOutput = content;
       console.log(`[TheaterStageService] [剧情收束 Agent] 📖 旁白生成完毕，是否触发关系变化评估: ${isRelationChangeTriggered}`);
     } catch (err: any) {
