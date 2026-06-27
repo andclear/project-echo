@@ -26,9 +26,9 @@ export class TheaterPlugin implements IPlugin {
 
   public registerIpcHandlers(): void {
     // 1. 大剧院游玩：初始化进入大剧院会话 (支持参演列表初置)
-    ipcMain.handle('theater-create-stage-session', async (_, payload: { themeId: string; playerCharName: string; activeCharNames?: string[] }) => {
+    ipcMain.handle('theater-create-stage-session', async (_, payload: { themeId: string; playerCharName: string; activeCharNames?: string[]; openingDirection?: string }) => {
       try {
-        const result = await this.theaterStageService.createSession(payload.themeId, payload.playerCharName, payload.activeCharNames);
+        const result = await this.theaterStageService.createSession(payload.themeId, payload.playerCharName, payload.activeCharNames, payload.openingDirection);
         return { success: true, ...result };
       } catch (e: any) {
         console.error('[IPC theater-create-stage-session] 失败:', e);

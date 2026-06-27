@@ -49,6 +49,7 @@ const drawingIndices = ref<Set<number>>(new Set());
 const processStep = ref('');
 const processSteps = ref<string[]>([]);
 const currentStepIndex = ref(0);
+const openingDirection = ref('');
 
 // AI智能生成或卡片导入时的灵感提示词
 const aiPromptInput = ref('');
@@ -312,6 +313,7 @@ async function checkDrawingStatus() {
 // -------------------------------------------------------------
 async function enterLobby(theme: any) {
   selectedTheme.value = theme;
+  openingDirection.value = '';
 
   // 优先检测该剧本是否已经存在会话记录
   try {
@@ -1963,7 +1965,8 @@ async function startAdventure() {
     const res = await window.api.invoke('theater-create-stage-session', {
       themeId: selectedTheme.value.id,
       playerCharName: selectedPlayerChar.value,
-      activeCharNames: [selectedPlayerChar.value, ...participatingChars.value]
+      activeCharNames: [selectedPlayerChar.value, ...participatingChars.value],
+      openingDirection: openingDirection.value.trim()
     });
 
     if (res.success) {
@@ -2377,6 +2380,23 @@ function handleStageRuntimeReset() {
                     selectedTheme.characters.find(c => c.name === selectedPlayerChar)?.soul || '暂无角色独立设定。'
                   }}
                 </p>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-[10px] text-on-surface-variant font-bold mb-1.5">本局开场方向（可选）：</label>
+                <textarea
+                  v-model="openingDirection"
+                  rows="4"
+                  maxlength="300"
+                  class="w-full px-2.5 py-2 text-xs rounded bg-surface border border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/45 focus:outline-none focus:border-primary resize-none leading-relaxed"
+                  placeholder="例如：在一个废弃的矿场 / 所有人穿越到了现代都市 / 雨夜旧公寓门口"
+                ></textarea>
+                <div class="mt-1.5 flex items-start justify-between gap-3">
+                  <p class="text-[9px] text-on-surface-variant/60 leading-normal">
+                    只影响本局开场地点、氛围和切入事件；不会覆盖剧本世界观、力量体系与角色设定。
+                  </p>
+                  <span class="text-[9px] text-on-surface-variant/45 font-mono flex-shrink-0">{{ openingDirection.length }}/300</span>
+                </div>
               </div>
             </div>
 

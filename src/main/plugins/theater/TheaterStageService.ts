@@ -211,16 +211,23 @@ export class TheaterStageService {
 【参与演出的角色设定】
 {character_settings}
 
+【玩家指定的本局开场方向】
+{opening_direction}
+
 【任务要求】
 1. 以极具画面感和悬念感的“旁白叙述”文字开场（字数在 300-500 字）。
 2. 介绍当前故事发生的时间、地点、当下面临的氛围，并简明提及出场的角色所处位置。
-3. 语气保持沉浸式，符合世界观题材基调（如科幻霓虹、奇幻史诗或悬疑推理等），严禁含有任何 AI 味的客套话。`,
+3. 如果“本局开场方向”不为空，优先将第一幕的地点、处境、氛围或切入事件安排到该方向；但不得覆盖、删除或重写原始世界观、力量体系、角色人设和主线设定。若它与世界观看似冲突，应解释为穿越、误入、秘境、幻境、投影、平行时空、因果错位等合理转场，底层世界规则仍然保留。
+4. 语气保持沉浸式，符合世界观题材基调（如科幻霓虹、奇幻史诗或悬疑推理等），严禁含有任何 AI 味的客套话。`,
 
       timeSpace: `你是一个剧本的物理时空监督员与场记。你需要根据最新的用户动作与对话变动，维护时间与空间状态，并调度 NPC 的出场顺序。
 
 【世界与开局设定】
 {world_settings}
 {scenario}
+
+【玩家指定的本局开场方向】
+{opening_direction}
 
 【当前的时间与地点描述】
 {time_space}
@@ -236,8 +243,9 @@ export class TheaterStageService {
 
 【任务要求】
 1. 分析用户最新动作中是否包含时间位移（如“三个小时后”）或空间挪动（如“来到了客厅”）。如果没有显式声明，结合上下文推导时空是否发生细微变化，输出最新的详细时空文档。
-2. 判定有哪些 NPC 与用户同处当下空间，根据剧情紧张度、人际互动需求，指定本轮接下来需要进行发言或行动的 NPC 队列顺序（NPC 名字必须属于可选列表，**严禁包含用户当前扮演的角色**）。
-3. 必须输出以下标准的 JSON 格式，严禁包含任何 Markdown 格式包裹（直接返回 Raw JSON 字符串）：
+2. 首轮初始化时，如果“本局开场方向”不为空，优先把当前时空锚定到该方向；但不得覆盖、删除或重写原始世界观、力量体系、角色人设和主线设定。若它与世界观看似冲突，应解释为穿越、误入、秘境、幻境、投影、平行时空、因果错位等合理转场，底层世界规则仍然保留。
+3. 判定有哪些 NPC 与用户同处当下空间，根据剧情紧张度、人际互动需求，指定本轮接下来需要进行发言或行动的 NPC 队列顺序（NPC 名字必须属于可选列表，**严禁包含用户当前扮演的角色**）。
+4. 必须输出以下标准的 JSON 格式，严禁包含任何 Markdown 格式包裹（直接返回 Raw JSON 字符串）：
 {
   "time_space": "当前详细的时间与空间描述（如：夜晚20:30，在林海家二楼的阴暗书房里）",
   "action_queue": ["角色A", "角色B"]
@@ -380,6 +388,8 @@ export class TheaterStageService {
 {character_settings}
 【最新互动历史】
 {history}
+【玩家指定的本局开场方向】
+{opening_direction}
 【本轮导演意图】
 {director_intent}
 
@@ -667,7 +677,8 @@ export class TheaterStageService {
       round_context: '',
       plot_state: '',
       character_minds: '',
-      director_intent: ''
+      director_intent: '',
+      opening_direction: ''
     };
 
     // 2. 注入属性与数值规则描述
@@ -800,9 +811,10 @@ export class TheaterStageService {
   /**
    * 1. 初始化进入大剧院游玩会话
    */
-  public async createSession(themeId: string, playerCharName: string, activeCharNames?: string[]): Promise<any> {
+  public async createSession(themeId: string, playerCharName: string, activeCharNames?: string[], openingDirection?: string): Promise<any> {
     const db = getDatabaseService();
     const modelAdapter = this.getModelAdapter();
+    const normalizedOpeningDirection = (openingDirection || '').trim();
 
     // 1. 读取 theme.json
     const themeDir = join(this.baseDir, themeId);
@@ -937,12 +949,18 @@ ${charactersSummary}
       themeJson: theme,
       stateRow: { time_space: '时间尚未开始流逝，空间正在交织渲染中', summary: '' }
     } as any, {
-      character_settings: charactersSummary
+      character_settings: charactersSummary,
+      opening_direction: normalizedOpeningDirection || '（无额外指定，按剧本原始开局展开）'
     });
 
     const narratorMessages: ChatMessage[] = [
       { role: 'system', content: narratorPrompt },
-      { role: 'user', content: '故事开始，请拉开大舞台的帷幕！' }
+      {
+        role: 'user',
+        content: normalizedOpeningDirection
+          ? `故事开始，请拉开大舞台的帷幕！本局开场方向：${normalizedOpeningDirection}`
+          : '故事开始，请拉开大舞台的帷幕！'
+      }
     ];
 
     let openingNarrator = '';
@@ -960,7 +978,9 @@ ${charactersSummary}
       cleanedHistory: '(开场故事筹备中)',
       userText: '(首发演出准备)',
       participatingNames: characters.map(c => c.name)
-    } as any);
+    } as any, {
+      opening_direction: normalizedOpeningDirection || '（无额外指定，按剧本原始开局展开）'
+    });
 
     let timeSpaceDesc = '';
     try {
@@ -982,6 +1002,14 @@ ${charactersSummary}
         .filter((s) => s.isParticipating !== false)
         .map((s) => s.name)
     });
+    if (normalizedOpeningDirection) {
+      initialRoundContextForOptions.directorIntent = `本局开场方向：${normalizedOpeningDirection}。请将其作为当前开场舞台、氛围或转场落点，同时保留原始世界观、力量体系、角色人设和主线设定。`;
+      initialRoundContextForOptions.forbiddenContradictions = [
+        ...initialRoundContextForOptions.forbiddenContradictions,
+        `不得把本局开场方向当作覆盖原始世界观的设定：${normalizedOpeningDirection}`,
+        '不得删除或重写原始世界观、力量体系、角色人设和主线设定。'
+      ];
+    }
     const initialPlotStateForOptions = this.buildDefaultPlotState(theme);
     const optPrompt = this.renderPromptText(
       defaultPrompts.options,
@@ -1002,6 +1030,7 @@ ${charactersSummary}
         character_settings: charactersSummary,
         history: `开场旁白: ${openingNarrator}`,
         player_character: playerCharName,
+        opening_direction: normalizedOpeningDirection || '（无额外指定，按剧本原始开局展开）',
         director_intent: initialRoundContextForOptions.directorIntent,
         round_context: JSON.stringify(initialRoundContextForOptions, null, 2),
         plot_state: JSON.stringify(initialPlotStateForOptions, null, 2)
@@ -1040,6 +1069,14 @@ ${charactersSummary}
         .filter((s) => s.isParticipating !== false)
         .map((s) => s.name)
     });
+    if (normalizedOpeningDirection) {
+      initialRoundContext.directorIntent = `本局开场方向：${normalizedOpeningDirection}。请将其作为当前开场舞台、氛围或转场落点，同时保留原始世界观、力量体系、角色人设和主线设定。`;
+      initialRoundContext.forbiddenContradictions = [
+        ...initialRoundContext.forbiddenContradictions,
+        `不得把本局开场方向当作覆盖原始世界观的设定：${normalizedOpeningDirection}`,
+        '不得删除或重写原始世界观、力量体系、角色人设和主线设定。'
+      ];
+    }
     const initialPlotState = this.buildDefaultPlotState(theme);
     const initialCharacterMinds = this.buildDefaultCharacterMinds(characters, playerCharName);
 

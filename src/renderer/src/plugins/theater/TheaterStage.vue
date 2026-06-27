@@ -209,6 +209,7 @@ const showVariablesHelp = ref(false);
 const availableVariables = [
   { name: 'world_settings', label: '基础世界观', desc: '题材中配置的剧本世界观与规则设定，提供给大模型了解故事的大框架。' },
   { name: 'scenario', label: '开局剧情背景', desc: '题材中配置的开局背景、基本大纲与主线走向剧情。' },
+  { name: 'opening_direction', label: '本局开场方向', desc: '玩家在准备大厅输入的本局开场落点、氛围或切入事件，仅用于首轮初始化，不覆盖原始世界观。' },
   { name: 'time_space', label: '当前时间空间', desc: '大剧院中最新的时空物理定位描述（如夜晚 21:00，在阴暗书房里）。' },
   { name: 'player_character', label: '玩家扮演角色', desc: '当前用户在本场大剧院中扮演的角色姓名，用于约束选项和防止替 NPC 行动。' },
   { name: 'character_list', label: '参演角色列表', desc: '当前参与本轮演绎或可被调度的角色姓名列表。' },
