@@ -16,6 +16,10 @@ export interface AgentPromptConfig {
   summary: string;
   options: string;
   imageGen: string;
+  directorIntent: string;
+  characterMind: string;
+  plotState: string;
+  consistencyRepair: string;
 }
 
 export interface CharacterState {
@@ -130,6 +134,15 @@ export class TheaterStageService {
         pressure: '当前压力尚未明确。',
         nextLikelyMove: char.name === playerCharacter ? '等待玩家输入' : '围绕当前冲突做出符合人设的主动反应。'
       }));
+  }
+
+  private mergePromptDefaults(savedPrompts: any): AgentPromptConfig & { enableImageGen?: boolean } {
+    const defaults = this.getDefaultPrompts() as AgentPromptConfig & { enableImageGen?: boolean };
+    return {
+      ...defaults,
+      ...(savedPrompts || {}),
+      enableImageGen: !!savedPrompts?.enableImageGen
+    };
   }
 
   private getModelAdapter(): ModelAdapter {
@@ -341,7 +354,7 @@ export class TheaterStageService {
 2. 在现有剧情纪事总结的基础上进行更新，保持条理清晰，按时间顺序或事件节点，以简短的 Markdown 列表形式归档。
 3. 控制总体总结的字数，限制在 800 字以内。`,
 
-      options: `你是一个拥有精妙叙事节奏的剧情分支设计师。请根据当前的剧本情境，为主角玩家设计 4 个风格迥异、能极大推动剧情深度发展的下一步推进选项。
+      options: `你是一个拥有精妙叙事节奏的剧情分支设计师。请根据当前的剧本情境，只为玩家当前扮演的角色【{player_character}】设计 4 个风格迥异、能极大推动剧情深度发展的下一步推进选项。
 
 【剧本历史记事】
 {summary}
@@ -351,19 +364,27 @@ export class TheaterStageService {
 {character_settings}
 【最新互动历史】
 {history}
+【本轮导演意图】
+{director_intent}
 
 【选项设计要求】
-1. 选项必须是主角可以采取的行为。4 个选项的行动方向必须具有鲜明反差（例如：选择A是“温和询问与安抚”，选择B是“武力威胁与直接搜身”，选择C是“利用道具伪造证据”，选择D是“悄悄从后门逃走”）。
+1. 选项必须且只能是玩家角色【{player_character}】当前可以采取的行为，严禁替任何 NPC 安排行动、台词、心理或选择。
 2. 每个选项必须同时包含**具体的行动（action）**与**配合该行动说的话（dialogue）**。
-3. 必须输出以下标准的 JSON 格式，严禁包含任何 Markdown 格式包裹（直接返回 Raw JSON 字符串）：
+3. 4 个选项必须分别对应：沟通、施压、调查、冒险。若当前场景不适合某类策略，也要转化为玩家可执行的合理版本。
+4. actor 字段必须严格等于 "{player_character}"。
+5. 必须输出以下标准的 JSON 格式，严禁包含任何 Markdown 格式包裹（直接返回 Raw JSON 字符串）：
 [
   {
+    "actor": "{player_character}",
     "title": "简短的选项名称（如：当面质问）",
+    "strategy": "施压",
     "action": "行动输入框内容（如：愤怒地一巴掌拍在桌子上，死死盯着她）",
     "dialogue": "对话输入框内容（如：你以为你能瞒得过我？昨天晚上你到底去见了谁？！）"
   },
   {
+    "actor": "{player_character}",
     "title": "温和试探",
+    "strategy": "沟通",
     "action": "给林海倒了一杯水，坐在他对面的沙发上，试图缓解气氛",
     "dialogue": "林海，大家都是朋友，有什么难处你可以直接跟我说，不用硬撑着。"
   },
@@ -396,7 +417,82 @@ export class TheaterStageService {
     "prompt": "1boy, 1girl, rain, street, neon lights, night, sad expression, very aesthetic, masterpiece, best quality",
     "characters": ["赵起起", "柳如烟"]
   }
-]`
+]`,
+
+      directorIntent: `你是大剧院的时空监督与导演意图规划员。请根据当前场景和玩家最新输入，锁定本轮唯一可信的时间地点、在场角色和剧情推进目标。
+
+【当前时空】
+{time_space}
+【玩家角色】
+{player_character}
+【可调度 NPC】
+{character_list}
+【当前主线状态】
+{plot_state}
+【最近历史】
+{history}
+【玩家最新输入】
+{latest_input}
+
+请直接输出 JSON：
+{
+  "time_space": "本轮唯一可信的时间地点描述",
+  "time_label": "简短时间标签",
+  "location_label": "简短地点标签",
+  "action_queue": ["本轮需要行动的NPC姓名"],
+  "director_intent": "本轮要推进的明确戏剧目标",
+  "forbidden_contradictions": ["后续输出不得违反的事实"]
+}`,
+
+      characterMind: `你是角色心理连续性记录员。请根据本轮真实发生内容，更新相关角色的即时心理状态，供下一轮扮演使用。
+
+【旧心理状态】
+{character_minds}
+【本轮事实】
+{latest_round_content}
+【当前主线状态】
+{plot_state}
+
+请直接输出 JSON 数组：
+[
+  {
+    "name": "角色姓名",
+    "currentEmotion": "当前情绪",
+    "currentGoal": "当前目标",
+    "hiddenIntent": "隐藏意图",
+    "attitudeToPlayer": "对玩家角色的即时态度",
+    "pressure": "当前压力来源",
+    "nextLikelyMove": "下一步倾向"
+  }
+]`,
+
+      plotState: `你是大剧院主线状态维护员。请根据本轮真实发生内容，更新长期主线状态，确保剧情持续向前推进。
+
+【旧主线状态】
+{plot_state}
+【本轮事实】
+{latest_round_content}
+【当前时空】
+{time_space}
+
+请直接输出 JSON：
+{
+  "mainGoal": "当前主线目标",
+  "currentConflict": "当前核心冲突",
+  "openQuestions": ["未解问题"],
+  "knownClues": ["已知线索"],
+  "unresolvedThreats": ["未解决威胁"],
+  "nextPressurePoint": "下一轮应施加的剧情压力"
+}`,
+
+      consistencyRepair: `你是大剧院事实一致性修正员。请在不改变角色核心意图的前提下，修正文本中与本轮事实冲突的时间、地点、在场角色或行动归属。
+
+【本轮事实】
+{round_context}
+【需要修正的内容】
+{latest_round_content}
+
+只输出修正后的内容，不要解释。`
     };
   }
 
@@ -536,6 +632,7 @@ export class TheaterStageService {
       latest_input: globalContext.userText || '(无动作)',
       latest_user_input: globalContext.userText ? `*行动*: ${globalContext.userText}` : '(无最新输入)',
       character_list: globalContext.participatingNames ? globalContext.participatingNames.join(', ') : '',
+      player_character: session.player_character || '',
       latest_round_content: globalContext.roundInteractionText || '',
       last_10_rounds_history: globalContext.cleanedHistory || '',
       character_settings: '',
@@ -546,7 +643,11 @@ export class TheaterStageService {
       current_character_states: '',
       relations: '',
       current_relations: '',
-      status_bars_definition: ''
+      status_bars_definition: '',
+      round_context: '',
+      plot_state: '',
+      character_minds: '',
+      director_intent: ''
     };
 
     // 2. 注入属性与数值规则描述
@@ -622,6 +723,61 @@ export class TheaterStageService {
       clean = clean.substring(0, clean.length - 3);
     }
     return clean.trim();
+  }
+
+  private normalizePlayerOptions(rawOptions: any, playerCharacter: string): any[] {
+    if (!Array.isArray(rawOptions)) {
+      return [];
+    }
+
+    const allowedStrategies = ['沟通', '施压', '调查', '冒险'];
+    const normalized = rawOptions
+      .filter((opt) => opt && typeof opt === 'object')
+      .filter((opt) => !opt.actor || opt.actor === playerCharacter)
+      .map((opt, index) => ({
+        actor: playerCharacter,
+        title: String(opt.title || allowedStrategies[index] || '继续推进').slice(0, 18),
+        strategy: allowedStrategies.includes(opt.strategy) ? opt.strategy : allowedStrategies[index] || '沟通',
+        action: String(opt.action || '').trim(),
+        dialogue: String(opt.dialogue || '').trim()
+      }))
+      .filter((opt) => opt.action || opt.dialogue)
+      .slice(0, 4);
+
+    return normalized;
+  }
+
+  private buildFallbackPlayerOptions(playerCharacter: string, timeSpace: string): any[] {
+    return [
+      {
+        actor: playerCharacter,
+        title: '谨慎询问',
+        strategy: '沟通',
+        action: `环顾${timeSpace || '当前场景'}，放缓语气观察对方反应`,
+        dialogue: '先别急，把你知道的事情从头告诉我。'
+      },
+      {
+        actor: playerCharacter,
+        title: '直接施压',
+        strategy: '施压',
+        action: '向前一步，盯住对方的眼睛，不再给对方回避的余地',
+        dialogue: '我需要真相，现在就说。'
+      },
+      {
+        actor: playerCharacter,
+        title: '调查细节',
+        strategy: '调查',
+        action: '仔细检查周围环境，寻找刚才被忽略的痕迹或异常',
+        dialogue: '这里一定还有什么线索。'
+      },
+      {
+        actor: playerCharacter,
+        title: '冒险推进',
+        strategy: '冒险',
+        action: '不再停留原地，主动朝最可疑的方向行动',
+        dialogue: '继续等下去只会错过机会，我先过去看看。'
+      }
+    ];
   }
 
   /**
@@ -918,7 +1074,7 @@ ${charactersSummary}
     let promptsParsed = this.getDefaultPrompts() as any;
     if (state && state.agent_prompts) {
       try {
-        promptsParsed = JSON.parse(state.agent_prompts);
+        promptsParsed = this.mergePromptDefaults(JSON.parse(state.agent_prompts));
       } catch (_) {}
     }
 
@@ -1176,12 +1332,30 @@ ${charactersSummary}
     const characters = this.loadThemeCharacters(session.theme_id);
 
     const prompts: AgentPromptConfig & { enableImageGen?: boolean } = stateRow
-      ? JSON.parse(stateRow.agent_prompts)
-      : { ...this.getDefaultPrompts(), enableImageGen: false };
+      ? this.mergePromptDefaults(JSON.parse(stateRow.agent_prompts))
+      : this.mergePromptDefaults(null);
 
     // 获取本轮开始前的角色状态深拷贝
     const prevCharStates: CharacterState[] = JSON.parse(stateRow ? stateRow.character_states : session.npc_states);
     const currentCharStates: CharacterState[] = JSON.parse(JSON.stringify(prevCharStates));
+    let plotState = this.parseJsonOrFallback<TheaterPlotState>(
+      stateRow?.plot_state,
+      this.buildDefaultPlotState(themeJson)
+    );
+    let characterMinds = this.parseJsonOrFallback<TheaterCharacterMind[]>(
+      stateRow?.character_minds,
+      this.buildDefaultCharacterMinds(characters, session.player_character)
+    );
+    let roundContext = this.parseJsonOrFallback<TheaterRoundContext>(
+      stateRow?.round_context,
+      this.buildDefaultRoundContext({
+        sessionId,
+        turnCount: session.turn_count || 0,
+        timeSpace: stateRow ? stateRow.time_space : '',
+        playerCharacter: session.player_character,
+        presentCharacters: currentCharStates.filter((s) => s.isParticipating !== false).map((s) => s.name)
+      })
+    );
 
     const historyMessages = db.db.prepare('SELECT * FROM TheaterMessages WHERE session_id = ? ORDER BY created_at ASC').all(sessionId) as any[];
 
@@ -1243,7 +1417,7 @@ ${charactersSummary}
       .map(s => s.name);
 
     const tsPromptText = this.renderPromptText(
-      prompts.timeSpace,
+      prompts.directorIntent || prompts.timeSpace,
       {
         themeJson,
         stateRow,
@@ -1254,7 +1428,9 @@ ${charactersSummary}
         characters
       },
       {
-        time_space: stateRow ? stateRow.time_space : ''
+        time_space: stateRow ? stateRow.time_space : '',
+        plot_state: JSON.stringify(plotState, null, 2),
+        round_context: JSON.stringify(roundContext, null, 2)
       }
     );
 
@@ -1268,10 +1444,35 @@ ${charactersSummary}
       const parsed = JSON.parse(cleanJson);
       newTimeSpace = parsed.time_space || newTimeSpace;
       actionQueue = parsed.action_queue || [];
+      roundContext = {
+        roundId,
+        turnCount: session.turn_count + 1,
+        canonicalTimeSpace: newTimeSpace,
+        timeLabel: parsed.time_label || newTimeSpace,
+        locationLabel: parsed.location_label || newTimeSpace,
+        presentCharacters: [session.player_character, ...actionQueue].filter(Boolean),
+        playerCharacter: session.player_character,
+        latestUserInput: userText || '',
+        directorIntent: parsed.director_intent || roundContext.directorIntent,
+        forbiddenContradictions: Array.isArray(parsed.forbidden_contradictions)
+          ? parsed.forbidden_contradictions
+          : [
+              `不得改写当前时空事实：${newTimeSpace}`,
+              `不得替玩家角色 ${session.player_character} 做出未经输入的行动。`
+            ]
+      };
       console.log(`[TheaterStageService] [时空背景 Agent] 推演成功！已更新时空背景，规划的行动队列: ${JSON.stringify(actionQueue)}`);
     } catch (err) {
       console.warn('[TheaterStageService] [时空背景 Agent] 推演异常，将采用默认全员扮演。异常信息:', err);
       actionQueue = [...participatingNames];
+      roundContext = this.buildDefaultRoundContext({
+        sessionId,
+        turnCount: session.turn_count + 1,
+        timeSpace: newTimeSpace,
+        playerCharacter: session.player_character,
+        presentCharacters: [session.player_character, ...actionQueue],
+        latestUserInput: userText || ''
+      });
     }
 
     actionQueue = actionQueue.filter(name => name !== session.player_character && participatingNames.includes(name));
@@ -1283,9 +1484,20 @@ ${charactersSummary}
 
     db.db.prepare(`
       UPDATE TheaterSessionStates
-      SET time_space = ?
+      SET time_space = ?, round_context = ?
       WHERE session_id = ?
-    `).run(newTimeSpace, sessionId);
+    `).run(newTimeSpace, JSON.stringify(roundContext), sessionId);
+
+    if (onNpcAction) {
+      onNpcAction({
+        id: `evt_${roundStartTime}_stage_state_updated`,
+        sessionId,
+        roundId,
+        role: 'system',
+        content: '[状态同步]',
+        type: 'stage-state-updated'
+      } as any);
+    }
 
     // 物理保存这轮的最新时空背景消息，时间戳略早于用户动作以确保在这一轮演绎的最开头渲染
     const tsMsgId = `msg_${roundStartTime - 5}_timespace`;
@@ -1299,67 +1511,13 @@ ${charactersSummary}
       onNpcAction({ role: 'system', content: `🎬${newTimeSpace}` } as any);
     }
 
-    // 4. 运行主剧情推进 Agent (调整至 NPC 扮演之前执行)
+    // 4. 先执行 NPC 角色扮演，主剧情旁白会在本轮 NPC 全部行动后再收束。
     let mainPlotOutput = '';
     let isRelationChangeTriggered = false;
 
     const charStatesStr = currentCharStates.map(s => {
       return `【${s.name}】 状态: ${JSON.stringify(s.status_bars)}, 余额: ${s.balance}, 背包: ${JSON.stringify(s.backpack)}`;
     }).join('\n');
-
-    // 🚀 为主剧情推进 Agent (导演/说书人) 检索回想历史相似向量记忆，防中后期记忆假死穿帮
-    const plotRecalledMemoryText = await this.recallSimilarMemory(sessionId, roundInteractionText || userText || '', excludeMsgIds);
-
-    const plotPromptText = this.renderPromptText(
-      prompts.mainPlot,
-      {
-        themeJson,
-        stateRow,
-        session,
-        userText,
-        cleanedHistory: cleanedHistory + '\n' + roundInteractionText,
-        participatingNames,
-        characters
-      },
-      {
-        time_space: newTimeSpace,
-        character_states: charStatesStr,
-        summary: (stateRow ? stateRow.summary : '') + '\n' + plotRecalledMemoryText
-      }
-    );
-
-    try {
-      if (onNpcAction) {
-        onNpcAction({ role: 'narrator', content: '' });
-      }
-      console.log('[TheaterStageService] [剧情推进 Agent] 📖 正在生成主剧情旁白以推动故事向前发展...');
-      const res = await modelAdapter.chat([{ role: 'system', content: plotPromptText }], { usePrimary: true, skipSystemInjection: true });
-      let content = res.content.trim();
-      if (content.includes('[RELATION_CHANGE_REQUIRED]')) {
-        isRelationChangeTriggered = true;
-        content = content.replace('[RELATION_CHANGE_REQUIRED]', '').trim();
-      }
-      mainPlotOutput = content;
-      console.log(`[TheaterStageService] [剧情推进 Agent] 📖 旁白生成完毕，是否触发关系变化评估: ${isRelationChangeTriggered}`);
-    } catch (err: any) {
-      console.error('[TheaterStageService] [剧情推进 Agent] 📖 旁白生成失败。异常信息:', err);
-      mainPlotOutput = `故事在一片迷雾中继续推进下去...\n(推进旁白失败: ${err.message || err})`;
-    }
-
-    const mainPlotMsgId = `msg_${Date.now()}_mainplot`;
-    db.db.prepare(`
-      INSERT INTO TheaterMessages (id, session_id, role, content, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(mainPlotMsgId, sessionId, 'narrator', mainPlotOutput, Date.now());
-
-    this.enqueueEmbedding(sessionId, mainPlotMsgId, mainPlotOutput);
-    
-    // 立即向前端窗口流式推送旁白，防止等待
-    if (onNpcAction && mainPlotOutput) {
-      onNpcAction({ role: 'narrator', content: mainPlotOutput });
-    }
-
-    roundInteractionText += `\n[旁白/推进]: ${this.cleanInnerThought(mainPlotOutput)}`;
 
     // 5. 串行排队执行 NPC 角色扮演 Agent
     const completedNpcReplies: Array<{ name: string; content: string }> = [];
@@ -1387,6 +1545,7 @@ ${charactersSummary}
 
       const npcState = currentCharStates.find(s => s.name === npcName);
       const relationsStr = npcState ? npcState.relations : '';
+      const npcMind = characterMinds.find((mind) => mind.name === npcName);
 
       let stateInjectStr = '';
       if (npcState) {
@@ -1421,12 +1580,21 @@ ${charactersSummary}
           character_name: npcName,
           character_soul: npcChar.soul || '',
           self_states: stateInjectStr,
-          relations: relationsStr
+          relations: relationsStr,
+          round_context: JSON.stringify(roundContext, null, 2),
+          plot_state: JSON.stringify(plotState, null, 2),
+          character_minds: npcMind ? JSON.stringify(npcMind, null, 2) : '',
+          director_intent: roundContext.directorIntent
         }
       );
 
       // 组装 user 提示词
       let userPrompt = `请以 [${npcName}] 的语气，扮演并输出你接下来的言行。`;
+      userPrompt += `\n【本轮不可违反的时空事实】：${roundContext.canonicalTimeSpace}`;
+      userPrompt += `\n【本轮导演意图】：${roundContext.directorIntent}`;
+      if (npcMind) {
+        userPrompt += `\n【你的即时心理状态】：${JSON.stringify(npcMind)}`;
+      }
       
       // 1. 主剧情推进Agent输出的内容注入到角色扮演Agent的提示词
       if (mainPlotOutput) {
@@ -1481,12 +1649,68 @@ ${charactersSummary}
       }
     }
 
-    // 所有角色扮演渲染完毕，通知前端当前正在进行后台结算与生成选项
+    // 6. NPC 完成本轮演绎后，再由主剧情 Agent 收束事实并推动下一步压力。
+    const plotRecalledMemoryText = await this.recallSimilarMemory(sessionId, roundInteractionText || userText || '', excludeMsgIds);
+    const plotPromptText = this.renderPromptText(
+      prompts.mainPlot,
+      {
+        themeJson,
+        stateRow,
+        session,
+        userText,
+        cleanedHistory: cleanedHistory + '\n' + roundInteractionText,
+        participatingNames,
+        roundInteractionText,
+        characters
+      },
+      {
+        time_space: newTimeSpace,
+        character_states: charStatesStr,
+        summary: (stateRow ? stateRow.summary : '') + '\n' + plotRecalledMemoryText,
+        round_context: JSON.stringify(roundContext, null, 2),
+        plot_state: JSON.stringify(plotState, null, 2),
+        director_intent: roundContext.directorIntent
+      }
+    );
+
+    try {
+      if (onNpcAction) {
+        onNpcAction({ role: 'narrator', content: '' });
+      }
+      console.log('[TheaterStageService] [剧情收束 Agent] 📖 正在基于本轮已发生互动收束剧情并推动故事向前发展...');
+      const res = await modelAdapter.chat([{ role: 'system', content: plotPromptText }], { usePrimary: true, skipSystemInjection: true });
+      let content = res.content.trim();
+      if (content.includes('[RELATION_CHANGE_REQUIRED]')) {
+        isRelationChangeTriggered = true;
+        content = content.replace('[RELATION_CHANGE_REQUIRED]', '').trim();
+      }
+      mainPlotOutput = content;
+      console.log(`[TheaterStageService] [剧情收束 Agent] 📖 旁白生成完毕，是否触发关系变化评估: ${isRelationChangeTriggered}`);
+    } catch (err: any) {
+      console.error('[TheaterStageService] [剧情收束 Agent] 📖 旁白生成失败。异常信息:', err);
+      mainPlotOutput = `故事在一片迷雾中继续推进下去...\n(推进旁白失败: ${err.message || err})`;
+    }
+
+    const mainPlotMsgId = `msg_${Date.now()}_mainplot`;
+    db.db.prepare(`
+      INSERT INTO TheaterMessages (id, session_id, role, content, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(mainPlotMsgId, sessionId, 'narrator', mainPlotOutput, Date.now());
+
+    this.enqueueEmbedding(sessionId, mainPlotMsgId, mainPlotOutput);
+    
+    if (onNpcAction && mainPlotOutput) {
+      onNpcAction({ role: 'narrator', content: mainPlotOutput });
+    }
+
+    roundInteractionText += `\n[旁白/收束]: ${this.cleanInnerThought(mainPlotOutput)}`;
+
+    // 所有角色扮演与剧情收束完毕，通知前端当前正在进行后台结算与生成选项
     if (onNpcAction) {
       onNpcAction({ role: '系统正在为您构思下一轮行动引导选项...', content: '' });
     }
 
-    // 6. 被动关系维护 Agent
+    // 7. 被动关系维护 Agent
     if (isRelationChangeTriggered) {
       const currentRelsText = prevCharStates.map(s => `${s.name} 的关系网络:\n${s.relations}`).join('\n\n');
       const relPromptText = this.renderPromptText(
@@ -1799,7 +2023,94 @@ ${charactersSummary}
       }
     }
 
-    // 11. 选项生成 Agent
+    // 11. 主线状态与角色心理更新 Agent
+    try {
+      const plotStatePromptText = this.renderPromptText(
+        prompts.plotState,
+        {
+          themeJson,
+          stateRow,
+          session,
+          userText,
+          cleanedHistory: cleanedHistory + '\n' + roundInteractionText,
+          participatingNames,
+          roundInteractionText,
+          characters
+        },
+        {
+          time_space: newTimeSpace,
+          plot_state: JSON.stringify(plotState, null, 2),
+          latest_round_content: roundInteractionText,
+          round_context: JSON.stringify(roundContext, null, 2)
+        }
+      );
+      const res = await modelAdapter.chat([{ role: 'system', content: plotStatePromptText }], { useSecondary: true, skipSystemInjection: true });
+      const parsed = JSON.parse(this.cleanJsonWrap(res.content));
+      plotState = {
+        mainGoal: parsed.mainGoal || plotState.mainGoal,
+        currentConflict: parsed.currentConflict || plotState.currentConflict,
+        openQuestions: Array.isArray(parsed.openQuestions) ? parsed.openQuestions : plotState.openQuestions,
+        knownClues: Array.isArray(parsed.knownClues) ? parsed.knownClues : plotState.knownClues,
+        unresolvedThreats: Array.isArray(parsed.unresolvedThreats) ? parsed.unresolvedThreats : plotState.unresolvedThreats,
+        nextPressurePoint: parsed.nextPressurePoint || plotState.nextPressurePoint
+      };
+    } catch (err: any) {
+      console.warn('[TheaterStageService] [主线状态 Agent] 更新失败，沿用旧主线状态:', err.message || err);
+    }
+
+    try {
+      const mindPromptText = this.renderPromptText(
+        prompts.characterMind,
+        {
+          themeJson,
+          stateRow,
+          session,
+          userText,
+          cleanedHistory: cleanedHistory + '\n' + roundInteractionText,
+          participatingNames,
+          roundInteractionText,
+          characters
+        },
+        {
+          character_minds: JSON.stringify(characterMinds, null, 2),
+          plot_state: JSON.stringify(plotState, null, 2),
+          latest_round_content: roundInteractionText,
+          round_context: JSON.stringify(roundContext, null, 2)
+        }
+      );
+      const res = await modelAdapter.chat([{ role: 'system', content: mindPromptText }], { useSecondary: true, skipSystemInjection: true });
+      const parsed = JSON.parse(this.cleanJsonWrap(res.content));
+      if (Array.isArray(parsed)) {
+        const existingByName = new Map(characterMinds.map((mind) => [mind.name, mind]));
+        for (const mind of parsed) {
+          if (!mind?.name) continue;
+          existingByName.set(mind.name, {
+            name: mind.name,
+            currentEmotion: mind.currentEmotion || existingByName.get(mind.name)?.currentEmotion || '状态不明',
+            currentGoal: mind.currentGoal || existingByName.get(mind.name)?.currentGoal || '目标不明',
+            hiddenIntent: mind.hiddenIntent || existingByName.get(mind.name)?.hiddenIntent || '',
+            attitudeToPlayer: mind.attitudeToPlayer || existingByName.get(mind.name)?.attitudeToPlayer || '态度不明',
+            pressure: mind.pressure || existingByName.get(mind.name)?.pressure || '压力不明',
+            nextLikelyMove: mind.nextLikelyMove || existingByName.get(mind.name)?.nextLikelyMove || '等待局势变化'
+          });
+        }
+        characterMinds = Array.from(existingByName.values());
+      }
+    } catch (err: any) {
+      console.warn('[TheaterStageService] [角色心理 Agent] 更新失败，沿用旧心理状态:', err.message || err);
+    }
+
+    try {
+      db.db.prepare(`
+        UPDATE TheaterSessionStates
+        SET plot_state = ?, character_minds = ?
+        WHERE session_id = ?
+      `).run(JSON.stringify(plotState), JSON.stringify(characterMinds), sessionId);
+    } catch (err: any) {
+      console.error('[TheaterStageService] 保存主线状态与角色心理失败:', err.message || err);
+    }
+
+    // 12. 选项生成 Agent
     const charSummaryText = characters.map(c => `姓名: ${c.name}, 设定: ${c.soul.substring(0, 100)}...`).join('\n');
     const optPromptText = this.renderPromptText(
       prompts.options,
@@ -1815,7 +2126,11 @@ ${charactersSummary}
       {
         summary: newSummary || '(无总结)',
         time_space: newTimeSpace,
-        character_settings: charSummaryText
+        character_settings: charSummaryText,
+        player_character: session.player_character,
+        director_intent: roundContext.directorIntent,
+        round_context: JSON.stringify(roundContext, null, 2),
+        plot_state: JSON.stringify(plotState, null, 2)
       }
     );
 
@@ -1824,12 +2139,14 @@ ${charactersSummary}
       console.log('[TheaterStageService] [选项生成 Agent] 💡 正在为下一轮玩家动作生成 4 个极简引导选项...');
       const res = await modelAdapter.chat([{ role: 'system', content: optPromptText }], { useSecondary: true, skipSystemInjection: true });
       const cleanJson = this.cleanJsonWrap(res.content);
-      nextOptions = JSON.parse(cleanJson);
+      nextOptions = this.normalizePlayerOptions(JSON.parse(cleanJson), session.player_character);
+      if (nextOptions.length === 0) {
+        nextOptions = this.buildFallbackPlayerOptions(session.player_character, newTimeSpace);
+      }
       console.log(`[TheaterStageService] [选项生成 Agent] 💡 引导选项生成成功，共生成了 ${nextOptions.length} 个选项。`);
     } catch (err) {
-      // 生成失败时保持空数组，不降级到默认选项
-      console.warn('[TheaterStageService] [选项生成 Agent] 💡 生成选项失败，将留空。异常信息:', err);
-      nextOptions = [];
+      console.warn('[TheaterStageService] [选项生成 Agent] 💡 生成选项失败，将使用玩家可执行兜底选项。异常信息:', err);
+      nextOptions = this.buildFallbackPlayerOptions(session.player_character, newTimeSpace);
     }
 
     // 保存新生成的选项到数据库以供状态读取/重载
@@ -1839,6 +2156,16 @@ ${charactersSummary}
         SET next_options = ?
         WHERE session_id = ?
       `).run(JSON.stringify(nextOptions), sessionId);
+      if (onNpcAction) {
+        onNpcAction({
+          id: `evt_${Date.now()}_stage_state_updated`,
+          sessionId,
+          roundId,
+          role: 'system',
+          content: '[状态同步]',
+          type: 'stage-state-updated'
+        } as any);
+      }
     } catch (err: any) {
       console.error('[TheaterStageService] 保存新生成的选项到数据库失败:', err);
     }
@@ -1856,6 +2183,9 @@ ${charactersSummary}
       summary: newSummary,
       characterStates: this.mergeStaticWithDynamic(session.theme_id, currentCharStates),
       nextOptions,
+      roundContext,
+      plotState,
+      characterMinds,
       messages: updatedMessages
     };
   }

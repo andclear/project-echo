@@ -72,8 +72,13 @@ const mockDbService = {
           // UPDATE TheaterSessionStates
           else if (cleanSql.includes('update theatersessionstates set')) {
             if (cleanSql.includes('time_space')) {
-              const state = mockSessionStates.get(args[1]);
-              if (state) state.time_space = args[0];
+              const state = mockSessionStates.get(cleanSql.includes('round_context') ? args[2] : args[1]);
+              if (state) {
+                state.time_space = args[0];
+                if (cleanSql.includes('round_context')) {
+                  state.round_context = args[1];
+                }
+              }
             } else if (cleanSql.includes('summary')) {
               const state = mockSessionStates.get(args[1]);
               if (state) state.summary = args[0];
@@ -88,6 +93,12 @@ const mockDbService = {
               if (state) {
                 state.next_options = args[0];
                 mockNextOptionsUpdates.push(args[0]);
+              }
+            } else if (cleanSql.includes('plot_state')) {
+              const state = mockSessionStates.get(args[2]);
+              if (state) {
+                state.plot_state = args[0];
+                state.character_minds = args[1];
               }
             }
           }
