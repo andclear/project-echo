@@ -1246,6 +1246,42 @@ ${charactersSummary}
     };
   }
 
+  public resetThemeRuntimeBySession(sessionId: string): { themeId: string; deletedSessions: number } {
+    const db = getDatabaseService();
+    const session = db.db.prepare('SELECT * FROM TheaterSessions WHERE id = ?').get(sessionId) as any;
+    if (!session) {
+      throw new Error('未找到当前剧本会话，无法清空运行数据。');
+    }
+
+    const themeId = session.theme_id;
+    const sessions = db.db.prepare('SELECT id FROM TheaterSessions WHERE theme_id = ?').all(themeId) as { id: string }[];
+
+    const deleteTx = db.db.transaction(() => {
+      for (const sess of sessions) {
+        db.db.prepare('DELETE FROM TheaterMessageEmbeddings WHERE session_id = ?').run(sess.id);
+        db.db.prepare('DELETE FROM TheaterMessages WHERE session_id = ?').run(sess.id);
+        db.db.prepare('DELETE FROM TheaterRelationNodes WHERE session_id = ?').run(sess.id);
+        db.db.prepare('DELETE FROM TheaterRelationEdges WHERE session_id = ?').run(sess.id);
+        db.db.prepare('DELETE FROM TheaterSessionStates WHERE session_id = ?').run(sess.id);
+      }
+      db.db.prepare('DELETE FROM TheaterSessions WHERE theme_id = ?').run(themeId);
+    });
+
+    deleteTx();
+
+    const sessionAssetsDir = join(this.baseDir, themeId, 'sessions');
+    if (fs.existsSync(sessionAssetsDir)) {
+      try {
+        fs.rmSync(sessionAssetsDir, { recursive: true, force: true });
+      } catch (err: any) {
+        console.warn(`[TheaterStageService] 清空剧本 ${themeId} 的会话资源目录失败:`, err.message || err);
+      }
+    }
+
+    console.log(`[TheaterStageService] 已清空剧本 ${themeId} 的全部运行时数据，会话数: ${sessions.length}`);
+    return { themeId, deletedSessions: sessions.length };
+  }
+
   /**
    * 3. 异步提交计算并存入向量表
    */

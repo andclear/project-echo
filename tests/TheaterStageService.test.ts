@@ -12,6 +12,9 @@ const mockNextOptionsUpdates: string[] = [];
 
 const mockDbService = {
   db: {
+    transaction: (fn: Function) => {
+      return (...args: any[]) => fn(...args);
+    },
     prepare: (sql: string) => {
       const cleanSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
       
@@ -115,9 +118,34 @@ const mockDbService = {
           else if (cleanSql.includes('delete from theatermessages where')) {
             const messageId = args[0];
             const sessionId = args[1];
-            const idx = mockMessages.findIndex(m => m.id === messageId && m.session_id === sessionId);
-            if (idx !== -1) {
-              mockMessages.splice(idx, 1);
+            if (cleanSql.startsWith('delete from theatermessages where session_id = ?')) {
+              for (let i = mockMessages.length - 1; i >= 0; i--) {
+                if (mockMessages[i].session_id === messageId) {
+                  mockMessages.splice(i, 1);
+                }
+              }
+            } else {
+              const idx = mockMessages.findIndex(m => m.id === messageId && m.session_id === sessionId);
+              if (idx !== -1) {
+                mockMessages.splice(idx, 1);
+              }
+            }
+          }
+          else if (cleanSql.includes('delete from theatermessageembeddings where')) {
+            for (let i = mockEmbeddings.length - 1; i >= 0; i--) {
+              if (mockEmbeddings[i].session_id === args[0]) {
+                mockEmbeddings.splice(i, 1);
+              }
+            }
+          }
+          else if (cleanSql.includes('delete from theatersessionstates where')) {
+            mockSessionStates.delete(args[0]);
+          }
+          else if (cleanSql.includes('delete from theatersessions where theme_id')) {
+            for (const [id, sess] of Array.from(mockSessions.entries())) {
+              if (sess.theme_id === args[0]) {
+                mockSessions.delete(id);
+              }
             }
           }
           return { changes: 1 };
@@ -150,6 +178,11 @@ const mockDbService = {
           }
           else if (cleanSql.includes('select round_id, embedding_json, content_text from theatermessageembeddings')) {
             return mockEmbeddings.filter(e => e.session_id === args[0]);
+          }
+          else if (cleanSql.includes('select id from theatersessions where theme_id')) {
+            return Array.from(mockSessions.values())
+              .filter((sess: any) => sess.theme_id === args[0])
+              .map((sess: any) => ({ id: sess.id }));
           }
           return [];
         }
@@ -506,6 +539,13 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
 
     // 8.4 验证物理文件已被硬删除
     expect(fs.existsSync(testImgPath)).toBe(false);
+
+    // 9. 清空当前剧本运行时数据测试：保留题材配置，但删除全部会话状态
+    const resetRes = service.resetThemeRuntimeBySession(sessionId);
+    expect(resetRes.themeId).toBe(themeId);
+    expect(resetRes.deletedSessions).toBeGreaterThanOrEqual(1);
+    expect(mockSessions.has(sessionId)).toBe(false);
+    expect(mockSessionStates.has(sessionId)).toBe(false);
   });
 
   it('应当在 createSession 与 getSessionState 自愈时成功处理 {{user}} 占位符关系转换且不消失', async () => {

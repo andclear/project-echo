@@ -1979,10 +1979,21 @@ async function startAdventure() {
     isProcessing.value = false;
   }
 }
+
+function handleStageRuntimeReset() {
+  activeSessionId.value = '';
+  viewState.value = 'lobby';
+}
 </script>
 
 <template>
-  <TheaterStage v-if="viewState === 'stage'" :isMobile="isMobile" :sessionId="activeSessionId" @back="viewState = 'list'" />
+  <TheaterStage
+    v-if="viewState === 'stage'"
+    :isMobile="isMobile"
+    :sessionId="activeSessionId"
+    @back="viewState = 'list'"
+    @restart="handleStageRuntimeReset"
+  />
   <div v-else class="flex-1 flex flex-col min-h-0 bg-background text-on-surface overflow-hidden select-none animate-fade-in">
     <!-- ==========================================
          顶部 Header

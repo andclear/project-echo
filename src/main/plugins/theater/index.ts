@@ -460,5 +460,16 @@ ${globalPrompt}`;
         return { success: false, error: e.message || e };
       }
     });
+
+    // 22. 大剧院：清空当前剧本的全部运行时数据，保留题材配置以便重新开始
+    ipcMain.handle('theater-reset-theme-runtime', async (_, payload: { sessionId: string }) => {
+      try {
+        const result = this.theaterStageService.resetThemeRuntimeBySession(payload.sessionId);
+        return { success: true, ...result };
+      } catch (e: any) {
+        console.error('[IPC theater-reset-theme-runtime] 清空剧本运行数据异常:', e);
+        return { success: false, error: e.message || e };
+      }
+    });
   }
 }

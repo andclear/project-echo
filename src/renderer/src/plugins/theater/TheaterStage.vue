@@ -27,6 +27,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'back'): void;
+  (e: 'restart'): void;
 }>();
 
 // -------------------------------------------------------------
@@ -180,6 +181,23 @@ const isConfigOpen = ref(false);
 const selectedAgentKey = ref<string>('narrator');
 const configPrompts = ref<any>({});
 const enableImageGen = ref(false);
+const isResettingRuntime = ref(false);
+
+const agentPromptEntries = [
+  { id: 'narrator', label: '1. 开场旁白 Agent' },
+  { id: 'directorIntent', label: '2. 时空导演意图 Agent' },
+  { id: 'timeSpace', label: '3. 时间与空间 Agent' },
+  { id: 'mainPlot', label: '4. 剧情收束推进 Agent' },
+  { id: 'character', label: '5. NPC 角色演绎 Agent' },
+  { id: 'plotState', label: '6. 主线状态维护 Agent' },
+  { id: 'characterMind', label: '7. 角色心理连续性 Agent' },
+  { id: 'consistencyRepair', label: '8. 事实一致性修正 Agent' },
+  { id: 'status', label: '9. 属性状态维护 Agent' },
+  { id: 'relation', label: '10. 社会关系维护 Agent' },
+  { id: 'summary', label: '11. 剧情归档总结 Agent' },
+  { id: 'options', label: '12. 剧情推进选项 Agent' },
+  { id: 'imageGen', label: '13. 剧情生图插画 Agent' }
+];
 
 // 格式化移动端 Agent 标签，去除序号与 " Agent" 后缀，节省横向空间
 function formatMobileAgentLabel(label: string): string {
@@ -191,16 +209,28 @@ const availableVariables = [
   { name: 'world_settings', label: '基础世界观', desc: '题材中配置的剧本世界观与规则设定，提供给大模型了解故事的大框架。' },
   { name: 'scenario', label: '开局剧情背景', desc: '题材中配置的开局背景、基本大纲与主线走向剧情。' },
   { name: 'time_space', label: '当前时间空间', desc: '大剧院中最新的时空物理定位描述（如夜晚 21:00，在阴暗书房里）。' },
+  { name: 'player_character', label: '玩家扮演角色', desc: '当前用户在本场大剧院中扮演的角色姓名，用于约束选项和防止替 NPC 行动。' },
+  { name: 'character_list', label: '参演角色列表', desc: '当前参与本轮演绎或可被调度的角色姓名列表。' },
   { name: 'history', label: '清洁过的历史', desc: '本场游戏最近多轮的对话和动作轨迹，会自动脱水清洗思维链以节省 Token。' },
   { name: 'summary', label: '剧情纪事大纲', desc: '阶段性剧本纪事（summary.md）的内容，每过 10 轮会自动进行提炼合并。' },
+  { name: 'current_summary', label: '当前剧情总结', desc: '当前已落盘的剧情纪事总结，主要用于剧情归档总结 Agent 继续合并。' },
   { name: 'character_settings', label: '参演角色详情', desc: '包含本剧本中当前所有参演角色的性别、年龄及人设概述。' },
   { name: 'character_name', label: '扮演角色姓名', desc: '当前具体需要被扮演/处理的 NPC 的名字，仅在特定演绎和结算 Agent 下生效。' },
   { name: 'character_soul', label: '角色设定(Soul)', desc: '当前被扮演的 NPC 专属的灵魂深度设定卡大纲内容。' },
   { name: 'character_states', label: '全员属性状态', desc: '包含大剧院中所有角色实时的状态栏数值、题材配置规则、背包与余额。' },
+  { name: 'current_character_states', label: '当前全员状态', desc: '与全员属性状态等价的兼容变量，供旧提示词或自定义提示词继续使用。' },
   { name: 'self_states', label: '专属扮演状态', desc: '当前具体被扮演的 NPC 专属的数值、题材配置规则、背包与余额（仅在角色演绎下生效）。' },
   { name: 'relations', label: '角色间关系网', desc: '当前被分析的角色与其他角色之间，已落盘的单向长线社会关系与情感基调连线。' },
+  { name: 'current_relations', label: '当前关系网', desc: '与角色间关系网等价的兼容变量，供关系维护和自定义提示词使用。' },
+  { name: 'status_bars_definition', label: '状态栏定义', desc: '题材配置中的状态栏规则、说明、取值范围和 AI 结算规则。' },
   { name: 'latest_input', label: '最新动作输入', desc: '玩家/用户最新输入的原始文本动作描述（不带角色名称前缀）。' },
-  { name: 'latest_user_input', label: '最新玩家行动', desc: '玩家最新输入的行动，带角色名称前缀，如：*行动*: 观察四周。' }
+  { name: 'latest_user_input', label: '最新玩家行动', desc: '玩家最新输入的行动，带角色名称前缀，如：*行动*: 观察四周。' },
+  { name: 'latest_round_content', label: '本轮真实内容', desc: '本轮玩家、NPC 与旁白已经真实发生的互动文本，用于结算、心理、主线和修正。' },
+  { name: 'last_10_rounds_history', label: '近十轮历史', desc: '最近十轮历史内容，主要用于剧情归档总结 Agent。' },
+  { name: 'round_context', label: '本轮时空事实', desc: '本轮锁定的唯一时空事实、在场角色、导演意图和禁止矛盾项。' },
+  { name: 'director_intent', label: '本轮导演意图', desc: '时空导演意图 Agent 给出的本轮戏剧目标，用于约束 NPC、旁白和选项。' },
+  { name: 'plot_state', label: '长期主线状态', desc: '当前主线目标、核心冲突、未解问题、已知线索、未解决威胁和下一轮压力点。' },
+  { name: 'character_minds', label: '角色心理状态', desc: '角色即时情绪、当前目标、隐藏意图、对玩家态度、压力来源和下一步倾向。' }
 ];
 
 function copyVariableText(varName: string) {
@@ -960,6 +990,32 @@ async function saveAgentConfig() {
   }
 }
 
+async function resetThemeRuntime() {
+  if (isGenerating.value || isResettingRuntime.value) {
+    showToast('当前正在演绎中，请等待本轮结束后再清空。');
+    return;
+  }
+
+  const confirmed = window.confirm('确定要清空当前剧本下的所有游玩记录、消息、状态、关系图和插图缓存吗？剧本配置和角色设定会保留，清空后将回到剧本准备大厅重新开始。');
+  if (!confirmed) return;
+
+  isResettingRuntime.value = true;
+  try {
+    const res = await window.api.invoke('theater-reset-theme-runtime', {
+      sessionId: props.sessionId
+    });
+    if (res.success) {
+      emit('restart');
+    } else {
+      showToast(res.error || '清空剧本运行数据失败');
+    }
+  } catch (err: any) {
+    showToast('清空剧本运行数据异常: ' + err.message);
+  } finally {
+    isResettingRuntime.value = false;
+  }
+}
+
 // -------------------------------------------------------------
 // 插画折叠展开与轮播交互
 // -------------------------------------------------------------
@@ -1378,6 +1434,15 @@ onUnmounted(() => {
         <div class="flex items-center space-x-2">
           <button @click="openAgentConfig" class="p-2 rounded-full hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-all active:scale-90 cursor-pointer" title="配置 Agent 提示词">
             <Settings2Icon class="w-4 h-4" />
+          </button>
+          <button
+            @click="resetThemeRuntime"
+            :disabled="isGenerating || isResettingRuntime"
+            class="p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 text-on-surface-variant hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-90 cursor-pointer"
+            title="清空当前剧本游玩数据并重新开始"
+          >
+            <Loader2Icon v-if="isResettingRuntime" class="w-4 h-4 animate-spin" />
+            <Trash2Icon v-else class="w-4 h-4" />
           </button>
           <button v-if="isMobile" @click="isMobileRightPanelOpen = true" class="p-2 rounded-full hover:bg-surface-high text-on-surface-variant hover:text-on-surface transition-all active:scale-90 cursor-pointer" title="查看参演角色与状态">
             <UsersIcon class="w-4 h-4" />
@@ -1987,7 +2052,7 @@ onUnmounted(() => {
         <!-- 弹窗头 -->
         <header class="p-4 border-b border-outline-variant/20 bg-surface-low flex items-center justify-between flex-shrink-0">
           <h3 class="text-sm font-bold text-on-surface flex items-center gap-1.5">
-            <span>🎭 {{ isMobile ? '提示词配置' : '八大演绎 Agent 提示词配置' }}</span>
+            <span>🎭 {{ isMobile ? '提示词配置' : '十三大演绎 Agent 提示词配置' }}</span>
             <span class="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">高级配置</span>
           </h3>
           <button @click="isConfigOpen = false" class="p-1 rounded-full hover:bg-surface-high text-on-surface-variant hover:text-on-surface cursor-pointer">
@@ -2000,17 +2065,7 @@ onUnmounted(() => {
           <!-- 左边 Agent 切换列表 -->
           <div class="border-r border-outline-variant/20 bg-surface-low overflow-y-auto flex-shrink-0 select-none"
                :class="isMobile ? 'w-24' : 'w-48'">
-            <button v-for="a in [
-              { id: 'narrator', label: '1. 开场旁白 Agent' },
-              { id: 'timeSpace', label: '2. 时间与空间 Agent' },
-              { id: 'mainPlot', label: '3. 主剧情推进 Agent' },
-              { id: 'character', label: '4. NPC 角色演绎 Agent' },
-              { id: 'status', label: '5. 属性状态维护 Agent' },
-              { id: 'relation', label: '6. 社会关系维护 Agent' },
-              { id: 'summary', label: '7. 剧情归档总结 Agent' },
-              { id: 'options', label: '8. 剧情推进选项 Agent' },
-              { id: 'imageGen', label: '9. 剧情生图插画 Agent' }
-            ]" :key="a.id"
+            <button v-for="a in agentPromptEntries" :key="a.id"
                     @click="selectedAgentKey = a.id"
                     class="w-full py-3 text-xs font-bold text-left border-l-4 transition-all cursor-pointer hover:bg-surface-high"
                     :class="[
