@@ -427,6 +427,10 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(sessionRes.nextOptions.map((opt: any) => opt.direction)).toEqual(['合理向', '反转向', '脑洞向', '成人向']);
     expect(sessionRes.nextOptions.every((opt: any) => opt.actor === '小明')).toBe(true);
     expect(mockSystemPrompts.some((prompt) => prompt.includes('所有人穿越到了现代都市'))).toBe(true);
+    const initStatusPrompt = mockSystemPrompts.find((prompt) => prompt.includes('世界观初始化生成器'));
+    expect(initStatusPrompt).toContain('【剧本初始关系配置】');
+    expect(initStatusPrompt).toContain('小明 → 小红 ：同伴');
+    expect(initStatusPrompt).toContain('好感度的 10 个梯度规则');
 
     const xiaohongState = sessionRes.characterStates.find((s: any) => s.name === '小红');
     expect(xiaohongState).toBeDefined();

@@ -838,6 +838,14 @@ export class TheaterStageService {
     const defaultPrompts = this.getDefaultPrompts();
     const statusDefStr = JSON.stringify(theme.status_bars || [], null, 2);
     const charactersSummary = characters.map(c => `姓名: ${c.name}, 性别: ${c.gender}, 年龄: ${c.age}, 设定大纲: ${c.soul.substring(0, 150)}...`).join('\n\n');
+    const relationsSummary = Array.isArray(theme.relations) && theme.relations.length > 0
+      ? theme.relations.map((r: any) => {
+        const from = (r.from || '').replace(/\{\{user\}\}|<user>/gi, playerCharName);
+        const to = (r.to || '').replace(/\{\{user\}\}|<user>/gi, playerCharName);
+        const type = r.type || r.relation || r.content || '';
+        return `${from} → ${to} ：${type}`;
+      }).join('\n')
+      : '（无显式初始关系配置，请仅根据角色设定自行判断）';
 
     const initStatusSystemPrompt = `你是一个出色的游戏世界观初始化生成器。
 你需要根据剧本设定及出场的所有角色背景，为每个人生成一套自洽的初始状态栏数值、初始背包物品、初始余额。
@@ -848,11 +856,15 @@ ${statusDefStr}
 【参与游玩的角色列表】
 ${charactersSummary}
 
+【剧本初始关系配置】
+${relationsSummary}
+
 【任务要求】
-1. 必须根据各个角色的性格设定与社会关系（例如富二代余额较多，战士负伤生命值不满等），为每个出场角色量身定做其实时状态。
+1. 必须根据各个角色的性格设定与【剧本初始关系配置】（例如富二代余额较多，战士负伤生命值不满，某角色深爱/敌视/信任主角等），为每个出场角色量身定做其实时状态。
 2. 强制性约束：每个角色的 "status_bars" 字段中的键（属性名称）必须与【属性状态栏定义（空壳定义）】中列出的属性名称完全一致！你绝对不能脑补、发明、虚构任何其他属性名称（例如，若空壳定义中包含“渴望值”和“精神状态”，则生成的键只能是“渴望值”和“精神状态”，绝对不要自己添加“生命值”或“法力值”等未定义的键）。
-3. 属性的值必须处于定义中的 min 与 max 限制之内。如果属性的 type 是 number，其值必须是纯数字；如果 type 是 text，其值必须是对应状态的简短描述文本。
-4. 必须输出以下标准的 JSON 格式数组，不要包含 markdown 标记或中文闲聊，直接输出 Raw JSON 数组：
+3. 如果属性中包含“好感度”，它代表该角色对当前主角【${playerCharName}】的社交好感度、信任度与亲密评价。必须严格参考【属性状态栏定义】中好感度的 10 个梯度规则，并结合【剧本初始关系配置】自行判断初始数值。例如关系为深爱、挚爱、至死不渝、恋人、夫妻等强正向关系时，不应给出中性 0；关系为敌对、仇恨、厌恶等强负向关系时，不应给出正值。
+4. 属性的值必须处于定义中的 min 与 max 限制之内。如果属性的 type 是 number，其值必须是纯数字；如果 type 是 text，其值必须是对应状态的简短描述文本。
+5. 必须输出以下标准的 JSON 格式数组，不要包含 markdown 标记或中文闲聊，直接输出 Raw JSON 数组：
 [
   {
     "name": "角色A",
