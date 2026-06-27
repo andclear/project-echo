@@ -828,6 +828,12 @@ const formatGameHistoryContext = () => {
   }).join('\n');
 };
 
+const formatThemeConstraint = (stageLabel: string) => {
+  const theme = gameTheme.value.trim();
+  if (!theme) return '';
+  return `\n【本场核心真心话主题约束】：\n本场对局用户设定了特定讨论主题：“${theme}”。\n当前阶段是【${stageLabel}】，你的发言必须继续围绕该主题下的秘密、情感痛点、矛盾线索或真实立场展开，不能脱离主题泛泛闲聊。\n`;
+};
+
 // ── 后台调用大模型接口公用逻辑 ──
 const callLlm = async (messages: any[], characterId?: string) => {
   try {
@@ -902,7 +908,7 @@ ${themePrompt}当前两枚骰子决定：由你（${speakerX.name}）向【${res
 在生成提问时，请从【${speakerX.name}】的立场和视点出发，且仔细核对前面的对答历史，不要把别人说过的话误当成是对方或用户说的话，严禁张冠李戴！
 
 【🔴 真心话游戏最高诚实准则】：
-这是极其严格的真心话游戏。游戏规则要求你必须直面真实情感与冲突线索，严禁提问无关痛痒、敷衍了事的客套问题！你必须针对对方（${responderY.name}）的感情痛点、世界线矛盾或者隐私秘密，提出一个深刻、直截了当且必须让对方回答出大实话的犀利问题。
+这是严肃的真心话游戏。你必须直面已有设定、真实记忆与本局已经发生的冲突线索，严禁提问无关痛痒、敷衍了事的客套问题。问题应针对对方（${responderY.name}）已经有依据的感情痛点、世界线矛盾或隐私秘密；如果缺少明确依据，可以提出试探性问题，但不得凭空断言不存在的事实。
 
 【输出规范】：
 请直接输出你要提问的真心话正文，不要包含任何旁白、思考过程、或是 HTML/Markdown 装饰。单次提问字数控制在 25 到 60 字之间。`;
@@ -941,9 +947,12 @@ const generateAiAnswer = async (responderY: Player, speakerX: Player, question: 
   
   const characterInfo = responderY.context || {};
   const soul = characterInfo.files?.soul || '';
+  const world = characterInfo.files?.world || '';
   const memory = characterInfo.files?.memory || '';
+  const summary = characterInfo.files?.goals || '';
   const gameLocalContext = formatGameHistoryContext();
   const seatInfo = players.value.map(p => `座位 ${p.seatIndex} 号：${p.name}${p.isUser ? ' (用户)' : ' (AI角色)'}`).join('\n');
+  const themeConstraint = formatThemeConstraint('回答');
 
   const systemPrompt = `你现在正在玩真心话小游戏。
 你必须全程 100% 维持你的人物设定，严禁脱离角色，严禁说出任何表明你是一个 AI 或是大模型的话。
@@ -951,8 +960,14 @@ const generateAiAnswer = async (responderY: Player, speakerX: Player, question: 
 【你的性格人设立心 Soul.md】：
 ${soul}
 
+【你的世界观背景 World.md】：
+${world}
+
 【你与用户的核心单聊感情记忆 Memory】：
 ${memory}
+
+【你的目标与阶段总结 Goals.md】：
+${summary}
 
 【你所认知的用户设定（用户人设卡）】：
 {{user_profile}}
@@ -968,6 +983,7 @@ ${gameLocalContext}
 “${question}”
 
 请以你 [${responderY.name}] 的口吻和立场，回答这个问题。
+${themeConstraint}
 
 【🔴 防角色搞混重要约束】：
 请认准本局的座次。你正在扮演【${responderY.name}】。
@@ -975,7 +991,7 @@ ${gameLocalContext}
 在回答时，你必须以【${responderY.name}】的视点进行思考，看清本局已发生的对答历史里每一句发言的主体到底是谁，绝不能张冠礼戴、混淆你与其它角色的身份或与用户之间的谈话记忆！
 
 【🔴 真心话游戏最高诚实准则】：
-这是极其严肃的真心话游戏，绝对诚实是第一规则！你必须彻底放下平时的防备与隐瞒，正面、直截了当地吐露你的真实事实与心声。绝对严禁任何形式的说谎、闪烁其词、答非所问、模糊焦点，或者以傲娇人设/防备心为由回避提问！如果不说真话或含混过关，就是违背游戏基本的道德底线。
+这是严肃的真心话游戏，诚实是第一规则。你必须基于自己的设定、明确记忆与本局已发生内容正面回答，不要撒谎、答非所问或故意含糊。若问题涉及你没有明确记忆或无法确认的事实，必须坦白说“不确定 / 不记得 / 我只知道这些”，严禁为了显得深刻而编造不存在的经历、关系或细节。
 
 【对质与辩解规范】：如果提问的内容与你对用户的记忆、称呼有矛盾或穿帮（例如 A 提到用户不会做饭，而在你的记忆里用户是厨神；或者 A 叫用户学长，而你叫用户老师），请你在回答中予以傲娇解释、反驳或反向质问。
 
@@ -1017,6 +1033,7 @@ const generateAiFollowup = async (speakerX: Player, responderY: Player, question
   const soul = characterInfo.files?.soul || '';
   const memory = characterInfo.files?.memory || '';
   const gameLocalContext = formatGameHistoryContext();
+  const themeConstraint = formatThemeConstraint('追问');
 
   const systemPrompt = `你现在正在玩真心话小游戏。
 你必须 100% 深度维持你 [${speakerX.name}] 的设定，严禁出戏。
@@ -1036,6 +1053,7 @@ ${gameLocalContext}
 【当前行动指令】：
 在本轮真心话里，你提问了“${question}”，对方【${responderY.name}】回答了：“${answer}”。
 请结合前几轮已发生的游戏对答历史（短期记忆）和 Y 刚才做出的回答，针对性地进行【唯一一次】的追加追问或点评。
+${themeConstraint}
 
 【🔴 防角色搞混重要约束】：
 请认准本局的座次。你正在扮演【${speakerX.name}】。
@@ -1043,7 +1061,7 @@ ${gameLocalContext}
 在进行追加追问时，请从【${speakerX.name}】的立场出发，且仔细核对前面的对答历史，不要把别人说过的话误当成是对方或用户说的话，严禁张冠礼戴！
 
 【🔴 真心话游戏最高诚实准则】：
-这是极其严肃的真心话游戏！你必须直戳痛点，绝对不允许问任何客套、模糊、或者回避实质矛盾的问题！你必须用你性格特有的方式（如傲娇吐槽、穷追不舍、或是故意找茬/吃醋）一针见血地追问一句，逼迫对方必须吐露具体的事实真相。
+这是严肃的真心话游戏。你可以直戳痛点，但追问必须基于对方刚才的回答、已有设定或本局已发生内容；不要凭空补充不存在的罪证、旧事或关系。可以尖锐、吃醋、找茬，但必须把问题落在有依据的矛盾上。
 
 直接输出你的追加发言，控制在 30 字以内。`;
 
@@ -1081,6 +1099,7 @@ const generateAiResponse = async (responderY: Player, speakerX: Player, followup
   const characterInfo = responderY.context || {};
   const soul = characterInfo.files?.soul || '';
   const gameLocalContext = formatGameHistoryContext();
+  const themeConstraint = formatThemeConstraint('追问回应');
 
   const systemPrompt = `你现在正在玩真心话小游戏。
 你必须维持你 [${responderY.name}] 的设定。
@@ -1097,6 +1116,7 @@ ${gameLocalContext}
 【当前行动指令】：
 针对你上一轮的回答，【${speakerX.name}】进行了进一步追加追问：“${followup}”。
 请结合前几轮已发生的游戏对答历史（短期记忆）和该追问，进行【唯一一次】的追加辩解或回击。
+${themeConstraint}
 
 【🔴 防角色搞混重要约束】：
 请认准本局的座次。你正在扮演【${responderY.name}】。
@@ -1104,7 +1124,7 @@ ${gameLocalContext}
 在进行追加辩解时，请从【${responderY.name}】的立场出发，且仔细核对前面的对答历史，不要把别人说过的话误当成是对方或用户说的话，严禁张冠礼戴！
 
 【🔴 真心话游戏最高诚实准则】：
-这是极其严肃的真心话游戏！你必须针对对方的具体追问直面回答事实，绝对不允许撒谎、顾左右而言他、含糊辩解、或者回避正面问题！用最真诚、赤裸的口吻交待出真实的理由或心声。
+这是严肃的真心话游戏。你必须针对对方的具体追问正面回应，不能撒谎、顾左右而言他或故意含糊。若追问涉及你没有明确记忆或无法确认的事实，必须坦白说明不确定，严禁编造不存在的经历、动机或细节。
 
 直接输出你的一句话辩解，控制在 30 字以内。`;
 
@@ -1159,6 +1179,7 @@ const generateAiComment = async (thirdPlayer: Player, speakerX: Player, responde
   const soul = characterInfo.files?.soul || '';
   const memory = characterInfo.files?.memory || '';
   const gameLocalContext = formatGameHistoryContext();
+  const themeConstraint = formatThemeConstraint('旁观吐槽');
 
   // 提取本轮对答历史作为细节
   const recentMsgs = gameHistory.value.filter(m => m.roundIndex === roundIndex.value);
@@ -1196,6 +1217,7 @@ ${gameLocalContext}
 - 辩解（由【${responderY.name}】回答）：${r}
 ${mentionPrompt}
 现在，轮到你作为唯一的旁观者【${thirdPlayer.name}】进行【唯一一次】的吐槽、爆料或起哄。
+${themeConstraint}
 
 【🔴 防角色搞混重要约束】：
 请认准本局的座次。你正在扮演【${thirdPlayer.name}】。
@@ -1205,7 +1227,7 @@ ${mentionPrompt}
 请以【${thirdPlayer.name}】的视点进行思考，且调侃、戳穿或爆料的矛头必须认准正确的发言对象！
 
 【🔴 真心话游戏最高诚实准则】：
-这虽然是吐槽阶段，但你仍必须遵循完全真实的真心话爆料准则！你可以毫不留情地调侃他们刚才不老实的回答，或者依据你对用户的独有感情记忆，当场无情戳穿用户在他人面前撒谎、隐瞒的真相（例如吐槽用户对你说过别的情话、拆穿TA是个大萝卜、吃醋/宣示主权等）。你的吐槽必须击中事实核心，直戳重点，严禁泛泛敷衍。
+这虽然是吐槽阶段，但仍必须基于已有设定、明确记忆与本局已发生内容。你可以调侃、吃醋或戳穿矛盾，但不得为了爆料效果编造用户或其他角色从未发生过的经历、承诺、背叛或秘密。没有依据时可以用怀疑、试探或情绪化吐槽表达。
 
 直接输出你的吐槽，控制在 30 字以内。`;
 

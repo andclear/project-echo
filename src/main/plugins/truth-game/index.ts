@@ -35,6 +35,13 @@ const getBindingProfileContent = (characterId?: string): string => {
   return ''
 }
 
+const validateTruthSessionId = (sessionId: string): string => {
+  if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+    throw new Error('非法的真心话局 sessionId，仅允许字母、数字、下划线和短横线')
+  }
+  return sessionId
+}
+
 export class TruthGamePlugin implements IPlugin {
   public readonly name = 'TruthGamePlugin'
   public readonly views = ['truth-game']
@@ -82,13 +89,15 @@ export class TruthGamePlugin implements IPlugin {
           }
         }
 
-        // 🚀 核心优化：获取当前角色绑定的用户画像正文，并替换 {{user_profile}} 占位符
+        // 获取当前角色绑定的用户画像正文，既兼容旧占位符，也独立注入画像上下文
         const userProfileContent = getBindingProfileContent(payload.characterId)
+        const userProfilePrompt = `【用户画像设定】\n${userProfileContent || '(暂无用户专属画像设定)'}`
         for (const msg of payload.messages) {
-          if (msg && typeof msg === 'object' && msg.content) {
+          if (msg && typeof msg === 'object' && typeof msg.content === 'string') {
             msg.content = msg.content.replace(/{{user_profile}}/g, userProfileContent || '(暂无用户专属画像设定)')
           }
         }
+        payload.messages.unshift({ role: 'system', content: userProfilePrompt })
 
         // 🔴 需求 1：在所有 AI 调用消息的最前部，注入设置常规配置里的全局提示词
         const globalPrompt = PluginBridgeService.getGlobalPrompt()
@@ -156,7 +165,8 @@ export class TruthGamePlugin implements IPlugin {
           fs.mkdirSync(storageDir, { recursive: true })
         }
 
-        const filePath = join(storageDir, `session_${session.id}.json`)
+        const safeSessionId = validateTruthSessionId(session.id)
+        const filePath = join(storageDir, `session_${safeSessionId}.json`)
         fs.writeFileSync(filePath, JSON.stringify(session, null, 2), 'utf8')
         return { success: true }
       } catch (e: any) {
@@ -174,7 +184,8 @@ export class TruthGamePlugin implements IPlugin {
         }
 
         const storageDir = join(app.getPath('userData'), 'plugins', 'truth-game')
-        const filePath = join(storageDir, `session_${sessionId}.json`)
+        const safeSessionId = validateTruthSessionId(sessionId)
+        const filePath = join(storageDir, `session_${safeSessionId}.json`)
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath)
         }
