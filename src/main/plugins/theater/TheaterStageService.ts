@@ -161,6 +161,29 @@ export class TheaterStageService {
     return new ModelAdapter(settings.primary, settings.secondary);
   }
 
+  private getGlobalPrompt(): string {
+    try {
+      const db = getDatabaseService();
+      const configStr = db.getSetting('model_config');
+      if (!configStr) return '';
+      const settings = JSON.parse(configStr);
+      return settings.globalPrompt?.trim() || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  private withGlobalPrompt(prompt: string): string {
+    const globalPrompt = this.getGlobalPrompt();
+    if (!globalPrompt) {
+      return prompt;
+    }
+    if (prompt.includes(globalPrompt)) {
+      return prompt;
+    }
+    return `## 全局提示词\n${globalPrompt}\n\n${prompt}`;
+  }
+
   /**
    * 清除思维链和 cot 标签
    */
@@ -703,7 +726,7 @@ export class TheaterStageService {
       const regex = new RegExp(`\\{${k}\\}`, 'g');
       result = result.replace(regex, v || '');
     }
-    return result;
+    return this.withGlobalPrompt(result);
   }
 
   /**
@@ -820,7 +843,7 @@ ${charactersSummary}
 ]`;
 
     const initStatusMessages: ChatMessage[] = [
-      { role: 'system', content: initStatusSystemPrompt },
+      { role: 'system', content: this.withGlobalPrompt(initStatusSystemPrompt) },
       { role: 'user', content: `请基于上述剧本，为以下角色生成初始状态：\n${characters.map(c => c.name).join(', ')}。请不要掺杂任何非JSON字符。` }
     ];
 

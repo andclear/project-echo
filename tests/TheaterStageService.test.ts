@@ -9,6 +9,8 @@ const mockSessionStates = new Map<string, any>();
 const mockMessages: any[] = [];
 const mockEmbeddings: any[] = [];
 const mockNextOptionsUpdates: string[] = [];
+const mockSystemPrompts: string[] = [];
+const testGlobalPrompt = '【测试全局提示词】所有大剧院 Agent 都必须遵守。';
 
 const mockDbService = {
   db: {
@@ -193,7 +195,8 @@ const mockDbService = {
     if (key === 'model_config') {
       return JSON.stringify({
         primary: { model: 'gpt-4o', baseUrl: 'https://api.openai.com/v1', apiKey: 'test' },
-        enableSecondary: false
+        enableSecondary: false,
+        globalPrompt: testGlobalPrompt
       });
     }
     return null;
@@ -228,6 +231,7 @@ vi.mock('../src/main/models/ModelAdapter', () => {
       return {
         chat: vi.fn().mockImplementation(async (messages) => {
           const systemMsg = messages.find((m: any) => m.role === 'system')?.content || '';
+          mockSystemPrompts.push(systemMsg);
           
           if (systemMsg.includes('世界观初始化')) {
             return {
@@ -362,6 +366,7 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     mockMessages.length = 0;
     mockEmbeddings.length = 0;
     mockNextOptionsUpdates.length = 0;
+    mockSystemPrompts.length = 0;
   });
 
   afterAll(() => {
@@ -453,6 +458,8 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(JSON.parse(mockSessionStates.get(sessionId).next_options)).toEqual(stepRes.nextOptions);
     expect(stepRes.nextOptions.map((opt: any) => opt.direction)).toEqual(['合理向', '反转向', '脑洞向', '成人向']);
     expect(stepRes.nextOptions.every((opt: any) => opt.actor === '小明')).toBe(true);
+    expect(mockSystemPrompts.length).toBeGreaterThan(0);
+    expect(mockSystemPrompts.every(prompt => prompt.includes(testGlobalPrompt))).toBe(true);
 
     // 状态结算检查
     const updatedXiaohong = stepRes.characterStates.find((s: any) => s.name === '小红');
