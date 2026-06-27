@@ -27,6 +27,38 @@ export interface CharacterState {
   isParticipating?: boolean;
 }
 
+export interface TheaterRoundContext {
+  roundId: string;
+  turnCount: number;
+  canonicalTimeSpace: string;
+  timeLabel: string;
+  locationLabel: string;
+  presentCharacters: string[];
+  playerCharacter: string;
+  latestUserInput: string;
+  directorIntent: string;
+  forbiddenContradictions: string[];
+}
+
+export interface TheaterPlotState {
+  mainGoal: string;
+  currentConflict: string;
+  openQuestions: string[];
+  knownClues: string[];
+  unresolvedThreats: string[];
+  nextPressurePoint: string;
+}
+
+export interface TheaterCharacterMind {
+  name: string;
+  currentEmotion: string;
+  currentGoal: string;
+  hiddenIntent: string;
+  attitudeToPlayer: string;
+  pressure: string;
+  nextLikelyMove: string;
+}
+
 export class TheaterStageService {
   private baseDir: string;
 
@@ -36,6 +68,68 @@ export class TheaterStageService {
     } catch (_) {
       this.baseDir = join(process.cwd(), 'Echo-UserData-Test', 'plugins', 'theater');
     }
+  }
+
+  private parseJsonOrFallback<T>(raw: any, fallback: T): T {
+    if (!raw || typeof raw !== 'string') {
+      return fallback;
+    }
+    try {
+      return JSON.parse(raw) as T;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  private buildDefaultRoundContext(params: {
+    sessionId: string;
+    turnCount: number;
+    timeSpace?: string;
+    playerCharacter: string;
+    presentCharacters: string[];
+    latestUserInput?: string;
+  }): TheaterRoundContext {
+    const canonicalTimeSpace = params.timeSpace?.trim() || '时间与地点尚未明确';
+    return {
+      roundId: `round_${params.sessionId}_${params.turnCount}`,
+      turnCount: params.turnCount,
+      canonicalTimeSpace,
+      timeLabel: canonicalTimeSpace,
+      locationLabel: canonicalTimeSpace,
+      presentCharacters: params.presentCharacters,
+      playerCharacter: params.playerCharacter,
+      latestUserInput: params.latestUserInput || '',
+      directorIntent: '维持当前场景连续性，并推动玩家当前行动产生明确后果。',
+      forbiddenContradictions: [
+        `不得改写当前时空事实：${canonicalTimeSpace}`,
+        `不得替玩家角色 ${params.playerCharacter} 做出未经输入的行动。`
+      ]
+    };
+  }
+
+  private buildDefaultPlotState(themeJson: any): TheaterPlotState {
+    return {
+      mainGoal: themeJson?.scenario || themeJson?.world_settings || '推进当前剧本主线。',
+      currentConflict: themeJson?.scenario || '当前冲突尚未明确。',
+      openQuestions: [],
+      knownClues: [],
+      unresolvedThreats: [],
+      nextPressurePoint: '让玩家的下一步行动带来明确反馈与新的剧情压力。'
+    };
+  }
+
+  private buildDefaultCharacterMinds(characters: any[], playerCharacter: string): TheaterCharacterMind[] {
+    return characters
+      .filter((char) => char && char.name)
+      .map((char) => ({
+        name: char.name,
+        currentEmotion: char.name === playerCharacter ? '由玩家决定' : '保持警觉，等待局势变化。',
+        currentGoal: char.name === playerCharacter ? '响应玩家输入' : '根据自身立场观察玩家行动并作出真实反应。',
+        hiddenIntent: char.name === playerCharacter ? '' : '暂未显露。',
+        attitudeToPlayer: char.name === playerCharacter ? '本人' : '依据既有关系与当前事件动态变化。',
+        pressure: '当前压力尚未明确。',
+        nextLikelyMove: char.name === playerCharacter ? '等待玩家输入' : '围绕当前冲突做出符合人设的主动反应。'
+      }));
   }
 
   private getModelAdapter(): ModelAdapter {
@@ -734,11 +828,42 @@ ${charactersSummary}
       ...defaultPrompts,
       enableImageGen: false // 生图 Agent 默认不启用
     };
+    const initialRoundContext = this.buildDefaultRoundContext({
+      sessionId,
+      turnCount: 0,
+      timeSpace: timeSpaceDesc,
+      playerCharacter: playerCharName,
+      presentCharacters: alignedCharacterStates
+        .filter((s) => s.isParticipating !== false)
+        .map((s) => s.name)
+    });
+    const initialPlotState = this.buildDefaultPlotState(theme);
+    const initialCharacterMinds = this.buildDefaultCharacterMinds(characters, playerCharName);
 
     db.db.prepare(`
-      INSERT INTO TheaterSessionStates (session_id, time_space, summary, agent_prompts, character_states, next_options)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(sessionId, timeSpaceDesc, '', JSON.stringify(initPromptsSave), JSON.stringify(cleanedForDb), JSON.stringify(initialOptions));
+      INSERT INTO TheaterSessionStates (
+        session_id,
+        time_space,
+        summary,
+        agent_prompts,
+        character_states,
+        next_options,
+        round_context,
+        plot_state,
+        character_minds
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      timeSpaceDesc,
+      '',
+      JSON.stringify(initPromptsSave),
+      JSON.stringify(cleanedForDb),
+      JSON.stringify(initialOptions),
+      JSON.stringify(initialRoundContext),
+      JSON.stringify(initialPlotState),
+      JSON.stringify(initialCharacterMinds)
+    );
 
     // 6.5. 写入初始时空消息到数据库，以便第一轮在开头展示
     const tsMsgId = `msg_${Date.now() - 5}_timespace`;
@@ -769,6 +894,9 @@ ${charactersSummary}
       characterStates: characterStatesToReturn,
       openingNarrator,
       initialOptions,
+      roundContext: initialRoundContext,
+      plotState: initialPlotState,
+      characterMinds: initialCharacterMinds,
       prompts: initPromptsSave
     };
   }
@@ -805,6 +933,37 @@ ${charactersSummary}
         dynamicStates = JSON.parse(session.npc_states);
       } catch (_) {}
     }
+    const themeDir = join(this.baseDir, session.theme_id);
+    const themeJsonPath = join(themeDir, 'theme.json');
+    let themeJson: any = {};
+    if (fs.existsSync(themeJsonPath)) {
+      try {
+        themeJson = JSON.parse(fs.readFileSync(themeJsonPath, 'utf8'));
+        this.ensureStatusBarsConfig(themeJson);
+      } catch (_) {}
+    }
+    const staticCharacters = this.loadThemeCharacters(session.theme_id);
+    const participatingNames = dynamicStates
+      .filter((s: any) => s.isParticipating !== false)
+      .map((s: any) => s.name);
+    const roundContext = this.parseJsonOrFallback<TheaterRoundContext>(
+      state?.round_context,
+      this.buildDefaultRoundContext({
+        sessionId,
+        turnCount: session.turn_count || 0,
+        timeSpace: state ? state.time_space : '',
+        playerCharacter: session.player_character,
+        presentCharacters: participatingNames
+      })
+    );
+    const plotState = this.parseJsonOrFallback<TheaterPlotState>(
+      state?.plot_state,
+      this.buildDefaultPlotState(themeJson)
+    );
+    const characterMinds = this.parseJsonOrFallback<TheaterCharacterMind[]>(
+      state?.character_minds,
+      this.buildDefaultCharacterMinds(staticCharacters, session.player_character)
+    );
 
     console.log(`[TheaterStageService] getSessionState 加载会话: ${sessionId}, 角色状态数: ${dynamicStates?.length}`);
 
@@ -814,15 +973,7 @@ ${charactersSummary}
       const hasEmptyRelations = dynamicStates.some(ds => !ds.relations || ds.relations.trim() === '');
       if (hasEmptyRelations) {
         console.log(`[TheaterStageService] 检测到会话 ${sessionId} 存在空白角色关系，启动自愈逻辑...`);
-        const themeDir = join(this.baseDir, session.theme_id);
-        const themeJsonPath = join(themeDir, 'theme.json');
-        let theme: any = null;
-        if (fs.existsSync(themeJsonPath)) {
-          try {
-            theme = JSON.parse(fs.readFileSync(themeJsonPath, 'utf8'));
-            this.ensureStatusBarsConfig(theme);
-          } catch (_) {}
-        }
+        const theme = Object.keys(themeJson).length > 0 ? themeJson : null;
 
         if (theme && Array.isArray(theme.relations)) {
           const playerCharName = session.player_character;
@@ -914,7 +1065,10 @@ ${charactersSummary}
           ...meta
         };
       }),
-      nextOptions: nextOptionsParsed
+      nextOptions: nextOptionsParsed,
+      roundContext,
+      plotState,
+      characterMinds
     };
   }
 

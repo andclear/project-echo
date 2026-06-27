@@ -1082,6 +1082,26 @@ export class DatabaseService {
             db.exec(`CREATE INDEX IF NOT EXISTS idx_shudong_comments_card ON ShudongComments (card_id);`);
           } catch (_) {}
         }
+      },
+      {
+        version: 19,
+        up: (db: Database.Database) => {
+          try {
+            db.exec(`ALTER TABLE TheaterSessionStates ADD COLUMN round_context TEXT;`);
+          } catch (err: any) {
+            console.warn('[Database] 迁移 v19: 尝试添加 round_context 列，可能已存在:', err.message);
+          }
+          try {
+            db.exec(`ALTER TABLE TheaterSessionStates ADD COLUMN plot_state TEXT;`);
+          } catch (err: any) {
+            console.warn('[Database] 迁移 v19: 尝试添加 plot_state 列，可能已存在:', err.message);
+          }
+          try {
+            db.exec(`ALTER TABLE TheaterSessionStates ADD COLUMN character_minds TEXT;`);
+          } catch (err: any) {
+            console.warn('[Database] 迁移 v19: 尝试添加 character_minds 列，可能已存在:', err.message);
+          }
+        }
       }
     ]
 
@@ -2488,4 +2508,3 @@ export function resetDatabaseService(): void {
     dbInstance = null
   }
 }
-

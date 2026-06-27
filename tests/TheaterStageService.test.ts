@@ -36,7 +36,10 @@ const mockDbService = {
               summary: args[2],
               agent_prompts: args[3],
               character_states: args[4],
-              next_options: args[5]
+              next_options: args[5],
+              round_context: args[6],
+              plot_state: args[7],
+              character_minds: args[8]
             });
           }
           // INSERT INTO TheaterMessages
@@ -315,6 +318,9 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(sessionRes.sessionId).toBeDefined();
     expect(sessionRes.timeSpace).toBe('傍晚，大剧院化妆间里');
     expect(sessionRes.characterStates.length).toBe(2);
+    expect(sessionRes.roundContext.canonicalTimeSpace).toBe('傍晚，大剧院化妆间里');
+    expect(sessionRes.plotState.currentConflict).toBe('开场剧情。');
+    expect(sessionRes.characterMinds.some((mind: any) => mind.name === '小红')).toBe(true);
 
     const xiaohongState = sessionRes.characterStates.find((s: any) => s.name === '小红');
     expect(xiaohongState).toBeDefined();
@@ -355,6 +361,9 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     const loadedState = service.getSessionState(sessionId);
     expect(loadedState.sessionId).toBe(sessionId);
     expect(loadedState.timeSpace).toBe('傍晚，大剧院化妆间里');
+    expect(loadedState.roundContext.canonicalTimeSpace).toBe('傍晚，大剧院化妆间里');
+    expect(loadedState.plotState.nextPressurePoint).toContain('剧情压力');
+    expect(loadedState.characterMinds.some((mind: any) => mind.name === '小红')).toBe(true);
     
     expect(loadedState.messages.length).toBeGreaterThanOrEqual(4);
 
