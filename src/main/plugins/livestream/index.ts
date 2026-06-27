@@ -801,7 +801,10 @@ ${memoryContent || '无前情纪实。'}
       try {
         const db = getDatabaseService();
         const giftName = payload.giftName;
-        const giftValue = this.giftPrices[giftName] || GIFT_PRICES_FALLBACK[giftName] || 9;
+        const giftValue = this.giftPrices[giftName] || GIFT_PRICES_FALLBACK[giftName];
+        if (!giftName || giftValue === undefined) {
+          throw new Error(`未知礼物：${giftName || '未指定'}，已拒绝本次打赏。`);
+        }
 
         const session = db.db.prepare('SELECT char_name FROM LiveStreamSessions WHERE id = ?').get(payload.sessionId) as any;
         let hostFolderName = '';

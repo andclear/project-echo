@@ -336,19 +336,19 @@ async function initBackground() {
       if (lockedArtist.value) {
         isStyleConfirmed.value = true;
       }
+      if (enableBackgroundRotation.value) {
+        startBackgroundRotationTimer();
+      }
     }
   } catch (err) {
     console.error('初始化直播间配置失败:', err);
   }
 
   try {
-    const res = await window.api.invoke('get-gallery-images', { 
-      folderName: hostFolderName.value,
-      sessionId: props.sessionId
-    });
-    if (res.success && res.images && res.images.length > 0) {
+    const list = await loadHostGalleryList();
+    if (list.length > 0) {
       // 默认将最新生成的一张图设为背景
-      const latestImg = res.images[0];
+      const latestImg = list[0];
       currentBackgroundFilename.value = latestImg.filename;
       
       const readRes = await window.api.invoke('read-image-media', {
@@ -379,22 +379,30 @@ async function openHostDetailModal() {
   loadHostGallery();
 }
 
+async function loadHostGalleryList() {
+  const res = await window.api.invoke('get-gallery-images', { 
+    folderName: hostFolderName.value,
+    sessionId: props.sessionId
+  });
+  if (res.success && res.images) {
+    const list = res.images.map((img: any) => ({
+      ...img,
+      base64: ''
+    }));
+    galleryImages.value = list;
+    return list;
+  }
+  galleryImages.value = [];
+  return [];
+}
+
 // 加载历史专属图集
 async function loadHostGallery() {
   isLoadingGallery.value = true;
   galleryImages.value = [];
   try {
-    const res = await window.api.invoke('get-gallery-images', { 
-      folderName: hostFolderName.value,
-      sessionId: props.sessionId
-    });
-    if (res.success && res.images) {
-      const list = res.images.map((img: any) => ({
-        ...img,
-        base64: ''
-      }));
-      galleryImages.value = list;
-      
+    const list = await loadHostGalleryList();
+    if (list.length > 0) {
       // 异步载入图片的 base64
       list.forEach(async (img: any, idx: number) => {
         try {
@@ -920,6 +928,9 @@ function startBackgroundRotationTimer() {
   }
   backgroundRotationIntervalId = setInterval(async () => {
     if (!isLiveActive.value || isPaused.value || !enableBackgroundRotation.value) return;
+    if (galleryImages.value.length <= 1) {
+      await loadHostGalleryList();
+    }
     await rotateBackground();
   }, 3 * 60 * 1000); // 每 3 分钟轮换一次
   console.log('[LiveStream] 已开启背景图每3分钟轮换定时器。');
