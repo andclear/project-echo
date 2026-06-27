@@ -605,6 +605,27 @@ const selectedCharState = computed(() => {
   return characterStates.value.find(s => s.name === selectedCharName.value);
 });
 
+const isSelectedPlayerCharacter = computed(() => selectedCharName.value === playerCharName.value);
+
+const rightPanelTabs = computed(() => {
+  const tabs = [
+    { id: 'status', label: '状态栏' },
+    { id: 'soul', label: '设定' },
+    { id: 'relation', label: '关系' },
+    { id: 'backpack', label: '背包' }
+  ] as { id: typeof activeRightTab.value; label: string }[];
+
+  return isSelectedPlayerCharacter.value
+    ? tabs.filter(tab => tab.id !== 'status')
+    : tabs;
+});
+
+watch([selectedCharName, playerCharName], () => {
+  if (isSelectedPlayerCharacter.value && activeRightTab.value === 'status') {
+    activeRightTab.value = 'soul';
+  }
+});
+
 const selectedCharStatic = computed(() => {
   // 找到静态设定
   const theme = characterStates.value; // 本地缓存有头像和性别等
@@ -654,6 +675,36 @@ function getProgressBarColor(name: string) {
     background: `linear-gradient(90deg, hsl(${h1}, 75%, 55%), hsl(${h2}, 85%, 65%))`,
     shadow: `0 2px 8px -1px hsl(${h1}, 70%, 50%, 0.35)`
   };
+}
+
+function getStatusRange(name: string) {
+  if (name === '好感度') {
+    return { min: -100, max: 100 };
+  }
+  return { min: 0, max: 100 };
+}
+
+function getStatusFillStyle(item: { name: string; val: any }) {
+  const val = Number(item.val) || 0;
+  if (item.name === '好感度') {
+    const width = Math.min(50, Math.abs(val) / 100 * 50);
+    if (val < 0) {
+      return {
+        left: `${50 - width}%`,
+        width: `${width}%`,
+        background: 'linear-gradient(90deg, #ef4444, #f87171)',
+        boxShadow: '0 2px 8px -1px rgb(239 68 68 / 0.35)'
+      };
+    }
+    return {
+      left: '50%',
+      width: `${width}%`
+    };
+  }
+
+  const range = getStatusRange(item.name);
+  const percent = Math.max(0, Math.min(100, ((val - range.min) / (range.max - range.min)) * 100));
+  return { left: '0%', width: `${percent}%` };
 }
 
 // 🚀 属性状态栏排序算法：1. 好感度内置属性必须永远置顶；2. 数值类属性排在文本类属性之前
@@ -1697,12 +1748,7 @@ onUnmounted(() => {
 
         <!-- 属性 Tabs 头 -->
         <div class="detail-tabs h-11 border-b border-outline-variant/25 bg-surface flex items-center justify-between px-5 flex-shrink-0 select-none">
-          <button v-for="tab in [
-            { id: 'status', label: '状态栏' },
-            { id: 'soul', label: '设定' },
-            { id: 'relation', label: '关系' },
-            { id: 'backpack', label: '背包' }
-          ] as { id: typeof activeRightTab.value; label: string }[]" :key="tab.id"
+          <button v-for="tab in rightPanelTabs" :key="tab.id"
                   @click="activeRightTab = tab.id"
                   class="flex-1 py-2 text-[11px] font-bold text-center border-b-2 transition-all cursor-pointer"
                   :class="activeRightTab === tab.id ? 'border-primary text-primary font-extrabold' : 'border-transparent text-on-surface-variant/60 hover:text-on-surface-variant'">
@@ -1765,14 +1811,15 @@ onUnmounted(() => {
                       <span class="text-[11px] font-bold text-on-surface tracking-wide">
                         {{ item.name }}
                       </span>
-                      <span class="text-xs font-mono font-bold text-primary">{{ Number(item.val) }}%</span>
+                      <span class="text-xs font-mono font-bold" :class="item.name === '好感度' && Number(item.val) < 0 ? 'text-red-500' : 'text-primary'">{{ Number(item.val) }}%</span>
                     </div>
                     <div class="progress-container relative h-3 w-full rounded-full bg-surface dark:bg-zinc-800 overflow-hidden border border-outline-variant/10">
-                      <div class="progress-bar h-full rounded-full transition-all duration-300 relative bg-gradient-to-r from-primary to-primary-container"
-                           :style="{ width: `${Number(item.val)}%` }">
+                      <div v-if="item.name === '好感度'" class="absolute top-0 bottom-0 left-1/2 w-px bg-outline-variant/45 z-[1]"></div>
+                      <div class="progress-bar absolute top-0 h-full rounded-full transition-all duration-300 bg-gradient-to-r from-primary to-primary-container"
+                           :style="getStatusFillStyle(item)">
                       </div>
                       <!-- 拖动改变数值 input -->
-                      <input type="range" min="0" max="100" :value="Number(item.val)" 
+                      <input type="range" :min="getStatusRange(item.name).min" :max="getStatusRange(item.name).max" :value="Number(item.val)" 
                              :disabled="selectedCharState.isParticipating === false"
                              @input="(e: any) => changeStatusBarVal(item.name, Number(e.target.value))"
                              @mousedown="(e: any) => handleRangeMouseDown(e, item.name)"

@@ -1930,7 +1930,9 @@ ${charactersSummary}
 
     // 7. 被动关系维护 Agent
     if (isRelationChangeTriggered) {
-      const currentRelsText = prevCharStates.map(s => `${s.name} 的关系网络:\n${s.relations}`).join('\n\n');
+      const activeRelationStates = currentCharStates.filter((s) => s.isParticipating !== false);
+      const activeRelationNames = new Set(activeRelationStates.map((s) => s.name));
+      const currentRelsText = activeRelationStates.map(s => `${s.name} 的关系网络:\n${s.relations}`).join('\n\n');
       const relPromptText = this.renderPromptText(
         prompts.relation,
         {
@@ -1958,6 +1960,7 @@ ${charactersSummary}
         if (Array.isArray(relChanges)) {
           for (const chg of relChanges) {
             if (!chg.from || !chg.to || !chg.content) continue;
+            if (!activeRelationNames.has(chg.from) || !activeRelationNames.has(chg.to)) continue;
             const cState = currentCharStates.find(s => s.name === chg.from);
             if (cState) {
               const lines = cState.relations.split('\n').filter(l => l.trim() !== '');
@@ -1988,7 +1991,8 @@ ${charactersSummary}
     console.log('[TheaterStageService] [属性结算 Agent] 📊 正在一次性评估并结算所有角色的状态属性、背包物品和余额变动...');
     
     const statusBarsDefStr = JSON.stringify(themeJson.status_bars || [], null, 2);
-    const allCharDetailInject = currentCharStates.map(s => {
+    const activeStatusStates = currentCharStates.filter((s) => s.isParticipating !== false);
+    const allCharDetailInject = activeStatusStates.map(s => {
       return `【角色：${s.name}】\n当前数值: ${JSON.stringify(s.status_bars)}\n当前钱包余额: ${s.balance}\n当前背包物品: ${JSON.stringify(s.backpack)}`;
     }).join('\n\n');
 
@@ -2005,7 +2009,7 @@ ${charactersSummary}
         characters
       },
       {
-        character_name: currentCharStates.map(s => s.name).join(', '),
+        character_name: activeStatusStates.map(s => s.name).join(', '),
         status_bars_definition: statusBarsDefStr,
         current_character_states: allCharDetailInject
       }
@@ -2014,7 +2018,7 @@ ${charactersSummary}
     const aggregationInstruction = `\n\n【聚合任务要求】
 ⚠️ 注意：请必须一次性评估所有角色的变化。请务必输出以下标准的以角色名为键 (Key) 的聚合 JSON 格式（直接返回 Raw JSON 字符串，严禁使用 markdown \`\`\` 格式包裹）：
 {
-  ${currentCharStates.map(s => `"${s.name}": {
+  ${activeStatusStates.map(s => `"${s.name}": {
     "status_bars": {},
     "backpack_changes": [],
     "balance_change": 0

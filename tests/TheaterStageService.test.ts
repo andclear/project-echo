@@ -496,7 +496,19 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(disabledOptionStep.nextOptions).toEqual([]);
     expect(disabledOptionEvents.some((evt) => evt.type === 'stage-status' && evt.role === '正在生成引导选项...')).toBe(false);
 
+    service.updateSessionParticipatingCharacters(sessionId, ['小明']);
+    mockSystemPrompts.length = 0;
+    await service.executeStep(sessionId, '*让小红暂时离开后台*');
+    const retiredStatusPrompt = mockSystemPrompts.find((prompt) => prompt.includes('数值策划与状态监视器'));
+    const retiredRelationPrompt = mockSystemPrompts.find((prompt) => prompt.includes('长线人际纽带观察员'));
+    expect(retiredStatusPrompt).toBeDefined();
+    expect(retiredStatusPrompt).not.toContain('【角色：小红】');
+    expect(retiredStatusPrompt).not.toContain('"小红": {');
+    expect(retiredRelationPrompt).toBeDefined();
+    expect(retiredRelationPrompt).not.toContain('小红 的关系网络');
+
     // 6. 手动修改角色状态属性值测试
+    service.updateSessionParticipatingCharacters(sessionId, ['小明', '小红']);
     service.updateCharacterState(sessionId, '小红', {
       status_bars: { '生命值': 50 },
       balance: 100
