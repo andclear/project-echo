@@ -7,6 +7,7 @@ import { TheaterStageService } from './TheaterStageService';
 import { getDatabaseService } from '../../db/database';
 import { ChatMessage, ModelAdapter } from '../../models/ModelAdapter';
 import { PluginBridgeService } from '../../services/PluginBridgeService';
+import { SseManager } from '../../services/SseManager';
 
 export class TheaterPlugin implements IPlugin {
   public readonly name = 'TheaterPlugin';
@@ -96,6 +97,11 @@ export class TheaterPlugin implements IPlugin {
                   targetWebContents.send('theater-npc-action-chunk', npcAction);
                 }
                 PluginBridgeService.broadcastPluginEvent('theater', 'npc-action-chunk', npcAction);
+                if ((npcAction as any)?.type === 'next-options-cleared') {
+                  PluginBridgeService.broadcastPluginEvent('theater', 'next-options-cleared', npcAction);
+                } else if ((npcAction as any)?.type === 'stage-state-updated') {
+                  PluginBridgeService.broadcastPluginEvent('theater', 'stage-state-updated', npcAction);
+                }
               } catch (err: any) {
                 console.warn('[IPC theater-execute-stage-step] 实时推送消息失败:', err.message || err);
               }
@@ -227,6 +233,8 @@ export class TheaterPlugin implements IPlugin {
           if (!event.sender.isDestroyed()) {
             event.sender.send('theater-import-progress', data);
           }
+          SseManager.getInstance().broadcast('theater-import-progress', data);
+          PluginBridgeService.broadcastPluginEvent('theater', 'import-progress', data);
         };
 
         if (payload.uint8ArrayData) {
