@@ -279,7 +279,10 @@ vi.mock('../src/main/models/ModelAdapter', () => {
           if (systemMsg.includes('分支设计师')) {
             return {
               content: JSON.stringify([
-                { actor: '小明', title: '大步走去', strategy: '调查', action: '快速走近她', dialogue: '发生了什么？' }
+                { actor: '小明', title: '顺势追问', direction: '合理向', action: '快速走近她', dialogue: '发生了什么？' },
+                { actor: '小明', title: '突然摊牌', direction: '反转向', action: '故意说出一个只有幕后人才知道的细节', dialogue: '其实我早就知道你在等谁。' },
+                { actor: '小明', title: '借物试探', direction: '脑洞向', action: '把桌上的旧票根递到她面前，观察她的反应', dialogue: '这张票根是不是比我们想象中更重要？' },
+                { actor: '小明', title: '贴近逼问', direction: '成人向', action: '压低声音靠近她，刻意放慢呼吸制造暧昧压力', dialogue: '别躲了，只告诉我一个人。' }
               ])
             };
           }
@@ -411,6 +414,8 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(pushedEvents.some((evt) => evt.role === 'narrator' && String(evt.id).includes('_mainplot'))).toBe(true);
     expect(mockNextOptionsUpdates).toContain('[]');
     expect(JSON.parse(mockSessionStates.get(sessionId).next_options)).toEqual(stepRes.nextOptions);
+    expect(stepRes.nextOptions.map((opt: any) => opt.direction)).toEqual(['合理向', '反转向', '脑洞向', '成人向']);
+    expect(stepRes.nextOptions.every((opt: any) => opt.actor === '小明')).toBe(true);
 
     // 状态结算检查
     const updatedXiaohong = stepRes.characterStates.find((s: any) => s.name === '小红');

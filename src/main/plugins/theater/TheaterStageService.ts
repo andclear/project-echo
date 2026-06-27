@@ -357,21 +357,25 @@ export class TheaterStageService {
 【选项设计要求】
 1. 选项必须且只能是玩家角色【{player_character}】当前可以采取的行为，严禁替任何 NPC 安排行动、台词、心理或选择。
 2. 每个选项必须同时包含**具体的行动（action）**与**配合该行动说的话（dialogue）**。
-3. 4 个选项必须分别对应：沟通、施压、调查、冒险。若当前场景不适合某类策略，也要转化为玩家可执行的合理版本。
+3. 4 个选项必须分别对应以下四个推进方向，direction 字段必须严格使用：合理向、反转向、脑洞向、成人向。
+   - 合理向：当前最符合逻辑、最顺着已发生事实与人物动机的剧情发展。
+   - 反转向：具有一定剧情反转，但必须尊重当前剧情走向、角色动机和已知线索，严禁为了反转而反转。
+   - 脑洞向：允许一定发散和巧思，但必须尊重当前剧情走向与世界设定，不能夸张到破坏故事可信度。
+   - 成人向：如果当前剧情含有 NSFW、性暗示、亲密接触、裸露或成人互动内容，则必须给出不能回避 NSFW 的推进选项；如果当前剧情不含 NSFW 内容，则给出更暧昧、张力更强但仍符合当前关系与场景的推进选项。
 4. actor 字段必须严格等于 "{player_character}"。
 5. 必须输出以下标准的 JSON 格式，严禁包含任何 Markdown 格式包裹（直接返回 Raw JSON 字符串）：
 [
   {
     "actor": "{player_character}",
-    "title": "简短的选项名称（如：当面质问）",
-    "strategy": "施压",
+    "title": "简短的选项名称（如：当面追问）",
+    "direction": "合理向",
     "action": "行动输入框内容（如：愤怒地一巴掌拍在桌子上，死死盯着她）",
     "dialogue": "对话输入框内容（如：你以为你能瞒得过我？昨天晚上你到底去见了谁？！）"
   },
   {
     "actor": "{player_character}",
-    "title": "温和试探",
-    "strategy": "沟通",
+    "title": "制造反转",
+    "direction": "反转向",
     "action": "给林海倒了一杯水，坐在他对面的沙发上，试图缓解气氛",
     "dialogue": "林海，大家都是朋友，有什么难处你可以直接跟我说，不用硬撑着。"
   },
@@ -747,14 +751,14 @@ export class TheaterStageService {
       return [];
     }
 
-    const allowedStrategies = ['沟通', '施压', '调查', '冒险'];
+    const allowedDirections = ['合理向', '反转向', '脑洞向', '成人向'];
     const normalized = rawOptions
       .filter((opt) => opt && typeof opt === 'object')
       .filter((opt) => !opt.actor || opt.actor === playerCharacter)
       .map((opt, index) => ({
         actor: playerCharacter,
-        title: String(opt.title || allowedStrategies[index] || '继续推进').slice(0, 18),
-        strategy: allowedStrategies.includes(opt.strategy) ? opt.strategy : allowedStrategies[index] || '沟通',
+        title: String(opt.title || allowedDirections[index] || '继续推进').slice(0, 18),
+        direction: allowedDirections.includes(opt.direction) ? opt.direction : allowedDirections[index] || '合理向',
         action: String(opt.action || '').trim(),
         dialogue: String(opt.dialogue || '').trim()
       }))
@@ -762,39 +766,6 @@ export class TheaterStageService {
       .slice(0, 4);
 
     return normalized;
-  }
-
-  private buildFallbackPlayerOptions(playerCharacter: string, timeSpace: string): any[] {
-    return [
-      {
-        actor: playerCharacter,
-        title: '谨慎询问',
-        strategy: '沟通',
-        action: `环顾${timeSpace || '当前场景'}，放缓语气观察对方反应`,
-        dialogue: '先别急，把你知道的事情从头告诉我。'
-      },
-      {
-        actor: playerCharacter,
-        title: '直接施压',
-        strategy: '施压',
-        action: '向前一步，盯住对方的眼睛，不再给对方回避的余地',
-        dialogue: '我需要真相，现在就说。'
-      },
-      {
-        actor: playerCharacter,
-        title: '调查细节',
-        strategy: '调查',
-        action: '仔细检查周围环境，寻找刚才被忽略的痕迹或异常',
-        dialogue: '这里一定还有什么线索。'
-      },
-      {
-        actor: playerCharacter,
-        title: '冒险推进',
-        strategy: '冒险',
-        action: '不再停留原地，主动朝最可疑的方向行动',
-        dialogue: '继续等下去只会错过机会，我先过去看看。'
-      }
-    ];
   }
 
   /**
@@ -2229,13 +2200,10 @@ ${charactersSummary}
       const res = await modelAdapter.chat([{ role: 'system', content: optPromptText }], { useSecondary: true, skipSystemInjection: true });
       const cleanJson = this.cleanJsonWrap(res.content);
       nextOptions = this.normalizePlayerOptions(JSON.parse(cleanJson), session.player_character);
-      if (nextOptions.length === 0) {
-        nextOptions = this.buildFallbackPlayerOptions(session.player_character, newTimeSpace);
-      }
       console.log(`[TheaterStageService] [选项生成 Agent] 💡 引导选项生成成功，共生成了 ${nextOptions.length} 个选项。`);
     } catch (err) {
-      console.warn('[TheaterStageService] [选项生成 Agent] 💡 生成选项失败，将使用玩家可执行兜底选项。异常信息:', err);
-      nextOptions = this.buildFallbackPlayerOptions(session.player_character, newTimeSpace);
+      console.warn('[TheaterStageService] [选项生成 Agent] 💡 生成选项失败，将保持空选项。异常信息:', err);
+      nextOptions = [];
     }
 
     // 保存新生成的选项到数据库以供状态读取/重载
