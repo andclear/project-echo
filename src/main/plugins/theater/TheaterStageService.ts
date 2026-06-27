@@ -943,18 +943,47 @@ ${charactersSummary}
       timeSpaceDesc = '开局第一天，故事发生的物理地点';
     }
 
-    // 5. 运行剧情推进选项 Agent (辅模型)，生成第一轮 4 个选项
-    const optPrompt = defaultPrompts.options
-      .replace('{summary}', '(故事开场无总结)')
-      .replace('{time_space}', timeSpaceDesc)
-      .replace('{character_settings}', charactersSummary)
-      .replace('{history}', `开场旁白: ${openingNarrator}`);
+    // 5. 运行剧情推进选项 Agent (辅模型)，生成第一轮 4 个玩家选项
+    const initialRoundContextForOptions = this.buildDefaultRoundContext({
+      sessionId: 'initializing',
+      turnCount: 0,
+      timeSpace: timeSpaceDesc,
+      playerCharacter: playerCharName,
+      presentCharacters: alignedCharacterStates
+        .filter((s) => s.isParticipating !== false)
+        .map((s) => s.name)
+    });
+    const initialPlotStateForOptions = this.buildDefaultPlotState(theme);
+    const optPrompt = this.renderPromptText(
+      defaultPrompts.options,
+      {
+        themeJson: theme,
+        stateRow: { time_space: timeSpaceDesc, summary: '' },
+        session: { player_character: playerCharName },
+        userText: '',
+        cleanedHistory: `开场旁白: ${openingNarrator}`,
+        participatingNames: alignedCharacterStates
+          .filter((s) => s.isParticipating !== false)
+          .map((s) => s.name),
+        characters
+      },
+      {
+        summary: '(故事开场无总结)',
+        time_space: timeSpaceDesc,
+        character_settings: charactersSummary,
+        history: `开场旁白: ${openingNarrator}`,
+        player_character: playerCharName,
+        director_intent: initialRoundContextForOptions.directorIntent,
+        round_context: JSON.stringify(initialRoundContextForOptions, null, 2),
+        plot_state: JSON.stringify(initialPlotStateForOptions, null, 2)
+      }
+    );
 
     let initialOptions = [];
     try {
       const res = await modelAdapter.chat([{ role: 'system', content: optPrompt }], { useSecondary: true, skipSystemInjection: true });
       const cleanJson = this.cleanJsonWrap(res.content);
-      initialOptions = JSON.parse(cleanJson);
+      initialOptions = this.normalizePlayerOptions(JSON.parse(cleanJson), playerCharName);
     } catch (_) {
       initialOptions = []; // 生成选项失败时直接留空，不使用默认推进选项
     }
@@ -1038,6 +1067,7 @@ ${charactersSummary}
       characterStates: characterStatesToReturn,
       openingNarrator,
       initialOptions,
+      nextOptions: initialOptions,
       roundContext: initialRoundContext,
       plotState: initialPlotState,
       characterMinds: initialCharacterMinds,

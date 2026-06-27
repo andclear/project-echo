@@ -384,6 +384,8 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(sessionRes.roundContext.canonicalTimeSpace).toBe('傍晚，大剧院化妆间里');
     expect(sessionRes.plotState.currentConflict).toBe('开场剧情。');
     expect(sessionRes.characterMinds.some((mind: any) => mind.name === '小红')).toBe(true);
+    expect(sessionRes.nextOptions.map((opt: any) => opt.direction)).toEqual(['合理向', '反转向', '脑洞向', '成人向']);
+    expect(sessionRes.nextOptions.every((opt: any) => opt.actor === '小明')).toBe(true);
 
     const xiaohongState = sessionRes.characterStates.find((s: any) => s.name === '小红');
     expect(xiaohongState).toBeDefined();
