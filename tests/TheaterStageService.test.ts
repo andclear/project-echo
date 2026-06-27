@@ -8,6 +8,7 @@ const mockSessions = new Map<string, any>();
 const mockSessionStates = new Map<string, any>();
 const mockMessages: any[] = [];
 const mockEmbeddings: any[] = [];
+const mockNextOptionsUpdates: string[] = [];
 
 const mockDbService = {
   db: {
@@ -34,7 +35,8 @@ const mockDbService = {
               time_space: args[1],
               summary: args[2],
               agent_prompts: args[3],
-              character_states: args[4]
+              character_states: args[4],
+              next_options: args[5]
             });
           }
           // INSERT INTO TheaterMessages
@@ -78,6 +80,12 @@ const mockDbService = {
             } else if (cleanSql.includes('agent_prompts')) {
               const state = mockSessionStates.get(args[1]);
               if (state) state.agent_prompts = args[0];
+            } else if (cleanSql.includes('next_options')) {
+              const state = mockSessionStates.get(args[1]);
+              if (state) {
+                state.next_options = args[0];
+                mockNextOptionsUpdates.push(args[0]);
+              }
             }
           }
           // INSERT INTO TheaterMessageEmbeddings
@@ -250,6 +258,11 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
       fs.rmSync(testBaseDir, { recursive: true, force: true });
     }
     fs.mkdirSync(testBaseDir, { recursive: true });
+    mockSessions.clear();
+    mockSessionStates.clear();
+    mockMessages.length = 0;
+    mockEmbeddings.length = 0;
+    mockNextOptionsUpdates.length = 0;
   });
 
   afterAll(() => {
@@ -316,10 +329,20 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     const sessionId = sessionRes.sessionId;
 
     // 3. 执行单步演绎回合测试
-    const stepRes = await service.executeStep(sessionId, '*推开门走了进来* “你果然在这里。”');
+    const dbStateBeforeStep = mockSessionStates.get(sessionId);
+    dbStateBeforeStep.next_options = JSON.stringify([
+      { actor: '小明', title: '旧选项', action: '观察', dialogue: '这里怎么了？' }
+    ]);
+    const pushedEvents: any[] = [];
+    const stepRes = await service.executeStep(sessionId, '*推开门走了进来* “你果然在这里。”', (payload: any) => {
+      pushedEvents.push(payload);
+    });
     expect(stepRes.sessionId).toBe(sessionId);
     expect(stepRes.timeSpace).toBe('傍晚，大剧院化妆间里');
     expect(stepRes.characterStates.length).toBe(2);
+    expect(pushedEvents.some((evt) => evt.type === 'next-options-cleared' && evt.sessionId === sessionId)).toBe(true);
+    expect(mockNextOptionsUpdates).toContain('[]');
+    expect(JSON.parse(mockSessionStates.get(sessionId).next_options)).toEqual(stepRes.nextOptions);
 
     // 状态结算检查
     const updatedXiaohong = stepRes.characterStates.find((s: any) => s.name === '小红');
@@ -483,4 +506,3 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(healedXiaolv.relations).toContain('赵起起 → 小绿 ：师徒');
   });
 });
-

@@ -310,10 +310,25 @@ function handleNpcChunk(
     actors?: string;
     id?: string;
     characterStates?: any[];
+    sessionId?: string;
   }
 ) {
   // preload 的 on() 已将 _event 剥离，第一个参数直接就是 payload
   if (!payload) return;
+
+  if (payload.type === 'next-options-cleared') {
+    if (!payload.sessionId || payload.sessionId === props.sessionId) {
+      nextOptions.value = [];
+    }
+    return;
+  }
+
+  if (payload.type === 'stage-state-updated') {
+    if (!payload.sessionId || payload.sessionId === props.sessionId) {
+      loadSessionState();
+    }
+    return;
+  }
 
   // 1. 拦截角色状态更新消息
   if (payload.type === 'character-states-update') {
@@ -425,6 +440,23 @@ usePluginSync({
   eventName: 'npc-action-chunk',
   fetchFn: async () => {
     console.log('[TheaterStage] 触发通用插件推拉自愈同步，拉取最新状态...');
+    await loadSessionState();
+  }
+});
+
+usePluginSync({
+  pluginName: 'theater',
+  eventName: 'next-options-cleared',
+  fetchFn: async () => {
+    nextOptions.value = [];
+    await loadSessionState();
+  }
+});
+
+usePluginSync({
+  pluginName: 'theater',
+  eventName: 'stage-state-updated',
+  fetchFn: async () => {
     await loadSessionState();
   }
 });

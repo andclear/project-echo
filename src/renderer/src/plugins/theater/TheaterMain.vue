@@ -1678,9 +1678,28 @@ async function onCardFileChange(e: Event) {
     }
   };
 
-  let unsubscribeProgress = () => {};
+  const progressUnsubscribers: Array<() => void> = [];
+  const addProgressUnsubscriber = (unsubscribe: any) => {
+    if (typeof unsubscribe === 'function') {
+      progressUnsubscribers.push(unsubscribe);
+    }
+  };
+  const unsubscribeProgress = () => {
+    while (progressUnsubscribers.length > 0) {
+      const unsubscribe = progressUnsubscribers.pop();
+      try {
+        unsubscribe?.();
+      } catch (err) {
+        console.warn('[Theater Import Progress Unsubscribe Error]', err);
+      }
+    }
+  };
+
   if (window.electron && window.electron.ipcRenderer) {
-    unsubscribeProgress = window.electron.ipcRenderer.on('theater-import-progress', handleImportProgress);
+    addProgressUnsubscriber(window.electron.ipcRenderer.on('theater-import-progress', handleImportProgress));
+  } else if (window.api && window.api.receive) {
+    addProgressUnsubscriber(window.api.receive('theater-import-progress', handleImportProgress));
+    addProgressUnsubscriber(window.api.receive('plugin:theater:import-progress', handleImportProgress));
   }
 
   // 轮询定时器，为 Web/Docker 端 SSE 掉线自愈提供兜底进度刷新

@@ -1010,6 +1010,7 @@ ${charactersSummary}
     const db = getDatabaseService();
     const modelAdapter = this.getModelAdapter();
     const roundStartTime = Date.now();
+    const roundId = `round_${roundStartTime}`;
 
     // 1. 加载会话和当前运行状态
     const session = db.db.prepare('SELECT * FROM TheaterSessions WHERE id = ?').get(sessionId) as any;
@@ -1056,6 +1057,26 @@ ${charactersSummary}
 
       this.enqueueEmbedding(sessionId, userMsgId, userText);
       historyMessages.push({ id: userMsgId, session_id: sessionId, role: 'user', content: userText, created_at: roundStartTime });
+    }
+
+    try {
+      db.db.prepare(`
+        UPDATE TheaterSessionStates
+        SET next_options = ?
+        WHERE session_id = ?
+      `).run('[]', sessionId);
+      if (onNpcAction) {
+        onNpcAction({
+          id: `evt_${roundStartTime}_next_options_cleared`,
+          sessionId,
+          roundId,
+          role: 'system',
+          content: '',
+          type: 'next-options-cleared'
+        } as any);
+      }
+    } catch (err: any) {
+      console.error('[TheaterStageService] 清空本轮旧推进选项失败:', err.message || err);
     }
 
     // 最新这一回合产生的上下文
@@ -2086,4 +2107,3 @@ ${charactersSummary}
     }
   }
 }
-
