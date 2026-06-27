@@ -208,6 +208,18 @@ vi.mock('../src/main/models/ModelAdapter', () => {
               ])
             };
           }
+          if (systemMsg.includes('时空监督与导演意图规划员')) {
+            return {
+              content: JSON.stringify({
+                time_space: '傍晚，大剧院化妆间里',
+                time_label: '傍晚',
+                location_label: '大剧院化妆间',
+                action_queue: ['小红'],
+                director_intent: '让小红回应玩家质问，并把门后的异常声响推进到台前。',
+                forbidden_contradictions: ['不得把当前时间改成夜晚', '不得替玩家角色行动']
+              })
+            };
+          }
           if (systemMsg.includes('物理时空监督员')) {
             return {
               content: JSON.stringify({
@@ -227,10 +239,42 @@ vi.mock('../src/main/models/ModelAdapter', () => {
               })
             };
           }
+          if (systemMsg.includes('角色社会关系维护观察员') || systemMsg.includes('社会关系与长线人际纽带观察员')) {
+            return {
+              content: JSON.stringify([])
+            };
+          }
+          if (systemMsg.includes('大剧院主线状态维护员')) {
+            return {
+              content: JSON.stringify({
+                mainGoal: '查清大剧院后台异常的来源',
+                currentConflict: '小红隐瞒了门后声响的真实原因',
+                openQuestions: ['门后是谁', '小红为什么守在化妆间'],
+                knownClues: ['傍晚时化妆间传出异常声响'],
+                unresolvedThreats: ['后台可能有人正在接近'],
+                nextPressurePoint: '门后声响再次打断对话'
+              })
+            };
+          }
+          if (systemMsg.includes('角色心理连续性记录员')) {
+            return {
+              content: JSON.stringify([
+                {
+                  name: '小红',
+                  currentEmotion: '紧张',
+                  currentGoal: '拖延玩家靠近门后',
+                  hiddenIntent: '隐藏门后的异常来源',
+                  attitudeToPlayer: '戒备但不想撕破脸',
+                  pressure: '玩家已经发现她在化妆间',
+                  nextLikelyMove: '用含糊解释争取时间'
+                }
+              ])
+            };
+          }
           if (systemMsg.includes('分支设计师')) {
             return {
               content: JSON.stringify([
-                { title: '大步走去', action: '快速走近她', dialogue: '发生了什么？' }
+                { actor: '小明', title: '大步走去', strategy: '调查', action: '快速走近她', dialogue: '发生了什么？' }
               ])
             };
           }
@@ -373,7 +417,7 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(loadedState.sessionId).toBe(sessionId);
     expect(loadedState.timeSpace).toBe('傍晚，大剧院化妆间里');
     expect(loadedState.roundContext.canonicalTimeSpace).toBe('傍晚，大剧院化妆间里');
-    expect(loadedState.plotState.nextPressurePoint).toContain('剧情压力');
+    expect(loadedState.plotState.nextPressurePoint).toContain('门后声响');
     expect(loadedState.characterMinds.some((mind: any) => mind.name === '小红')).toBe(true);
     
     expect(loadedState.messages.length).toBeGreaterThanOrEqual(4);

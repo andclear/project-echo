@@ -152,20 +152,7 @@ export class TheaterStageService {
       throw new Error('系统尚未配置大模型，请先在常规设置中配置并保存。');
     }
     const settings = JSON.parse(configStr);
-    const adapter = new ModelAdapter(settings.primary, settings.secondary);
-    
-    // 拦截 chat 方法，实现大剧院 AI 错误自动重试一次机制
-    const originalChat = adapter.chat.bind(adapter);
-    adapter.chat = async (messages: ChatMessage[], options?: any) => {
-      try {
-        return await originalChat(messages, options);
-      } catch (err: any) {
-        console.warn(`[TheaterStageService AI Retry] 大剧院演绎步骤 AI 调用发生错误（${err.message || err}），正在自动重试...`);
-        return await originalChat(messages, options);
-      }
-    };
-    
-    return adapter;
+    return new ModelAdapter(settings.primary, settings.secondary);
   }
 
   /**

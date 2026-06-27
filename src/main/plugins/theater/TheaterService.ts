@@ -102,20 +102,7 @@ export class TheaterService {
       throw new Error('系统尚未配置大模型，请先在常规设置中配置并保存。');
     }
     const settings = JSON.parse(configStr);
-    const adapter = new ModelAdapter(settings.primary, settings.secondary);
-    
-    // 拦截 chat 方法，实现大剧院 AI 错误自动重试一次机制
-    const originalChat = adapter.chat.bind(adapter);
-    adapter.chat = async (messages: ChatMessage[], options?: any) => {
-      try {
-        return await originalChat(messages, options);
-      } catch (err: any) {
-        console.warn(`[TheaterService AI Retry] 大剧院 AI 调用发生错误（${err.message || err}），正在自动重试...`);
-        return await originalChat(messages, options);
-      }
-    };
-    
-    return adapter;
+    return new ModelAdapter(settings.primary, settings.secondary);
   }
 
   /**
@@ -328,7 +315,7 @@ export class TheaterService {
     // 限制最多 7 个角色
     const coreChars = rawChars.slice(0, 7);
 
-    // 通知前端拿到了角色清单，准备进入并发提炼
+    // 通知前端拿到了角色清单，准备进入串行提炼
     onProgress?.({
       stage: 'characters_list',
       message: '已提取核心角色名单，准备依次提炼个性设定...',
@@ -336,24 +323,6 @@ export class TheaterService {
     });
 
     const resultCharacters: any[] = [];
-
-    // 并发限流函数，限制并发为 2
-    const limitConcurrent = async <T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> => {
-      const results: R[] = [];
-      const executing: Promise<any>[] = [];
-      for (const item of items) {
-        const p = Promise.resolve().then(() => fn(item));
-        results.push(p as any);
-        if (limit <= items.length) {
-          const e: Promise<any> = p.then(() => executing.splice(executing.indexOf(e), 1));
-          executing.push(e);
-          if (executing.length >= limit) {
-            await Promise.race(executing);
-          }
-        }
-      }
-      return Promise.all(results);
-    };
 
     // 每一个角色的提炼子任务
     const extractSingleCharacter = async (char: any) => {
@@ -437,8 +406,10 @@ export class TheaterService {
       }
     };
 
-    // 执行并发提炼，限制并发度为 2
-    await limitConcurrent(coreChars, 2, extractSingleCharacter);
+    // 严格串行提炼，避免部分 OpenAI 兼容网关在订阅统计写入时触发并发更新冲突。
+    for (const char of coreChars) {
+      await extractSingleCharacter(char);
+    }
 
     // 第三步：理清社会关系网络
     console.log('[TheaterService] 正在提炼理清角色间的社会关系网络...');
