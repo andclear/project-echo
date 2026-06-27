@@ -402,6 +402,8 @@ describe('TheaterStageService 大剧院游玩阶段核心服务测试', () => {
     expect(stepRes.timeSpace).toBe('傍晚，大剧院化妆间里');
     expect(stepRes.characterStates.length).toBe(2);
     expect(pushedEvents.some((evt) => evt.type === 'next-options-cleared' && evt.sessionId === sessionId)).toBe(true);
+    expect(pushedEvents.some((evt) => evt.role === '小红' && String(evt.id).startsWith('msg_'))).toBe(true);
+    expect(pushedEvents.some((evt) => evt.role === 'narrator' && String(evt.id).includes('_mainplot'))).toBe(true);
     expect(mockNextOptionsUpdates).toContain('[]');
     expect(JSON.parse(mockSessionStates.get(sessionId).next_options)).toEqual(stepRes.nextOptions);
 

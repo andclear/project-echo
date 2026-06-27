@@ -309,6 +309,7 @@ function handleNpcChunk(
     imagePath?: string;
     actors?: string;
     id?: string;
+    createdAt?: number;
     characterStates?: any[];
     sessionId?: string;
   }
@@ -408,15 +409,17 @@ function handleNpcChunk(
 
   // 查找或更新在前端消息列表中的对应 NPC 的发言
   // 这里做一个智能追加，方便流式感官
-  const existing = messages.value.find(m => m && m.role === payload.role && (Date.now() - m.createdAt < 20000));
+  const existing = payload.id
+    ? messages.value.find(m => m && m.id === payload.id)
+    : messages.value.find(m => m && m.role === payload.role && (Date.now() - m.createdAt < 20000));
   if (existing) {
     existing.content = payload.content;
   } else {
     messages.value.push({
-      id: `npc_chunk_${Date.now()}`,
+      id: payload.id || `npc_chunk_${Date.now()}`,
       role: payload.role || '',
       content: payload.content,
-      createdAt: Date.now()
+      createdAt: payload.createdAt || Date.now()
     });
   }
   messages.value = [...messages.value];

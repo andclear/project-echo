@@ -1495,7 +1495,14 @@ ${charactersSummary}
 
     // 时空背景 Agent 落盘后立即推送给前端，确保它是第一个渲染出来的内容
     if (onNpcAction) {
-      onNpcAction({ role: 'system', content: `🎬${newTimeSpace}` } as any);
+      onNpcAction({
+        id: tsMsgId,
+        sessionId,
+        roundId,
+        role: 'system',
+        content: `🎬${newTimeSpace}`,
+        createdAt: roundStartTime - 5
+      } as any);
     }
 
     // 4. 先执行 NPC 角色扮演，主剧情旁白会在本轮 NPC 全部行动后再收束。
@@ -1511,7 +1518,11 @@ ${charactersSummary}
 
     console.log(`[TheaterStageService] [NPC 扮演 Agent] 开始处理 NPC 角色扮演序列 (串行模式)... 待扮演 NPC 列表: ${JSON.stringify(actionQueue)}`);
     
-    for (const npcName of actionQueue) {
+    for (let npcIndex = 0; npcIndex < actionQueue.length; npcIndex++) {
+      const npcName = actionQueue[npcIndex];
+      const npcMsgId = `msg_${roundStartTime}_npc_${npcIndex}_${npcName.replace(/\s+/g, '_')}`;
+      const npcCreatedAt = roundStartTime + 10 + npcIndex;
+
       // 扮演前的最新打断检查
       const checkLatestMsg = db.db.prepare('SELECT role, content FROM TheaterMessages WHERE session_id = ? ORDER BY created_at DESC LIMIT 1').get(sessionId) as any;
       if (checkLatestMsg && checkLatestMsg.role === 'user') {
@@ -1524,7 +1535,14 @@ ${charactersSummary}
 
       // 通知前端当前 NPC 开始扮演，让前端显示正在输入
       if (onNpcAction) {
-        onNpcAction({ role: npcName, content: '' });
+        onNpcAction({
+          id: npcMsgId,
+          sessionId,
+          roundId,
+          role: npcName,
+          content: '',
+          createdAt: npcCreatedAt
+        } as any);
       }
 
       const npcChar = characters.find(c => c.name === npcName);
@@ -1611,17 +1629,23 @@ ${charactersSummary}
           const cleanOutput = this.cleanInnerThought(npcOutput);
           console.log(`[TheaterStageService] [NPC 扮演 Agent] 🎭 角色 [${npcName}] 扮演输出完成。`);
           
-          const npcMsgId = `msg_${Date.now()}_npc_${npcName.replace(/\s+/g, '_')}`;
           db.db.prepare(`
             INSERT INTO TheaterMessages (id, session_id, role, content, created_at)
             VALUES (?, ?, ?, ?, ?)
-          `).run(npcMsgId, sessionId, npcName, npcOutput, Date.now());
+          `).run(npcMsgId, sessionId, npcName, npcOutput, npcCreatedAt);
 
           this.enqueueEmbedding(sessionId, npcMsgId, npcOutput);
 
           // 立即推送给前端
           if (onNpcAction) {
-            onNpcAction({ role: npcName, content: npcOutput });
+            onNpcAction({
+              id: npcMsgId,
+              sessionId,
+              roundId,
+              role: npcName,
+              content: npcOutput,
+              createdAt: npcCreatedAt
+            } as any);
           }
 
           // 记录本次已完成发言的 NPC 信息
@@ -1660,9 +1684,18 @@ ${charactersSummary}
       }
     );
 
+    const mainPlotMsgId = `msg_${roundStartTime}_mainplot`;
+    const mainPlotCreatedAt = roundStartTime + 100;
     try {
       if (onNpcAction) {
-        onNpcAction({ role: 'narrator', content: '' });
+        onNpcAction({
+          id: mainPlotMsgId,
+          sessionId,
+          roundId,
+          role: 'narrator',
+          content: '',
+          createdAt: mainPlotCreatedAt
+        } as any);
       }
       console.log('[TheaterStageService] [剧情收束 Agent] 📖 正在基于本轮已发生互动收束剧情并推动故事向前发展...');
       const res = await modelAdapter.chat([{ role: 'system', content: plotPromptText }], { usePrimary: true, skipSystemInjection: true });
@@ -1678,16 +1711,22 @@ ${charactersSummary}
       mainPlotOutput = `故事在一片迷雾中继续推进下去...\n(推进旁白失败: ${err.message || err})`;
     }
 
-    const mainPlotMsgId = `msg_${Date.now()}_mainplot`;
     db.db.prepare(`
       INSERT INTO TheaterMessages (id, session_id, role, content, created_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(mainPlotMsgId, sessionId, 'narrator', mainPlotOutput, Date.now());
+    `).run(mainPlotMsgId, sessionId, 'narrator', mainPlotOutput, mainPlotCreatedAt);
 
     this.enqueueEmbedding(sessionId, mainPlotMsgId, mainPlotOutput);
     
     if (onNpcAction && mainPlotOutput) {
-      onNpcAction({ role: 'narrator', content: mainPlotOutput });
+      onNpcAction({
+        id: mainPlotMsgId,
+        sessionId,
+        roundId,
+        role: 'narrator',
+        content: mainPlotOutput,
+        createdAt: mainPlotCreatedAt
+      } as any);
     }
 
     roundInteractionText += `\n[旁白/收束]: ${this.cleanInnerThought(mainPlotOutput)}`;
